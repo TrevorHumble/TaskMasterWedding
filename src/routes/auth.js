@@ -157,8 +157,7 @@ router.post('/admin/login', (req, res) => {
   } catch (err) {
     res.status(500).render('admin-login', {
       title: 'Admin Login',
-      error:
-        'Admin password is not set up yet. Run: node scripts/set-admin-password.js ButtMonster',
+      error: 'The admin area is not set up yet. Please ask the host to finish setup.',
     });
     return;
   }

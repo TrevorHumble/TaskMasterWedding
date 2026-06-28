@@ -19,14 +19,14 @@ Requires **Node.js 20+** on Windows (PowerShell). From the project root:
 
 ```powershell
 npm install
-node scripts/set-admin-password.js   # sets the admin (Task Master) password
+node scripts/set-admin-password.js <password>   # sets the admin (Task Master) password
 node scripts/seed.js                  # creates tables, badges, and sample data
 npm start                             # starts the server on port 3000
 ```
 
 Then open <http://localhost:3000>.
 
-- `node scripts/set-admin-password.js <password>` writes a bcrypt hash to `data/admin.hash`. Run it again any time to change the password; the old one stops working immediately. With no argument it uses the wedding default.
+- `node scripts/set-admin-password.js <password>` writes a bcrypt hash to `data/admin.hash`. Run it again any time to change the password; the old one stops working immediately.
 - `node scripts/seed.js` creates the SQLite schema and seeds badges plus sample tasks/guests.
 - Copy `.env.example` to `.env` and set a fixed `COOKIE_SECRET` before the event. Without it the app generates a random secret on each boot and signs everyone out on every restart.
 
