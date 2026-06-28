@@ -1,0 +1,52 @@
+<!-- src/views/leaderboard.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+<main class="container leaderboard-page">
+  <h1 class="display-heading">Leaderboard</h1>
+
+  <% if (rows.length === 0) { %>
+    <p class="empty-state">No guests yet.</p>
+  <% } else { %>
+    <ol class="leaderboard-list">
+      <% rows.forEach(function (r) { %>
+        <li class="leaderboard-row<%= (guest && guest.id === r.id) ? ' is-me' : '' %>">
+          <span class="rank rank-<%= r.rank <= 3 ? r.rank : 'n' %>">
+            <%= r.rank %>
+          </span>
+
+          <a class="lb-guest" href="/u/<%= r.id %>">
+            <% if (r.avatar_path) { %>
+              <img class="lb-avatar"
+                   src="/uploads/<%= r.avatar_path %>"
+                   alt=""
+                   width="48" height="48" />
+            <% } else { %>
+              <span class="lb-avatar lb-avatar-empty" aria-hidden="true">
+                <%= (r.name || '?').trim().charAt(0).toUpperCase() || '?' %>
+              </span>
+            <% } %>
+            <span class="lb-name"><%= r.name || 'Guest' %></span>
+          </a>
+
+          <span class="lb-badges">
+            <% r.badges.forEach(function (b) { %>
+              <img class="lb-badge-icon"
+                   src="<%= b.art_path %>"
+                   alt="<%= b.name %>"
+                   title="<%= b.name %>"
+                   width="28" height="28" />
+            <% }); %>
+          </span>
+
+          <span class="lb-points">
+            <strong><%= r.points %></strong>
+            <span class="lb-points-label">pt<%= r.points === 1 ? '' : 's' %></span>
+          </span>
+        </li>
+      <% }); %>
+    </ol>
+  <% } %>
+</main>
+
+<%- include('partials/footer') %>

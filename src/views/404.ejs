@@ -1,0 +1,42 @@
+<!-- src/views/404.ejs -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Page not found &middot; Garden Party Pastels</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #fdf7f0;
+      color: #5a4a52;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 1.5rem;
+    }
+    .card {
+      max-width: 28rem;
+    }
+    h1 { font-size: 3rem; margin: 0 0 0.5rem; color: #e6a4b4; }
+    p { font-size: 1.1rem; line-height: 1.5; }
+    a { color: #7fa8c9; }
+    code {
+      background: #f2e7dd;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.35rem;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Lost in the garden</h1>
+    <p>We couldn't find <code><%= url %></code>.</p>
+    <p><a href="/">Back to the start</a></p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# .gitignore
+# Installed packages
+node_modules/
+
+# All live application state (database, uploaded photos, thumbnails, exports, admin hash)
+data/
+
+# Environment secrets
+.env
+
+# OS / editor noise
+Thumbs.db
+.DS_Store
+*.log
+npm-debug.log*

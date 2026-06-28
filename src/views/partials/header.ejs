@@ -1,0 +1,39 @@
+<%# src/views/partials/header.ejs %>
+<%
+  var _isAdmin = (typeof isAdmin !== 'undefined' && isAdmin);
+  var _flash = (typeof flash !== 'undefined' && flash) ? flash : null;
+  var _flashType = (_flash && _flash.type === 'err') ? 'flash-err' : 'flash-ok';
+%>
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="brand" href="<%= _isAdmin ? '/admin' : '/' %>">
+      <span class="brand-mark">&#10047;</span>
+      <span class="brand-text">Garden Party</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <% if (_isAdmin) { %>
+        <a class="nav-link" href="/admin">Dashboard</a>
+        <a class="nav-link" href="/admin/tasks">Tasks</a>
+        <a class="nav-link" href="/admin/guests">Guests</a>
+        <a class="nav-link" href="/admin/photos">Photos</a>
+        <a class="nav-link" href="/admin/qrsheet">QR Sheet</a>
+        <form class="nav-logout" method="post" action="/admin/logout">
+          <button type="submit" class="nav-link nav-link-button">Log out</button>
+        </form>
+      <% } else { %>
+        <a class="nav-link" href="/tasks">Tasks</a>
+        <a class="nav-link" href="/gallery">Gallery</a>
+        <a class="nav-link" href="/leaderboard">Leaderboard</a>
+        <a class="nav-link" href="/">My Profile</a>
+      <% } %>
+    </nav>
+  </div>
+</header>
+
+<% if (_flash && _flash.msg) { %>
+  <div class="flash <%= _flashType %>" role="status">
+    <%= _flash.msg %>
+  </div>
+<% } %>
+
+<main class="page">

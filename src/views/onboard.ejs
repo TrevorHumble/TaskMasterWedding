@@ -1,0 +1,56 @@
+<!-- src/views/onboard.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+<main class="page page--narrow">
+  <h1 class="display-title">Welcome to the party!</h1>
+  <p class="lead">Let's set up your profile. Only your name is required — everything else is optional and you can change it later.</p>
+
+  <% if (error) { %>
+    <div class="alert alert--error"><%= error %></div>
+  <% } %>
+
+  <form class="form" action="/onboard" method="POST" enctype="multipart/form-data">
+    <div class="form-row">
+      <label class="form-label" for="name">Your name <span class="req">*</span></label>
+      <input class="form-input" type="text" id="name" name="name" maxlength="60"
+             required autocomplete="name" placeholder="e.g. Casey Rivera"
+             value="<%= (guest && guest.name) ? guest.name : '' %>">
+      <p class="form-help">This is what shows on the leaderboard and your profile.</p>
+    </div>
+
+    <div class="form-row">
+      <label class="form-label" for="avatar">Profile photo (optional)</label>
+      <input class="form-input" type="file" id="avatar" name="avatar"
+             accept="image/jpeg,image/png,image/webp">
+      <p class="form-help">A selfie or any picture of you. You can add or change this later.</p>
+    </div>
+
+    <fieldset class="form-fieldset">
+      <legend class="form-legend">Social links (optional)</legend>
+      <p class="form-help">Add these if you'd like other guests to be able to connect with you.</p>
+
+      <div class="form-row">
+        <label class="form-label" for="instagram">Instagram</label>
+        <input class="form-input" type="text" id="instagram" name="instagram"
+               maxlength="120" placeholder="@yourhandle or full link">
+      </div>
+
+      <div class="form-row">
+        <label class="form-label" for="facebook">Facebook</label>
+        <input class="form-input" type="text" id="facebook" name="facebook"
+               maxlength="200" placeholder="facebook.com/you">
+      </div>
+
+      <div class="form-row">
+        <label class="form-label" for="website">Website</label>
+        <input class="form-input" type="text" id="website" name="website"
+               maxlength="200" placeholder="https://...">
+      </div>
+    </fieldset>
+
+    <button class="btn btn--primary" type="submit">Start the hunt</button>
+  </form>
+</main>
+
+<%- include('partials/footer') %>

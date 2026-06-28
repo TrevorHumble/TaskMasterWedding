@@ -1,0 +1,23 @@
+<!-- src/views/admin-login.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+<main class="page page--narrow">
+  <h1 class="display-title">Task Master Login</h1>
+  <p class="lead">Enter the admin password to manage tasks, guests, and points.</p>
+
+  <% if (error) { %>
+    <div class="alert alert--error"><%= error %></div>
+  <% } %>
+
+  <form class="form" action="/admin/login" method="POST" autocomplete="off">
+    <div class="form-row">
+      <label class="form-label" for="password">Password</label>
+      <input class="form-input" type="password" id="password" name="password"
+             required autofocus>
+    </div>
+    <button class="btn btn--primary" type="submit">Log in</button>
+  </form>
+</main>
+
+<%- include('partials/footer') %>

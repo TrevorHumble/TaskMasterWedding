@@ -1,0 +1,25 @@
+<!-- src/public/badges/bouquet.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Bouquet Builder badge">
+  <circle cx="60" cy="60" r="56" fill="#fdf8f1" stroke="#bfe0f2" stroke-width="4"/>
+  <circle cx="60" cy="60" r="44" fill="none" stroke="#c6dcc0" stroke-width="2" stroke-dasharray="3 5"/>
+  <g stroke="#9bc191" stroke-width="3" stroke-linecap="round" fill="none">
+    <path d="M60 86 L44 50"/>
+    <path d="M60 86 L60 46"/>
+    <path d="M60 86 L76 50"/>
+  </g>
+  <g>
+    <g transform="translate(44 44)" fill="#f7c8d6" stroke="#ef9fb6" stroke-width="1.2">
+      <circle cx="0" cy="-9" r="6"/><circle cx="8" cy="4" r="6"/><circle cx="-8" cy="4" r="6"/>
+      <circle cx="0" cy="0" r="5" fill="#fbedb0" stroke="#f3b68b"/>
+    </g>
+    <g transform="translate(60 38)" fill="#d7c9ef" stroke="#b69fe0" stroke-width="1.2">
+      <circle cx="0" cy="-9" r="6"/><circle cx="8" cy="4" r="6"/><circle cx="-8" cy="4" r="6"/>
+      <circle cx="0" cy="0" r="5" fill="#fbedb0" stroke="#f3b68b"/>
+    </g>
+    <g transform="translate(76 44)" fill="#bfe0f2" stroke="#8ec5e6" stroke-width="1.2">
+      <circle cx="0" cy="-9" r="6"/><circle cx="8" cy="4" r="6"/><circle cx="-8" cy="4" r="6"/>
+      <circle cx="0" cy="0" r="5" fill="#fbedb0" stroke="#f3b68b"/>
+    </g>
+  </g>
+  <path d="M50 84 Q60 92 70 84" fill="none" stroke="#f3b68b" stroke-width="4" stroke-linecap="round"/>
+</svg>

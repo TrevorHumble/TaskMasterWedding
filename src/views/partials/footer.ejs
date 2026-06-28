@@ -1,0 +1,12 @@
+<%# src/views/partials/footer.ejs %>
+</main>
+
+<footer class="site-footer">
+  <p class="footer-line">Axel &amp; Lily &#183; Garden Party Scavenger Hunt</p>
+</footer>
+
+<% if (typeof pageScript !== 'undefined' && pageScript) { %>
+  <script src="/js/<%= pageScript %>"></script>
+<% } %>
+</body>
+</html>

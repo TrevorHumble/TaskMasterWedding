@@ -1,0 +1,53 @@
+<!-- src/views/admin-photos.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+<main class="container admin">
+  <h1 class="display">Photos &amp; takedowns</h1>
+
+  <% if (msg) { %>
+    <p class="flash"><%= msg %></p>
+  <% } %>
+
+  <p><a class="btn" href="/admin">&larr; Dashboard</a></p>
+
+  <p class="muted">
+    Taken-down photos are hidden from the gallery, profiles, and scoring, but
+    the files stay on disk so they are still included in the export. (Deleting a
+    GUEST, by contrast, permanently removes that guest's photo files from disk.)
+  </p>
+
+  <div class="photo-admin-grid">
+    <% photos.forEach(function (p) { %>
+      <div class="photo-admin-card <%= p.taken_down ? 'is-down' : '' %>">
+        <img src="/thumbs/<%= p.thumb_path %>"
+             alt="Photo by <%= p.guest_name || ('guest #' + p.guest_id) %> for <%= p.task_title %>"
+             loading="lazy" />
+        <p class="photo-meta">
+          <strong><%= p.guest_name || ('Guest #' + p.guest_id) %></strong><br />
+          <span class="muted"><%= p.task_title %></span>
+        </p>
+        <% if (p.caption) { %>
+          <p class="photo-caption"><%= p.caption %></p>
+        <% } %>
+        <% if (p.taken_down) { %>
+          <p class="status-down">TAKEN DOWN</p>
+          <form action="/admin/photos/<%= p.id %>/restore" method="post">
+            <button type="submit" class="btn btn-small">Restore</button>
+          </form>
+        <% } else { %>
+          <form action="/admin/photos/<%= p.id %>/takedown" method="post"
+                data-confirm="Take down this photo? It will be hidden from the gallery, profiles, and scoring.">
+            <button type="submit" class="btn btn-small btn-danger">Take down</button>
+          </form>
+        <% } %>
+      </div>
+    <% }); %>
+    <% if (photos.length === 0) { %>
+      <p class="muted">No photos submitted yet.</p>
+    <% } %>
+  </div>
+</main>
+
+<script src="/js/admin.js" defer></script>
+<%- include('partials/footer') %>

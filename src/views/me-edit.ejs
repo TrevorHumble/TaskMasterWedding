@@ -1,0 +1,100 @@
+<!-- src/views/me-edit.ejs -->
+<%- include('partials/head', { title: title }) %>
+<%- include('partials/header') %>
+
+<main class="page page-me-edit">
+
+  <% if (typeof flash !== 'undefined' && flash) { %>
+    <div class="flash flash-<%= flash.type %>"><%= flash.msg %></div>
+  <% } else if (typeof locals.flash !== 'undefined' && locals.flash) { %>
+    <div class="flash flash-<%= locals.flash.type %>"><%= locals.flash.msg %></div>
+  <% } %>
+
+  <p class="back-link"><a href="/">← Back to my garden</a></p>
+  <h1 class="page-title">Edit My Profile</h1>
+
+  <form action="/me/edit"
+        method="POST"
+        enctype="multipart/form-data"
+        class="edit-form">
+
+    <div class="form-row">
+      <label for="name" class="form-label">Display name</label>
+      <input type="text"
+             id="name"
+             name="name"
+             maxlength="80"
+             value="<%= guest.name %>"
+             class="text-input" />
+    </div>
+
+    <div class="form-row">
+      <label class="form-label">Current avatar</label>
+      <div class="avatar-current">
+        <% if (guest.avatar_path) { %>
+          <img src="/uploads/<%= guest.avatar_path %>" alt="Your current avatar" class="avatar-img" />
+        <% } else { %>
+          <div class="avatar-placeholder" aria-hidden="true">🌸</div>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label for="photo" class="form-label">Change avatar (optional)</label>
+      <input type="file"
+             id="photo"
+             name="photo"
+             accept="image/*"
+             class="file-input" />
+    </div>
+
+    <div class="preview-wrap">
+      <img id="upload-preview" class="upload-preview" alt="" hidden />
+    </div>
+
+    <fieldset class="socials-fieldset">
+      <legend>Social links (optional)</legend>
+
+      <div class="form-row">
+        <label for="instagram" class="form-label">Instagram handle or URL</label>
+        <input type="text"
+               id="instagram"
+               name="instagram"
+               maxlength="200"
+               value="<%= social.instagram ? social.instagram : '' %>"
+               placeholder="@yourhandle"
+               class="text-input" />
+      </div>
+
+      <div class="form-row">
+        <label for="facebook" class="form-label">Facebook</label>
+        <input type="text"
+               id="facebook"
+               name="facebook"
+               maxlength="200"
+               value="<%= social.facebook ? social.facebook : '' %>"
+               placeholder="facebook.com/you"
+               class="text-input" />
+      </div>
+
+      <div class="form-row">
+        <label for="website" class="form-label">Website</label>
+        <input type="text"
+               id="website"
+               name="website"
+               maxlength="200"
+               value="<%= social.website ? social.website : '' %>"
+               placeholder="https://example.com"
+               class="text-input" />
+      </div>
+    </fieldset>
+
+    <button type="submit" class="btn btn-primary">Save profile</button>
+  </form>
+
+  <!-- Direct include of the preview script (see section intro note). -->
+  <script src="/js/upload.js" defer></script>
+
+</main>
+
+<%- include('partials/footer') %>

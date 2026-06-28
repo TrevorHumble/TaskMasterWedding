@@ -1,0 +1,110 @@
+<!-- src/views/public-profile.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+<main class="container profile-page">
+  <header class="profile-header">
+    <% if (profileGuest.avatar_path) { %>
+      <img class="profile-avatar"
+           src="/uploads/<%= profileGuest.avatar_path %>"
+           alt="<%= profileGuest.name || 'Guest' %>"
+           width="120" height="120" />
+    <% } else { %>
+      <span class="profile-avatar profile-avatar-empty" aria-hidden="true">
+        <%= (profileGuest.name || '?').trim().charAt(0).toUpperCase() || '?' %>
+      </span>
+    <% } %>
+
+    <div class="profile-meta">
+      <h1 class="display-heading profile-name"><%= profileGuest.name || 'Guest' %></h1>
+      <% if (score && typeof score.points === 'number') { %>
+        <p class="profile-points">
+          <strong><%= score.points %></strong>
+          pt<%= score.points === 1 ? '' : 's' %>
+        </p>
+      <% } %>
+
+      <% if (socialLinks.length > 0) { %>
+        <ul class="profile-socials">
+          <% socialLinks.forEach(function (s) { %>
+            <li>
+              <a class="social-link social-<%= s.key %>"
+                 href="<%= s.href %>"
+                 target="_blank"
+                 rel="noopener noreferrer nofollow">
+                <%= s.label %>
+              </a>
+            </li>
+          <% }); %>
+        </ul>
+      <% } %>
+    </div>
+  </header>
+
+  <section class="profile-badges">
+    <h2 class="section-heading">Badges</h2>
+    <% if (badges.length === 0) { %>
+      <p class="subtle">No badges yet.</p>
+    <% } else { %>
+      <ul class="badge-grid">
+        <% badges.forEach(function (b) { %>
+          <li class="badge-item">
+            <img class="badge-art"
+                 src="<%= b.art_path %>"
+                 alt="<%= b.name %>"
+                 title="<%= b.name %>"
+                 width="72" height="72" />
+            <span class="badge-name"><%= b.name %></span>
+          </li>
+        <% }); %>
+      </ul>
+    <% } %>
+  </section>
+
+  <section class="profile-photos">
+    <h2 class="section-heading">Photos</h2>
+    <% if (photos.length === 0) { %>
+      <p class="subtle">No photos shared yet.</p>
+    <% } else { %>
+      <div class="gallery-grid" id="galleryGrid">
+        <% photos.forEach(function (p) { %>
+          <figure class="gallery-item">
+            <button
+              type="button"
+              class="gallery-thumb-btn js-lightbox"
+              data-full="/uploads/<%= p.photo_path %>"
+              data-caption="<%= p.task_title %><%= p.caption ? ' — ' + p.caption : '' %>"
+              aria-label="Enlarge photo for <%= p.task_title %>"
+            >
+              <img
+                class="gallery-thumb js-lazy"
+                data-src="/thumbs/<%= p.thumb_path %>"
+                alt="<%= p.task_title %>"
+                loading="lazy"
+                width="400"
+                height="400"
+              />
+            </button>
+            <figcaption class="gallery-caption">
+              <span class="gallery-task"><%= p.task_title %></span>
+              <% if (p.caption) { %>
+                <span class="gallery-text"><%= p.caption %></span>
+              <% } %>
+            </figcaption>
+          </figure>
+        <% }); %>
+      </div>
+    <% } %>
+  </section>
+</main>
+
+<!-- Lightbox overlay (shared markup with the gallery page). -->
+<div class="lightbox" id="lightbox" hidden>
+  <button type="button" class="lightbox-close" id="lightboxClose" aria-label="Close">&times;</button>
+  <figure class="lightbox-figure">
+    <img class="lightbox-img" id="lightboxImg" alt="" />
+    <figcaption class="lightbox-caption" id="lightboxCaption"></figcaption>
+  </figure>
+</div>
+
+<%- include('partials/footer') %>

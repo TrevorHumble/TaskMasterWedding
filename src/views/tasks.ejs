@@ -1,0 +1,53 @@
+<!-- src/views/tasks.ejs -->
+<%- include('partials/head', { title: title }) %>
+<%- include('partials/header') %>
+
+<main class="page page-tasks">
+
+  <% if (typeof flash !== 'undefined' && flash) { %>
+    <div class="flash flash-<%= flash.type %>"><%= flash.msg %></div>
+  <% } else if (typeof locals.flash !== 'undefined' && locals.flash) { %>
+    <div class="flash flash-<%= locals.flash.type %>"><%= locals.flash.msg %></div>
+  <% } %>
+
+  <h1 class="page-title">Tasks</h1>
+  <p class="muted"><%= doneCount %> of <%= totalCount %> complete</p>
+
+  <% if (tasks.length === 0) { %>
+    <p class="muted">No tasks have been posted yet. Check back soon!</p>
+  <% } else { %>
+    <ul class="task-list">
+      <% tasks.forEach(function (t) { %>
+        <li class="task-row <%= t.done ? 'task-done' : 'task-todo' %>">
+          <a class="task-link" href="/tasks/<%= t.id %>">
+            <span class="task-thumb-wrap">
+              <% if (t.done && t.thumb_path) { %>
+                <img src="/thumbs/<%= t.thumb_path %>" alt="" class="task-thumb" />
+              <% } else { %>
+                <span class="task-thumb-empty" aria-hidden="true">📷</span>
+              <% } %>
+            </span>
+            <span class="task-body">
+              <span class="task-title-text"><%= t.title %></span>
+              <% if (t.description) { %>
+                <span class="task-desc"><%= t.description %></span>
+              <% } %>
+            </span>
+            <span class="task-state">
+              <% if (t.done) { %>
+                <span class="badge-done" aria-label="Completed">✓ Done</span>
+              <% } else { %>
+                <span class="badge-todo" aria-label="Not done">To do</span>
+              <% } %>
+            </span>
+          </a>
+        </li>
+      <% }); %>
+    </ul>
+  <% } %>
+
+  <p class="back-link"><a href="/">← Back to my garden</a></p>
+
+</main>
+
+<%- include('partials/footer') %>

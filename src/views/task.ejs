@@ -1,0 +1,80 @@
+<!-- src/views/task.ejs -->
+<%- include('partials/head', { title: title }) %>
+<%- include('partials/header') %>
+
+<main class="page page-task">
+
+  <% if (typeof flash !== 'undefined' && flash) { %>
+    <div class="flash flash-<%= flash.type %>"><%= flash.msg %></div>
+  <% } else if (typeof locals.flash !== 'undefined' && locals.flash) { %>
+    <div class="flash flash-<%= locals.flash.type %>"><%= locals.flash.msg %></div>
+  <% } %>
+
+  <p class="back-link"><a href="/tasks">← All tasks</a></p>
+
+  <h1 class="page-title"><%= task.title %></h1>
+  <% if (task.description) { %>
+    <p class="task-detail-desc"><%= task.description %></p>
+  <% } %>
+
+  <% if (submission) { %>
+    <section class="existing-submission">
+      <h2 class="section-title">Your photo</h2>
+      <img src="/uploads/<%= submission.photo_path %>"
+           alt="Your submitted photo for <%= task.title %>"
+           class="submission-full" />
+      <% if (submission.caption) { %>
+        <p class="submission-caption"><%= submission.caption %></p>
+      <% } %>
+      <p class="muted">This task is complete. You can replace your photo below.</p>
+    </section>
+  <% } %>
+
+  <section class="upload-section">
+    <h2 class="section-title"><%= submission ? 'Replace your photo' : 'Upload a photo to complete this task' %></h2>
+
+    <form action="/tasks/<%= task.id %>/submit"
+          method="POST"
+          enctype="multipart/form-data"
+          class="upload-form">
+
+      <div class="form-row">
+        <label for="photo" class="form-label">Choose a photo</label>
+        <input type="file"
+               id="photo"
+               name="photo"
+               accept="image/*"
+               capture="environment"
+               required
+               class="file-input" />
+      </div>
+
+      <!-- Live preview target; filled by /js/upload.js -->
+      <div class="preview-wrap">
+        <img id="upload-preview" class="upload-preview" alt="" hidden />
+      </div>
+
+      <div class="form-row">
+        <label for="caption" class="form-label">Caption (optional)</label>
+        <input type="text"
+               id="caption"
+               name="caption"
+               maxlength="500"
+               placeholder="Say something about this photo"
+               value="<%= submission ? submission.caption : '' %>"
+               class="text-input" />
+      </div>
+
+      <button type="submit" class="btn btn-primary">
+        <%= submission ? 'Replace photo' : 'Upload & complete' %>
+      </button>
+    </form>
+  </section>
+
+  <!-- Direct include of the preview script (belt-and-suspenders alongside
+       the footer's page-script mechanism; see section intro note). -->
+  <script src="/js/upload.js" defer></script>
+
+</main>
+
+<%- include('partials/footer') %>

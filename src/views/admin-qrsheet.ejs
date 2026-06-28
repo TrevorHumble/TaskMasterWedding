@@ -1,0 +1,68 @@
+<!-- src/views/admin-qrsheet.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+<style>
+  /* On-screen styling */
+  .qrsheet-toolbar { margin: 1rem; }
+  .qr-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+    margin: 1rem;
+  }
+  .qr-card {
+    border: 1px dashed #c9b8d6;
+    border-radius: 12px;
+    padding: 0.75rem;
+    text-align: center;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .qr-card img { width: 160px; height: 160px; }
+  .qr-card .qr-name {
+    font-family: var(--font-display, cursive);
+    font-size: 1.3rem;
+    margin: 0.3rem 0;
+  }
+  .qr-card .qr-hint { font-size: 0.7rem; color: #777; word-break: break-all; }
+
+  /* Print styling: hide everything but the cards, fit 3 across on the page. */
+  @media print {
+    .qrsheet-toolbar, header, footer,
+    .site-header, .site-footer, .page-nav, nav { display: none !important; }
+    body { background: #fff !important; }
+    .qr-grid { gap: 0.25rem; margin: 0; }
+    .qr-card { border: 1px dashed #aaa; }
+    @page { margin: 1cm; }
+  }
+</style>
+
+<% if (baseUrl.indexOf('localhost') !== -1) { %>
+  <p class="flash flash-err">
+    Warning: BASE_URL is localhost. Set BASE_URL to your trycloudflare.com URL
+    and restart before printing, or these QR codes will not work on guests'
+    phones.
+  </p>
+<% } %>
+
+<div class="qrsheet-toolbar">
+  <a class="btn" href="/admin">&larr; Dashboard</a>
+  <button type="button" class="btn btn-primary" onclick="window.print();">Print this sheet</button>
+  <span class="muted">Base URL for links: <%= baseUrl %></span>
+</div>
+
+<div class="qr-grid">
+  <% cards.forEach(function (c) { %>
+    <div class="qr-card">
+      <img src="<%= c.qr %>" alt="QR code for <%= c.name %>" />
+      <p class="qr-name"><%= c.name %></p>
+      <p class="qr-hint">Scan to sign in</p>
+    </div>
+  <% }); %>
+  <% if (cards.length === 0) { %>
+    <p class="muted">No guests yet. Create guests first on the Guests page.</p>
+  <% } %>
+</div>
+
+<%- include('partials/footer') %>

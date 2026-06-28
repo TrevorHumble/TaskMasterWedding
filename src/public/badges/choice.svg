@@ -1,0 +1,12 @@
+<!-- src/public/badges/choice.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Task Master's Choice badge">
+  <circle cx="60" cy="60" r="56" fill="#fdf8f1" stroke="#d7c9ef" stroke-width="4"/>
+  <path d="M48 70 L40 104 L54 96 L58 108 L66 80 Z" fill="#bfe0f2" stroke="#8ec5e6" stroke-width="1.5"/>
+  <path d="M72 70 L80 104 L66 96 L62 108 L54 80 Z" fill="#f7c8d6" stroke="#ef9fb6" stroke-width="1.5"/>
+  <g>
+    <circle cx="60" cy="50" r="30" fill="#fbedb0" stroke="#f3b68b" stroke-width="2"/>
+    <circle cx="60" cy="50" r="22" fill="#fdf8f1" stroke="#f3b68b" stroke-width="1.5" stroke-dasharray="2 4"/>
+  </g>
+  <path d="M60 33 L65 46 L79 46 L68 54 L72 67 L60 59 L48 67 L52 54 L41 46 L55 46 Z"
+        fill="#f3b68b" stroke="#ef9fb6" stroke-width="1.2"/>
+</svg>

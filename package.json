@@ -1,0 +1,28 @@
+{
+  "name": "garden-party-pastels",
+  "version": "1.0.0",
+  "description": "Wedding scavenger hunt web app for Axel Fenwick & Lily Sckeiky.",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "node src/app.js",
+    "seed": "node scripts/seed.js",
+    "set-admin": "node scripts/set-admin-password.js"
+  },
+  "dependencies": {
+    "express": "4.21.2",
+    "better-sqlite3": "12.2.0",
+    "ejs": "3.1.10",
+    "multer": "1.4.5-lts.1",
+    "sharp": "0.33.5",
+    "qrcode": "1.5.4",
+    "bcryptjs": "2.4.3",
+    "cookie-parser": "1.4.7",
+    "archiver": "7.0.1",
+    "exceljs": "4.4.0"
+  }
+}
