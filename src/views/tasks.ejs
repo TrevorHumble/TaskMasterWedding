@@ -18,7 +18,7 @@
   <% } else { %>
     <ul class="task-list">
       <% tasks.forEach(function (t) { %>
-        <li class="task-row <%= t.done ? 'task-done' : 'task-todo' %>">
+        <li class="task-item <%= t.done ? 'done' : '' %>">
           <a class="task-link" href="/tasks/<%= t.id %>">
             <span class="task-thumb-wrap">
               <% if (t.done && t.thumb_path) { %>
@@ -28,7 +28,7 @@
               <% } %>
             </span>
             <span class="task-body">
-              <span class="task-title-text"><%= t.title %></span>
+              <span class="task-title"><%= t.title %></span>
               <% if (t.description) { %>
                 <span class="task-desc"><%= t.description %></span>
               <% } %>

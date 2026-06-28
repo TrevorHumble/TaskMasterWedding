@@ -18,7 +18,7 @@
         enctype="multipart/form-data"
         class="edit-form">
 
-    <div class="form-row">
+    <div class="form-group">
       <label for="name" class="form-label">Display name</label>
       <input type="text"
              id="name"
@@ -28,18 +28,18 @@
              class="text-input" />
     </div>
 
-    <div class="form-row">
+    <div class="form-group">
       <label class="form-label">Current avatar</label>
       <div class="avatar-current">
         <% if (guest.avatar_path) { %>
-          <img src="/uploads/<%= guest.avatar_path %>" alt="Your current avatar" class="avatar-img" />
+          <img src="/uploads/<%= guest.avatar_path %>" alt="Your current avatar" class="avatar" />
         <% } else { %>
           <div class="avatar-placeholder" aria-hidden="true">🌸</div>
         <% } %>
       </div>
     </div>
 
-    <div class="form-row">
+    <div class="form-group">
       <label for="photo" class="form-label">Change avatar (optional)</label>
       <input type="file"
              id="photo"
@@ -55,7 +55,7 @@
     <fieldset class="socials-fieldset">
       <legend>Social links (optional)</legend>
 
-      <div class="form-row">
+      <div class="form-group">
         <label for="instagram" class="form-label">Instagram handle or URL</label>
         <input type="text"
                id="instagram"
@@ -66,7 +66,7 @@
                class="text-input" />
       </div>
 
-      <div class="form-row">
+      <div class="form-group">
         <label for="facebook" class="form-label">Facebook</label>
         <input type="text"
                id="facebook"
@@ -77,7 +77,7 @@
                class="text-input" />
       </div>
 
-      <div class="form-row">
+      <div class="form-group">
         <label for="website" class="form-label">Website</label>
         <input type="text"
                id="website"
@@ -89,7 +89,7 @@
       </div>
     </fieldset>
 
-    <button type="submit" class="btn btn-primary">Save profile</button>
+    <button type="submit" class="btn">Save profile</button>
   </form>
 
   <!-- Direct include of the preview script (see section intro note). -->

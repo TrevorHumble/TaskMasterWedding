@@ -13,7 +13,7 @@
   <section class="profile-card">
     <div class="profile-avatar">
       <% if (guest.avatar_path) { %>
-        <img src="/uploads/<%= guest.avatar_path %>" alt="Your avatar" class="avatar-img" />
+        <img src="/uploads/<%= guest.avatar_path %>" alt="Your avatar" class="avatar" />
       <% } else { %>
         <div class="avatar-placeholder" aria-hidden="true">🌸</div>
       <% } %>
@@ -37,9 +37,9 @@
         to your next badge (at <%= nextThreshold %> tasks)
       </p>
     <% } %>
-    <div class="progress-bar" role="progressbar"
+    <div class="progress" role="progressbar"
          aria-valuenow="<%= progressPercent %>" aria-valuemin="0" aria-valuemax="100">
-      <div class="progress-bar-fill" style="width: <%= progressPercent %>%;"></div>
+      <div class="progress-fill" style="width: <%= progressPercent %>%;"></div>
     </div>
   </section>
 
@@ -50,7 +50,7 @@
     <% } else { %>
       <ul class="badge-grid">
         <% badges.forEach(function (b) { %>
-          <li class="badge-item">
+          <li class="badge-chip">
             <img src="<%= b.art_path %>" alt="<%= b.name %> badge" class="badge-art" />
             <span class="badge-name"><%= b.name %></span>
           </li>
@@ -78,7 +78,7 @@
   </section>
 
   <section class="home-nav">
-    <a class="btn btn-primary" href="/tasks">View all tasks</a>
+    <a class="btn" href="/tasks">View all tasks</a>
     <a class="btn btn-secondary" href="/gallery">Shared gallery</a>
     <a class="btn btn-secondary" href="/leaderboard">Leaderboard</a>
   </section>

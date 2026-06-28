@@ -2,15 +2,15 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-<main class="container profile-page">
+<main class="page profile-page">
   <header class="profile-header">
     <% if (profileGuest.avatar_path) { %>
-      <img class="profile-avatar"
+      <img class="avatar"
            src="/uploads/<%= profileGuest.avatar_path %>"
            alt="<%= profileGuest.name || 'Guest' %>"
            width="120" height="120" />
     <% } else { %>
-      <span class="profile-avatar profile-avatar-empty" aria-hidden="true">
+      <span class="avatar profile-avatar-empty" aria-hidden="true">
         <%= (profileGuest.name || '?').trim().charAt(0).toUpperCase() || '?' %>
       </span>
     <% } %>
@@ -44,11 +44,11 @@
   <section class="profile-badges">
     <h2 class="section-heading">Badges</h2>
     <% if (badges.length === 0) { %>
-      <p class="subtle">No badges yet.</p>
+      <p class="muted">No badges yet.</p>
     <% } else { %>
       <ul class="badge-grid">
         <% badges.forEach(function (b) { %>
-          <li class="badge-item">
+          <li class="badge-chip">
             <img class="badge-art"
                  src="<%= b.art_path %>"
                  alt="<%= b.name %>"
@@ -64,7 +64,7 @@
   <section class="profile-photos">
     <h2 class="section-heading">Photos</h2>
     <% if (photos.length === 0) { %>
-      <p class="subtle">No photos shared yet.</p>
+      <p class="muted">No photos shared yet.</p>
     <% } else { %>
       <div class="gallery-grid" id="galleryGrid">
         <% photos.forEach(function (p) { %>

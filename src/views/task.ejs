@@ -38,7 +38,7 @@
           enctype="multipart/form-data"
           class="upload-form">
 
-      <div class="form-row">
+      <div class="form-group">
         <label for="photo" class="form-label">Choose a photo</label>
         <input type="file"
                id="photo"
@@ -54,7 +54,7 @@
         <img id="upload-preview" class="upload-preview" alt="" hidden />
       </div>
 
-      <div class="form-row">
+      <div class="form-group">
         <label for="caption" class="form-label">Caption (optional)</label>
         <input type="text"
                id="caption"
@@ -65,7 +65,7 @@
                class="text-input" />
       </div>
 
-      <button type="submit" class="btn btn-primary">
+      <button type="submit" class="btn">
         <%= submission ? 'Replace photo' : 'Upload & complete' %>
       </button>
     </form>
