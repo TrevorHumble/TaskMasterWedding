@@ -2,11 +2,18 @@
 
 Behavioral rules for any AI agent working in this repository. This file is the repo's own operating contract. It is not the user's global `CLAUDE.md`.
 
-<!-- CUSTOMIZE: North Star pending — owner defines goals in an upcoming session; do not fill in autonomously -->
+## North Star
 
-**North Star / goals:** pending. The owner defines the North Star, goals, and success outcomes in an upcoming session. Until then, do not invent goals, a vision statement, KPIs, or a roadmap.
+Every change serves the goals in [`docs/north-star.md`](docs/north-star.md). Orient your work to them; if a change moves none of them, question whether it belongs in this build.
 
-Stand-in description (neutral, not a goal): Garden Party Pastels is a self-hosted wedding scavenger-hunt web app where about 100 guests sign in by per-guest QR link, complete photo tasks for points and badges, share a gallery, and appear on a leaderboard, with an admin who manages the event and exports the results.
+**The shift we design for:** a wedding guest goes from passive spectator to active, _steered_ participant — engaging with what the hosts highlight, mingling beyond their own circle, and adding to a shared record of the weekend, because the game rewards it — engaged in the celebration, not the screen. The end user is the **guest**; it pays off for the couple (Axel & Lily) and their planners. Live for guests by **Friday, Aug 7, 2026**.
+
+The four goals (full text and outcomes in [`docs/north-star.md`](docs/north-star.md)):
+
+- **A — Easy in, solid throughout:** any guest playing in seconds, fast under the whole party at once, no one sidelined by the tech.
+- **B — A game worth playing:** instant rewards, badges and standings, prizes on display — guests active in the celebration, not spectators or screen-bound.
+- **C — The hosts run the show:** the couple and planners steer tasks, set prizes, and moderate (hide / move / delete) — choreographing the weekend they planned.
+- **D — One shared record, kept:** a hundred phones pooled into one gallery, a favorites slideshow at the end, a keepsake export after.
 
 ## How work flows: the orchestrator pipeline
 

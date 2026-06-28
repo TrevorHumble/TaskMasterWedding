@@ -1,5 +1,7 @@
 # Overnight status & resume plan — 2026-06-28
 
+> **Superseded 2026-06-28 (morning).** The overnight blocker is cleared, the repo guardrails are fixed, and the goals session is done — the North Star is confirmed in [`north-star.md`](north-star.md). Kept as a point-in-time record; the "goals pending / do not finalize" notes below were true overnight only.
+
 Working-state handoff so a fresh/compacted instance can resume precisely. Owner (Trevor) is asleep; goals/design session is in the morning — do NOT finalize product goals, North Star, or visual design.
 
 ## Blocker right now
