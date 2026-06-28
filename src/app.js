@@ -137,12 +137,14 @@ app.use((err, req, res, next) => {
 // ---------------------------------------------------------------------------
 // 10. Start listening.
 // ---------------------------------------------------------------------------
-app.listen(config.PORT, () => {
-  console.log('');
-  console.log('  Garden Party Pastels is running.');
-  console.log('  Local:   http://localhost:' + config.PORT);
-  console.log('  Press Ctrl+C to stop.');
-  console.log('');
-});
+if (require.main === module) {
+  app.listen(config.PORT, () => {
+    console.log('');
+    console.log('  Garden Party Pastels is running.');
+    console.log('  Local:   http://localhost:' + config.PORT);
+    console.log('  Press Ctrl+C to stop.');
+    console.log('');
+  });
+}
 
 module.exports = app;

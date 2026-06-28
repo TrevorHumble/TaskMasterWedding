@@ -55,7 +55,7 @@ if (!cookieSecret || cookieSecret.trim() === '') {
 
 // ---- Absolute base directories --------------------------------------------
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
+const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 
 // ---- The exported config object (UPPER_SNAKE_CASE = canonical) -------------
 const config = {
@@ -69,7 +69,7 @@ const config = {
 
   // Data directories (absolute paths)
   DATA_DIR: DATA_DIR,
-  DB_PATH: path.join(DATA_DIR, 'app.db'),
+  DB_PATH: process.env.DB_PATH || path.join(DATA_DIR, 'app.db'),
   UPLOADS_DIR: path.join(DATA_DIR, 'uploads'),
   THUMBS_DIR: path.join(DATA_DIR, 'thumbs'),
   EXPORTS_DIR: path.join(DATA_DIR, 'exports'),
