@@ -11,6 +11,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 
 const config = require('../config');
+const photos = require('./services/photos');
 
 const app = express();
 
@@ -51,8 +52,8 @@ app.use(cookieParser(config.COOKIE_SECRET));
 //    /thumbs  -> data/thumbs  (thumbnails)
 // ---------------------------------------------------------------------------
 app.use(express.static(config.PUBLIC_DIR));
-app.use('/uploads', express.static(config.UPLOADS_DIR));
-app.use('/thumbs', express.static(config.THUMBS_DIR));
+app.use('/uploads', photos.blockTakenDownOriginal, express.static(config.UPLOADS_DIR));
+app.use('/thumbs', photos.blockTakenDownThumb, express.static(config.THUMBS_DIR));
 
 // ---------------------------------------------------------------------------
 // 5. attachGuest middleware (added by section 03).
