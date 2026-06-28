@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    @keyframes sheetIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  </style>
+</helmet>
+
+<!-- ===================== FRAME 1 — PASSWORD GATE ===================== -->
+<div style="position:absolute; left:0; top:0; width:390px;">
+  <div data-drags-parent="1" style="font-family:'EB Garamond',serif; font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478; margin-bottom:12px; padding-left:2px;">Password Gate</div>
+  <div data-screen-label="Password gate" style="background:#ffffff; border-radius:2px; box-shadow:0 1px 3px rgba(42,67,53,.10); min-height:760px; padding:0 24px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'EB Garamond',serif; color:#467058;">
+    <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px;">
+      <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" style="fill:#467058;"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"></path></svg>
+      <span style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:50px; letter-spacing:0.04em;">LILLY</span>
+      <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" style="fill:#467058;"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"></path></svg>
+    </div>
+    <div style="font-family:'Cormorant Garamond',serif; font-style:italic; font-size:22px; color:#6e8478; margin-bottom:14px;">&amp;</div>
+    <div style="display:flex; align-items:center; gap:14px; margin-bottom:64px;">
+      <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" style="fill:#467058;"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"></path></svg>
+      <span style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:50px; letter-spacing:0.04em;">AXEL</span>
+      <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" style="fill:#467058;"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"></path></svg>
+    </div>
+    <div style="background:#f0f4f2; border-radius:14px; padding:28px 22px; width:100%;">
+      <p style="text-align:center; font-size:17px; line-height:1.55; margin:0 0 20px; color:#467058;">Check your invitation for the password. If you cannot find it, contact Lilly or Axel.</p>
+      <div style="position:relative; margin-bottom:16px;">
+        <input type="{{ pwType }}" placeholder="Password" style="width:100%; box-sizing:border-box; background:#ffffff; border:1px solid #aebbb2; border-radius:4px; padding:14px 44px 14px 16px; font-family:'EB Garamond',serif; font-size:18px; color:#467058; outline:none;">
+        <button onClick="{{ togglePw }}" aria-label="Show password" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; padding:6px; color:#6e8478; display:flex;">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </button>
+      </div>
+      <button style="width:100%; background:#467058; color:#ffffff; border:none; border-radius:4px; padding:14px; font-family:'EB Garamond',serif; font-weight:600; font-size:17px; cursor:pointer; transition:background-color 140ms;" style-hover="background:#2a4335;">Submit</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== FRAME 2 — HOME / LANDING ===================== -->
+<div style="position:absolute; left:510px; top:0; width:390px;">
+  <div data-drags-parent="1" style="font-family:'EB Garamond',serif; font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478; margin-bottom:12px; padding-left:2px;">Home — live countdown</div>
+  <div data-screen-label="Home" style="background:#ffffff; border-radius:2px; box-shadow:0 1px 3px rgba(42,67,53,.10); min-height:760px; padding:56px 24px 40px; display:flex; flex-direction:column; align-items:center; font-family:'EB Garamond',serif; color:#467058;">
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+      <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" style="fill:#467058;"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"></path></svg>
+      <span style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:46px; letter-spacing:0.04em;">LILLY</span>
+      <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" style="fill:#467058;"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"></path></svg>
+    </div>
+    <div style="font-family:'Cormorant Garamond',serif; font-style:italic; font-size:20px; color:#6e8478; margin-bottom:12px;">&amp;</div>
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:auto;">
+      <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" style="fill:#467058;"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"></path></svg>
+      <span style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:46px; letter-spacing:0.04em;">AXEL</span>
+      <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" style="fill:#467058;"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"></path></svg>
+    </div>
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:34px; letter-spacing:0.02em; text-transform:uppercase; margin-top:72px; text-align:center;">August 7 – 9, 2026</div>
+    <div style="font-size:17px; color:#6e8478; margin-top:14px;">Priest Lake, ID</div>
+    <div style="display:flex; gap:18px; margin-top:34px; font-size:16px; color:#6e8478;">
+      <span>{{ days }} days</span>
+      <span>{{ hours }} hours</span>
+      <span>{{ minutes }} min</span>
+      <span>{{ seconds }} sec</span>
+    </div>
+    <button style="width:100%; max-width:280px; background:#467058; color:#ffffff; border:none; border-radius:4px; padding:15px; font-family:'EB Garamond',serif; font-weight:600; font-size:17px; letter-spacing:0.12em; text-transform:uppercase; cursor:pointer; margin-top:56px; transition:background-color 140ms;" style-hover="background:#2a4335;">RSVP</button>
+  </div>
+</div>
+
+<!-- ===================== FRAME 3 — SCHEDULE ===================== -->
+<div style="position:absolute; left:1020px; top:0; width:390px;">
+  <div data-drags-parent="1" style="font-family:'EB Garamond',serif; font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478; margin-bottom:12px; padding-left:2px;">Schedule</div>
+  <div data-screen-label="Schedule" style="background:#ffffff; border-radius:2px; box-shadow:0 1px 3px rgba(42,67,53,.10); min-height:760px; padding:44px 24px; font-family:'EB Garamond',serif; color:#467058; text-align:center;">
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:30px; text-transform:uppercase; letter-spacing:0.02em;">Friday, August 7, 2026</div>
+    <div style="display:flex; justify-content:center; margin:22px 0;">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#6e8478" stroke-width="1.2" aria-hidden="true"><path d="M9 13s-3-1.8-3-4a2.2 2.2 0 0 1 3-1.4A2.2 2.2 0 0 1 12 9c0 2.2-3 4-3 4z"></path><path d="M15 13s-3-1.8-3-4a2.2 2.2 0 0 1 3-1.4A2.2 2.2 0 0 1 18 9c0 2.2-3 4-3 4z"></path></svg>
+    </div>
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:24px;">Welcome Dinner &amp; Campfire</div>
+    <div style="font-size:17px; color:#6e8478; margin-top:6px;">6:00 pm</div>
+    <div style="font-size:17px; margin-top:16px;">Tanglefoot Seaplane Base D28</div>
+    <div style="font-size:16px; font-style:italic; text-decoration:underline; margin-top:4px;">100 Waterbird Landing, Coolin, ID 83821</div>
+    <p style="font-size:17px; line-height:1.55; color:#6e8478; margin:18px 4px 0;">Join us for a relaxed lakeside welcome with drinks, light bites, and a campfire. Come comfortable — this is your chance to settle in and ease into the weekend.</p>
+    <div style="display:flex; gap:12px; margin-top:22px;">
+      <button style="flex:1; background:#467058; color:#ffffff; border:none; border-radius:4px; padding:12px; font-family:'EB Garamond',serif; font-weight:600; font-size:15px; cursor:pointer; transition:background-color 140ms;" style-hover="background:#2a4335;">Map</button>
+      <button style="flex:1; background:#467058; color:#ffffff; border:none; border-radius:4px; padding:12px; font-family:'EB Garamond',serif; font-weight:600; font-size:15px; cursor:pointer; transition:background-color 140ms;" style-hover="background:#2a4335;">Add to calendar</button>
+    </div>
+
+    <div style="height:1px; background:#e2e9e5; margin:40px 0;"></div>
+
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:30px; text-transform:uppercase; letter-spacing:0.02em;">Saturday, August 8, 2026</div>
+    <div style="display:flex; justify-content:center; margin:22px 0;">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#6e8478" stroke-width="1.2" aria-hidden="true"><path d="M9 13s-3-1.8-3-4a2.2 2.2 0 0 1 3-1.4A2.2 2.2 0 0 1 12 9c0 2.2-3 4-3 4z"></path><path d="M15 13s-3-1.8-3-4a2.2 2.2 0 0 1 3-1.4A2.2 2.2 0 0 1 18 9c0 2.2-3 4-3 4z"></path></svg>
+    </div>
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:24px;">Wedding Ceremony &amp; Cocktail Hour</div>
+    <div style="font-size:17px; color:#6e8478; margin-top:6px;">3:30 – 6:00 pm</div>
+    <div style="font-size:17px; margin-top:16px;">Tanglefoot Seaplane Base D28</div>
+    <div style="font-size:16px; font-style:italic; text-decoration:underline; margin-top:4px;">100 Waterbird Landing, Coolin, ID 83821</div>
+    <p style="font-size:17px; line-height:1.55; color:#6e8478; margin:14px 4px 0;">Bright and colorful garden party / semi-formal attire. A lakeside ceremony followed by cocktails by the water.</p>
+  </div>
+</div>
+
+<!-- ===================== FRAME 4 — RSVP FORM ===================== -->
+<div style="position:absolute; left:1530px; top:0; width:390px;">
+  <div data-drags-parent="1" style="font-family:'EB Garamond',serif; font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478; margin-bottom:12px; padding-left:2px;">RSVP — interactive</div>
+  <div data-screen-label="RSVP" style="background:#ffffff; border-radius:2px; box-shadow:0 1px 3px rgba(42,67,53,.10); min-height:760px; padding:48px 24px; font-family:'EB Garamond',serif; color:#467058;">
+    <div style="text-align:center; margin-bottom:8px;">
+      <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true" style="fill:#467058;"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"></path></svg>
+    </div>
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:34px; text-transform:uppercase; letter-spacing:0.03em; text-align:center;">RSVP</div>
+    <p style="text-align:center; font-size:16px; color:#6e8478; margin:10px 0 30px;">Kindly reply by July 1, 2026.</p>
+
+    <label style="display:block; font-size:13px; letter-spacing:0.18em; text-transform:uppercase; color:#6e8478; margin-bottom:8px;">Full name</label>
+    <input placeholder="First &amp; last name" style="width:100%; box-sizing:border-box; background:#ffffff; border:1px solid #aebbb2; border-radius:4px; padding:13px 16px; font-family:'EB Garamond',serif; font-size:18px; color:#467058; outline:none; margin-bottom:24px;">
+
+    <div style="font-size:13px; letter-spacing:0.18em; text-transform:uppercase; color:#6e8478; margin-bottom:10px;">Will you attend?</div>
+    <div style="display:flex; gap:12px; margin-bottom:24px;">
+      <button onClick="{{ setYes }}" style="{{ yesStyle }}">Joyfully accepts</button>
+      <button onClick="{{ setNo }}" style="{{ noStyle }}">Regretfully declines</button>
+    </div>
+
+    <label style="display:block; font-size:13px; letter-spacing:0.18em; text-transform:uppercase; color:#6e8478; margin-bottom:8px;">Number of guests</label>
+    <input placeholder="e.g. 2" style="width:100%; box-sizing:border-box; background:#ffffff; border:1px solid #aebbb2; border-radius:4px; padding:13px 16px; font-family:'EB Garamond',serif; font-size:18px; color:#467058; outline:none; margin-bottom:24px;">
+
+    <label style="display:block; font-size:13px; letter-spacing:0.18em; text-transform:uppercase; color:#6e8478; margin-bottom:8px;">Dietary notes</label>
+    <textarea placeholder="Allergies, preferences…" rows="3" style="width:100%; box-sizing:border-box; background:#f0f4f2; border:1px solid #aebbb2; border-radius:4px; padding:13px 16px; font-family:'EB Garamond',serif; font-size:18px; color:#467058; outline:none; resize:none; margin-bottom:30px;"></textarea>
+
+    <button style="width:100%; background:#467058; color:#ffffff; border:none; border-radius:4px; padding:15px; font-family:'EB Garamond',serif; font-weight:600; font-size:17px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; transition:background-color 140ms;" style-hover="background:#2a4335;">Send RSVP</button>
+  </div>
+</div>
+
+<!-- ===================== FRAME 5 — MENU + FAQ ===================== -->
+<div style="position:absolute; left:2040px; top:0; width:390px;">
+  <div data-drags-parent="1" style="font-family:'EB Garamond',serif; font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478; margin-bottom:12px; padding-left:2px;">Nav menu &amp; FAQ</div>
+  <div data-screen-label="FAQ" style="background:#ffffff; border-radius:2px; box-shadow:0 1px 3px rgba(42,67,53,.10); min-height:760px; font-family:'EB Garamond',serif; color:#467058; overflow:hidden;">
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:20px 24px; border-bottom:1px solid #e2e9e5;">
+      <span style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:22px; text-transform:uppercase; letter-spacing:0.06em;">Lillian &amp; Axel</span>
+      <button onClick="{{ toggleMenu }}" aria-label="Menu" style="background:none; border:none; cursor:pointer; color:#467058; display:flex; padding:4px;">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6h18M3 12h18M3 18h18"></path></svg>
+      </button>
+    </div>
+
+    <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="background:#f0f4f2; padding:24px 0; text-align:center; animation:sheetIn 240ms cubic-bezier(0.22,0.61,0.36,1); border-bottom:1px solid #e2e9e5;">
+        <div style="font-family:'Cormorant Garamond',serif; font-size:22px; padding:9px 0; color:#467058; border-bottom:1px solid #467058; width:fit-content; margin:0 auto 6px;">Home</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:22px; padding:9px 0; color:#6e8478;">Schedule</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:22px; padding:9px 0; color:#6e8478;">Travel</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:22px; padding:9px 0; color:#6e8478;">Registry</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:22px; padding:9px 0; color:#6e8478;">Things to Do at Priest Lake</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:22px; padding:9px 0; color:#6e8478;">FAQs</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:22px; padding:9px 0; color:#6e8478;">RSVP</div>
+      </div>
+    </sc-if>
+
+    <div style="padding:40px 24px; text-align:center;">
+      <div style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:32px; text-transform:uppercase; letter-spacing:0.03em;">FAQs</div>
+      <div style="display:flex; justify-content:center; margin:18px 0 28px;">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style="fill:#467058;"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"></path></svg>
+      </div>
+
+      <div style="text-align:left; border-top:1px solid #e2e9e5; padding:18px 0;">
+        <div style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:20px;">What should I wear?</div>
+        <p style="font-size:16px; line-height:1.55; color:#6e8478; margin:8px 0 0;">Bright and colorful garden-party / semi-formal attire. The ceremony is lakeside, so consider comfortable shoes.</p>
+      </div>
+      <div style="text-align:left; border-top:1px solid #e2e9e5; padding:18px 0;">
+        <div style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:20px;">Where do I park?</div>
+        <p style="font-size:16px; line-height:1.55; color:#6e8478; margin:8px 0 0;">Complimentary parking is available at Tanglefoot Seaplane Base. Carpooling is encouraged.</p>
+      </div>
+      <div style="text-align:left; border-top:1px solid #e2e9e5; border-bottom:1px solid #e2e9e5; padding:18px 0;">
+        <div style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:20px;">Can I bring a plus-one?</div>
+        <p style="font-size:16px; line-height:1.55; color:#6e8478; margin:8px 0 0;">Please refer to your invitation, or reach out to Lilly or Axel directly with any questions.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { showPw: false, attending: null, menuOpen: true, ...this.calc() };
+
+  calc() {
+    const target = new Date('2026-08-07T16:00:00');
+    let diff = Math.max(0, target.getTime() - Date.now());
+    const days = Math.floor(diff / 86400000); diff -= days * 86400000;
+    const hours = Math.floor(diff / 3600000); diff -= hours * 3600000;
+    const minutes = Math.floor(diff / 60000); diff -= minutes * 60000;
+    const seconds = Math.floor(diff / 1000);
+    return { days, hours, minutes, seconds };
+  }
+
+  componentDidMount() {
+    this.timer = setInterval(() => this.setState(this.calc()), 1000);
+  }
+  componentWillUnmount() {
+    clearInterval(this.timer);
+  }
+
+  choiceStyle(active) {
+    return [
+      'flex:1', 'cursor:pointer',
+      "font-family:'EB Garamond',serif", 'font-size:15px',
+      'padding:13px 8px', 'border-radius:4px',
+      'transition:all 140ms',
+      active ? 'background:#467058' : 'background:#ffffff',
+      active ? 'color:#ffffff' : 'color:#467058',
+      active ? 'border:1px solid #467058' : 'border:1px solid #aebbb2'
+    ].join(';');
+  }
+
+  renderVals() {
+    return {
+      days: this.state.days,
+      hours: this.state.hours,
+      minutes: this.state.minutes,
+      seconds: this.state.seconds,
+      pwType: this.state.showPw ? 'text' : 'password',
+      togglePw: () => this.setState(s => ({ showPw: !s.showPw })),
+      menuOpen: this.state.menuOpen,
+      toggleMenu: () => this.setState(s => ({ menuOpen: !s.menuOpen })),
+      setYes: () => this.setState({ attending: 'yes' }),
+      setNo: () => this.setState({ attending: 'no' }),
+      yesStyle: this.choiceStyle(this.state.attending === 'yes'),
+      noStyle: this.choiceStyle(this.state.attending === 'no')
+    };
+  }
+}
+</script>
+</body>
+</html>

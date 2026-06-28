@@ -2,14 +2,13 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-<main class="container gallery-page">
-  <h1 class="display-heading">Gallery</h1>
-  <p class="subtle">
-    <%= total %> photo<%= total === 1 ? '' : 's' %> from the garden party.
+  <h1 class="page-title">Gallery</h1>
+  <p class="muted">
+    <%= total %> photo<%= total === 1 ? '' : 's' %> from the weekend.
   </p>
 
   <% if (photos.length === 0) { %>
-    <p class="empty-state">No photos yet. Be the first to share one!</p>
+    <p class="muted">No photos yet. Be the first to share one!</p>
   <% } else { %>
     <div class="gallery-grid" id="galleryGrid">
       <% photos.forEach(function (p) { %>
@@ -61,15 +60,14 @@
       </nav>
     <% } %>
   <% } %>
-</main>
 
-<!-- Lightbox overlay (hidden until a thumbnail is clicked). -->
-<div class="lightbox" id="lightbox" hidden>
-  <button type="button" class="lightbox-close" id="lightboxClose" aria-label="Close">&times;</button>
-  <figure class="lightbox-figure">
-    <img class="lightbox-img" id="lightboxImg" alt="" />
-    <figcaption class="lightbox-caption" id="lightboxCaption"></figcaption>
-  </figure>
-</div>
+  <!-- Lightbox overlay (hidden until a thumbnail is clicked). -->
+  <div class="lightbox" id="lightbox" hidden>
+    <button type="button" class="lightbox-close" id="lightboxClose" aria-label="Close">&times;</button>
+    <figure class="lightbox-figure">
+      <img class="lightbox-img" id="lightboxImg" alt="" />
+      <figcaption class="lightbox-caption" id="lightboxCaption"></figcaption>
+    </figure>
+  </div>
 
 <%- include('partials/footer') %>

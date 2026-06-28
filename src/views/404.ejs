@@ -4,12 +4,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Page not found &middot; Garden Party Pastels</title>
+  <title>Page not found &middot; Lillian &amp; Axel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=EB+Garamond:wght@400;600&display=swap" rel="stylesheet">
   <style>
     body {
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      background: #fdf7f0;
-      color: #5a4a52;
+      font-family: 'EB Garamond', Georgia, serif;
+      background: #ffffff;
+      color: #467058;
       margin: 0;
       min-height: 100vh;
       display: flex;
@@ -18,24 +21,32 @@
       text-align: center;
       padding: 1.5rem;
     }
-    .card {
-      max-width: 28rem;
+    .card { max-width: 28rem; }
+    .heart { fill: #467058; display: inline-block; margin-bottom: 1rem; }
+    h1 {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 2.2rem;
+      font-weight: 600;
+      color: #467058;
+      margin: 0 0 0.5rem;
+      letter-spacing: 0.04em;
     }
-    h1 { font-size: 3rem; margin: 0 0 0.5rem; color: #e6a4b4; }
-    p { font-size: 1.1rem; line-height: 1.5; }
-    a { color: #7fa8c9; }
+    p { font-size: 1.1rem; line-height: 1.6; color: #6e8478; }
+    a { color: #467058; }
     code {
-      background: #f2e7dd;
+      background: #f0f4f2;
       padding: 0.1rem 0.35rem;
-      border-radius: 0.35rem;
+      border-radius: 4px;
       word-break: break-all;
+      font-family: inherit;
     }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>Lost in the garden</h1>
-    <p>We couldn't find <code><%= url %></code>.</p>
+    <svg class="heart" viewBox="0 0 24 24" width="36" height="36" aria-hidden="true"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/></svg>
+    <h1>Page Not Found</h1>
+    <p>We could not find <code><%= (typeof url !== 'undefined' && url) ? url : '' %></code>.</p>
     <p><a href="/">Back to the start</a></p>
   </div>
 </body>

@@ -2,8 +2,7 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-<main class="container admin">
-  <h1 class="display">Photos &amp; takedowns</h1>
+  <h1 class="display-title">Photos &amp; takedowns</h1>
 
   <% if (msg) { %>
     <p class="flash"><%= msg %></p>
@@ -47,7 +46,6 @@
       <p class="muted">No photos submitted yet.</p>
     <% } %>
   </div>
-</main>
 
 <script src="/js/admin.js" defer></script>
 <%- include('partials/footer') %>
