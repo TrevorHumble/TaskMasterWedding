@@ -1,0 +1,163 @@
+# Adversarial Review Protocol
+
+**Scope:** all artifacts in this repo — issues, PRs, skills, agents, and docs.
+**Who runs this:** the orchestrator spawns reviewers. The product owner is not in the loop.
+
+---
+
+## Stance
+
+**assume total failure.** Every artifact enters review as broken. Every individual
+piece is broken until proven otherwise. Owe the work nothing.
+
+- Trust nothing the artifact claims about itself. Every "this is enforced / done /
+  passing" is false until verified against ground truth.
+- When you catch yourself inferring "this probably works," stop and verify.
+- Be hostile, skeptical, a "little asshole." Spend energy on what's wrong.
+
+---
+
+## De-bias the setup
+
+The spawner's instructions can bias the reviewer as badly as a soft prompt.
+
+**Give the goal, not the implementation.** State the objective the artifact is judged
+against. Do not name the mechanisms ("it uses X loop, a Y gate") — that pre-confirms
+their existence and steers review only toward them.
+
+**No positive hints.** Never say "the one thing we got right is…." The reviewer
+enters assuming everything is bad and discovers what survives.
+
+**Plant no suspicions.** "Suspect X is broken" biases toward confirming the guess and
+away from problems you didn't anticipate. Say "assume failure, look hard."
+
+**Give full scope.** Omission hides weak spots. List every artifact. "Anything not
+listed is itself a finding."
+
+---
+
+## Calibration — adversarial is not fabrication
+
+Maximum suspicion without a truth-guard produces confident garbage.
+
+- Every finding cites real evidence (`file:line`, command output, issue/PR number).
+- Every best-practice claim cites a real, current source (full `https://` URL + date).
+- If something survives genuine attack, record "survived — here's the proof." Enter
+  assuming it won't.
+- **Retract your own over-flags.** A false positive left standing is itself a failure.
+  Unsupported praise and unsupported criticism are equally worthless.
+
+Assume-bad stance + no-fabrication guard together → true positives.
+
+---
+
+## Independence
+
+Fresh context, different identity/mandate than whoever produced the work. The agent
+that produced an artifact must not also write its own passing verdict.
+
+For high stakes: spawn a minimum of **three** independent adversaries. A finding is
+recorded only when at least two of the three confirm it; a verdict of fine requires
+the same threshold. With fewer than three adversaries the review is invalid — do not
+proceed with two, as there is no majority on a tie. (Exception: a `system-level change`
+uses the two-reviewer, both-must-PASS bar defined in the Self-modification bar section —
+fail-closed, no third tie-breaker needed.)
+
+---
+
+## research-first
+
+Before judging, the reviewer establishes the _current_ best-practice yardstick for
+the area (with dated citations). Grading against stale priors is a calibration
+failure.
+
+---
+
+## Bias gate
+
+Before fanning out to N reviewers, spawn one independent agent to audit the briefing
+and per-reviewer charters for bias. The only permitted bias is anti-builder; remove
+everything else: implementation leaks, positive framing, planted suspicions, tool
+favoritism, scope-narrowing. That agent returns required edits with quoted evidence.
+Apply the edits, then fan out. If the bias-gate agent itself errors or returns a
+verdict the orchestrator cannot verify (e.g., the gate agent praises the briefing
+without quoting evidence), spawn a second independent gate agent from a clean prompt
+and require it to agree before proceeding.
+
+---
+
+## No human in the loop
+
+The product owner does not resolve findings. Translate any "owner reviews/approves"
+control into a deterministic check or an independent adversary. Reserve human judgment
+for what the human can actually judge (product direction, taste).
+
+---
+
+## Output discipline
+
+- Review item-by-item. Do not ingest everything and emit one blob.
+- Number each defect. Assign a severity (blocker / major / minor / nit).
+- For each gap give a concrete, copy-pasteable fix.
+- Final verdict: **PASS/FAIL** — one token, no hedging. Attach the numbered defect
+  list. A PASS with open blockers or majors is not a PASS.
+
+---
+
+## The spawner must never
+
+1. Tell the reviewer which specific parts are suspected weak — that leads the witness.
+2. Include positive framing, praise, or "we tried hard on X" in the briefing.
+3. Give the reviewer a curated subset of artifacts — full scope or it's not a review.
+4. Allow the producing agent to review its own output, even as a secondary reviewer.
+5. Accept a PASS verdict without the orchestrator first completing a required
+   verification step: confirm every cited URL resolves, every `file:line` reference
+   exists at that location, and every item in scope has an explicit finding. This
+   check is the orchestrator's responsibility and is not delegated to the reviewer.
+
+---
+
+## Self-modification bar
+
+A system-level change requires two independent reviewers. The reviewers must be independent of each other and of the implementer — spawned from clean prompts with no shared context. The change passes only when both reach PASS; disagreement is treated as FAIL, and the fix-and-re-review loop continues.
+
+This is the system-level specialization of the high-stakes independence rule in the Independence section: instead of ≥3 adversaries with 2-of-3 majority, a system-level change uses two independent reviewers who must both reach PASS, and disagreement is treated as FAIL (fail-closed), so no third tie-breaker is needed.
+
+This bar is additive to the soft cap and severity gate below. When a system-level change reaches the soft cap trigger, both the two-reviewer requirement and the severity adjudicator apply. See `DESIGN.md` for the definition of system-level change.
+
+---
+
+## Stop condition — soft cap and severity gate
+
+the 3-round mark is a trigger, not a hard cap.
+
+**Trigger:** At 3 rounds without PASS, the orchestrator invokes a `severity adjudicator` — a
+fresh Opus agent with no context from prior rounds. The loop does not stop at this point.
+
+**Classification:** The severity adjudicator inspects every remaining open defect and classifies
+each as `consequential` or `inconsequential`. A defect is consequential if it does any of the
+following:
+
+- violates an acceptance criterion
+- is a correctness, safety, or security defect
+- is a real internal contradiction in the artifact
+- would mislead a future reader or agent
+
+A defect is inconsequential only if it is none of those — a pure style or wording nit with no
+functional, correctness, or comprehension impact. The severity adjudicator must cite a basis for
+each classification.
+
+**Exit rule:** exit is authorized only when every remaining defect is inconsequential. The
+system never accepts work while a consequential defect remains.
+the author, implementer, and orchestrator never classify severity or authorize exit — that power
+belongs solely to the severity adjudicator.
+
+**Loop-continues path:** If any defect is consequential, the implementation agent fixes it, a
+fresh reviewer re-reviews, and the severity adjudicator is re-invoked. The loop continues
+until either a reviewer returns PASS or the severity adjudicator authorizes exit.
+
+**Impasse:** A consequential defect that survives the severity gate plus 3 further fix-and-re-review rounds
+is declared an impasse. The orchestrator tracks the post-gate round count and declares the impasse; the
+severity adjudicator only classifies severity per invocation and cannot track elapsed rounds. The segment
+halts and surfaces to the operator; a halt is not an acceptance — the work is not committed. This bound
+guarantees the loop terminates without ever self-exiting by accepting consequential work.

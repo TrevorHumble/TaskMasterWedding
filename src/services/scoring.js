@@ -60,17 +60,13 @@ const stmtCompletedCount = db.prepare(
 );
 
 // Read a guest's admin-set bonus points.
-const stmtBonusPoints = db.prepare(
-  'SELECT bonus_points FROM guests WHERE id = ?'
-);
+const stmtBonusPoints = db.prepare('SELECT bonus_points FROM guests WHERE id = ?');
 
 // Look up a badge row by its code (e.g. 'BLOOM', 'EARLYBIRD').
 const stmtBadgeByCode = db.prepare('SELECT * FROM badges WHERE code = ?');
 
 // Does this guest already hold this badge? (returns the guest_badges row or undefined)
-const stmtGuestBadge = db.prepare(
-  'SELECT * FROM guest_badges WHERE guest_id = ? AND badge_id = ?'
-);
+const stmtGuestBadge = db.prepare('SELECT * FROM guest_badges WHERE guest_id = ? AND badge_id = ?');
 
 // Grant a badge to a guest. UNIQUE(guest_id, badge_id) prevents duplicates;
 // "INSERT OR IGNORE" makes a repeat grant a harmless no-op.
@@ -79,9 +75,7 @@ const stmtGrantBadge = db.prepare(
 );
 
 // Remove a specific badge from a guest.
-const stmtRevokeBadge = db.prepare(
-  'DELETE FROM guest_badges WHERE guest_id = ? AND badge_id = ?'
-);
+const stmtRevokeBadge = db.prepare('DELETE FROM guest_badges WHERE guest_id = ? AND badge_id = ?');
 
 // Adjust a guest's bonus points by a delta (can be negative), clamped at 0.
 // MAX(0, ...) enforces the floor (see section 1a, Decision B): a deduction can

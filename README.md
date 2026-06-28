@@ -1,0 +1,84 @@
+# Garden Party Pastels — Wedding Scavenger Hunt
+
+A photo scavenger-hunt web app for the wedding of **Axel Fenwick & Lily Sckeiky**. Around 100 guests, each on their own phone, scan a per-guest QR code on their place-card, sign in with no password, and complete tasks by uploading photos. Each completed task earns a point, badges unlock automatically, and there is a public leaderboard and a shared photo gallery. A password-protected admin (the "Task Master") manages tasks, awards bonus points and special badges, hides photos, and exports everything at the end.
+
+It runs on a single Windows laptop for the wedding weekend and is made publicly reachable by a free Cloudflare quick tunnel. No paid services, nothing to install in the cloud.
+
+## What it does
+
+- **QR sign-in, no guest passwords.** Each guest has a unique link carrying a random token, printed as a QR code. Scanning it signs the guest in on that device.
+- **Photo tasks.** One photo per task per guest marks that task done and adds +1 point.
+- **Badges.** Three auto badges unlock at 5 / 10 / 15 completed tasks. Four special badges (EARLYBIRD, SHUTTERBUG, CROWDFAV, CHOICE) are awarded by the admin.
+- **Leaderboard + gallery.** A public ranking and one shared photo gallery with a lightbox.
+- **Profiles.** Avatar, name, badges, submissions, and optional social links. Guests can view each other's profiles.
+- **Admin panel.** Create guests and QR codes, manage tasks, award bonus points and special badges, take photos down and restore them, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
+
+## Quickstart
+
+Requires **Node.js 20+** on Windows (PowerShell). From the project root:
+
+```powershell
+npm install
+node scripts/set-admin-password.js   # sets the admin (Task Master) password
+node scripts/seed.js                  # creates tables, badges, and sample data
+npm start                             # starts the server on port 3000
+```
+
+Then open <http://localhost:3000>.
+
+- `node scripts/set-admin-password.js <password>` writes a bcrypt hash to `data/admin.hash`. Run it again any time to change the password; the old one stops working immediately. With no argument it uses the wedding default.
+- `node scripts/seed.js` creates the SQLite schema and seeds badges plus sample tasks/guests.
+- Copy `.env.example` to `.env` and set a fixed `COOKIE_SECRET` before the event. Without it the app generates a random secret on each boot and signs everyone out on every restart.
+
+## How it is used
+
+**Guests** scan their QR code, which opens `/j/:token` and signs them in (a signed `gsid` cookie). First sign-in goes through `/onboard` to set a name and avatar. From the home page they browse `/tasks`, open a task, upload a photo to complete it, and view `/gallery`, `/leaderboard`, and profiles at `/u/:guestId`.
+
+**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to guest creation and bulk create, the printable QR sheet at `/admin/qrsheet`, task CRUD, awarding points and badges, photo takedown, and `/admin/export`.
+
+## Going live (Cloudflare tunnel)
+
+Start the app, then point a free Cloudflare quick tunnel at it (no account needed):
+
+```powershell
+cloudflared tunnel --url http://localhost:3000
+```
+
+Cloudflare prints a public `https://<random>.trycloudflare.com` URL that forwards to the laptop. Share that URL (or print QR codes against it) so guests can reach the app from anywhere. The URL changes on each run.
+
+## Where things live
+
+```
+config.js                 Central config + tiny .env loader; paths, port, badge thresholds
+scripts/
+  set-admin-password.js   Hashes the admin password into data/admin.hash
+  seed.js                 Creates schema, seeds badges + sample tasks/guests
+src/
+  app.js                  Express bootstrap: middleware, static mounts, routers, handlers
+  db.js                   better-sqlite3 connection, schema, shared helpers
+  middleware/session.js   attachGuest, requireGuest, requireAdmin, one-shot flash
+  routes/
+    auth.js               /j/:token sign-in, /onboard, /admin/login, /admin/logout
+    guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /me/edit
+    community.js          /gallery, /leaderboard, /u/:guestId
+    admin.js              /admin dashboard, guests + bulk create, qrsheet, tasks, awards, takedown, export
+  services/
+    photos.js             multer disk storage, sharp thumbnails/avatars, takedown/delete
+    scoring.js            points, auto badges (5/10/15), special badges, leaderboard
+    export.js             ZIP of photos by guest + summary.xlsx
+    qr.js                 QR data URLs
+  views/                  EJS templates + partials
+  public/                 css, client js, badge SVGs
+data/                     Runtime state (gitignored): app.db, uploads/, thumbs/, exports/, admin.hash
+PLAN/                     Detailed build/implementation plan (00-README.md .. 10-theme-and-art.md)
+docs/architecture.md      Request-path and data-model diagrams + walkthroughs
+standards/                Checkable standards the orchestrator pipeline enforces
+```
+
+## Documentation
+
+- Detailed build plan: [`PLAN/00-README.md`](PLAN/00-README.md) and the numbered files through `10-theme-and-art.md`.
+- Architecture diagrams and walkthroughs: [`docs/architecture.md`](docs/architecture.md).
+- Design rationale and tradeoffs: [`DESIGN.md`](DESIGN.md).
+- Refactor roadmap: [`PLAN.md`](PLAN.md).
+- How to contribute through the orchestrator pipeline (issue → review → implement → review → PR): [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md).

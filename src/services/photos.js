@@ -218,7 +218,9 @@ const _setGuestAvatar = db.prepare('UPDATE guests SET avatar_path = ? WHERE id =
  */
 async function saveAvatar(buffer, guestId) {
   if (!buffer || !buffer.length) {
-    throw new Error('saveAvatar: empty buffer (onboarding must use multer memoryStorage for the avatar field).');
+    throw new Error(
+      'saveAvatar: empty buffer (onboarding must use multer memoryStorage for the avatar field).'
+    );
   }
   const name = randomFilename('.jpg'); // avatars are always normalized to .jpg
   const absAvatar = path.join(UPLOADS_DIR, name);

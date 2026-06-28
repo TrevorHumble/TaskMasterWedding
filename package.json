@@ -11,7 +11,14 @@
     "start": "node src/app.js",
     "dev": "node src/app.js",
     "seed": "node scripts/seed.js",
-    "set-admin": "node scripts/set-admin-password.js"
+    "set-admin": "node scripts/set-admin-password.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "express": "4.21.2",
@@ -24,5 +31,15 @@
     "cookie-parser": "1.4.7",
     "archiver": "7.0.1",
     "exceljs": "4.4.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@vitest/coverage-v8": "^2.1.4",
+    "eslint": "^9.13.0",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^15.11.0",
+    "prettier": "^3.3.3",
+    "supertest": "^7.0.0",
+    "vitest": "^2.1.4"
   }
 }

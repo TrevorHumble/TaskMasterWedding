@@ -1,0 +1,4 @@
+# Shell hooks and scripts MUST stay LF, or autocrlf (on here) corrupts the
+# shebang/line-endings and the pre-commit gate silently fails to run.
+.githooks/** text eol=lf
+*.sh text eol=lf

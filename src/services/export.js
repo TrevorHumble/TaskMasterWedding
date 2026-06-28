@@ -25,11 +25,11 @@ const AUTO_THRESHOLDS = [5, 10, 15];
  *  - falls back to a default if the result is empty
  */
 function safeName(input, fallback) {
-  const raw = (input == null ? '' : String(input));
+  const raw = input == null ? '' : String(input);
   let cleaned = raw
     .replace(/[^A-Za-z0-9 _.-]+/g, '-') // disallowed chars -> dash
-    .replace(/[\s-]+/g, '-')            // collapse spaces/dashes
-    .replace(/^[.\-]+|[.\-]+$/g, '');   // trim leading/trailing dot or dash
+    .replace(/[\s-]+/g, '-') // collapse spaces/dashes
+    .replace(/^[.\-]+|[.\-]+$/g, ''); // trim leading/trailing dot or dash
   if (!cleaned) cleaned = fallback;
   // Keep names short enough to avoid Windows path-length problems.
   if (cleaned.length > 60) cleaned = cleaned.slice(0, 60);
@@ -71,9 +71,7 @@ async function buildSummaryBuffer() {
     .prepare('SELECT id, name, bonus_points, social_links, created_at FROM guests ORDER BY id')
     .all();
 
-  const tasks = db
-    .prepare('SELECT id, title, sort_order FROM tasks ORDER BY sort_order, id')
-    .all();
+  const tasks = db.prepare('SELECT id, title, sort_order FROM tasks ORDER BY sort_order, id').all();
   const taskById = new Map(tasks.map((t) => [t.id, t]));
 
   const submissions = db
@@ -88,9 +86,7 @@ async function buildSummaryBuffer() {
     .all();
   const badgeById = new Map(badges.map((b) => [b.id, b]));
 
-  const guestBadges = db
-    .prepare('SELECT guest_id, badge_id, awarded_by FROM guest_badges')
-    .all();
+  const guestBadges = db.prepare('SELECT guest_id, badge_id, awarded_by FROM guest_badges').all();
 
   // ---- Pre-compute per-guest aggregates -----------------------------------
 
@@ -257,9 +253,7 @@ async function streamExportZip(res) {
   // 2) Add every guest's original photos into a per-guest folder.
   const guests = db.prepare('SELECT id, name FROM guests ORDER BY id').all();
 
-  const tasks = db
-    .prepare('SELECT id, title, sort_order FROM tasks ORDER BY sort_order, id')
-    .all();
+  const tasks = db.prepare('SELECT id, title, sort_order FROM tasks ORDER BY sort_order, id').all();
   const taskById = new Map(tasks.map((t) => [t.id, t]));
 
   // Pull ALL submissions (taken-down included) grouped by guest.
