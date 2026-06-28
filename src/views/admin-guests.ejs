@@ -2,8 +2,7 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-<main class="container admin">
-  <h1 class="display">Guests</h1>
+  <h1 class="display-title">Guests</h1>
 
   <% if (msg) { %>
     <p class="flash"><%= msg %></p>
@@ -103,7 +102,6 @@
       <% } %>
     </tbody>
   </table>
-</main>
 
 <script src="/js/admin.js" defer></script>
 <%- include('partials/footer') %>

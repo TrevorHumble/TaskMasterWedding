@@ -194,20 +194,23 @@ function unknownLinkPage() {
 <title>Link not recognized</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600&family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=EB+Garamond:wght@400;600&display=swap" rel="stylesheet">
 <style>
   body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-       background:#fff8f0;color:#5b5552;font-family:'Quicksand',sans-serif;padding:24px;}
-  .card{background:#ffffff;border:1px solid #f3e3df;border-radius:18px;max-width:380px;
-        width:100%;padding:28px 24px;text-align:center;box-shadow:0 8px 24px rgba(214,180,180,.18);}
-  h1{font-family:'Dancing Script',cursive;color:#e7a6b6;font-size:2rem;margin:.2em 0 .4em;}
-  p{line-height:1.5;margin:.5em 0;}
+       background:#ffffff;color:#467058;font-family:'EB Garamond',Georgia,serif;padding:24px;}
+  .card{background:#f0f4f2;border:1px solid #aebbb2;border-radius:14px;max-width:380px;
+        width:100%;padding:32px 24px;text-align:center;}
+  .heart{fill:#467058;display:inline-block;margin-bottom:12px;}
+  h1{font-family:'Cormorant Garamond',Georgia,serif;color:#467058;font-size:1.9rem;font-weight:600;
+     letter-spacing:0.03em;margin:.2em 0 .4em;}
+  p{line-height:1.6;margin:.5em 0;color:#6e8478;font-size:1.05rem;}
 </style>
 </head>
 <body>
   <div class="card">
-    <h1>Hmm, that link didn't work</h1>
-    <p>We couldn't find that private link. Double-check you scanned the QR code on your own place-card, or ask Axel &amp; Lily for help.</p>
+    <svg class="heart" viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/></svg>
+    <h1>Link Not Recognized</h1>
+    <p>We could not find that private link. Double-check you scanned the QR code on your own place-card, or ask Lilly &amp; Axel for help.</p>
   </div>
 </body>
 </html>`;

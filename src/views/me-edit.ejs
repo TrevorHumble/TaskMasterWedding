@@ -2,21 +2,12 @@
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
 
-<main class="page page-me-edit">
-
-  <% if (typeof flash !== 'undefined' && flash) { %>
-    <div class="flash flash-<%= flash.type %>"><%= flash.msg %></div>
-  <% } else if (typeof locals.flash !== 'undefined' && locals.flash) { %>
-    <div class="flash flash-<%= locals.flash.type %>"><%= locals.flash.msg %></div>
-  <% } %>
-
-  <p class="back-link"><a href="/">← Back to my garden</a></p>
+  <p class="back-link"><a href="/">&#8592; Back to my profile</a></p>
   <h1 class="page-title">Edit My Profile</h1>
 
   <form action="/me/edit"
         method="POST"
-        enctype="multipart/form-data"
-        class="edit-form">
+        enctype="multipart/form-data">
 
     <div class="form-row">
       <label for="name" class="form-label">Display name</label>
@@ -34,7 +25,9 @@
         <% if (guest.avatar_path) { %>
           <img src="/uploads/<%= guest.avatar_path %>" alt="Your current avatar" class="avatar-img" />
         <% } else { %>
-          <div class="avatar-placeholder" aria-hidden="true">🌸</div>
+          <div class="avatar-placeholder" aria-hidden="true">
+            <%= (guest.name || '?').trim().charAt(0).toUpperCase() || '?' %>
+          </div>
         <% } %>
       </div>
     </div>
@@ -89,12 +82,10 @@
       </div>
     </fieldset>
 
-    <button type="submit" class="btn btn-primary">Save profile</button>
+    <button type="submit" class="btn btn-block">Save profile</button>
   </form>
 
   <!-- Direct include of the preview script (see section intro note). -->
   <script src="/js/upload.js" defer></script>
-
-</main>
 
 <%- include('partials/footer') %>

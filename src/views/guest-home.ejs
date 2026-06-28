@@ -2,51 +2,42 @@
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
 
-<main class="page page-home">
-
-  <% if (typeof flash !== 'undefined' && flash) { %>
-    <div class="flash flash-<%= flash.type %>"><%= flash.msg %></div>
-  <% } else if (typeof locals.flash !== 'undefined' && locals.flash) { %>
-    <div class="flash flash-<%= locals.flash.type %>"><%= locals.flash.msg %></div>
-  <% } %>
-
   <section class="profile-card">
-    <div class="profile-avatar">
+    <div class="profile-avatar-wrap">
       <% if (guest.avatar_path) { %>
         <img src="/uploads/<%= guest.avatar_path %>" alt="Your avatar" class="avatar-img" />
       <% } else { %>
-        <div class="avatar-placeholder" aria-hidden="true">🌸</div>
+        <div class="avatar-circle">
+          <%= (guest.name || '?').trim().charAt(0).toUpperCase() || '?' %>
+        </div>
       <% } %>
     </div>
-    <div class="profile-meta">
-      <h1 class="profile-name"><%= guest.name && guest.name.length ? guest.name : 'Welcome!' %></h1>
+    <div class="profile-info">
+      <h1 class="profile-name-home"><%= guest.name && guest.name.length ? guest.name : 'Welcome!' %></h1>
       <p class="profile-points"><strong><%= points %></strong> point<%= points === 1 ? '' : 's' %></p>
-      <p class="profile-progress-text">
-        <%= completedTasks %> of <%= totalTasks %> task<%= totalTasks === 1 ? '' : 's' %> complete
-      </p>
-      <p><a class="btn btn-secondary" href="/me/edit">Edit my profile</a></p>
+      <p class="back-link"><a href="/me/edit">Edit profile</a></p>
     </div>
   </section>
 
   <section class="progress-section">
-    <% if (nextThreshold === null) { %>
-      <p class="progress-label">You've earned every auto badge — full garden! 🌷</p>
-    <% } else { %>
-      <p class="progress-label">
-        <%= remainingToNext %> more task<%= remainingToNext === 1 ? '' : 's' %>
-        to your next badge (at <%= nextThreshold %> tasks)
-      </p>
-    <% } %>
-    <div class="progress-bar" role="progressbar"
+    <p class="progress-label">
+      <% if (nextThreshold === null) { %>
+        You have earned every auto badge.
+      <% } else { %>
+        <%= remainingToNext %> more task<%= remainingToNext === 1 ? '' : 's' %> to your next badge (at <%= nextThreshold %> tasks)
+      <% } %>
+    </p>
+    <div class="progress" role="progressbar"
          aria-valuenow="<%= progressPercent %>" aria-valuemin="0" aria-valuemax="100">
-      <div class="progress-bar-fill" style="width: <%= progressPercent %>%;"></div>
+      <div class="progress-fill" style="width: <%= progressPercent %>%;"></div>
     </div>
+    <p class="progress-caption"><%= completedTasks %> of <%= totalTasks %> task<%= totalTasks === 1 ? '' : 's' %> complete</p>
   </section>
 
   <section class="badges-section">
     <h2 class="section-title">My Badges</h2>
     <% if (badges.length === 0) { %>
-      <p class="muted">No badges yet — complete tasks to earn your first bloom!</p>
+      <p class="muted">No badges yet — complete tasks to earn your first.</p>
     <% } else { %>
       <ul class="badge-grid">
         <% badges.forEach(function (b) { %>
@@ -62,7 +53,7 @@
   <section class="my-photos-section">
     <h2 class="section-title">My Photos</h2>
     <% if (submissions.length === 0) { %>
-      <p class="muted">You haven't uploaded any photos yet. <a href="/tasks">See the tasks →</a></p>
+      <p class="muted">No photos yet. <a href="/tasks">See the tasks</a></p>
     <% } else { %>
       <ul class="photo-grid">
         <% submissions.forEach(function (s) { %>
@@ -78,11 +69,9 @@
   </section>
 
   <section class="home-nav">
-    <a class="btn btn-primary" href="/tasks">View all tasks</a>
-    <a class="btn btn-secondary" href="/gallery">Shared gallery</a>
-    <a class="btn btn-secondary" href="/leaderboard">Leaderboard</a>
+    <a class="btn btn-block" href="/tasks">View all tasks</a>
+    <a class="btn btn-secondary btn-block" href="/gallery">Shared gallery</a>
+    <a class="btn btn-secondary btn-block" href="/leaderboard">Leaderboard</a>
   </section>
-
-</main>
 
 <%- include('partials/footer') %>

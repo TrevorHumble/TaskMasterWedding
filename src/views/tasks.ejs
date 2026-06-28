@@ -2,14 +2,6 @@
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
 
-<main class="page page-tasks">
-
-  <% if (typeof flash !== 'undefined' && flash) { %>
-    <div class="flash flash-<%= flash.type %>"><%= flash.msg %></div>
-  <% } else if (typeof locals.flash !== 'undefined' && locals.flash) { %>
-    <div class="flash flash-<%= locals.flash.type %>"><%= locals.flash.msg %></div>
-  <% } %>
-
   <h1 class="page-title">Tasks</h1>
   <p class="muted"><%= doneCount %> of <%= totalCount %> complete</p>
 
@@ -24,7 +16,7 @@
               <% if (t.done && t.thumb_path) { %>
                 <img src="/thumbs/<%= t.thumb_path %>" alt="" class="task-thumb" />
               <% } else { %>
-                <span class="task-thumb-empty" aria-hidden="true">📷</span>
+                <span class="task-thumb-empty" aria-hidden="true">&#9744;</span>
               <% } %>
             </span>
             <span class="task-body">
@@ -35,7 +27,7 @@
             </span>
             <span class="task-state">
               <% if (t.done) { %>
-                <span class="badge-done" aria-label="Completed">✓ Done</span>
+                <span class="badge-done" aria-label="Completed">Done</span>
               <% } else { %>
                 <span class="badge-todo" aria-label="Not done">To do</span>
               <% } %>
@@ -46,8 +38,6 @@
     </ul>
   <% } %>
 
-  <p class="back-link"><a href="/">← Back to my garden</a></p>
-
-</main>
+  <p class="back-link"><a href="/">&#8592; Back to my profile</a></p>
 
 <%- include('partials/footer') %>

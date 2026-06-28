@@ -12,3 +12,4 @@ PLAN/
 *.svg
 *.ps1
 .githooks/
+docs/design-system/Examples/
