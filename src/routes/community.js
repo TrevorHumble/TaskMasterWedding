@@ -142,6 +142,7 @@ router.get('/gallery', (req, res) => {
 
   res.render('gallery', {
     title: 'Gallery',
+    pageScript: 'gallery.js',
     photos,
     page,
     totalPages,
@@ -234,6 +235,7 @@ router.get('/u/:guestId', (req, res, next) => {
 
   res.render('public-profile', {
     title: profileGuest.name || 'Guest',
+    pageScript: 'gallery.js',
     profileGuest,
     badges,
     socialLinks,

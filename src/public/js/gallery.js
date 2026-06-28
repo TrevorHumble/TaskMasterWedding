@@ -3,49 +3,7 @@
   'use strict';
 
   // -----------------------------------------------------------------------
-  // 1) LAZY-LOADING THUMBNAILS
-  // -----------------------------------------------------------------------
-  function loadImage(img) {
-    var src = img.getAttribute('data-src');
-    if (src) {
-      img.src = src;
-      img.removeAttribute('data-src');
-    }
-  }
-
-  function initLazyLoad() {
-    var lazyImages = document.querySelectorAll('img.js-lazy[data-src]');
-    if (lazyImages.length === 0) {
-      return;
-    }
-
-    // No IntersectionObserver support -> just load them all now.
-    if (typeof window.IntersectionObserver !== 'function') {
-      for (var i = 0; i < lazyImages.length; i++) {
-        loadImage(lazyImages[i]);
-      }
-      return;
-    }
-
-    var observer = new IntersectionObserver(
-      function (entries, obs) {
-        entries.forEach(function (entry) {
-          if (entry.isIntersecting) {
-            loadImage(entry.target);
-            obs.unobserve(entry.target);
-          }
-        });
-      },
-      { rootMargin: '200px 0px', threshold: 0.01 }
-    );
-
-    lazyImages.forEach(function (img) {
-      observer.observe(img);
-    });
-  }
-
-  // -----------------------------------------------------------------------
-  // 2) LIGHTBOX (click-to-enlarge)
+  // LIGHTBOX (click-to-enlarge)
   // -----------------------------------------------------------------------
   function initLightbox() {
     var lightbox = document.getElementById('lightbox');
@@ -66,6 +24,7 @@
       lightboxImg.alt = caption || '';
       lightboxCaption.textContent = caption || '';
       lightbox.hidden = false;
+      lightbox.classList.add('open');
       document.body.classList.add('lightbox-open');
       if (closeBtn) {
         closeBtn.focus();
@@ -74,6 +33,7 @@
 
     function closeLightbox() {
       lightbox.hidden = true;
+      lightbox.classList.remove('open');
       lightboxImg.src = '';
       lightboxImg.alt = '';
       lightboxCaption.textContent = '';
@@ -109,7 +69,7 @@
 
     // Close on Escape.
     document.addEventListener('keydown', function (e) {
-      if (!lightbox.hidden && (e.key === 'Escape' || e.key === 'Esc')) {
+      if (lightbox.classList.contains('open') && (e.key === 'Escape' || e.key === 'Esc')) {
         closeLightbox();
       }
     });
@@ -119,7 +79,6 @@
   // BOOTSTRAP
   // -----------------------------------------------------------------------
   function init() {
-    initLazyLoad();
     initLightbox();
   }
 
