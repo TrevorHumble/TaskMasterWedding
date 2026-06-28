@@ -1,0 +1,65 @@
+#!/bin/sh
+# pre-commit: the commit gate. Git-native on purpose -- it runs at true commit
+# time against the real index, so it covers `git commit -a`, pathspecs, and amend
+# content that a command-text check would miss, and it cannot be regex-bypassed or
+# wrongly fire on a `grep "git commit"`. Blocks unless a review verdict bound to
+# the EXACT to-be-committed tree says PASS. Fails CLOSED.
+#
+# Commit identity = `git write-tree` (the oid of the staged index = the commit's
+# tree). tools/review_verdict.ps1 records the same key. Pure git plumbing, so the
+# two sides cannot drift (there is no custom hash scheme to keep in sync).
+#
+# Guarantee (scoped honestly): on a working copy where this hook is active
+# (core.hooksPath -> .githooks; assert with tools/check-gate.ps1) and not bypassed
+# with `git commit --no-verify`, no absent / stale / mismatched verdict and no
+# unreviewed staged content can reach a commit. It does NOT stop: a deliberately
+# forged verdict (same actor can write one), `--no-verify`, or an unconfigured
+# clone. Closing those is the program-driven loop (P2), where the verdict comes
+# from a reviewer agent call in control flow, not a hand -- plus the CI integrity
+# check and the run-start activation assertion. See DESIGN.md "Commit gate".
+set -e
+
+root="$(git rev-parse --show-toplevel)"
+vf="$root/.review_state/verdict.json"
+
+# Fail CLOSED if we cannot compute the tree (e.g. unmerged index): never let an
+# empty tree_now collide with an empty/corrupt verdict tree and fall through.
+tree_now="$(git write-tree)" || tree_now=""
+if [ -z "$tree_now" ]; then
+  echo "commit-gate (BLOCKED): git write-tree failed (unmerged index?). Failing closed." >&2
+  exit 1
+fi
+
+if [ ! -f "$vf" ]; then
+  echo "commit-gate (BLOCKED): no review verdict exists for this commit." >&2
+  echo "  Spawn the adversarial review; on PASS record it, then commit:" >&2
+  echo "    powershell -File tools/review_verdict.ps1 -Verdict PASS -Reviewers \"reviewer-pr,reviewer-design-philosophy\"" >&2
+  exit 1
+fi
+
+# verdict.json MUST stay single-line compressed JSON (review_verdict.ps1 writes it
+# that way); this parses it with sed, not a JSON parser. Keys are read by name, so
+# order is irrelevant; any failure to extract leaves the var empty -> fail closed.
+verdict="$(sed -n 's/.*"verdict"[ ]*:[ ]*"\([A-Z]*\)".*/\1/p' "$vf")"
+vtree="$(sed -n 's/.*"tree_oid"[ ]*:[ ]*"\([0-9a-f]*\)".*/\1/p' "$vf")"
+
+if [ -z "$vtree" ]; then
+  echo "commit-gate (BLOCKED): verdict file has no valid tree_oid (corrupt or edited?). Failing closed." >&2
+  exit 1
+fi
+
+if [ "$verdict" != "PASS" ]; then
+  echo "commit-gate (BLOCKED): recorded verdict is '${verdict:-none}', not PASS." >&2
+  echo "  A FAIL is fixed, never overridden. Fix the findings and re-review." >&2
+  exit 1
+fi
+
+if [ "$vtree" != "$tree_now" ]; then
+  echo "commit-gate (BLOCKED): the staged tree does not match what was reviewed." >&2
+  echo "  reviewed=$vtree  now=$tree_now" >&2
+  echo "  The verdict authorizes only the exact reviewed content (this also catches" >&2
+  echo "  'git commit -a' and late-staged changes). Re-review the staged tree, then re-record." >&2
+  exit 1
+fi
+
+exit 0

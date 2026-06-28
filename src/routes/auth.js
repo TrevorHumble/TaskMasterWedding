@@ -23,14 +23,14 @@ const COOKIE_OPTS = {
   secure: false,
   signed: true,
   maxAge: COOKIE_MAX_AGE_MS,
-  path: '/'
+  path: '/',
 };
 
 // Avatar upload: keep the file in memory so the photos service (section 05)
 // can process the buffer; only one file, field name "avatar".
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: config.MAX_UPLOAD_BYTES, files: 1 }
+  limits: { fileSize: config.MAX_UPLOAD_BYTES, files: 1 },
 });
 
 /**
@@ -103,7 +103,7 @@ router.get('/onboard', requireGuest, (req, res) => {
   res.render('onboard', {
     title: 'Welcome',
     error: null,
-    guest: req.guest
+    guest: req.guest,
   });
 });
 
@@ -115,7 +115,7 @@ router.post('/onboard', requireGuest, upload.single('avatar'), async (req, res) 
     res.status(400).render('onboard', {
       title: 'Welcome',
       error: 'Please tell us your name so it can appear on the leaderboard.',
-      guest: req.guest
+      guest: req.guest,
     });
     return;
   }
@@ -124,11 +124,15 @@ router.post('/onboard', requireGuest, upload.single('avatar'), async (req, res) 
   const avatarPath = await trySaveAvatar(req.file, req.guest.id); // null if no file / service
 
   if (avatarPath) {
-    db.prepare('UPDATE guests SET name = ?, social_links = ?, avatar_path = ?, onboarded = 1 WHERE id = ?')
-      .run(name, socialLinks, avatarPath, req.guest.id);
+    db.prepare(
+      'UPDATE guests SET name = ?, social_links = ?, avatar_path = ?, onboarded = 1 WHERE id = ?'
+    ).run(name, socialLinks, avatarPath, req.guest.id);
   } else {
-    db.prepare('UPDATE guests SET name = ?, social_links = ?, onboarded = 1 WHERE id = ?')
-      .run(name, socialLinks, req.guest.id);
+    db.prepare('UPDATE guests SET name = ?, social_links = ?, onboarded = 1 WHERE id = ?').run(
+      name,
+      socialLinks,
+      req.guest.id
+    );
   }
 
   res.redirect('/');
@@ -153,7 +157,8 @@ router.post('/admin/login', (req, res) => {
   } catch (err) {
     res.status(500).render('admin-login', {
       title: 'Admin Login',
-      error: 'Admin password is not set up yet. Run: node scripts/set-admin-password.js ButtMonster'
+      error:
+        'Admin password is not set up yet. Run: node scripts/set-admin-password.js ButtMonster',
     });
     return;
   }
@@ -162,7 +167,7 @@ router.post('/admin/login', (req, res) => {
   if (!ok) {
     res.status(401).render('admin-login', {
       title: 'Admin Login',
-      error: 'Incorrect password. Please try again.'
+      error: 'Incorrect password. Please try again.',
     });
     return;
   }

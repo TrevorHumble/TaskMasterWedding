@@ -1,0 +1,14 @@
+# Generated / vendored / runtime
+node_modules/
+data/
+coverage/
+package-lock.json
+
+# Planning docs are kept verbatim
+PLAN/
+
+# Prettier does not safely format these
+*.ejs
+*.svg
+*.ps1
+.githooks/

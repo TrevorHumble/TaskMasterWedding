@@ -39,7 +39,7 @@ function parseSocialLinks(raw) {
     tiktok: 'TikTok',
     linkedin: 'LinkedIn',
     website: 'Website',
-    email: 'Email'
+    email: 'Email',
   };
 
   const out = [];
@@ -79,7 +79,7 @@ function parseSocialLinks(raw) {
       key,
       label: labels[key] || key,
       href,
-      display: trimmed
+      display: trimmed,
     });
   }
   return out;
@@ -106,9 +106,7 @@ function loadGuestBadges(guestId) {
 // ---------------------------------------------------------------------------
 router.get('/gallery', (req, res) => {
   // Total number of visible photos, used to compute pagination.
-  const totalRow = db
-    .prepare(`SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 0`)
-    .get();
+  const totalRow = db.prepare(`SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 0`).get();
   const total = totalRow ? totalRow.n : 0;
 
   // Current page (1-based). Defaults to 1 if missing or invalid.
@@ -147,7 +145,7 @@ router.get('/gallery', (req, res) => {
     photos,
     page,
     totalPages,
-    total
+    total,
   });
 });
 
@@ -180,13 +178,13 @@ router.get('/leaderboard', (req, res) => {
       avatar_path: row.avatar_path,
       points: row.points,
       completed_count: row.completed,
-      badges: loadGuestBadges(row.id)
+      badges: loadGuestBadges(row.id),
     };
   });
 
   res.render('leaderboard', {
     title: 'Leaderboard',
-    rows: ranked
+    rows: ranked,
   });
 });
 
@@ -240,7 +238,7 @@ router.get('/u/:guestId', (req, res, next) => {
     badges,
     socialLinks,
     photos,
-    score
+    score,
   });
 });
 

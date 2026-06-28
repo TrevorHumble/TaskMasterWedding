@@ -63,7 +63,7 @@ const BADGES = [
     type: 'special',
     threshold: null,
     art_path: '/badges/choice.svg',
-    description: "Awarded by the Task Master as their personal pick.",
+    description: 'Awarded by the Task Master as their personal pick.',
   },
 ];
 

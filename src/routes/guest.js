@@ -30,9 +30,11 @@ const scoring = require('../services/scoring');
 // Numeric auto-badge thresholds derived from the {code,n} catalog.
 // e.g. BADGE_THRESHOLDS = [{code:'BLOOM',n:5},{code:'BOUQUET',n:10},{code:'GARDEN',n:15}]
 // -> AUTO_THRESHOLDS = [5, 10, 15]
-const AUTO_THRESHOLDS = scoring.BADGE_THRESHOLDS
-  .map(function (t) { return t.n; })
-  .sort(function (a, b) { return a - b; });
+const AUTO_THRESHOLDS = scoring.BADGE_THRESHOLDS.map(function (t) {
+  return t.n;
+}).sort(function (a, b) {
+  return a - b;
+});
 
 // ---------------------------------------------------------------------------
 // Small local helper: set a one-shot flash message.
@@ -43,18 +45,14 @@ const AUTO_THRESHOLDS = scoring.BADGE_THRESHOLDS
 // ---------------------------------------------------------------------------
 function setFlash(res, kind, text) {
   const type = kind === 'success' ? 'ok' : 'err';
-  res.cookie(
-    'flash',
-    JSON.stringify({ type: type, msg: text }),
-    {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: false,
-      signed: true,
-      path: '/',
-      maxAge: 30 * 1000, // 30 seconds is plenty to survive one redirect
-    }
-  );
+  res.cookie('flash', JSON.stringify({ type: type, msg: text }), {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: false,
+    signed: true,
+    path: '/',
+    maxAge: 30 * 1000, // 30 seconds is plenty to survive one redirect
+  });
 }
 
 // Every route in this router requires a signed-in guest.
@@ -69,9 +67,7 @@ router.get('/', function (req, res) {
   const guest = res.locals.guest;
 
   // Total active tasks (guests only ever see active tasks).
-  const totalActiveRow = db
-    .prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1')
-    .get();
+  const totalActiveRow = db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get();
   const totalTasks = totalActiveRow.n;
 
   // Completed tasks for this guest = visible submissions (taken_down = 0) with
@@ -172,7 +168,9 @@ router.get('/tasks', function (req, res) {
     )
     .all(guest.id);
 
-  const doneCount = tasks.filter(function (t) { return t.done === 1; }).length;
+  const doneCount = tasks.filter(function (t) {
+    return t.done === 1;
+  }).length;
 
   res.render('tasks', {
     title: 'Tasks',
@@ -243,9 +241,7 @@ router.post('/tasks/:id/submit', function (req, res) {
     }
 
     // Task must exist and be active.
-    const task = db
-      .prepare('SELECT id, is_active FROM tasks WHERE id = ?')
-      .get(taskId);
+    const task = db.prepare('SELECT id, is_active FROM tasks WHERE id = ?').get(taskId);
     if (!task || task.is_active !== 1) {
       return res.status(404).render('404', { title: 'Not found' });
     }
@@ -277,7 +273,11 @@ router.post('/tasks/:id/submit', function (req, res) {
       thumbPath = await photos.makeThumb(req.file.path); // makeThumb is async
     } catch (e) {
       // Clean up the orphaned original we just wrote, then bail.
-      try { photos.deleteOriginalFile(photoPath); } catch (e2) { /* non-fatal */ }
+      try {
+        photos.deleteOriginalFile(photoPath);
+      } catch (e2) {
+        /* non-fatal */
+      }
       setFlash(res, 'error', 'Sorry, we could not save that photo. Please try again.');
       return res.redirect('/tasks/' + taskId);
     }
@@ -427,12 +427,20 @@ router.post('/me/edit', function (req, res) {
         const buf = fs.readFileSync(req.file.path);
         savedAvatar = await photos.saveAvatar(buf, guest.id); // stored filename
       } catch (e) {
-        try { fs.unlinkSync(req.file.path); } catch (e2) { /* non-fatal */ }
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (e2) {
+          /* non-fatal */
+        }
         setFlash(res, 'error', 'Sorry, we could not save that avatar. Please try again.');
         return res.redirect('/me/edit');
       }
       // Drop the raw multer upload now that saveAvatar made its own copy.
-      try { fs.unlinkSync(req.file.path); } catch (e2) { /* non-fatal */ }
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e2) {
+        /* non-fatal */
+      }
 
       const oldAvatar = guest.avatar_path;
       newAvatarPath = savedAvatar;
@@ -448,9 +456,12 @@ router.post('/me/edit', function (req, res) {
       }
     }
 
-    db.prepare(
-      'UPDATE guests SET name = ?, avatar_path = ?, social_links = ? WHERE id = ?'
-    ).run(name, newAvatarPath, socialJson, guest.id);
+    db.prepare('UPDATE guests SET name = ?, avatar_path = ?, social_links = ? WHERE id = ?').run(
+      name,
+      newAvatarPath,
+      socialJson,
+      guest.id
+    );
 
     setFlash(res, 'success', 'Profile updated!');
     return res.redirect('/');

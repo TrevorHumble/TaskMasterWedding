@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Server-side backstop for the local commit gate: the gate file must exist,
+  # be LF-protected (autocrlf would corrupt the shebang), and start with a sh shebang.
+  commit-gate-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Commit-gate integrity
+        run: |
+          test -f .githooks/pre-commit || { echo "commit gate missing: .githooks/pre-commit"; exit 1; }
+          git check-attr text eol -- .githooks/pre-commit | grep -q 'eol: lf' \
+            || { echo "commit gate not LF-protected (autocrlf could corrupt it)"; exit 1; }
+          head -1 .githooks/pre-commit | grep -q '^#!/bin/sh' \
+            || { echo "commit gate shebang corrupt"; exit 1; }
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: ESLint
+        run: npm run lint
+      - name: Prettier (check)
+        run: npm run format:check
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Tests + coverage
+        run: npm run test:coverage
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: warn

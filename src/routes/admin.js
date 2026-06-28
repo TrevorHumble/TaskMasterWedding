@@ -99,9 +99,7 @@ function completedCount(guestId) {
     return scoring.completedCount(guestId);
   }
   const row = db
-    .prepare(
-      'SELECT COUNT(*) AS n FROM submissions WHERE guest_id = ? AND taken_down = 0'
-    )
+    .prepare('SELECT COUNT(*) AS n FROM submissions WHERE guest_id = ? AND taken_down = 0')
     .get(guestId);
   return row.n || 0;
 }
@@ -113,19 +111,11 @@ router.get('/', (req, res) => {
   const counts = {
     guests: db.prepare('SELECT COUNT(*) AS n FROM guests').get().n,
     tasks: db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n,
-    activeTasks: db
-      .prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1')
-      .get().n,
+    activeTasks: db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get().n,
     submissions: db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
-    livePhotos: db
-      .prepare('SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 0')
-      .get().n,
-    takenDown: db
-      .prepare('SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 1')
-      .get().n,
-    badgesAwarded: db
-      .prepare('SELECT COUNT(*) AS n FROM guest_badges')
-      .get().n,
+    livePhotos: db.prepare('SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 0').get().n,
+    takenDown: db.prepare('SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 1').get().n,
+    badgesAwarded: db.prepare('SELECT COUNT(*) AS n FROM guest_badges').get().n,
   };
 
   res.render('admin-dashboard', {
@@ -140,9 +130,7 @@ router.get('/', (req, res) => {
 // GET /admin/guests  — table of guests + add form + bulk form
 // ---------------------------------------------------------------------------
 router.get('/guests', (req, res) => {
-  const guests = db
-    .prepare('SELECT * FROM guests ORDER BY created_at ASC, id ASC')
-    .all();
+  const guests = db.prepare('SELECT * FROM guests ORDER BY created_at ASC, id ASC').all();
 
   // List of special badges so the per-guest award control can offer them.
   const specialBadges = db
@@ -232,9 +220,7 @@ router.post('/guests/:id/delete', (req, res) => {
   }
 
   // Collect this guest's submissions so we can remove their files from disk.
-  const subs = db
-    .prepare('SELECT id FROM submissions WHERE guest_id = ?')
-    .all(id);
+  const subs = db.prepare('SELECT id FROM submissions WHERE guest_id = ?').all(id);
   for (const sub of subs) {
     try {
       // Removes the original photo file AND its thumbnail from disk (section 05).
@@ -287,9 +273,7 @@ router.post('/guests/:id/badge', (req, res) => {
   if (!guest) {
     return redirectWithMsg(res, '/admin/guests', 'Guest not found.');
   }
-  const badge = db
-    .prepare("SELECT * FROM badges WHERE code = ? AND type = 'special'")
-    .get(code);
+  const badge = db.prepare("SELECT * FROM badges WHERE code = ? AND type = 'special'").get(code);
   if (!badge) {
     return redirectWithMsg(res, '/admin/guests', 'Unknown special badge.');
   }
@@ -308,9 +292,7 @@ router.post('/guests/:id/badge', (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/qrsheet', async (req, res, next) => {
   try {
-    const guests = db
-      .prepare('SELECT * FROM guests ORDER BY name ASC, id ASC')
-      .all();
+    const guests = db.prepare('SELECT * FROM guests ORDER BY name ASC, id ASC').all();
 
     const base = config.BASE_URL.replace(/\/+$/, '');
     const cards = [];
@@ -341,9 +323,7 @@ router.get('/qrsheet', async (req, res, next) => {
 // GET /admin/tasks  — list + add form
 // ---------------------------------------------------------------------------
 router.get('/tasks', (req, res) => {
-  const tasks = db
-    .prepare('SELECT * FROM tasks ORDER BY sort_order ASC, id ASC')
-    .all();
+  const tasks = db.prepare('SELECT * FROM tasks ORDER BY sort_order ASC, id ASC').all();
 
   // Attach how many live submissions each task has (informational).
   const subStmt = db.prepare(
@@ -467,14 +447,8 @@ router.post('/tasks/reorder', (req, res) => {
 
   // Swap the two sort_order values inside a transaction.
   const swap = db.transaction(() => {
-    db.prepare('UPDATE tasks SET sort_order = ? WHERE id = ?').run(
-      neighbor.sort_order,
-      task.id
-    );
-    db.prepare('UPDATE tasks SET sort_order = ? WHERE id = ?').run(
-      task.sort_order,
-      neighbor.id
-    );
+    db.prepare('UPDATE tasks SET sort_order = ? WHERE id = ?').run(neighbor.sort_order, task.id);
+    db.prepare('UPDATE tasks SET sort_order = ? WHERE id = ?').run(task.sort_order, neighbor.id);
   });
   swap();
   redirectWithMsg(res, '/admin/tasks', 'Task moved.');
@@ -514,9 +488,7 @@ router.get('/photos', (req, res) => {
 // auto-badges (a hidden photo no longer counts toward points or auto-badges).
 router.post('/photos/:id/takedown', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const sub = db
-    .prepare('SELECT id, guest_id FROM submissions WHERE id = ?')
-    .get(id);
+  const sub = db.prepare('SELECT id, guest_id FROM submissions WHERE id = ?').get(id);
   if (!sub) {
     return redirectWithMsg(res, '/admin/photos', 'Submission not found.');
   }
@@ -528,9 +500,7 @@ router.post('/photos/:id/takedown', (req, res) => {
 // POST /admin/photos/:id/restore  — unhide a photo, then recompute auto-badges.
 router.post('/photos/:id/restore', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const sub = db
-    .prepare('SELECT id, guest_id FROM submissions WHERE id = ?')
-    .get(id);
+  const sub = db.prepare('SELECT id, guest_id FROM submissions WHERE id = ?').get(id);
   if (!sub) {
     return redirectWithMsg(res, '/admin/photos', 'Submission not found.');
   }

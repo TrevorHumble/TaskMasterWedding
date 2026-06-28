@@ -18,12 +18,7 @@ const app = express();
 // 1. Make sure the data directories exist before anything tries to use them.
 // ---------------------------------------------------------------------------
 function ensureDataDirs() {
-  const dirs = [
-    config.DATA_DIR,
-    config.UPLOADS_DIR,
-    config.THUMBS_DIR,
-    config.EXPORTS_DIR,
-  ];
+  const dirs = [config.DATA_DIR, config.UPLOADS_DIR, config.THUMBS_DIR, config.EXPORTS_DIR];
   for (const dir of dirs) {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -97,12 +92,12 @@ function mountRouterIfPresent(relativeFile) {
     console.log('[app] router not present yet (skipped):', relativeFile);
   }
 }
-mountRouterIfPresent('auth.js');       // section 03  -> mounts at '/'  (public links, onboarding, admin login)
-mountRouterIfPresent('admin.js');      // section 08  -> mounts at '/admin'  MUST be before guest.js: guest.js
-                                       //   applies requireGuest to every path under '/', which would otherwise
-                                       //   intercept /admin and bounce admins to the "private link needed" page.
-mountRouterIfPresent('guest.js');      // section 04  -> mounts at '/'
-mountRouterIfPresent('community.js');  // section 07  -> mounts at '/'
+mountRouterIfPresent('auth.js'); // section 03  -> mounts at '/'  (public links, onboarding, admin login)
+mountRouterIfPresent('admin.js'); // section 08  -> mounts at '/admin'  MUST be before guest.js: guest.js
+//   applies requireGuest to every path under '/', which would otherwise
+//   intercept /admin and bounce admins to the "private link needed" page.
+mountRouterIfPresent('guest.js'); // section 04  -> mounts at '/'
+mountRouterIfPresent('community.js'); // section 07  -> mounts at '/'
 
 // ---------------------------------------------------------------------------
 // 7. Temporary home route, ONLY used until the guest router (section 04)

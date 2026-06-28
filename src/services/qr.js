@@ -19,7 +19,7 @@ async function qrDataUrl(url) {
   return QRCode.toDataURL(url, {
     margin: 1,
     width: 240,
-    errorCorrectionLevel: 'M'
+    errorCorrectionLevel: 'M',
   });
 }
 
