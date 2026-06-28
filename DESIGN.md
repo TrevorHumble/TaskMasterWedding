@@ -2,11 +2,7 @@
 
 Why the app is built the way it is. Decisions and tradeoffs, not getting-started instructions (those are in `README.md`) and not agent rules (those are in `CLAUDE.md`).
 
-<!-- CUSTOMIZE: North Star pending — owner defines goals in an upcoming session; do not fill in autonomously -->
-
-**North Star / goals:** pending. The owner defines goals and success outcomes in an upcoming session. The decisions below are recorded against the app as built, not against a stated goal.
-
-Stand-in description (neutral): a self-hosted wedding scavenger-hunt web app for ~100 phone-based guests with QR sign-in, photo tasks, points, badges, a leaderboard, a shared gallery, profiles, and an admin who runs the event and exports the results.
+**North Star / goals:** confirmed. The product goals live in [`docs/north-star.md`](docs/north-star.md) (one-screen summary in [`CLAUDE.md`](CLAUDE.md)). The decisions recorded below serve those goals — most directly getting any guest in fast and keeping the app standing under the whole guest list at once (Goal A). One goal-driven decision is still **open and unbuilt**: Goal C's contained sharing (scoping content to the right audience). Moderation today is takedown-only (see "Photos: … takedown over delete" below); the audience-split design will be recorded here once chosen. The app must be live for guests by **Friday, Aug 7, 2026**.
 
 ## Constraints that shaped the design
 

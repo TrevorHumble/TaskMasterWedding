@@ -1,10 +1,6 @@
 # PLAN.md
 
-<!-- CUSTOMIZE: North Star pending — owner defines goals in an upcoming session; do not fill in autonomously -->
-
-**North Star / goals:** pending. The owner defines goals, success outcomes, and any roadmap in an upcoming session. Do not invent goals or a roadmap here.
-
-Stand-in description (neutral): a self-hosted wedding scavenger-hunt web app for ~100 phone-based guests with QR sign-in, photo tasks, points, badges, a leaderboard, a shared gallery, profiles, and an admin who runs the event and exports results.
+**North Star / goals:** confirmed — see [`docs/north-star.md`](docs/north-star.md) (one-screen summary in [`CLAUDE.md`](CLAUDE.md)). The build and refactor work serves the four goals there: A (easy in, solid throughout), B (a game worth playing), C (the hosts run the show), D (one shared record, kept). Target: live for guests by **Friday, Aug 7, 2026**.
 
 ## Build plan (as built)
 
