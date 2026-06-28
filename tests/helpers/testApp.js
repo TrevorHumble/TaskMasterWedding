@@ -5,6 +5,8 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const bcrypt = require('bcryptjs');
+const request = require('supertest');
 
 /**
  * Load the app pointed at a fresh temp database.
@@ -60,4 +62,28 @@ function seed(db) {
   return { taskId, guestId, submissionId };
 }
 
-module.exports = { loadApp, seed };
+/**
+ * Write a known bcrypt hash to the admin.hash path used by the temp DATA_DIR,
+ * then return a supertest agent that is already logged in as admin.
+ *
+ * REQUIRE ORDER: call this AFTER loadApp() so config has already been required
+ * with the correct DATA_DIR env var.
+ *
+ * @param {import('express').Application} app
+ * @param {string} password - plain-text password to use (arbitrary for tests)
+ * @returns {Promise<import('supertest').SuperAgentTest>}
+ */
+async function makeAdminAgent(app, password = 'test-admin-pw') {
+  // config is already cached with the temp DATA_DIR set by loadApp().
+  const config = require('../../config');
+  // bcryptjs cost 10 matches set-admin-password.js.
+  const hash = bcrypt.hashSync(password, 10);
+  fs.mkdirSync(path.dirname(config.ADMIN_HASH_PATH), { recursive: true });
+  fs.writeFileSync(config.ADMIN_HASH_PATH, hash, 'utf8');
+
+  const agent = request.agent(app);
+  await agent.post('/admin/login').type('form').send({ password });
+  return agent;
+}
+
+module.exports = { loadApp, seed, makeAdminAgent };

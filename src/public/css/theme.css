@@ -1558,6 +1558,182 @@ input[type='file'],
   background: var(--color-primary-hover);
 }
 
+/* ----------------------- Admin nav links ----------------------- */
+.admin-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+/* ----------------------- Admin inline / stacked forms in cells ---- */
+/* Two side-by-side "add one" and "bulk create" forms on the guests page */
+.admin-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+.admin-form-row .inline-form {
+  flex: 1 1 200px;
+}
+
+/* Inline form inside a table cell: input + button on one line */
+.inline-form {
+  background: var(--green-50);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+}
+.inline-form h2 {
+  margin-top: 0;
+  font-size: var(--fs-h3);
+}
+
+/* Compact inline: input and button side by side inside a table cell */
+.cell-form {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: nowrap;
+}
+.cell-form input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: var(--fs-small);
+}
+
+/* Stacked form: inputs stacked vertically inside a table cell */
+.cell-form-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.cell-form-stacked input,
+.cell-form-stacked textarea {
+  padding: 6px 10px;
+  font-size: var(--fs-small);
+}
+
+/* Stacked add-a-task form above the table */
+.stacked-form {
+  background: var(--green-50);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.stacked-form h2 {
+  margin: 0;
+}
+.stacked-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--fs-body);
+  color: var(--color-text);
+}
+
+/* Move-up / move-down cell: two buttons stacked */
+.move-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* Link cell: read-only input showing a URL */
+.link-cell input {
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+  width: 100%;
+  min-width: 160px;
+  padding: 5px 8px;
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+  background: var(--white);
+  cursor: text;
+}
+
+/* Badge cell: wraps badge-award forms inline */
+.badge-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* Tiny form that wraps a single badge-award button */
+.badge-form {
+  margin: 0;
+}
+
+/* Inactive task row: dimmed */
+.row-inactive {
+  opacity: 0.5;
+}
+.row-inactive:hover {
+  opacity: 1;
+}
+
+/* Toggled-on button state (badge awarded / active) */
+.btn-on {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary);
+}
+.btn-on:hover {
+  background: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+/* ----------------------- Admin photo moderation grid ---- */
+.photo-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+.photo-admin-card {
+  background: var(--white);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  box-shadow: var(--shadow-card);
+}
+.photo-admin-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radius-input);
+  border: var(--border-hairline);
+}
+.photo-admin-card.is-down {
+  opacity: 0.55;
+  border-color: var(--err-ink);
+}
+.photo-meta {
+  font-size: var(--fs-small);
+  color: var(--color-text);
+  margin: 0;
+  line-height: var(--lh-snug);
+}
+.status-down {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--err-ink);
+  font-weight: 600;
+  margin: 0;
+}
+
 @media print {
   .site-header,
   .site-footer,
@@ -1577,7 +1753,7 @@ input[type='file'],
     gap: 10px;
   }
   .qr-card {
-    border-color: #999;
+    border-color: var(--green-300);
   }
 }
 
