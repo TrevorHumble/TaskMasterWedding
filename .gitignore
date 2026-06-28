@@ -8,6 +8,10 @@ data/
 # Environment secrets
 .env
 
+# Local commit-gate review state (per working copy; a committed verdict could
+# travel to another clone or be forged, defeating the gate). Never commit it.
+.review_state/
+
 # OS / editor noise
 Thumbs.db
 .DS_Store
