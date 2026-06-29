@@ -16,7 +16,7 @@ tools: [Task, Bash, Read, Write, Edit, Glob, Grep]
 
 ## Input / output contract
 
-**Input:** a single segment descriptor — the issue file path (`issues/NNNN-*.md`) or a segment
+**Input:** a single segment descriptor — its **GitHub issue** (the canonical record of the work) or a segment
 name from `PLAN.md`. All prior-art paths must exist on disk.
 
 **Output:** a committed artifact in the appropriate directory; a one-line entry appended to
@@ -47,15 +47,7 @@ allowed rounds.
    matches reality. Before declaring the segment done, spawn `agents/reviewer-tracker-sync.md` — it FAILs
    if the board is out of sync with the issue files / BUILDLOG. The board is kept current at every
    transition: issue created → `gh issue` opened; committed to `main` → `gh issue` closed.
-   - **Believe the green light — watch CI to green after every push.** This is a direct-push model:
-     the orchestrator commits straight to `main` and is the only committer; there is no human merge
-     approval (by design — the owner never pushes code). So the green light is made trustworthy by the
-     orchestrator itself: after every push, watch the CI run to completion and confirm it is green
-     before moving on. `main` is never knowingly left red. If CI goes red, fix the cause or revert the
-     commit before proceeding — a red `main` is a stop-and-fix condition, not something to push past.
-     (Hard branch-protection required-checks would force a pull-request merge flow; that is a deliberate
-     model change, not a default — it is not enabled, and this post-push CI-watch is the operative
-     enforcement.)
+   - **Ship flow — branch → PR → CI → merge or leave open.** After committing, push the branch and run `gh pr create` to open a pull request. Watch CI to green. If the change is a bug fix, security fix, refactor, correctness fix, or test, merge when CI passes. If the change is visual or product-direction, leave the PR open for the owner — this is the merge boundary: the owner, not the orchestrator, merges those. `main` is never knowingly left red. If CI goes red, fix the cause or revert the commit before proceeding — a red `main` is a stop-and-fix condition, not something to push past.
 
 ---
 
@@ -85,7 +77,7 @@ review it."
 
 When invoked for a timed session ("work for N hours", "run autonomously"), the orchestrator runs a
 **time-driven, not task-driven, loop.** It ends only when real elapsed time reaches the budget — never
-because a queue emptied or the work "felt done." Full procedure and live state: `docs/AUTONOMOUS-RUN.md`.
+because a queue emptied or the work "felt done." This section is the full procedure; the run's live state — budget, queue, and the per-increment Live-log ledger — is tracked in `docs/RESUME-STATE.md`.
 
 - **Arm the loop-gate (mechanical, not just discipline).** At run start, run `powershell -File tools/start-run.ps1 -Minutes N`. This writes `.run_state/run.json`, which arms the `loop-gate` Stop hook (`.claude/hooks/loop-gate.ps1`) to BLOCK any attempt to end a turn before the clock budget is spent — so the never-stop loop is enforced by the harness, not only by the rules below. It is clock-driven (releases automatically at the budget), fails open on any error, and only activates while a run is in progress, so it cannot trap a normal session. Emergency brake for a genuine must-stop: `powershell -File tools/stop-run.ps1` (or create `.run_state/STOP`). The rules below define HOW to fill the time; the gate guarantees the time is filled.
 - **Self-timing, made auditable.** Record the start timestamp **by running a real system-clock command**
