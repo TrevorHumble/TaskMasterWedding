@@ -85,6 +85,10 @@ const config = {
   THUMB_WIDTH: 400,
   ALLOWED_MIME: ['image/jpeg', 'image/png', 'image/webp'],
 
+  // Admin login throttling
+  ADMIN_LOGIN_MAX_ATTEMPTS: parseInt(process.env.ADMIN_LOGIN_MAX_ATTEMPTS, 10) || 10,
+  ADMIN_LOGIN_LOCKOUT_MS: parseInt(process.env.ADMIN_LOGIN_LOCKOUT_MS, 10) || 15 * 60 * 1000,
+
   // Auto-badge thresholds — THE single source of truth for these numbers.
   // scoring.js (section 06) imports BADGE_THRESHOLDS from this config instead
   // of redefining it, and guest.js (section 04) consumes the same export.

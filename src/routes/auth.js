@@ -140,15 +140,31 @@ router.post('/onboard', requireGuest, upload.single('avatar'), async (req, res) 
 
 // --- Admin login / logout ---------------------------------------------------
 
+// Module-scoped lockout state. A single-admin app warrants a global counter;
+// no per-IP tracking needed (see issue #37 for the trust-proxy rationale).
+let failedAttempts = 0;
+let lockedUntil = 0;
+
+const ADMIN_LOGIN_TITLE = 'Admin Login';
+
 // GET /admin/login — show the password form.
 router.get('/admin/login', (req, res) => {
-  res.render('admin-login', { title: 'Admin Login', error: null });
+  res.render('admin-login', { title: ADMIN_LOGIN_TITLE, error: null });
 });
 
 // POST /admin/login — check password against the bcrypt hash on disk.
 // Note: app.js (section 01) already parses urlencoded bodies globally, so we
 // do NOT add an inline body parser here — req.body.password is already populated.
 router.post('/admin/login', (req, res) => {
+  // Lockout check — must come before reading the hash or comparing.
+  if (Date.now() < lockedUntil) {
+    res.status(429).render('admin-login', {
+      title: ADMIN_LOGIN_TITLE,
+      error: 'Too many failed attempts. Please wait before trying again.',
+    });
+    return;
+  }
+
   const password = req.body.password || '';
 
   let hash;
@@ -156,7 +172,7 @@ router.post('/admin/login', (req, res) => {
     hash = fs.readFileSync(config.ADMIN_HASH_PATH, 'utf8').trim();
   } catch (err) {
     res.status(500).render('admin-login', {
-      title: 'Admin Login',
+      title: ADMIN_LOGIN_TITLE,
       error: 'The admin area is not set up yet. Please ask the host to finish setup.',
     });
     return;
@@ -164,12 +180,21 @@ router.post('/admin/login', (req, res) => {
 
   const ok = bcrypt.compareSync(password, hash);
   if (!ok) {
+    failedAttempts += 1;
+    if (failedAttempts >= config.ADMIN_LOGIN_MAX_ATTEMPTS) {
+      lockedUntil = Date.now() + config.ADMIN_LOGIN_LOCKOUT_MS;
+      failedAttempts = 0;
+    }
     res.status(401).render('admin-login', {
-      title: 'Admin Login',
+      title: ADMIN_LOGIN_TITLE,
       error: 'Incorrect password. Please try again.',
     });
     return;
   }
+
+  // Correct password — reset throttle state.
+  failedAttempts = 0;
+  lockedUntil = 0;
 
   res.cookie('admin', '1', COOKIE_OPTS);
   // Lands on the section-08 admin dashboard, which must be mounted at /admin.
