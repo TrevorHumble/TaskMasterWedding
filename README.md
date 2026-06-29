@@ -82,3 +82,4 @@ standards/                Checkable standards the orchestrator pipeline enforces
 - Design rationale and tradeoffs: [`DESIGN.md`](DESIGN.md).
 - Refactor roadmap: [`PLAN.md`](PLAN.md).
 - How to contribute through the orchestrator pipeline (issue → review → implement → review → PR): [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md).
+- What a green build actually proves, in plain English: [`WHAT-IT-CHECKS.md`](WHAT-IT-CHECKS.md).
