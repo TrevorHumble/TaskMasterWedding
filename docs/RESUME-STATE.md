@@ -61,3 +61,13 @@ Per `CLAUDE.md` / `AGENTS.md` / `standards/`: file a GitHub issue (issue-standar
 2. `gh issue list` / `gh pr list` for live state; confirm `main` is green.
 3. Pick the highest-priority remaining backlog item; run the full pipeline; auto-merge or leave-for-owner per the boundary.
 4. Update this file at each pause.
+
+## Live log
+
+Per-increment ledger lines written by the orchestrator during autonomous timed runs. One line per increment, form:
+
+```
+[HH:MM] elapsed=Xm/budget=Ym | selector→{DO <item> | CASCADE | WRAP} | next=<item>
+```
+
+The `elapsed` value must be derived from a real system-clock read at that moment — never estimated or carried forward. A compacted instance verifies the loop is live by reading the last ledger line here.
