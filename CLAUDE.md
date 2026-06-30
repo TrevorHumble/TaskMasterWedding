@@ -75,3 +75,5 @@ Do not mix them. No FINAL / LAST / TRULY_FINAL in filenames or headers. No AI-sl
 ## What needs extra rigor
 
 A system-level change uses the stricter two-independent-reviewer, both-must-PASS bar in `standards/adversarial-review-protocol.md`. Its definition — the governing-artifact surface — lives in `DESIGN.md` and is enforced by the same list in `tools/verdict-core.ps1`.
+
+**Issue-review gate:** every code commit must name a reviewed GitHub issue. After an issue-review PASS, record it with `powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS` — the `.githooks/commit-msg` gate blocks any code commit whose named issue lacks that record. Full rationale and the honest bar in `DESIGN.md` § "Issue-review gate".

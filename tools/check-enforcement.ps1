@@ -7,12 +7,12 @@ if (-not $top) { Write-Host "Not inside a git repo." -ForegroundColor Red; exit 
 Set-Location $top
 $ok = $true
 
-# 1. Commit gate — active right now (needs core.hooksPath set by setup.ps1).
+# 1. Commit gates — active right now (needs core.hooksPath set by setup.ps1).
 $hp = "$(& git config --get core.hooksPath)".Trim()
-if (($hp -eq '.githooks') -and (Test-Path '.githooks/pre-commit')) {
-  Write-Host "[ON]  Commit gate - no commit lands without a passing review." -ForegroundColor Green
+if (($hp -eq '.githooks') -and (Test-Path '.githooks/pre-commit') -and (Test-Path '.githooks/commit-msg')) {
+  Write-Host "[ON]  Commit gates - pre-commit (tree review) and commit-msg (issue review) active." -ForegroundColor Green
 } else {
-  Write-Host "[OFF] Commit gate - not active. Reopen in Claude Code, or run setup.ps1." -ForegroundColor Red; $ok = $false
+  Write-Host "[OFF] Commit gates - not fully active (need pre-commit + commit-msg + core.hooksPath=.githooks). Reopen in Claude Code, or run setup.ps1." -ForegroundColor Red; $ok = $false
 }
 
 # 2 & 3. Goal + loop gates — wired in settings; load when Claude Code opens the folder.

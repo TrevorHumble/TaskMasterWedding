@@ -41,25 +41,34 @@ function Read-Evidence {
   return $result
 }
 
-function Test-VerdictSatisfied {
+# Reduce-Verdicts — shared counting kernel used by BOTH the tree-based PR gate
+# (Test-VerdictSatisfied) and the issue-number-based issue gate (Test-IssueReviewed
+# in tools/issue-core.ps1). Single source of truth: change this once, both gates
+# move together.
+#
+# $evidence  — array of parsed JSON objects; each must have .reviewer_id and .verdict.
+# $Required  — minimum distinct PASS reviewer_ids needed for ok=true.
+# $Label     — human-readable label for error messages (e.g. "tree abc123" or "issue 46").
+#
+# Returns a pscustomobject: { ok=[bool], n=[int], reason=[string] }
+function Reduce-Verdicts {
   param(
-    [string]$Tree,
-    [int]$Required = 1,
-    [string]$ReviewsRoot
+    [object[]]$evidence,
+    [int]$Required,
+    [string]$Label
   )
-  $evidence = @(Read-Evidence -Tree $Tree -ReviewsRoot $ReviewsRoot)
+  $evidence = @($evidence)
 
-  # Zero valid (tree_oid-matched) files -> no evidence
   if ($evidence.Count -eq 0) {
     return [pscustomobject]@{
       ok     = $false
       n      = 0
-      reason = "blocked: no review evidence for tree $Tree"
+      reason = "blocked: no review evidence for $Label"
     }
   }
 
   # Group by reviewer_id. Per-reviewer FAIL-wins: if any file for a reviewer_id
-  # is FAIL, that reviewer is a FAIL regardless of other files for that id.
+  # is FAIL, that reviewer is FAIL regardless of other files for that id.
   $groups = @{}
   foreach ($e in $evidence) {
     $id = $e.reviewer_id
@@ -67,7 +76,7 @@ function Test-VerdictSatisfied {
       return [pscustomobject]@{
         ok     = $false
         n      = 0
-        reason = "blocked: malformed evidence (empty reviewer_id) for tree $Tree"
+        reason = "blocked: malformed evidence (empty reviewer_id) for $Label"
       }
     }
     if (-not $groups.ContainsKey($id)) {
@@ -91,7 +100,6 @@ function Test-VerdictSatisfied {
     if ($groupHasFail) {
       $hasAnyFail = $true
     } else {
-      # Check if group has at least one PASS
       $groupHasPass = $false
       foreach ($gf in $groupFiles) {
         if ($gf.verdict -eq 'PASS') {
@@ -109,7 +117,7 @@ function Test-VerdictSatisfied {
     return [pscustomobject]@{
       ok     = $false
       n      = 0
-      reason = "blocked: a FAIL review is present for tree $Tree"
+      reason = "blocked: a FAIL review is present for $Label"
     }
   }
 
@@ -117,13 +125,23 @@ function Test-VerdictSatisfied {
     return [pscustomobject]@{
       ok     = $true
       n      = $passCount
-      reason = "ok: $passCount distinct PASS reviewer(s) for tree $Tree"
+      reason = "ok: $passCount distinct PASS reviewer(s) for $Label"
     }
   }
 
   return [pscustomobject]@{
     ok     = $false
     n      = $passCount
-    reason = "blocked: $passCount/$Required distinct PASS reviewers for tree $Tree"
+    reason = "blocked: $passCount/$Required distinct PASS reviewers for $Label"
   }
+}
+
+function Test-VerdictSatisfied {
+  param(
+    [string]$Tree,
+    [int]$Required = 1,
+    [string]$ReviewsRoot
+  )
+  $evidence = @(Read-Evidence -Tree $Tree -ReviewsRoot $ReviewsRoot)
+  return Reduce-Verdicts -evidence $evidence -Required $Required -Label "tree $Tree"
 }
