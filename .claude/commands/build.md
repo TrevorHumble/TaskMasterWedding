@@ -42,7 +42,15 @@ Execute the steps below in order. Do not skip or reorder.
 git switch -c <descriptive-branch-name>
 ```
 
-Then confirm the gate is live: `powershell -File tools/check-gate.ps1` (if it errors, run `tools/setup-hooks.ps1` first). Record the reviewers' verdict: `powershell -File tools/review_verdict.ps1 -Verdict PASS -Reviewers "<who>"`. This binds the verdict to the exact staged tree. Then `git commit -F data/commitmsg-*.txt`. The `.githooks/pre-commit` gate blocks any commit whose staged tree has no matching PASS verdict — recording the real result is a required mechanical step, not optional. Forging a verdict is never the fix. Append one line to `BUILDLOG.md`.
+Then confirm the gate is live: `powershell -File tools/check-gate.ps1` (if it errors, run `tools/setup-hooks.ps1` first). Record the reviewers' verdict: `powershell -File tools/review_verdict.ps1 -Verdict PASS -Reviewers "<who>"`. This binds the verdict to the exact staged tree. For each reviewer also write its evidence file: `powershell -File tools/persist-review.ps1 -TreeOid <T> -ReviewerId <id> -Verdict PASS`.
+
+After the issue review PASSes (step 3), record the issue-review evidence so the `commit-msg` gate allows the code commit:
+
+```powershell
+powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS
+```
+
+Then `git commit -F data/commitmsg-*.txt` with `(#N)` in the message. **Two gates run:** `pre-commit` checks the staged tree has a PASS review; `commit-msg` checks the issue has a recorded review PASS. Both must pass. If `commit-msg` blocks with "issue N has no recorded review PASS", the fix is to record the issue review above — never to forge a verdict. Append one line to `BUILDLOG.md`.
 
 **7 — Ship: push → PR → CI → merge or leave open.** Push the branch and open a pull request:
 
