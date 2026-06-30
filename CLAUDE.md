@@ -45,8 +45,11 @@ Reviewers run on a different model than the implementer so they do not inherit t
 - Every finding cites real evidence (`file:line`, command output, issue/PR number). Every best-practice claim cites a current dated source.
 - The spawner gives the goal, not the implementation. No positive framing, no planted suspicions, full scope.
 - Final verdict is a single `PASS`/`FAIL` token with a numbered defect list. A PASS with open blockers or majors is not a PASS.
+- **Issues and plans: 1 Opus reviewer** (`reviewer-issue`). Never a panel of issue-reviewers.
+- **Code review, round 1: panel up to 5, judged unanimous-PASS** (risk-scaled; routine code).
+- **Code review, rounds 2+: 1 fresh reviewer** each round (except system-level changes — those need two independent PASSes on the final tree).
 
-Full protocol, including the high-stakes 3-reviewer rule, the system-level-change bar, the bias gate, and the soft-cap severity gate: `standards/adversarial-review-protocol.md`.
+Full protocol, including the risk-tier precedence order, the high-stakes 3-reviewer rule, the system-level-change bar, the bias gate, and the soft-cap severity gate: `standards/adversarial-review-protocol.md`.
 
 ## Documentation split
 
