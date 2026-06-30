@@ -53,6 +53,15 @@ if (!cookieSecret || cookieSecret.trim() === '') {
   );
 }
 
+// ---- Resolve whether cookies should use the Secure flag -------------------
+// Set COOKIE_SECURE=true in .env to force Secure cookies even outside NODE_ENV
+// production (e.g. an ngrok/Cloudflare tunnel in development). In production,
+// Secure is always on so browsers refuse to send cookies over plain HTTP.
+const cookieSecure =
+  process.env.COOKIE_SECURE !== undefined
+    ? process.env.COOKIE_SECURE === 'true'
+    : process.env.NODE_ENV === 'production';
+
 // ---- Absolute base directories --------------------------------------------
 const ROOT = __dirname;
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
@@ -63,6 +72,9 @@ const config = {
   PORT: parseInt(process.env.PORT, 10) || 3000,
   BASE_URL: process.env.BASE_URL || 'http://localhost:3000',
   COOKIE_SECRET: cookieSecret,
+  // True when cookies must carry the Secure flag. On by default in production
+  // and when COOKIE_SECURE=true; off in test/dev so plain-HTTP supertest works.
+  COOKIE_SECURE: cookieSecure,
 
   // Project root
   ROOT: ROOT,

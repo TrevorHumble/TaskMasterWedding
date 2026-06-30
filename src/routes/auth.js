@@ -15,16 +15,19 @@ const router = express.Router();
 // 14 days in milliseconds — how long a guest/admin stays signed in.
 const COOKIE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
-// Shared cookie options. secure:false because the laptop serves plain http;
-// Cloudflare adds https on the outside. signed:true makes the value tamper-proof.
-const COOKIE_OPTS = {
-  httpOnly: true,
-  sameSite: 'lax',
-  secure: false,
-  signed: true,
-  maxAge: COOKIE_MAX_AGE_MS,
-  path: '/',
-};
+// Returns fresh cookie options each call so config.COOKIE_SECURE is read at
+// request time, not at module-load time. That keeps the value correct when the
+// app starts before NODE_ENV is known, and lets tests toggle the flag.
+function cookieOpts() {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.COOKIE_SECURE,
+    signed: true,
+    maxAge: COOKIE_MAX_AGE_MS,
+    path: '/',
+  };
+}
 
 // Avatar upload: keep the file in memory so the photos service (section 05)
 // can process the buffer; only one file, field name "avatar".
@@ -84,7 +87,7 @@ router.get('/j/:token', (req, res) => {
     res.status(404).type('html').send(unknownLinkPage());
     return;
   }
-  res.cookie('gsid', guest.token, COOKIE_OPTS);
+  res.cookie('gsid', guest.token, cookieOpts());
   // Anyone who has not finished onboarding goes to the form; everyone else
   // goes home. We key on the `onboarded` flag (not name-emptiness) so that
   // guests the admin pre-named still get to add an avatar and social links.
@@ -179,7 +182,7 @@ router.post('/admin/login', (req, res) => {
     // Correct password — clear any active lockout and authenticate.
     failedAttempts = 0;
     lockedUntil = 0;
-    res.cookie('admin', '1', COOKIE_OPTS);
+    res.cookie('admin', '1', cookieOpts());
     // Lands on the section-08 admin dashboard, which must be mounted at /admin.
     // Until section 08 exists this 404s, which is fine for section 03.
     res.redirect('/admin');
