@@ -19,6 +19,7 @@ The test suite (powered by `vitest`) runs on every build. It checks that the app
 
 **GitHub's own security tools are watching continuously.**
 Two GitHub-native checks are configured for this repo:
+
 - **CodeQL** scans the code for known security weaknesses, the kind that make apps exploitable. It runs on pushes to the main branch, on pull requests targeting main, and once a week on a fixed schedule — not on every feature-branch push.
 - **Dependabot** watches the outside code the app depends on and opens update pull requests automatically — on a weekly schedule (configured in `.github/dependabot.yml`). It is not a per-build check; it runs on its own timer.
 
@@ -36,7 +37,7 @@ The commit gate proves a passing review was recorded for the exact code being co
 
 A machine can confirm the math is right. It cannot confirm the result **looks** right or that it is what you **meant**.
 
-Every build that changes something a guest or admin sees produces a result you can look at — a rendered page, a flow through the app. The checks above guarantee the logic is correct. The question they cannot answer is: *is this what I wanted?* That judgment is yours, as the owner.
+Every build that changes something a guest or admin sees produces a result you can look at — a rendered page, a flow through the app. The checks above guarantee the logic is correct. The question they cannot answer is: _is this what I wanted?_ That judgment is yours, as the owner.
 
 The orchestrator's pipeline flags visual and product-direction changes as open pull requests waiting for your approval before they merge into the main codebase. Bug fixes, security fixes, and under-the-hood correctness work merge automatically on a green build. Anything that changes what the app looks like or how it behaves comes to you first.
 
