@@ -61,7 +61,24 @@ recorded only when at least two of the three confirm it; a verdict of fine requi
 the same threshold. With fewer than three adversaries the review is invalid — do not
 proceed with two, as there is no majority on a tie. (Exception: a `system-level change`
 uses the two-reviewer, both-must-PASS bar defined in the Self-modification bar section —
-fail-closed, no third tie-breaker needed.)
+fail-closed, no third tie-breaker needed.) This ≥3 / 2-of-3 floor applies to **high-stakes** reviews as defined in `## Reviewer count by artifact`; routine code uses the panel rule defined there and is not governed by this floor.
+
+---
+
+## Reviewer count by artifact
+
+Reviewer count scales to risk. Every change resolves to exactly one count-rule via this **precedence order — evaluate system-level → high-stakes → routine, first match wins:**
+
+- **Issue / plan** → exactly **1** Opus reviewer (`reviewer-issue`). Never a panel of duplicate issue-reviewers. The additive architecture gate (`reviewer-architecture`) fires for system-level / new-component issues — it is a distinct gate, not a second issue-reviewer.
+- **System-level change** — touches the governing-artifact surface (see `DESIGN.md`) → see `## Self-modification bar` for the two-independent-both-PASS threshold. **If a system-level change is also security-flagged**, the resolved rule is stricter: **≥3 independent reviewers, all must PASS** — never weaker than either the self-modification bar or the high-stakes floor.
+- **High-stakes code** (non-system-level) — security-flagged, or a change the orchestrator judges safety- or correctness-critical beyond routine → the `## Independence` floor of **≥3 reviewers, 2-of-3 majority**. "High-stakes" means security-flagged or explicitly escalated by the orchestrator; the defining criterion is that it is **security-flagged**.
+- **Routine code** — none of the above → round-1 panel of **2–5 reviewers in parallel, judged unanimous-PASS** (any FAIL → fix and re-review); rounds 2+ use **1 fresh reviewer** each round. The rounds-2+-single rule does **not** apply to system-level changes: for a system-level change, the round that produces the accepted tree must carry two independent PASSes on that exact tree.
+
+The rounds-2+-single optimization applies to non-system-level reviews only. For system-level changes, a single rounds-2+ reviewer may run to surface FAILs early, but a PASS is never recorded on fewer than two independent PASSes for the final tree (evidence is tree-bound).
+
+The "up to 5" figure is the round-1 panel size, not a round count. The 3-round soft cap and severity adjudicator (`## Stop condition — soft cap and severity gate`) remain unchanged.
+
+Reviewers remain **Opus** — model is not a savings lever. A reviewer must run on a different, non-weaker model than the implementer; `standards/agent-standards.md` makes Opus required for a gate. Savings come from reviewer _count_ only.
 
 ---
 
@@ -123,7 +140,7 @@ A system-level change requires two independent reviewers. The reviewers must be 
 
 This is the system-level specialization of the high-stakes independence rule in the Independence section: instead of ≥3 adversaries with 2-of-3 majority, a system-level change uses two independent reviewers who must both reach PASS, and disagreement is treated as FAIL (fail-closed), so no third tie-breaker is needed.
 
-This bar is additive to the soft cap and severity gate below. When a system-level change reaches the soft cap trigger, both the two-reviewer requirement and the severity adjudicator apply. See `DESIGN.md` for the definition of system-level change.
+This bar is additive to the soft cap and severity gate below. When a system-level change reaches the soft cap trigger, both the two-reviewer requirement and the severity adjudicator apply. See `DESIGN.md` for the definition of system-level change. For the full precedence order placing this bar within the risk-tier hierarchy — including the security-flagged-system-level combination — see `## Reviewer count by artifact`.
 
 ---
 
