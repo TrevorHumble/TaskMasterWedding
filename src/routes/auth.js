@@ -155,16 +155,12 @@ router.get('/admin/login', (req, res) => {
 // POST /admin/login — check password against the bcrypt hash on disk.
 // Note: app.js (section 01) already parses urlencoded bodies globally, so we
 // do NOT add an inline body parser here — req.body.password is already populated.
+//
+// Security note (issue #49): the password is evaluated BEFORE the lockout check.
+// A correct password always authenticates and clears the failure counter, so the
+// real admin cannot be locked out by others' failed attempts. Only wrong passwords
+// increment the counter and are throttled.
 router.post('/admin/login', (req, res) => {
-  // Lockout check — must come before reading the hash or comparing.
-  if (Date.now() < lockedUntil) {
-    res.status(429).render('admin-login', {
-      title: ADMIN_LOGIN_TITLE,
-      error: 'Too many failed attempts. Please wait before trying again.',
-    });
-    return;
-  }
-
   const password = req.body.password || '';
 
   let hash;
@@ -179,27 +175,35 @@ router.post('/admin/login', (req, res) => {
   }
 
   const ok = bcrypt.compareSync(password, hash);
-  if (!ok) {
-    failedAttempts += 1;
-    if (failedAttempts >= config.ADMIN_LOGIN_MAX_ATTEMPTS) {
-      lockedUntil = Date.now() + config.ADMIN_LOGIN_LOCKOUT_MS;
-      failedAttempts = 0;
-    }
-    res.status(401).render('admin-login', {
+  if (ok) {
+    // Correct password — clear any active lockout and authenticate.
+    failedAttempts = 0;
+    lockedUntil = 0;
+    res.cookie('admin', '1', COOKIE_OPTS);
+    // Lands on the section-08 admin dashboard, which must be mounted at /admin.
+    // Until section 08 exists this 404s, which is fine for section 03.
+    res.redirect('/admin');
+    return;
+  }
+
+  // Wrong password — check lockout window first, then increment.
+  if (Date.now() < lockedUntil) {
+    res.status(429).render('admin-login', {
       title: ADMIN_LOGIN_TITLE,
-      error: 'Incorrect password. Please try again.',
+      error: 'Too many failed attempts. Please wait before trying again.',
     });
     return;
   }
 
-  // Correct password — reset throttle state.
-  failedAttempts = 0;
-  lockedUntil = 0;
-
-  res.cookie('admin', '1', COOKIE_OPTS);
-  // Lands on the section-08 admin dashboard, which must be mounted at /admin.
-  // Until section 08 exists this 404s, which is fine for section 03.
-  res.redirect('/admin');
+  failedAttempts += 1;
+  if (failedAttempts >= config.ADMIN_LOGIN_MAX_ATTEMPTS) {
+    lockedUntil = Date.now() + config.ADMIN_LOGIN_LOCKOUT_MS;
+    failedAttempts = 0;
+  }
+  res.status(401).render('admin-login', {
+    title: ADMIN_LOGIN_TITLE,
+    error: 'Incorrect password. Please try again.',
+  });
 });
 
 // POST /admin/logout — clear the admin cookie.
