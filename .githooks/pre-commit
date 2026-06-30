@@ -62,4 +62,15 @@ if [ "$vtree" != "$tree_now" ]; then
   exit 1
 fi
 
+# Evidence check: validate-verdict.ps1 must exit 0 (has review evidence files
+# bound to the exact tree). Fail CLOSED if powershell is not available.
+_ps="$(command -v powershell 2>/dev/null)" || _ps=""
+if [ -z "$_ps" ]; then
+  echo "commit-gate (BLOCKED): 'powershell' not found on PATH. Cannot verify review evidence. Failing closed." >&2
+  exit 1
+fi
+if ! powershell -ExecutionPolicy Bypass -NoProfile -File "$root/tools/validate-verdict.ps1" >&2; then
+  exit 1
+fi
+
 exit 0
