@@ -8,14 +8,17 @@
         <img src="/uploads/<%= guest.avatar_path %>" alt="Your avatar" class="avatar-img" />
       <% } else { %>
         <div class="avatar-circle">
-          <%= (guest.name || '?').trim().charAt(0).toUpperCase() || '?' %>
+          <%= initials(guest.name) || '?' %>
         </div>
       <% } %>
     </div>
     <div class="profile-info">
       <h1 class="profile-name-home"><%= guest.name && guest.name.length ? guest.name : 'Welcome!' %></h1>
-      <p class="profile-points"><strong><%= points %></strong> point<%= points === 1 ? '' : 's' %></p>
-      <p class="back-link"><a href="/me/edit">Edit profile</a></p>
+      <p class="profile-meta-row">
+        <span class="profile-points-inline"><strong><%= points %></strong> point<%= points === 1 ? '' : 's' %></span>
+        <span class="profile-meta-sep" aria-hidden="true">·</span>
+        <a href="/me/edit">Edit profile</a>
+      </p>
     </div>
   </section>
 
