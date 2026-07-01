@@ -908,7 +908,7 @@ input[type='file'],
 .gallery-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-3);
+  gap: 0;
 }
 .gallery-item {
   position: relative;
@@ -934,6 +934,7 @@ input[type='file'],
   width: 100%;
   height: 100%;
   object-fit: cover;
+  aspect-ratio: 1;
   display: block;
 }
 .gallery-caption {
@@ -962,6 +963,51 @@ input[type='file'],
 .gallery-text {
   color: rgba(255, 255, 255, 0.8);
   font-style: italic;
+}
+
+/* view switcher (recent / task / user) */
+.gallery-switcher {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+  border-bottom: var(--border-hairline);
+  padding-bottom: var(--space-3);
+}
+.gallery-switch-link {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+}
+.gallery-switch-link:hover {
+  color: var(--color-primary);
+}
+.gallery-switch-active {
+  color: var(--color-primary);
+  font-weight: 600;
+  background: var(--color-surface);
+}
+
+/* group heading separator between task / user sections */
+.gallery-group-heading {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  color: var(--color-heading);
+  margin: var(--space-6) 0 var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--border-hairline);
+}
+
+/* "See photos" link on each task */
+.task-gallery-link {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+.task-gallery-link:hover {
+  color: var(--color-primary);
+  text-decoration: underline;
 }
 
 /* pagination */
@@ -1781,6 +1827,7 @@ input[type='file'],
 @media (min-width: 620px) {
   .gallery-grid {
     grid-template-columns: repeat(3, 1fr);
+    gap: 0;
   }
   .badge-grid {
     grid-template-columns: repeat(4, 1fr);

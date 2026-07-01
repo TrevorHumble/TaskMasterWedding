@@ -3,6 +3,7 @@
 <%- include('partials/header') %>
 
   <p class="back-link"><a href="/tasks">&#8592; All tasks</a></p>
+  <p class="back-link"><a href="/gallery?task=<%= task.id %>">See photos for this task</a></p>
 
   <h1 class="page-title center"><%= task.title %></h1>
   <div class="heart-divider" style="color:var(--color-primary);"><%- include('partials/heart', { size: 20 }) %></div>
