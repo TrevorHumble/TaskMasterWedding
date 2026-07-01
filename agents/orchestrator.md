@@ -52,6 +52,21 @@ allowed rounds.
 
 ---
 
+## Dependabot PR path
+
+When a Dependabot PR is open, classify it before touching it:
+
+```powershell
+powershell -File tools/classify-dep-pr.ps1 -Ecosystem <ecosystem> -DepName <name> -SemverBump <patch|minor|major> -DepType <prod|dev>
+```
+
+- Output `auto` → merge when CI is green; no tracked decision needed.
+- Output `review` → do not merge; open or reference a GitHub issue recording the decision rationale before merging.
+
+Policy details and the wedding-critical dependency list live in `CLAUDE.md` § "Dependency updates (Dependabot)". The authoritative tier logic lives in `tools/classify-dep-pr.ps1`; the summary in CLAUDE.md is a human-readable restatement, and the wedding-critical list is drift-guarded by `tests/classify-dep-pr.test.js`.
+
+---
+
 ## Self-review is automatic — producing anything triggers its review
 
 This is not a step the agent chooses or a human requests; it is what "done" means. **The moment any

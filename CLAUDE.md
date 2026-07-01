@@ -72,6 +72,26 @@ Do not mix them. No FINAL / LAST / TRULY_FINAL in filenames or headers. No AI-sl
 - **Config is central.** Read paths, port, and badge thresholds from `config.js`. Do not hard-code a path or port elsewhere.
 - **This documentation pass does not touch source code, `standards/`, `agents/`, `skills/`, or config.** Another process owns those.
 
+## Dependency updates (Dependabot)
+
+Dependabot PRs are classified into two tiers by `tools/classify-dep-pr.ps1`:
+
+- **auto** — may merge on green CI with no separate review. Applies to: all GitHub Actions bumps; all npm dev-dependency bumps (any semver — a dev bump cannot break the running app, and CI catches a broken build); npm prod minor/patch bumps to non-wedding-critical packages.
+- **review** — held for a tracked decision before merge. Applies to: any npm prod major bump; any bump (even patch or minor) to a wedding-critical prod dependency.
+
+**Wedding-critical prod dependencies** (a bad bump breaks a core guest path):
+`multer`, `sharp`, `ejs`, `better-sqlite3`, `bcryptjs`, `archiver`
+
+The authoritative tier logic lives in `tools/classify-dep-pr.ps1`; the summary here is a human-readable restatement, and the wedding-critical list is drift-guarded by `tests/classify-dep-pr.test.js`.
+
+Run the classifier against a PR's metadata to determine its tier:
+
+```powershell
+powershell -File tools/classify-dep-pr.ps1 -Ecosystem npm -DepName multer -SemverBump minor -DepType prod
+```
+
+Output is the single token `auto` or `review`, exit 0.
+
 ## What needs extra rigor
 
 A system-level change uses the stricter two-independent-reviewer, both-must-PASS bar in `standards/adversarial-review-protocol.md`. Its definition — the governing-artifact surface — lives in `DESIGN.md` and is enforced by the same list in `tools/verdict-core.ps1`.
