@@ -28,8 +28,10 @@ allowed rounds.
 ## Pipeline (ordered)
 
 1. **Issue** — read or create the issue with `skills/issue-create.md`. When a new issue file is created,
-   **open its GitHub issue** (`gh issue create`, label by tier) so the board reflects it from the start —
-   GitHub is the single source of truth (see `skills/github-write.md`).
+   **open its GitHub issue** (`gh issue create --label needs-issue-review`, plus any tier label) so the board
+   reflects it from the start carrying the `needs-issue-review` label — GitHub is the single source of truth
+   (see `skills/github-write.md`). After the issue-review PASSes and `tools/persist-issue-review.ps1` records
+   the evidence, run `tools/clear-issue-marker.ps1 -IssueNumber <N>` to clear the label from the board.
 2. **Issue review** — spawn exactly **one** `agents/reviewer-issue.md` (Opus) via `skills/spawn-adversarial-review.md`. Issues always use a single reviewer — never a panel. Fix every blocking defect. Re-review with a fresh reviewer instance. A FAIL is fixed, never overridden. After the reviewer returns PASS, **record the issue-review evidence** so the `commit-msg` gate can authorize code commits that reference this issue:
    ```powershell
    powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS
@@ -67,8 +69,9 @@ review it."
   auto-trigger review the same way.
 - **A doc-only or typo-only change skips only the design-philosophy gate** (see Review cadence) — never the
   adversarial review.
-- **Bookkeeping is not a reviewable artifact:** the Live-log ledger line and a one-line `BUILDLOG.md` entry
-  do not themselves trigger a review (only the committed/presented work they describe does).
+- **Bookkeeping is not a reviewable artifact — narrowly scoped:** this exemption applies ONLY to the
+  Live-log ledger line and the one-line `BUILDLOG.md` entry. No other action qualifies. Creating or closing
+  an issue is a reviewable transition, never exempt bookkeeping.
 
 ---
 
