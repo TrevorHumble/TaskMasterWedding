@@ -38,6 +38,16 @@ Touches: <file paths or artifacts modified>
 
 The plan must be unambiguous at the level of a weak model. If a step says "do the thing," rewrite it. Each step names what to create, read, or write and where.
 
+## Creating the GitHub issue
+
+When creating the GitHub issue, apply the `needs-issue-review` label at creation time:
+
+```
+gh issue create --label needs-issue-review ...
+```
+
+Every newly created issue is born carrying the `needs-issue-review` label. The label is cleared only after a recorded issue-review PASS, by running `tools/clear-issue-marker.ps1 -IssueNumber <N>`.
+
 ## Naming
 
 Issue files: `NNNN-slug.md` — four-digit zero-padded number, lowercase hyphenated slug. No FINAL/LAST.
