@@ -29,12 +29,10 @@
     <div class="gallery-grid" id="galleryGrid">
       <% items.forEach(function (p) { %>
         <figure class="gallery-item">
-          <button
-            type="button"
-            class="gallery-thumb-btn js-lightbox"
-            data-full="/uploads/<%= p.photo_path %>"
-            data-caption="<%= p.task_title %><%= p.caption ? ' — ' + p.caption : '' %>"
-            aria-label="Enlarge photo for <%= p.task_title %>"
+          <a
+            class="gallery-thumb-btn"
+            href="/p/<%= p.submission_id %>"
+            aria-label="View photo for <%= p.task_title %>"
           >
             <img
               class="gallery-thumb"
@@ -44,7 +42,7 @@
               width="400"
               height="400"
             />
-          </button>
+          </a>
           <figcaption class="gallery-caption">
             <a class="gallery-task" href="/gallery?task=<%= p.task_id %>"><%= p.task_title %></a>
             <span class="gallery-by">by
@@ -85,14 +83,5 @@
       </nav>
     <% } %>
   <% } %>
-
-  <!-- Lightbox overlay (hidden until a thumbnail is clicked). -->
-  <div class="lightbox" id="lightbox" hidden>
-    <button type="button" class="lightbox-close" id="lightboxClose" aria-label="Close">&times;</button>
-    <figure class="lightbox-figure">
-      <img class="lightbox-img" id="lightboxImg" alt="" />
-      <figcaption class="lightbox-caption" id="lightboxCaption"></figcaption>
-    </figure>
-  </div>
 
 <%- include('partials/footer') %>

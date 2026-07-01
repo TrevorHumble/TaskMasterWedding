@@ -191,7 +191,6 @@ function renderGallery(
 ) {
   return res.render('gallery', {
     title: 'Gallery',
-    pageScript: 'gallery.js',
     view,
     groups,
     photos,
@@ -259,6 +258,87 @@ router.get('/gallery', (req, res) => {
   const photos = db.prepare(pageSql).all(...pageArgs);
 
   return renderGallery(res, { view, photos, page, totalPages, total, taskFilter });
+});
+
+// ---------------------------------------------------------------------------
+// GET /p/:submissionId  — full-resolution photo detail view
+//
+// Shows the original-resolution image, caption, task title, and uploader link.
+// Prev (newer) and next (older) links follow the same created_at DESC, id DESC
+// total order as the gallery. Taken-down and nonexistent ids → 404.
+// ---------------------------------------------------------------------------
+
+// SELECT body for the photo detail query — reuses GALLERY_SELECT_BODY columns.
+const PHOTO_DETAIL_SELECT = `
+  SELECT s.id            AS submission_id,
+         s.photo_path    AS photo_path,
+         s.thumb_path    AS thumb_path,
+         s.caption       AS caption,
+         s.created_at    AS created_at,
+         g.id            AS guest_id,
+         g.name          AS guest_name,
+         t.id            AS task_id,
+         t.title         AS task_title
+    FROM submissions s
+    JOIN guests g ON g.id = s.guest_id
+    JOIN tasks  t ON t.id = s.task_id
+   WHERE s.id = ? AND s.taken_down = 0`;
+
+/**
+ * Find the next-older visible submission (the "next" link in a newest-first list).
+ * Returns the row or undefined when the current photo is already the oldest.
+ */
+function findOlderNeighbor(createdAt, id) {
+  return db
+    .prepare(
+      `SELECT s.id AS submission_id
+         FROM submissions s
+        WHERE s.taken_down = 0
+          AND (s.created_at < ? OR (s.created_at = ? AND s.id < ?))
+        ORDER BY s.created_at DESC, s.id DESC
+        LIMIT 1`
+    )
+    .get(createdAt, createdAt, id);
+}
+
+/**
+ * Find the next-newer visible submission (the "previous" link in a newest-first list).
+ * Returns the row or undefined when the current photo is already the newest.
+ */
+function findNewerNeighbor(createdAt, id) {
+  return db
+    .prepare(
+      `SELECT s.id AS submission_id
+         FROM submissions s
+        WHERE s.taken_down = 0
+          AND (s.created_at > ? OR (s.created_at = ? AND s.id > ?))
+        ORDER BY s.created_at ASC, s.id ASC
+        LIMIT 1`
+    )
+    .get(createdAt, createdAt, id);
+}
+
+router.get('/p/:submissionId', (req, res) => {
+  const submissionId = parseInt(req.params.submissionId, 10);
+  if (!Number.isInteger(submissionId) || submissionId < 1) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  const photo = db.prepare(PHOTO_DETAIL_SELECT).get(submissionId);
+  if (!photo) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  const next = findOlderNeighbor(photo.created_at, photo.submission_id);
+  const prev = findNewerNeighbor(photo.created_at, photo.submission_id);
+
+  return res.render('photo', {
+    title: photo.task_title,
+    pageScript: 'photo.js',
+    photo,
+    next: next || null,
+    prev: prev || null,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -346,7 +426,6 @@ router.get('/u/:guestId', (req, res, next) => {
 
   res.render('public-profile', {
     title: profileGuest.name || 'Guest',
-    pageScript: 'gallery.js',
     profileGuest,
     badges,
     socialLinks,
