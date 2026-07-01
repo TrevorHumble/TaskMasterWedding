@@ -1031,52 +1031,63 @@ input[type='file'],
   color: var(--color-text-muted);
 }
 
-/* lightbox (gallery.js toggles .open) */
-.lightbox {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(42, 67, 53, 0.88);
+/* ----------------------- Photo detail page ----------------------- */
+.photo-nav-bar {
+  margin-bottom: var(--space-4);
 }
-.lightbox.open {
-  display: flex;
+
+.photo-detail {
+  margin: 0 0 var(--space-5);
 }
-.lightbox-figure {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  max-width: 90vw;
-}
-.lightbox-img {
-  max-width: 100%;
+
+.photo-detail-img {
+  width: 100%;
   max-height: 80vh;
-  border-radius: var(--radius-input);
-  box-shadow: var(--shadow-raise);
+  object-fit: contain;
+  border-radius: var(--radius-card);
+  border: var(--border-hairline);
+  background: var(--green-50);
 }
-.lightbox-caption {
-  color: rgba(255, 255, 255, 0.85);
+
+.photo-detail-caption {
+  margin-top: var(--space-4);
+}
+
+.photo-detail-task {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 0 0 var(--space-2);
+}
+
+.photo-detail-text {
+  font-style: italic;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.photo-detail-by {
   font-size: var(--fs-small);
-  text-align: center;
+  margin: 0;
 }
-.lightbox-close {
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-5);
-  font-size: 2rem;
-  color: var(--white);
-  background: none;
-  border: none;
-  cursor: pointer;
-  line-height: 1;
-  opacity: 0.8;
+
+.photo-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-6);
+  font-size: var(--fs-small);
 }
-.lightbox-close:hover {
-  opacity: 1;
+
+.photo-prev,
+.photo-next {
+  color: var(--color-primary);
+}
+
+.photo-nav-disabled {
+  color: var(--color-hairline);
+  pointer-events: none;
 }
 
 /* ----------------------- Leaderboard ----------------------- */

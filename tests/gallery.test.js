@@ -15,11 +15,12 @@ beforeAll(async () => {
 });
 
 describe('gallery page', () => {
-  it('AC1: GET /gallery returns 200 with real thumbnail src, gallery script, and task title', async () => {
+  it('AC1: GET /gallery returns 200 with real thumbnail src, photo-page link, and task title', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
     expect(res.text).toContain('src="/thumbs/t.jpg"');
-    expect(res.text).toContain('/js/gallery.js');
+    // Thumbnails now link to /p/<id> (issue #42 — lightbox removed).
+    expect(res.text).toContain('href="/p/' + ids.submissionId + '"');
     expect(res.text).toContain('Selfie with the cake');
   });
 
@@ -28,10 +29,11 @@ describe('gallery page', () => {
     expect(res.text).not.toContain('data-src="/thumbs/');
   });
 
-  it('AC3: GET /u/:guestId returns 200 with real thumbnail src and gallery script', async () => {
+  it('AC3: GET /u/:guestId returns 200 with real thumbnail src and photo-page link', async () => {
     const p = await agent.get('/u/' + ids.guestId);
     expect(p.status).toBe(200);
     expect(p.text).toContain('src="/thumbs/t.jpg"');
-    expect(p.text).toContain('/js/gallery.js');
+    // Thumbnails now link to /p/<id> (issue #42 — lightbox removed).
+    expect(p.text).toContain('href="/p/' + ids.submissionId + '"');
   });
 });
