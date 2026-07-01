@@ -12,8 +12,14 @@ const cookieParser = require('cookie-parser');
 
 const config = require('../config');
 const photos = require('./services/photos');
+const initials = require('./utils/initials');
 
 const app = express();
+
+// Make the initials helper available to every EJS template as a callable local,
+// so avatar fallbacks across guest-home, public-profile, and leaderboard all
+// derive initials from the same function rather than inline one-liners.
+app.locals.initials = initials;
 
 // ---------------------------------------------------------------------------
 // 1. Make sure the data directories exist before anything tries to use them.
