@@ -163,7 +163,7 @@ router.get('/admin/login', (req, res) => {
 // A correct password always authenticates and clears the failure counter, so the
 // real admin cannot be locked out by others' failed attempts. Only wrong passwords
 // increment the counter and are throttled.
-router.post('/admin/login', (req, res) => {
+router.post('/admin/login', async (req, res) => {
   const password = req.body.password || '';
 
   let hash;
@@ -177,7 +177,7 @@ router.post('/admin/login', (req, res) => {
     return;
   }
 
-  const ok = bcrypt.compareSync(password, hash);
+  const ok = await bcrypt.compare(password, hash);
   if (ok) {
     // Correct password — clear any active lockout and authenticate.
     failedAttempts = 0;
