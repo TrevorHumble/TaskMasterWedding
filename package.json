@@ -33,13 +33,13 @@
     "exceljs": "4.4.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.13.0",
-    "@vitest/coverage-v8": "^2.1.4",
-    "eslint": "^9.13.0",
-    "eslint-config-prettier": "^9.1.0",
-    "globals": "^15.11.0",
-    "prettier": "^3.3.3",
+    "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^4.1.9",
+    "eslint": "^10.6.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.4",
     "supertest": "^7.0.0",
-    "vitest": "^2.1.4"
+    "vitest": "^4.1.9"
   }
 }
