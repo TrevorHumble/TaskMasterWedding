@@ -56,6 +56,17 @@ app.use('/uploads', photos.blockTakenDownOriginal, express.static(config.UPLOADS
 app.use('/thumbs', photos.blockTakenDownThumb, express.static(config.THUMBS_DIR));
 
 // ---------------------------------------------------------------------------
+// 4b. Maintenance mode.
+//     When config.MAINTENANCE is true, respond 503 to every guest path.
+//     /admin paths and the static assets already served above fall through.
+// ---------------------------------------------------------------------------
+app.use((req, res, next) => {
+  if (!config.MAINTENANCE) return next();
+  if (req.path === '/admin' || req.path.startsWith('/admin/')) return next();
+  return res.status(503).set('Retry-After', '120').render('maintenance');
+});
+
+// ---------------------------------------------------------------------------
 // 5. attachGuest middleware (added by section 03).
 //    Reads the signed gsid cookie and loads the guest into res.locals.
 //    Mounted only if the file exists so the app boots before section 03.
