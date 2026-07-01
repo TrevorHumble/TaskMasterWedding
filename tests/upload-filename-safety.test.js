@@ -12,14 +12,17 @@
 // REQUIRE ORDER: loadApp() must run before any require of config, db, or app.
 'use strict';
 
-const path = require('path');
 const request = require('supertest');
 const sharp = require('sharp');
 const { loadApp } = require('./helpers/testApp');
 
 // Regex that every app-generated filename must match.
-// Mirrors the allowlist in src/services/photos.js (ORIGINAL_RE).
+// Matches the shape produced by randomFilename in src/services/photos.js:
+// 16 hex chars + '-' + millisecond timestamp + a lowercase-alnum extension.
 const SAFE_NAME_RE = /^[0-9a-f]{16}-\d+\.[a-z0-9]+$/;
+
+// Regex for thumbnail filenames (two extensions: e.g. abc123-1751000000000.jpg.webp).
+const SAFE_THUMB_NAME_RE = /^[0-9a-f]{16}-\d+\.[a-z0-9]+\.[a-z0-9]+$/;
 
 let app;
 let db;
@@ -83,8 +86,9 @@ function readSubmission(gId, tId) {
 
 /**
  * Submit a photo upload as the authenticated guest and return the stored row.
- * Deletes the existing submission row first so each test case gets a fresh one
- * (the route does INSERT OR REPLACE semantics, but we want clean reads).
+ * Deletes any existing submission for this guest+task first so the SELECT in
+ * readSubmission returns exactly the row written by this call (the route
+ * INSERTs a new row; it does not use INSERT OR REPLACE).
  */
 async function submitPhoto(agent, filename) {
   // Remove any prior submission for this guest+task so the row is unambiguous.
@@ -119,7 +123,7 @@ it('forward-slash traversal: stored name is app-generated, not the client filena
 
   // photo_path and thumb_path must match the app's random-name pattern.
   expect(row.photo_path).toMatch(SAFE_NAME_RE);
-  expect(row.thumb_path).toMatch(/^[0-9a-f]{16}-\d+\.[a-z0-9]+\.[a-z0-9]+$/);
+  expect(row.thumb_path).toMatch(SAFE_THUMB_NAME_RE);
 
   // None of the dangerous characters from the client filename may appear.
   expect(row.photo_path).not.toContain('/');
@@ -131,11 +135,6 @@ it('forward-slash traversal: stored name is app-generated, not the client filena
   expect(row.thumb_path).not.toContain('\\');
   expect(row.thumb_path).not.toContain('..');
   expect(row.thumb_path).not.toContain('passwd');
-
-  // Confirm the assertion above would fail if originalname were passed through:
-  // If the stored value were the client's filename, SAFE_NAME_RE would not match
-  // because "../../../../etc/passwd.jpg" contains "/" and "..".
-  expect(SAFE_NAME_RE.test(traversalFilename)).toBe(false);
 });
 
 // ---------------------------------------------------------------------------
@@ -150,7 +149,7 @@ it('backslash traversal: stored name is app-generated, not the client filename',
   expect(row).toBeDefined();
 
   expect(row.photo_path).toMatch(SAFE_NAME_RE);
-  expect(row.thumb_path).toMatch(/^[0-9a-f]{16}-\d+\.[a-z0-9]+\.[a-z0-9]+$/);
+  expect(row.thumb_path).toMatch(SAFE_THUMB_NAME_RE);
 
   expect(row.photo_path).not.toContain('/');
   expect(row.photo_path).not.toContain('\\');
@@ -161,7 +160,4 @@ it('backslash traversal: stored name is app-generated, not the client filename',
   expect(row.thumb_path).not.toContain('\\');
   expect(row.thumb_path).not.toContain('..');
   expect(row.thumb_path).not.toContain('evil');
-
-  // Same falsifiability check.
-  expect(SAFE_NAME_RE.test(backslashFilename)).toBe(false);
 });
