@@ -97,6 +97,10 @@ const config = {
   THUMB_WIDTH: 400,
   ALLOWED_MIME: ['image/jpeg', 'image/png', 'image/webp'],
 
+  // Maintenance mode — set MAINTENANCE=1 or MAINTENANCE=true in the environment
+  // to serve a 503 page to guests while /admin remains reachable.
+  MAINTENANCE: process.env.MAINTENANCE === '1' || process.env.MAINTENANCE === 'true',
+
   // Admin login throttling
   ADMIN_LOGIN_MAX_ATTEMPTS: parseInt(process.env.ADMIN_LOGIN_MAX_ATTEMPTS, 10) || 10,
   ADMIN_LOGIN_LOCKOUT_MS: parseInt(process.env.ADMIN_LOGIN_LOCKOUT_MS, 10) || 15 * 60 * 1000,
@@ -132,5 +136,6 @@ config.maxUploadBytes = config.MAX_UPLOAD_BYTES;
 config.thumbWidth = config.THUMB_WIDTH;
 config.allowedMime = config.ALLOWED_MIME;
 config.badgeThresholds = config.BADGE_THRESHOLDS;
+config.maintenance = config.MAINTENANCE;
 
 module.exports = config;
