@@ -14,6 +14,7 @@ The run-time Live-log ledger (per-increment `[HH:MM] elapsed=…` lines) lives i
 
 ## 2026-06-30
 
+- #59 — regression-guard the destructive-action confirmations: new `tests/destructive-confirm.test.js` renders the admin guests/photos/tasks pages as admin and asserts each destructive form (guest delete, photo takedown, task delete), isolated by its delete/takedown action route, carries `data-confirm=` and `method="post"` — so a future template edit (e.g. #40) can't silently drop a confirmation.
 - #61 — Dependabot integration: two-tier merge policy (`auto` on green CI / `review` held) via a testable classifier `tools/classify-dep-pr.ps1` (single source of truth for the wedding-critical dep list, drift-guarded against `CLAUDE.md` and `.github/dependabot.yml`); grouped `dependabot.yml` with wedding-critical deps excluded so held items arrive as individual PRs; policy documented in `CLAUDE.md`/`orchestrator.md`. Exit authorized by the severity adjudicator (remaining defects inconsequential). Triage of the 14 open PRs follows per AC8.
 - #62 — issue-lifecycle review marker: issues are born `needs-issue-review`; the label is cleared only by a recorded issue-review PASS via the separate reader-gated `tools/clear-issue-marker.ps1` (evidence writer stays board-free, so separation-of-writers holds); adds board-wide `tools/audit-issue-markers.ps1`; born-marked creation + narrowed bookkeeping carve-out documented in the pipeline.
 
