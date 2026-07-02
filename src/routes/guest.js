@@ -4,7 +4,7 @@
 const express = require('express');
 const router = express.Router();
 
-// db.js exports an OBJECT { db, getCompletedCount, ... }. Destructure the
+// db.js exports an OBJECT { db, getGuestByToken, getGuestById }. Destructure the
 // better-sqlite3 connection itself, or db.prepare(...) is undefined.
 const { db } = require('../db');
 const config = require('../../config');
@@ -70,18 +70,10 @@ router.get('/', function (req, res) {
   const totalActiveRow = db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get();
   const totalTasks = totalActiveRow.n;
 
-  // Completed tasks for this guest = visible submissions (taken_down = 0) with
-  // NO is_active filter — this is the canonical rule scoring/badges/leaderboard
-  // (section 06) use, so the home count never disagrees with points and badges.
-  const completedRow = db
-    .prepare(
-      `SELECT COUNT(*) AS n
-         FROM submissions s
-        WHERE s.guest_id = ?
-          AND s.taken_down = 0`
-    )
-    .get(guest.id);
-  const completedTasks = completedRow.n;
+  // Completed tasks for this guest — routed through scoring.getCompletedCount
+  // (issue #104) so this count can never drift from points and badges, which
+  // use the same canonical rule (visible submissions, no is_active filter).
+  const completedTasks = scoring.getCompletedCount(guest.id);
 
   // Points and badges from the scoring service (section 06 real exports).
   const points = scoring.getPoints(guest.id);

@@ -74,36 +74,6 @@ function makeUniqueToken() {
   throw new Error('Could not generate a unique guest token.');
 }
 
-// Total points for a guest. Prefer the scoring service; fall back to SQL so this
-// page never crashes if the helper name differs. NOTE: bonus_points may be
-// negative (scoring.addBonusPoints is additive, not clamped at 0), so this sum
-// can be lower than the completed-task count.
-function pointsForGuest(guestId) {
-  if (typeof scoring.pointsForGuest === 'function') {
-    return scoring.pointsForGuest(guestId);
-  }
-  const row = db
-    .prepare(
-      `SELECT
-         (SELECT COUNT(*) FROM submissions
-            WHERE guest_id = ? AND taken_down = 0) AS completed,
-         (SELECT bonus_points FROM guests WHERE id = ?) AS bonus`
-    )
-    .get(guestId, guestId);
-  return (row.completed || 0) + (row.bonus || 0);
-}
-
-// Completed (non-taken-down) task count for a guest.
-function completedCount(guestId) {
-  if (typeof scoring.completedCount === 'function') {
-    return scoring.completedCount(guestId);
-  }
-  const row = db
-    .prepare('SELECT COUNT(*) AS n FROM submissions WHERE guest_id = ? AND taken_down = 0')
-    .get(guestId);
-  return row.n || 0;
-}
-
 // ---------------------------------------------------------------------------
 // GET /admin  — dashboard
 // ---------------------------------------------------------------------------
@@ -151,8 +121,8 @@ router.get('/guests', (req, res) => {
       token: g.token,
       link: config.BASE_URL.replace(/\/+$/, '') + '/j/' + g.token,
       bonus_points: g.bonus_points,
-      points: pointsForGuest(g.id),
-      completed: completedCount(g.id),
+      points: scoring.getPoints(g.id),
+      completed: scoring.getCompletedCount(g.id),
       heldCodes: held,
     };
   });

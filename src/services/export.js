@@ -8,13 +8,7 @@ const ExcelJS = require('exceljs');
 
 const config = require('../../config');
 const { db } = require('../db');
-
-/**
- * Auto-badge completed-task thresholds, kept here as plain numbers so this
- * service has no hard dependency on scoring.js load order. These match the
- * canonical thresholds (5 / 10 / 15) from the Foundation Contract.
- */
-const AUTO_THRESHOLDS = [5, 10, 15];
+const scoring = require('./scoring');
 
 /**
  * Prepend an apostrophe to any string value whose first character would be
@@ -103,14 +97,6 @@ async function buildSummaryBuffer() {
 
   // ---- Pre-compute per-guest aggregates -----------------------------------
 
-  // completed tasks = submissions that are NOT taken down (one per guest+task
-  // is guaranteed by the UNIQUE(guest_id,task_id) constraint).
-  const completedByGuest = new Map(); // guestId -> count
-  for (const s of submissions) {
-    if (s.taken_down === 1) continue;
-    completedByGuest.set(s.guest_id, (completedByGuest.get(s.guest_id) || 0) + 1);
-  }
-
   const badgeNamesByGuest = new Map(); // guestId -> [badge name, ...]
   for (const gb of guestBadges) {
     const badge = badgeById.get(gb.badge_id);
@@ -134,9 +120,12 @@ async function buildSummaryBuffer() {
   guestsSheet.getRow(1).font = { bold: true };
 
   for (const g of guests) {
-    const completed = completedByGuest.get(g.id) || 0;
+    // Completed-count and total points come from scoring.js (issue #104) —
+    // the single authority for the rule, so this sheet can never drift from
+    // the admin guests page or a guest's own home-page count.
+    const completed = scoring.getCompletedCount(g.id);
     const bonus = g.bonus_points || 0;
-    const total = completed + bonus; // 1 point per completed task + bonus
+    const total = scoring.getPoints(g.id);
     const names = (badgeNamesByGuest.get(g.id) || []).join(', ');
 
     // social_links is a JSON object string; show it as "key: value" pairs.
