@@ -19,3 +19,9 @@ Thumbs.db
 .DS_Store
 *.log
 npm-debug.log*
+
+# Generated symlink mirror of .agents/skills/ (core.symlinks=false would commit these as broken text files)
+.claude/skills/
+
+# Test coverage output
+coverage/
