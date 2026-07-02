@@ -470,28 +470,28 @@ router.get('/photos', (req, res) => {
   });
 });
 
-// POST /admin/photos/:id/takedown  — hide a photo, then recompute the guest's
-// auto-badges (a hidden photo no longer counts toward points or auto-badges).
+// POST /admin/photos/:id/takedown  — hide a photo. photos.hideSubmission is the
+// single writer of taken_down for moderation: it flips the flag and recomputes
+// the guest's auto-badges in one transaction, so a hidden photo can never keep
+// counting toward points or auto-badges even for an instant.
 router.post('/photos/:id/takedown', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const sub = db.prepare('SELECT id, guest_id FROM submissions WHERE id = ?').get(id);
-  if (!sub) {
+  const guestId = photos.hideSubmission(id);
+  if (guestId === undefined) {
     return redirectWithMsg(res, '/admin/photos', 'Submission not found.');
   }
-  db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(id);
-  scoring.recomputeAutoBadges(sub.guest_id); // revokes auto-badges if count dropped
   redirectWithMsg(res, '/admin/photos', 'Photo taken down.');
 });
 
-// POST /admin/photos/:id/restore  — unhide a photo, then recompute auto-badges.
+// POST /admin/photos/:id/restore  — unhide a photo. photos.restoreSubmission
+// flips the flag and recomputes the guest's auto-badges in one transaction —
+// see the takedown route above.
 router.post('/photos/:id/restore', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const sub = db.prepare('SELECT id, guest_id FROM submissions WHERE id = ?').get(id);
-  if (!sub) {
+  const guestId = photos.restoreSubmission(id);
+  if (guestId === undefined) {
     return redirectWithMsg(res, '/admin/photos', 'Submission not found.');
   }
-  db.prepare('UPDATE submissions SET taken_down = 0 WHERE id = ?').run(id);
-  scoring.recomputeAutoBadges(sub.guest_id); // re-grants auto-badges if threshold met
   redirectWithMsg(res, '/admin/photos', 'Photo restored.');
 });
 
