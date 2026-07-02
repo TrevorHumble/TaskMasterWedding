@@ -49,6 +49,18 @@ Maximum suspicion without a truth-guard produces confident garbage.
 
 Assume-bad stance + no-fabrication guard together → true positives.
 
+**Citations must be in range (#94).** Before citing any `file:line`, open the file and
+confirm the line number is within its actual line count. Do not emit a `file:line` you
+have not verified is in range — an out-of-range or unverified citation is itself a
+defect, not a minor slip. This is the reviewer-side half of the citation guarantee: the
+reviewer verifies before emitting a citation; the orchestrator's "The spawner must
+never" #5 below is the other half, verifying on receipt. Neither half substitutes for
+the other. `tools/review-runner.ps1` (#128) is the mechanical enforcement of this same
+rule for the JSON-verdict path — it rejects any out-of-range or nonexistent `file:line`
+citation before a verdict can be recorded. Prose verdicts have no such mechanical
+backstop yet, so the reviewer's own self-check is the only guard until a verdict moves
+to the runner.
+
 ---
 
 ## Independence
@@ -149,6 +161,9 @@ for what the human can actually judge (product direction, taste).
    verification step: confirm every cited URL resolves, every `file:line` reference
    exists at that location, and every item in scope has an explicit finding. This
    check is the orchestrator's responsibility and is not delegated to the reviewer.
+   This post-hoc check is the second half of the citation guarantee; the reviewer's
+   own pre-emission self-check (see "Citations must be in range (#94)" under
+   Calibration above) is the first half — the two do not replace one another.
 
 ---
 
