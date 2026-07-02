@@ -1,0 +1,46 @@
+<!-- src/views/photo.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+  <nav class="photo-nav-bar" aria-label="Back to gallery">
+    <a class="back-link" href="/gallery">&larr; Gallery</a>
+  </nav>
+
+  <figure class="photo-detail">
+    <img
+      class="photo-detail-img"
+      src="/uploads/<%= photo.photo_path %>"
+      alt="<%= photo.task_title %>"
+    />
+    <figcaption class="photo-detail-caption">
+      <p class="photo-detail-task">
+        <a href="/gallery?task=<%= photo.task_id %>"><%= photo.task_title %></a>
+      </p>
+      <% if (photo.caption) { %>
+        <p class="photo-detail-text"><%= photo.caption %></p>
+      <% } %>
+      <p class="photo-detail-by muted">
+        by <a href="/u/<%= photo.guest_id %>"><%= photo.guest_name || 'Guest' %></a>
+      </p>
+    </figcaption>
+  </figure>
+
+  <nav class="photo-pagination" aria-label="Browse photos">
+    <%
+      /* prev = newer (earlier in newest-first order); next = older (later in newest-first order).
+         We only render the anchor when the server found a neighbor — no placeholder links. */
+    %>
+    <% if (prev) { %>
+      <a class="photo-prev js-photo-prev" href="/p/<%= prev.submission_id %>">&larr; Newer</a>
+    <% } else { %>
+      <span class="photo-prev photo-nav-disabled">&larr; Newer</span>
+    <% } %>
+
+    <% if (next) { %>
+      <a class="photo-next js-photo-next" href="/p/<%= next.submission_id %>">Older &rarr;</a>
+    <% } else { %>
+      <span class="photo-next photo-nav-disabled">Older &rarr;</span>
+    <% } %>
+  </nav>
+
+<%- include('partials/footer') %>
