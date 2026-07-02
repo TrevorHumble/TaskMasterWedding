@@ -86,25 +86,6 @@ db.exec(`
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
- * Count how many tasks a guest has actually completed.
- * A completed task = one submission row for that guest that is NOT taken down.
- * Taken-down photos (taken_down = 1) do not count toward points or badges.
- * @param {number} guestId
- * @returns {number}
- */
-function getCompletedCount(guestId) {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n
-         FROM submissions
-        WHERE guest_id = ?
-          AND taken_down = 0`
-    )
-    .get(guestId);
-  return row.n;
-}
-
-/**
  * Load a single guest row by its sign-in token, or undefined if none.
  * Used by the auth/session middleware in section 03.
  * @param {string} token
@@ -125,7 +106,6 @@ function getGuestById(guestId) {
 
 module.exports = {
   db,
-  getCompletedCount,
   getGuestByToken,
   getGuestById,
 };

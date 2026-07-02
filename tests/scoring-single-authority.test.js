@@ -1,0 +1,110 @@
+// tests/scoring-single-authority.test.js
+// Issue #104 (0057): points/completed-count must come from ONE authority
+// (src/services/scoring.js), so the admin guests page, the export Guests
+// sheet, and scoring.js itself can never disagree.
+//
+// Fixture: one guest with one VISIBLE submission (taken_down = 0), one
+// TAKEN-DOWN submission (taken_down = 1), and bonus_points = 4.
+// Canonical rule (scoring.js): completed = COUNT(visible submissions) = 1.
+//                               points    = completed + bonus_points = 1 + 4 = 5.
+// If the completed-count rule were inverted (e.g. counting ALL submissions,
+// or counting only taken-down ones), completed would read 2 or 0 and points
+// would read 6 or 4 — every assertion below would fail.
+'use strict';
+
+const { loadApp, makeAdminAgent } = require('./helpers/testApp');
+const ExcelJS = require('exceljs');
+
+let db;
+let adminAgent;
+let scoring;
+let buildSummaryBuffer;
+let guestId;
+
+const EXPECTED_COMPLETED = 1;
+const EXPECTED_POINTS = 5; // 1 completed + 4 bonus
+
+beforeAll(async () => {
+  const loaded = loadApp();
+  db = loaded.db;
+
+  // Required AFTER loadApp() so config/db bind to the temp DATA_DIR/DB_PATH
+  // (see tests/helpers/testApp.js "REQUIRE ORDER MATTERS").
+  scoring = require('../src/services/scoring');
+  ({ buildSummaryBuffer } = require('../src/services/export'));
+
+  const taskA = db
+    .prepare('INSERT INTO tasks (title) VALUES (?)')
+    .run('Find the cake').lastInsertRowid;
+  const taskB = db
+    .prepare('INSERT INTO tasks (title) VALUES (?)')
+    .run('Dance with the couple').lastInsertRowid;
+
+  guestId = db
+    .prepare('INSERT INTO guests (token, name, bonus_points) VALUES (?, ?, ?)')
+    .run('authority-guest', 'Authority Guest', 4).lastInsertRowid;
+
+  // Visible submission — counts.
+  db.prepare(
+    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+     VALUES (?, ?, ?, ?, 0)`
+  ).run(guestId, taskA, 'visible.jpg', 'visible-thumb.jpg');
+
+  // Taken-down submission — must NOT count.
+  db.prepare(
+    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+     VALUES (?, ?, ?, ?, 1)`
+  ).run(guestId, taskB, 'hidden.jpg', 'hidden-thumb.jpg');
+
+  adminAgent = await makeAdminAgent(loaded.app);
+});
+
+describe('scoring single authority — issue #104', () => {
+  it('AC: scoring.getCompletedCount ignores the taken-down submission', () => {
+    expect(scoring.getCompletedCount(guestId)).toBe(EXPECTED_COMPLETED);
+  });
+
+  it('AC: scoring.getPoints = completed + bonus_points', () => {
+    expect(scoring.getPoints(guestId)).toBe(EXPECTED_POINTS);
+  });
+
+  it('AC1/AC2: admin guests page shows the same completed-count and points', async () => {
+    const res = await adminAgent.get('/admin/guests');
+    expect(res.status).toBe(200);
+
+    // Row shape from admin-guests.ejs: <td>id</td> ... <td>points</td><td>completed</td>.
+    // Anchor on this guest's id, then require points immediately followed by
+    // completed within that same row (whitespace-tolerant, so an unrelated
+    // template reformat doesn't break this test) — not just present anywhere
+    // on the page, which could match a different guest's row.
+    const rowPattern = new RegExp(
+      `<td>${guestId}</td>[\\s\\S]*?<td>${EXPECTED_POINTS}</td>\\s*<td>${EXPECTED_COMPLETED}</td>`
+    );
+    expect(res.text).toMatch(rowPattern);
+  });
+
+  it('AC3: export Guests sheet cells equal scoring.getCompletedCount/getPoints', async () => {
+    const buf = await buildSummaryBuffer();
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+
+    const guestsSheet = wb.getWorksheet('Guests');
+    expect(guestsSheet).toBeTruthy();
+
+    // Columns are, in order: Guest ID(1), Name(2), Completed Tasks(3),
+    // Bonus Points(4), Total Points(5), Badges(6), Social Links(7).
+    // A loaded (not freshly-addRow'd) workbook only supports positional
+    // getCell(n), not getCell('key') — the key map is a write-time-only
+    // convenience (see tests/export-injection.test.js for the same pattern).
+    let row;
+    guestsSheet.eachRow((r) => {
+      if (r.getCell(1).value === guestId) {
+        row = r;
+      }
+    });
+
+    expect(row).toBeTruthy();
+    expect(row.getCell(3).value).toBe(EXPECTED_COMPLETED);
+    expect(row.getCell(5).value).toBe(EXPECTED_POINTS);
+  });
+});
