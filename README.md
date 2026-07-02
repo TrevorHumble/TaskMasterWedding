@@ -19,14 +19,14 @@ Requires **Node.js 20+** on Windows (PowerShell). From the project root:
 
 ```powershell
 npm install
-node scripts/set-admin-password.js   # sets the admin (Task Master) password
+node scripts/set-admin-password.js <password>   # sets the admin (Task Master) password
 node scripts/seed.js                  # creates tables, badges, and sample data
 npm start                             # starts the server on port 3000
 ```
 
 Then open <http://localhost:3000>.
 
-- `node scripts/set-admin-password.js <password>` writes a bcrypt hash to `data/admin.hash`. Run it again any time to change the password; the old one stops working immediately. With no argument it uses the wedding default.
+- `node scripts/set-admin-password.js <password>` writes a bcrypt hash to `data/admin.hash`. Run it again any time to change the password; the old one stops working immediately.
 - `node scripts/seed.js` creates the SQLite schema and seeds badges plus sample tasks/guests.
 - Copy `.env.example` to `.env` and set a fixed `COOKIE_SECRET` before the event. Without it the app generates a random secret on each boot and signs everyone out on every restart.
 
@@ -70,6 +70,10 @@ src/
   views/                  EJS templates + partials
   public/                 css, client js, badge SVGs
 data/                     Runtime state (gitignored): app.db, uploads/, thumbs/, exports/, admin.hash
+skills/                   This repo's own /build pipeline skills
+.agents/skills/           Design skills installed via the skills CLI (improve-codebase-architecture,
+                          codebase-design, grilling, domain-modeling); .claude/skills/ is a gitignored
+                          symlink mirror regenerated from .agents/skills/ + skills-lock.json
 PLAN/                     Detailed build/implementation plan (00-README.md .. 10-theme-and-art.md)
 docs/architecture.md      Request-path and data-model diagrams + walkthroughs
 standards/                Checkable standards the orchestrator pipeline enforces
@@ -82,3 +86,4 @@ standards/                Checkable standards the orchestrator pipeline enforces
 - Design rationale and tradeoffs: [`DESIGN.md`](DESIGN.md).
 - Refactor roadmap: [`PLAN.md`](PLAN.md).
 - How to contribute through the orchestrator pipeline (issue → review → implement → review → PR): [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md).
+- What a green build actually proves, in plain English: [`WHAT-IT-CHECKS.md`](WHAT-IT-CHECKS.md).

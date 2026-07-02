@@ -75,6 +75,12 @@ db.exec(`
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     CONSTRAINT uq_gb UNIQUE (guest_id, badge_id)
   );
+
+  CREATE INDEX IF NOT EXISTS idx_submissions_photo_path
+    ON submissions(photo_path COLLATE NOCASE);
+
+  CREATE INDEX IF NOT EXISTS idx_submissions_thumb_path
+    ON submissions(thumb_path COLLATE NOCASE);
 `);
 
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---

@@ -2,8 +2,7 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-<main class="container admin">
-  <h1 class="display">Photos &amp; takedowns</h1>
+  <h1 class="display-title">Photos &amp; takedowns</h1>
 
   <% if (msg) { %>
     <p class="flash"><%= msg %></p>
@@ -33,12 +32,12 @@
         <% if (p.taken_down) { %>
           <p class="status-down">TAKEN DOWN</p>
           <form action="/admin/photos/<%= p.id %>/restore" method="post">
-            <button type="submit" class="btn btn-small">Restore</button>
+            <button type="submit" class="btn btn-sm">Restore</button>
           </form>
         <% } else { %>
           <form action="/admin/photos/<%= p.id %>/takedown" method="post"
                 data-confirm="Take down this photo? It will be hidden from the gallery, profiles, and scoring.">
-            <button type="submit" class="btn btn-small btn-danger">Take down</button>
+            <button type="submit" class="btn btn-sm btn-danger">Take down</button>
           </form>
         <% } %>
       </div>
@@ -47,7 +46,6 @@
       <p class="muted">No photos submitted yet.</p>
     <% } %>
   </div>
-</main>
 
 <script src="/js/admin.js" defer></script>
 <%- include('partials/footer') %>

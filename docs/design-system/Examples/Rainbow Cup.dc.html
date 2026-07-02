@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    @keyframes flagPulse { 0%,100% { opacity:1; } 50% { opacity:.45; } }
+  </style>
+</helmet>
+
+<!-- ===================== FRAME 1 — STANDINGS ===================== -->
+<div style="position:absolute; left:0; top:0; width:390px;">
+  <div data-drags-parent="1" style="font-family:'EB Garamond',serif; font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478; margin-bottom:12px; padding-left:2px;">Standings</div>
+  <div data-screen-label="Standings" style="background:#ffffff; border-radius:2px; box-shadow:0 1px 3px rgba(42,67,53,.10); min-height:780px; padding:44px 24px; font-family:'EB Garamond',serif; color:#467058;">
+    <div style="text-align:center;">
+      <div style="font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478;">Season II · Grand Prix</div>
+      <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin-top:6px;">
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="fill:#467058;"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.3 6 21.2l1.4-6.8L2.3 9.8l6.9-.7z"></path></svg>
+        <span style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:42px; text-transform:uppercase; letter-spacing:0.04em;">Rainbow Cup</span>
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="fill:#467058;"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.3 6 21.2l1.4-6.8L2.3 9.8l6.9-.7z"></path></svg>
+      </div>
+    </div>
+
+    <!-- podium -->
+    <div style="display:flex; align-items:flex-end; justify-content:center; gap:10px; margin:30px 0 26px;">
+      <div style="flex:1; text-align:center;">
+        <div style="width:54px; height:54px; border-radius:50%; background:#f0f4f2; border:1px solid #aebbb2; margin:0 auto 8px; display:flex; align-items:center; justify-content:center; font-family:'Cormorant Garamond',serif; font-size:22px; color:#467058;">P</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:18px;">Peach</div>
+        <div style="background:#f0f4f2; border-radius:8px 8px 0 0; height:54px; display:flex; align-items:flex-start; justify-content:center; padding-top:6px; font-family:'Cormorant Garamond',serif; font-size:24px; margin-top:8px;">2</div>
+      </div>
+      <div style="flex:1; text-align:center;">
+        <div style="width:64px; height:64px; border-radius:50%; background:#467058; margin:0 auto 8px; display:flex; align-items:center; justify-content:center; font-family:'Cormorant Garamond',serif; font-size:26px; color:#ffffff;">L</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:600;">Luigi</div>
+        <div style="background:#467058; color:#ffffff; border-radius:8px 8px 0 0; height:78px; display:flex; align-items:flex-start; justify-content:center; padding-top:8px; font-family:'Cormorant Garamond',serif; font-size:30px; margin-top:8px;">1</div>
+      </div>
+      <div style="flex:1; text-align:center;">
+        <div style="width:54px; height:54px; border-radius:50%; background:#f0f4f2; border:1px solid #aebbb2; margin:0 auto 8px; display:flex; align-items:center; justify-content:center; font-family:'Cormorant Garamond',serif; font-size:22px; color:#467058;">Y</div>
+        <div style="font-family:'Cormorant Garamond',serif; font-size:18px;">Yoshi</div>
+        <div style="background:#f0f4f2; border-radius:8px 8px 0 0; height:40px; display:flex; align-items:flex-start; justify-content:center; padding-top:6px; font-family:'Cormorant Garamond',serif; font-size:24px; margin-top:8px;">3</div>
+      </div>
+    </div>
+
+    <!-- table -->
+    <div>
+      <div style="display:flex; align-items:center; padding:14px 4px; border-top:1px solid #e2e9e5;">
+        <span style="width:28px; font-family:'Cormorant Garamond',serif; font-size:20px; color:#6e8478;">4</span>
+        <span style="flex:1; font-family:'Cormorant Garamond',serif; font-size:20px;">Toad</span>
+        <span style="font-size:15px; color:#6e8478;">218 pts</span>
+      </div>
+      <div style="display:flex; align-items:center; padding:14px 4px; border-top:1px solid #e2e9e5;">
+        <span style="width:28px; font-family:'Cormorant Garamond',serif; font-size:20px; color:#6e8478;">5</span>
+        <span style="flex:1; font-family:'Cormorant Garamond',serif; font-size:20px;">Bowser</span>
+        <span style="font-size:15px; color:#6e8478;">205 pts</span>
+      </div>
+      <div style="display:flex; align-items:center; padding:14px 4px; border-top:1px solid #e2e9e5;">
+        <span style="width:28px; font-family:'Cormorant Garamond',serif; font-size:20px; color:#6e8478;">6</span>
+        <span style="flex:1; font-family:'Cormorant Garamond',serif; font-size:20px;">Daisy</span>
+        <span style="font-size:15px; color:#6e8478;">191 pts</span>
+      </div>
+      <div style="display:flex; align-items:center; padding:14px 4px; border-top:1px solid #e2e9e5; border-bottom:1px solid #e2e9e5;">
+        <span style="width:28px; font-family:'Cormorant Garamond',serif; font-size:20px; color:#6e8478;">7</span>
+        <span style="flex:1; font-family:'Cormorant Garamond',serif; font-size:20px;">Wario</span>
+        <span style="font-size:15px; color:#6e8478;">176 pts</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== FRAME 2 — RACE SCHEDULE ===================== -->
+<div style="position:absolute; left:510px; top:0; width:390px;">
+  <div data-drags-parent="1" style="font-family:'EB Garamond',serif; font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478; margin-bottom:12px; padding-left:2px;">Race schedule — live countdown</div>
+  <div data-screen-label="Schedule" style="background:#ffffff; border-radius:2px; box-shadow:0 1px 3px rgba(42,67,53,.10); min-height:780px; padding:44px 24px; font-family:'EB Garamond',serif; color:#467058; text-align:center;">
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:30px; text-transform:uppercase; letter-spacing:0.02em;">Round 4 — Tonight</div>
+    <div style="display:flex; justify-content:center; margin:18px 0;">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" style="fill:#467058;"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.3 6 21.2l1.4-6.8L2.3 9.8l6.9-.7z"></path></svg>
+    </div>
+
+    <div style="background:#f0f4f2; border-radius:14px; padding:24px;">
+      <div style="font-size:13px; letter-spacing:0.2em; text-transform:uppercase; color:#6e8478;">Lights out in</div>
+      <div style="display:flex; gap:16px; justify-content:center; margin-top:12px;">
+        <span style="font-family:'Cormorant Garamond',serif; font-size:30px;">{{ hours }}<span style="font-size:14px; color:#6e8478;"> h</span></span>
+        <span style="font-family:'Cormorant Garamond',serif; font-size:30px;">{{ minutes }}<span style="font-size:14px; color:#6e8478;"> m</span></span>
+        <span style="font-family:'Cormorant Garamond',serif; font-size:30px;">{{ seconds }}<span style="font-size:14px; color:#6e8478;"> s</span></span>
+      </div>
+    </div>
+
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:24px; margin-top:26px;">Bowser's Castle</div>
+    <div style="font-size:17px; color:#6e8478; margin-top:6px;">8:00 pm · 150cc · 4 laps</div>
+    <p style="font-size:17px; line-height:1.55; color:#6e8478; margin:14px 4px 0;">The penultimate round. Double points and a single banana lap — leaders beware the final corner.</p>
+    <div style="display:flex; gap:12px; margin-top:20px;">
+      <button style="flex:1; background:#467058; color:#ffffff; border:none; border-radius:4px; padding:12px; font-family:'EB Garamond',serif; font-weight:600; font-size:15px; cursor:pointer; transition:background-color 140ms;" style-hover="background:#2a4335;">Track map</button>
+      <button style="flex:1; background:#467058; color:#ffffff; border:none; border-radius:4px; padding:12px; font-family:'EB Garamond',serif; font-weight:600; font-size:15px; cursor:pointer; transition:background-color 140ms;" style-hover="background:#2a4335;">Set reminder</button>
+    </div>
+
+    <div style="height:1px; background:#e2e9e5; margin:34px 0;"></div>
+
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:500; font-size:30px; text-transform:uppercase; letter-spacing:0.02em;">Round 5 — Finale</div>
+    <div style="display:flex; justify-content:center; margin:18px 0;">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" style="fill:#467058;"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.3 6 21.2l1.4-6.8L2.3 9.8l6.9-.7z"></path></svg>
+    </div>
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:24px;">Rainbow Road</div>
+    <div style="font-size:17px; color:#6e8478; margin-top:6px;">Saturday · 8:00 pm · 200cc</div>
+    <p style="font-size:17px; line-height:1.55; color:#6e8478; margin:14px 4px 0;">The championship decider. Triple points. No rails. Bring your best line.</p>
+  </div>
+</div>
+
+<!-- ===================== FRAME 3 — RACER PROFILE ===================== -->
+<div style="position:absolute; left:1020px; top:0; width:390px;">
+  <div data-drags-parent="1" style="font-family:'EB Garamond',serif; font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478; margin-bottom:12px; padding-left:2px;">Racer profile</div>
+  <div data-screen-label="Racer" style="background:#ffffff; border-radius:2px; box-shadow:0 1px 3px rgba(42,67,53,.10); min-height:780px; padding:48px 24px; font-family:'EB Garamond',serif; color:#467058; text-align:center;">
+    <div style="width:96px; height:96px; border-radius:50%; background:#467058; margin:0 auto 16px; display:flex; align-items:center; justify-content:center; font-family:'Cormorant Garamond',serif; font-size:42px; color:#ffffff;">L</div>
+    <div style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:38px; text-transform:uppercase; letter-spacing:0.03em;">Luigi</div>
+    <div style="font-size:16px; color:#6e8478; margin-top:4px; font-style:italic;">Mach 8 · Slim tires · Super Glider</div>
+
+    <div style="display:flex; justify-content:center; gap:8px; margin:20px 0 28px;">
+      <span style="font-size:13px; letter-spacing:0.14em; text-transform:uppercase; color:#467058; background:#f0f4f2; border-radius:999px; padding:7px 16px;">Leader</span>
+      <span style="font-size:13px; letter-spacing:0.14em; text-transform:uppercase; color:#467058; background:#f0f4f2; border-radius:999px; padding:7px 16px;">Season II</span>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#e2e9e5; border:1px solid #e2e9e5; border-radius:14px; overflow:hidden;">
+      <div style="background:#ffffff; padding:22px 12px;">
+        <div style="font-family:'Cormorant Garamond',serif; font-size:38px;">247</div>
+        <div style="font-size:13px; letter-spacing:0.16em; text-transform:uppercase; color:#6e8478; margin-top:4px;">Points</div>
+      </div>
+      <div style="background:#ffffff; padding:22px 12px;">
+        <div style="font-family:'Cormorant Garamond',serif; font-size:38px;">9</div>
+        <div style="font-size:13px; letter-spacing:0.16em; text-transform:uppercase; color:#6e8478; margin-top:4px;">Wins</div>
+      </div>
+      <div style="background:#ffffff; padding:22px 12px;">
+        <div style="font-family:'Cormorant Garamond',serif; font-size:38px;">14</div>
+        <div style="font-size:13px; letter-spacing:0.16em; text-transform:uppercase; color:#6e8478; margin-top:4px;">Podiums</div>
+      </div>
+      <div style="background:#ffffff; padding:22px 12px;">
+        <div style="font-family:'Cormorant Garamond',serif; font-size:38px;">1:58</div>
+        <div style="font-size:13px; letter-spacing:0.16em; text-transform:uppercase; color:#6e8478; margin-top:4px;">Best lap</div>
+      </div>
+    </div>
+
+    <button style="width:100%; background:#467058; color:#ffffff; border:none; border-radius:4px; padding:14px; font-family:'EB Garamond',serif; font-weight:600; font-size:16px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; margin-top:26px; transition:background-color 140ms;" style-hover="background:#2a4335;">Challenge to a race</button>
+  </div>
+</div>
+
+<!-- ===================== FRAME 4 — LIVE RACE ===================== -->
+<div style="position:absolute; left:1530px; top:0; width:390px;">
+  <div data-drags-parent="1" style="font-family:'EB Garamond',serif; font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478; margin-bottom:12px; padding-left:2px;">Live race — ticking lap</div>
+  <div data-screen-label="Live" style="background:#ffffff; border-radius:2px; box-shadow:0 1px 3px rgba(42,67,53,.10); min-height:780px; padding:44px 24px; font-family:'EB Garamond',serif; color:#467058;">
+    <div style="text-align:center;">
+      <div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; letter-spacing:0.2em; text-transform:uppercase; color:#467058;">
+        <span style="width:8px; height:8px; border-radius:50%; background:#467058; animation:flagPulse 1.4s ease-in-out infinite;"></span>
+        Now racing
+      </div>
+      <div style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:32px; text-transform:uppercase; letter-spacing:0.03em; margin-top:6px;">Bowser's Castle</div>
+      <div style="font-family:'Cormorant Garamond',serif; font-size:22px; color:#6e8478; margin-top:4px;">Lap {{ lap }} / 4</div>
+    </div>
+
+    <div style="margin-top:30px;">
+      <div style="display:flex; align-items:center; background:#f0f4f2; border-radius:10px; padding:14px 16px; margin-bottom:10px;">
+        <span style="width:30px; font-family:'Cormorant Garamond',serif; font-size:24px;">1</span>
+        <span style="flex:1; font-family:'Cormorant Garamond',serif; font-size:22px;">Luigi</span>
+        <span style="font-size:15px; color:#6e8478;">leader</span>
+      </div>
+      <div style="display:flex; align-items:center; padding:14px 16px; border-bottom:1px solid #e2e9e5;">
+        <span style="width:30px; font-family:'Cormorant Garamond',serif; font-size:22px; color:#6e8478;">2</span>
+        <span style="flex:1; font-family:'Cormorant Garamond',serif; font-size:20px;">Peach</span>
+        <span style="font-size:15px; color:#6e8478;">+1.2s</span>
+      </div>
+      <div style="display:flex; align-items:center; padding:14px 16px; border-bottom:1px solid #e2e9e5;">
+        <span style="width:30px; font-family:'Cormorant Garamond',serif; font-size:22px; color:#6e8478;">3</span>
+        <span style="flex:1; font-family:'Cormorant Garamond',serif; font-size:20px;">Yoshi</span>
+        <span style="font-size:15px; color:#6e8478;">+3.8s</span>
+      </div>
+      <div style="display:flex; align-items:center; padding:14px 16px; border-bottom:1px solid #e2e9e5;">
+        <span style="width:30px; font-family:'Cormorant Garamond',serif; font-size:22px; color:#6e8478;">4</span>
+        <span style="flex:1; font-family:'Cormorant Garamond',serif; font-size:20px;">Toad</span>
+        <span style="font-size:15px; color:#6e8478;">+5.1s</span>
+      </div>
+      <div style="display:flex; align-items:center; padding:14px 16px; border-bottom:1px solid #e2e9e5;">
+        <span style="width:30px; font-family:'Cormorant Garamond',serif; font-size:22px; color:#6e8478;">5</span>
+        <span style="flex:1; font-family:'Cormorant Garamond',serif; font-size:20px;">Bowser</span>
+        <span style="font-size:15px; color:#6e8478;">+6.4s</span>
+      </div>
+    </div>
+
+    <button style="width:100%; background:#467058; color:#ffffff; border:none; border-radius:4px; padding:14px; font-family:'EB Garamond',serif; font-weight:600; font-size:16px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; margin-top:28px; transition:background-color 140ms;" style-hover="background:#2a4335;">Watch the stream</button>
+  </div>
+</div>
+
+<!-- ===================== FRAME 5 — REGISTRATION ===================== -->
+<div style="position:absolute; left:2040px; top:0; width:390px;">
+  <div data-drags-parent="1" style="font-family:'EB Garamond',serif; font-size:13px; letter-spacing:0.22em; text-transform:uppercase; color:#6e8478; margin-bottom:12px; padding-left:2px;">Sign up — interactive</div>
+  <div data-screen-label="Register" style="background:#ffffff; border-radius:2px; box-shadow:0 1px 3px rgba(42,67,53,.10); min-height:780px; padding:48px 24px; font-family:'EB Garamond',serif; color:#467058;">
+    <div style="text-align:center;">
+      <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true" style="fill:#467058;"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.3 6 21.2l1.4-6.8L2.3 9.8l6.9-.7z"></path></svg>
+      <div style="font-family:'Cormorant Garamond',serif; font-weight:600; font-size:34px; text-transform:uppercase; letter-spacing:0.03em; margin-top:4px;">Enter the Cup</div>
+      <p style="font-size:16px; color:#6e8478; margin:8px 0 28px;">Registration closes Friday at midnight.</p>
+    </div>
+
+    <label style="display:block; font-size:13px; letter-spacing:0.18em; text-transform:uppercase; color:#6e8478; margin-bottom:8px;">Racer tag</label>
+    <input placeholder="Your handle" style="width:100%; box-sizing:border-box; background:#ffffff; border:1px solid #aebbb2; border-radius:4px; padding:13px 16px; font-family:'EB Garamond',serif; font-size:18px; color:#467058; outline:none; margin-bottom:24px;">
+
+    <div style="font-size:13px; letter-spacing:0.18em; text-transform:uppercase; color:#6e8478; margin-bottom:10px;">Pick your racer</div>
+    <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:26px;">
+      <button onClick="{{ pickMario }}" style="{{ marioStyle }}">Mario</button>
+      <button onClick="{{ pickLuigi }}" style="{{ luigiStyle }}">Luigi</button>
+      <button onClick="{{ pickPeach }}" style="{{ peachStyle }}">Peach</button>
+      <button onClick="{{ pickYoshi }}" style="{{ yoshiStyle }}">Yoshi</button>
+    </div>
+
+    <div style="font-size:13px; letter-spacing:0.18em; text-transform:uppercase; color:#6e8478; margin-bottom:10px;">Engine class</div>
+    <div style="display:flex; gap:10px; margin-bottom:30px;">
+      <button onClick="{{ pick150 }}" style="{{ cc150Style }}">150cc</button>
+      <button onClick="{{ pick200 }}" style="{{ cc200Style }}">200cc</button>
+    </div>
+
+    <button style="width:100%; background:#467058; color:#ffffff; border:none; border-radius:4px; padding:15px; font-family:'EB Garamond',serif; font-weight:600; font-size:17px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; transition:background-color 140ms;" style-hover="background:#2a4335;">Lock it in</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { lap: 1, racer: 'Luigi', cc: '150', ...this.calc() };
+
+  calc() {
+    // counts down to "tonight 8pm"
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(20, 0, 0, 0);
+    if (target.getTime() <= now.getTime()) target.setDate(target.getDate() + 1);
+    let diff = Math.max(0, target.getTime() - now.getTime());
+    const hours = Math.floor(diff / 3600000); diff -= hours * 3600000;
+    const minutes = Math.floor(diff / 60000); diff -= minutes * 60000;
+    const seconds = Math.floor(diff / 1000);
+    return { hours, minutes, seconds };
+  }
+
+  componentDidMount() {
+    this.timer = setInterval(() => this.setState(this.calc()), 1000);
+    this.lapTimer = setInterval(() => this.setState(s => ({ lap: (s.lap % 4) + 1 })), 2500);
+  }
+  componentWillUnmount() {
+    clearInterval(this.timer);
+    clearInterval(this.lapTimer);
+  }
+
+  chip(active) {
+    return [
+      'cursor:pointer', "font-family:'EB Garamond',serif", 'font-size:16px',
+      'padding:11px 20px', 'border-radius:999px', 'transition:all 140ms',
+      active ? 'background:#467058' : 'background:#ffffff',
+      active ? 'color:#ffffff' : 'color:#467058',
+      active ? 'border:1px solid #467058' : 'border:1px solid #aebbb2'
+    ].join(';');
+  }
+  ccChip(active) {
+    return [
+      'flex:1', 'cursor:pointer', "font-family:'EB Garamond',serif", 'font-size:16px',
+      'padding:13px', 'border-radius:4px', 'transition:all 140ms',
+      active ? 'background:#467058' : 'background:#ffffff',
+      active ? 'color:#ffffff' : 'color:#467058',
+      active ? 'border:1px solid #467058' : 'border:1px solid #aebbb2'
+    ].join(';');
+  }
+
+  renderVals() {
+    const r = this.state.racer, cc = this.state.cc;
+    return {
+      hours: String(this.state.hours).padStart(2, '0'),
+      minutes: String(this.state.minutes).padStart(2, '0'),
+      seconds: String(this.state.seconds).padStart(2, '0'),
+      lap: this.state.lap,
+      pickMario: () => this.setState({ racer: 'Mario' }),
+      pickLuigi: () => this.setState({ racer: 'Luigi' }),
+      pickPeach: () => this.setState({ racer: 'Peach' }),
+      pickYoshi: () => this.setState({ racer: 'Yoshi' }),
+      marioStyle: this.chip(r === 'Mario'),
+      luigiStyle: this.chip(r === 'Luigi'),
+      peachStyle: this.chip(r === 'Peach'),
+      yoshiStyle: this.chip(r === 'Yoshi'),
+      pick150: () => this.setState({ cc: '150' }),
+      pick200: () => this.setState({ cc: '200' }),
+      cc150Style: this.ccChip(cc === '150'),
+      cc200Style: this.ccChip(cc === '200')
+    };
+  }
+}
+</script>
+</body>
+</html>

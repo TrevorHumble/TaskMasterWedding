@@ -383,9 +383,25 @@ router.post('/tasks/:id/edit', (req, res) => {
   redirectWithMsg(res, '/admin/tasks', 'Task updated.');
 });
 
-// POST /admin/tasks/:id/delete  — delete a task (cascades its submissions).
+// POST /admin/tasks/:id/delete  — delete a task and its photo files.
+// ON DELETE CASCADE removes submission rows, but NOT the files on disk.
+// Hard-delete each submission's files first so no orphaned originals or
+// thumbnails remain (and so direct-URL access is closed — the file is gone).
 router.post('/tasks/:id/delete', (req, res) => {
   const id = parseInt(req.params.id, 10);
+
+  // Collect this task's submissions so we can remove their files from disk.
+  const subs = db.prepare('SELECT id FROM submissions WHERE task_id = ?').all(id);
+  for (const sub of subs) {
+    try {
+      photos.hardDelete(sub.id);
+    } catch (err) {
+      // Don't abort the whole delete just because one stray file was already
+      // gone; log and continue so the DB row still gets removed.
+      console.error('Failed to delete files for submission', sub.id, err);
+    }
+  }
+
   db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
   redirectWithMsg(res, '/admin/tasks', 'Task deleted.');
 });

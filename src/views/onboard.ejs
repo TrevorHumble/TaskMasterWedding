@@ -2,15 +2,15 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-<main class="page page--narrow">
-  <h1 class="display-title">Welcome to the party!</h1>
-  <p class="lead">Let's set up your profile. Only your name is required — everything else is optional and you can change it later.</p>
+  <h1 class="display-title">Welcome!</h1>
+  <div class="heart-divider" style="color:var(--color-primary);"><%- include('partials/heart', { size: 20 }) %></div>
+  <p class="lead center">Let us set up your profile. Only your name is required — you can change everything later.</p>
 
   <% if (error) { %>
     <div class="alert alert--error"><%= error %></div>
   <% } %>
 
-  <form class="form" action="/onboard" method="POST" enctype="multipart/form-data">
+  <form action="/onboard" method="POST" enctype="multipart/form-data">
     <div class="form-row">
       <label class="form-label" for="name">Your name <span class="req">*</span></label>
       <input class="form-input" type="text" id="name" name="name" maxlength="60"
@@ -28,7 +28,7 @@
 
     <fieldset class="form-fieldset">
       <legend class="form-legend">Social links (optional)</legend>
-      <p class="form-help">Add these if you'd like other guests to be able to connect with you.</p>
+      <p class="form-help">Add these if you would like other guests to connect with you.</p>
 
       <div class="form-row">
         <label class="form-label" for="instagram">Instagram</label>
@@ -51,6 +51,5 @@
 
     <button class="btn btn--primary" type="submit">Start the hunt</button>
   </form>
-</main>
 
 <%- include('partials/footer') %>

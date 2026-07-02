@@ -48,7 +48,7 @@ function setFlash(res, kind, text) {
   res.cookie('flash', JSON.stringify({ type: type, msg: text }), {
     httpOnly: true,
     sameSite: 'lax',
-    secure: false,
+    secure: config.COOKIE_SECURE,
     signed: true,
     path: '/',
     maxAge: 30 * 1000, // 30 seconds is plenty to survive one redirect

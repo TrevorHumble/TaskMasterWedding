@@ -16,7 +16,7 @@ tools: [Task, Bash, Read, Write, Edit, Glob, Grep]
 
 ## Input / output contract
 
-**Input:** a single segment descriptor — the issue file path (`issues/NNNN-*.md`) or a segment
+**Input:** a single segment descriptor — its **GitHub issue** (the canonical record of the work) or a segment
 name from `PLAN.md`. All prior-art paths must exist on disk.
 
 **Output:** a committed artifact in the appropriate directory; a one-line entry appended to
@@ -28,34 +28,42 @@ allowed rounds.
 ## Pipeline (ordered)
 
 1. **Issue** — read or create the issue with `skills/issue-create.md`. When a new issue file is created,
-   **open its GitHub issue** (`gh issue create`, label by tier) so the board reflects it from the start —
-   GitHub is the single source of truth (see `skills/github-write.md`).
-2. **Issue review** — spawn `agents/reviewer-issue.md` (Opus) via `skills/spawn-adversarial-review.md`.
-   Fix every blocking defect. Re-review with a fresh reviewer instance. A FAIL is fixed, never
-   overridden.
+   **open its GitHub issue** (`gh issue create --label needs-issue-review`, plus any tier label) so the board
+   reflects it from the start carrying the `needs-issue-review` label — GitHub is the single source of truth
+   (see `skills/github-write.md`). After the issue-review PASSes and `tools/persist-issue-review.ps1` records
+   the evidence, run `tools/clear-issue-marker.ps1 -IssueNumber <N>` to clear the label from the board.
+2. **Issue review** — spawn exactly **one** `agents/reviewer-issue.md` (Opus) via `skills/spawn-adversarial-review.md`. Issues always use a single reviewer — never a panel. Fix every blocking defect. Re-review with a fresh reviewer instance. A FAIL is fixed, never overridden. After the reviewer returns PASS, **record the issue-review evidence** so the `commit-msg` gate can authorize code commits that reference this issue:
+   ```powershell
+   powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS
+   ```
+   Without this record, any code commit that names issue `<N>` will be blocked at `commit-msg` time.
 3. **Research** — delegate to `agents/researcher.md` using `skills/research-prior-art.md`.
    Local prior art first, then the relevant dependency/framework documentation, then a short web check only
    if needed. Do not research what prior art already answers.
 4. **Implementation** — spawn `agents/implementation-agent.md` (Sonnet) with full handoff: the
    passing issue + all prior-art file paths.
-5. **Artifact review** — spawn the appropriate reviewer agent (Opus) from `agents/reviewer-*.md`
-   via `skills/spawn-adversarial-review.md`. Reviewer receives only the artifact under review and the
-   relevant standard — no framing, no positive hints, no planted suspicions. See
-   `standards/adversarial-review-protocol.md` for the full de-bias and spawning rules.
-6. **Commit** — once per run, before the first commit, **assert the gate is live**: `powershell -File tools/check-gate.ps1` (if it errors, run `tools/setup-hooks.ps1`; never proceed assuming a gate that isn't on — an unconfigured clone enforces nothing). The gate's introducing commit must also self-certify (record its own verdict first — dogfooding is expected, not a malfunction). On the reviewers' PASS, first **record the verdict**: `powershell -File tools/review_verdict.ps1 -Verdict PASS -Reviewers "<who>"` (binds it to the exact staged tree). Then `git commit` with a short message. The repo's `pre-commit` gate (`.githooks/pre-commit`, active via `core.hooksPath` — run `tools/setup-hooks.ps1` once per working copy) blocks any commit whose staged tree has no matching PASS verdict, so recording the reviewers' real result is a required, mechanical step. If the gate blocks you, the fix is to run the review and record its genuine verdict — never to forge one. Append a one-line entry to `BUILDLOG.md`.
+5. **Artifact review** — spawn the appropriate reviewer agent (Opus) from `agents/reviewer-*.md` via `skills/spawn-adversarial-review.md`. Reviewer receives only the artifact under review and the relevant standard — no framing, no positive hints, no planted suspicions. **Reviewer count and cadence follow `standards/adversarial-review-protocol.md` § Reviewer count by artifact** (authoritative; not restated here to avoid drift): round 1 uses a panel scaled to risk (up to 5 for routine code, judged unanimous-PASS); rounds 2+ use one fresh reviewer each (except system-level changes, which require two independent PASSes on the final tree). See `standards/adversarial-review-protocol.md` for the full de-bias and spawning rules.
+6. **Commit** — once per run, before the first commit, **assert the gate is live**: `powershell -File tools/check-gate.ps1` (if it errors, run `tools/setup-hooks.ps1`; never proceed assuming a gate that isn't on — an unconfigured clone enforces nothing). The gate's introducing commit must also self-certify (record its own verdict first — dogfooding is expected, not a malfunction). On the reviewers' PASS, first **record the verdict**: `powershell -File tools/review_verdict.ps1 -Verdict PASS -Reviewers "<who>"` (binds it to the exact staged tree), and for **each** reviewer write its evidence file: `powershell -File tools/persist-review.ps1 -TreeOid <T> -ReviewerId <id> -Verdict <PASS|FAIL>`. The commit gate now requires those evidence files, so the verdict summary alone no longer authorizes a commit (the S3 runner will write them automatically from real reviewer returns; until it lands, the orchestrator writes one per reviewer by hand). Then `git commit` with a short message that includes `(#N)` referencing the issue. **Two gates run at commit time:** `pre-commit` checks that the staged tree has a PASS review verdict; `commit-msg` checks that the commit message names a GitHub issue whose issue-review is on file. Both must pass. If `commit-msg` blocks, the fix is to record the issue review: `powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS`. The repo's `pre-commit` gate (`.githooks/pre-commit`, active via `core.hooksPath` — run `tools/setup-hooks.ps1` once per working copy) blocks any commit whose staged tree has no matching PASS verdict, so recording the reviewers' real result is a required, mechanical step. If either gate blocks you, the fix is to run the corresponding review and record its genuine verdict — never to forge one. Append a one-line entry to `BUILDLOG.md`.
    Then **close the GitHub issue** for this work (`gh issue close`, referencing the commit) so the board
    matches reality. Before declaring the segment done, spawn `agents/reviewer-tracker-sync.md` — it FAILs
    if the board is out of sync with the issue files / BUILDLOG. The board is kept current at every
    transition: issue created → `gh issue` opened; committed to `main` → `gh issue` closed.
-   - **Believe the green light — watch CI to green after every push.** This is a direct-push model:
-     the orchestrator commits straight to `main` and is the only committer; there is no human merge
-     approval (by design — the owner never pushes code). So the green light is made trustworthy by the
-     orchestrator itself: after every push, watch the CI run to completion and confirm it is green
-     before moving on. `main` is never knowingly left red. If CI goes red, fix the cause or revert the
-     commit before proceeding — a red `main` is a stop-and-fix condition, not something to push past.
-     (Hard branch-protection required-checks would force a pull-request merge flow; that is a deliberate
-     model change, not a default — it is not enabled, and this post-push CI-watch is the operative
-     enforcement.)
+   - **Ship flow — branch → PR → CI → merge or leave open.** After committing, push the branch and run `gh pr create` to open a pull request. Watch CI to green. If the change is a bug fix, security fix, refactor, correctness fix, or test, merge when CI passes. If the change is visual or product-direction, leave the PR open for the owner — this is the merge boundary: the owner, not the orchestrator, merges those. `main` is never knowingly left red. If CI goes red, fix the cause or revert the commit before proceeding — a red `main` is a stop-and-fix condition, not something to push past.
+
+---
+
+## Dependabot PR path
+
+When a Dependabot PR is open, classify it before touching it:
+
+```powershell
+powershell -File tools/classify-dep-pr.ps1 -Ecosystem <ecosystem> -DepName <name> -SemverBump <patch|minor|major> -DepType <prod|dev>
+```
+
+- Output `auto` → merge when CI is green; no tracked decision needed.
+- Output `review` → do not merge; open or reference a GitHub issue recording the decision rationale before merging.
+
+Policy details and the wedding-critical dependency list live in `CLAUDE.md` § "Dependency updates (Dependabot)". The authoritative tier logic lives in `tools/classify-dep-pr.ps1`; the summary in CLAUDE.md is a human-readable restatement, and the wedding-critical list is drift-guarded by `tests/classify-dep-pr.test.js`.
 
 ---
 
@@ -76,8 +84,9 @@ review it."
   auto-trigger review the same way.
 - **A doc-only or typo-only change skips only the design-philosophy gate** (see Review cadence) — never the
   adversarial review.
-- **Bookkeeping is not a reviewable artifact:** the Live-log ledger line and a one-line `BUILDLOG.md` entry
-  do not themselves trigger a review (only the committed/presented work they describe does).
+- **Bookkeeping is not a reviewable artifact — narrowly scoped:** this exemption applies ONLY to the
+  Live-log ledger line and the one-line `BUILDLOG.md` entry. No other action qualifies. Creating or closing
+  an issue is a reviewable transition, never exempt bookkeeping.
 
 ---
 
@@ -85,7 +94,7 @@ review it."
 
 When invoked for a timed session ("work for N hours", "run autonomously"), the orchestrator runs a
 **time-driven, not task-driven, loop.** It ends only when real elapsed time reaches the budget — never
-because a queue emptied or the work "felt done." Full procedure and live state: `docs/AUTONOMOUS-RUN.md`.
+because a queue emptied or the work "felt done." This section is the full procedure; the run's live state — budget, queue, and the per-increment Live-log ledger — is tracked in `docs/RESUME-STATE.md`.
 
 - **Arm the loop-gate (mechanical, not just discipline).** At run start, run `powershell -File tools/start-run.ps1 -Minutes N`. This writes `.run_state/run.json`, which arms the `loop-gate` Stop hook (`.claude/hooks/loop-gate.ps1`) to BLOCK any attempt to end a turn before the clock budget is spent — so the never-stop loop is enforced by the harness, not only by the rules below. It is clock-driven (releases automatically at the budget), fails open on any error, and only activates while a run is in progress, so it cannot trap a normal session. Emergency brake for a genuine must-stop: `powershell -File tools/stop-run.ps1` (or create `.run_state/STOP`). The rules below define HOW to fill the time; the gate guarantees the time is filled.
 - **Self-timing, made auditable.** Record the start timestamp **by running a real system-clock command**
@@ -185,7 +194,7 @@ forced next task, researching better/standard practice and bringing back concret
 
 These gates are additive to the existing `reviewer-issue` / `reviewer-pr` pipeline. They do not replace any existing step.
 
-**Architectural gate (issue-review time):** When an issue is a system-level change or adds a new component, spawn `agents/reviewer-architecture.md` (Opus) after `reviewer-issue` passes and before implementation begins. A FAIL from `reviewer-architecture` is fixed and re-reviewed; it is never overridden. A `system-level change` is defined in DESIGN.md (it touches the protocol, a standard, an agent spec, DESIGN.md, or CLAUDE.md).
+**Architectural gate (issue-review time):** When an issue is a system-level change or adds a new component, spawn `agents/reviewer-architecture.md` (Opus) after `reviewer-issue` passes and before implementation begins. A FAIL from `reviewer-architecture` is fixed and re-reviewed; it is never overridden. A `system-level change` is defined by the governing-artifact surface in DESIGN.md, and the commit gate (`tools/verdict-core.ps1`) enforces that same list.
 
 **Design-philosophy gate (PR-review time):** An implementation artifact is code, an agent spec, a skill, or a standard. A doc-only or typo-only change is NOT an implementation artifact and skips this gate. Spawn `agents/reviewer-design-philosophy.md` (Opus) for every implementation artifact at PR-review time, after `reviewer-pr` returns PASS. A FAIL is fixed and re-reviewed; it is never overridden.
 
