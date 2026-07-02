@@ -70,6 +70,10 @@ src/
   views/                  EJS templates + partials
   public/                 css, client js, badge SVGs
 data/                     Runtime state (gitignored): app.db, uploads/, thumbs/, exports/, admin.hash
+skills/                   This repo's own /build pipeline skills
+.agents/skills/           Design skills installed via the skills CLI (improve-codebase-architecture,
+                          codebase-design, grilling, domain-modeling); .claude/skills/ is a gitignored
+                          symlink mirror regenerated from .agents/skills/ + skills-lock.json
 PLAN/                     Detailed build/implementation plan (00-README.md .. 10-theme-and-art.md)
 docs/architecture.md      Request-path and data-model diagrams + walkthroughs
 standards/                Checkable standards the orchestrator pipeline enforces
