@@ -101,6 +101,24 @@ verdict the orchestrator cannot verify (e.g., the gate agent praises the briefin
 without quoting evidence), spawn a second independent gate agent from a clean prompt
 and require it to agree before proceeding.
 
+**Evidence artifact and fail-closed rule (#47).** The bias-gate step above leaves a
+tree-bound evidence artifact at `.review_state/bias-gate/<tree_oid>/<gate_id>.json`
+(schema `bg1`), written by the single writer `tools/persist-bias-gate.ps1`. For a
+**system-level change** (`Get-RequiredBar` returns `2`), `tools/validate-verdict.ps1`
+fails closed unless at least one `bg1` artifact bound to the exact staged tree is
+`PASS` and none is `FAIL` (per-artifact FAIL-wins, mirroring the reviewer FAIL-wins
+rule above) — a system-level tree with two independent review PASSes but no recorded
+bias-gate step still does not authorize a commit. A routine (non-system-level) tree
+does not require a bias-gate artifact. See `DESIGN.md` "Commit gate" for the full
+mechanics and the honest tamper-evident (not tamper-proof) bar this shares with the
+other `.review_state/` writers.
+
+The severity adjudicator (`## Stop condition — soft cap and severity gate` below)
+similarly leaves a durable evidence artifact at
+`.review_state/adjudication/<tree_oid>/<adjudicator_id>.json` (schema `adj1`),
+written by `tools/persist-adjudication.ps1`. This is a record only — no gate consumes
+it as of #47; enforcement, if ever added, is a separate issue.
+
 ---
 
 ## No human in the loop

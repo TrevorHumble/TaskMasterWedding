@@ -21,9 +21,9 @@ function Get-RequiredBar {
 function Read-Evidence {
   param(
     [string]$Tree,
-    [string]$ReviewsRoot
+    [string]$EvidenceRoot
   )
-  $dir = Join-Path $ReviewsRoot $Tree
+  $dir = Join-Path $EvidenceRoot $Tree
   if (-not (Test-Path $dir)) {
     return @()
   }
@@ -142,6 +142,53 @@ function Test-VerdictSatisfied {
     [int]$Required = 1,
     [string]$ReviewsRoot
   )
-  $evidence = @(Read-Evidence -Tree $Tree -ReviewsRoot $ReviewsRoot)
+  $evidence = @(Read-Evidence -Tree $Tree -EvidenceRoot $ReviewsRoot)
   return Reduce-Verdicts -evidence $evidence -Required $Required -Label "tree $Tree"
+}
+
+# Test-BiasGateSatisfied — a system-level tree fails closed unless at least one
+# bias-gate artifact for the tree is PASS and none is FAIL (fail-wins, mirroring
+# the per-reviewer FAIL-wins rule in Reduce-Verdicts). The reason string always
+# contains the literal token "bias-gate" so the caller can surface a stable,
+# greppable failure message.
+# Returns a pscustomobject: { ok=[bool]; reason=[string] }
+function Test-BiasGateSatisfied {
+  param(
+    [string]$Tree,
+    [string]$Root
+  )
+  $evidence = @(Read-Evidence -Tree $Tree -EvidenceRoot $Root)
+
+  if ($evidence.Count -eq 0) {
+    return [pscustomobject]@{
+      ok     = $false
+      reason = "blocked: no bias-gate evidence for tree $Tree"
+    }
+  }
+
+  $hasFail = $false
+  $hasPass = $false
+  foreach ($e in $evidence) {
+    if ($e.verdict -eq 'FAIL') { $hasFail = $true }
+    if ($e.verdict -eq 'PASS') { $hasPass = $true }
+  }
+
+  if ($hasFail) {
+    return [pscustomobject]@{
+      ok     = $false
+      reason = "blocked: a FAIL bias-gate artifact is present for tree $Tree"
+    }
+  }
+
+  if ($hasPass) {
+    return [pscustomobject]@{
+      ok     = $true
+      reason = "ok: bias-gate satisfied for tree $Tree"
+    }
+  }
+
+  return [pscustomobject]@{
+    ok     = $false
+    reason = "blocked: no PASS bias-gate artifact for tree $Tree"
+  }
 }
