@@ -4,6 +4,9 @@ data/
 coverage/
 package-lock.json
 
+# Vendored design skills are kept byte-for-byte as installed
+.agents/skills/
+
 # Planning docs are kept verbatim
 PLAN/
 
