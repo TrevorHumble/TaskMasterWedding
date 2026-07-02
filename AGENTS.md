@@ -12,7 +12,7 @@ issue → adversarial review of issue → implement → adversarial review of PR
 
 - **Issue** must meet `standards/issue-standards.md`: consumer-POV user story, Given/When/Then acceptance criteria, a numbered implementation plan, and a dependency map (`Depends on`, `Blocks`, `Touches`).
 - **Adversarial review** (of both the issue and the PR) follows `standards/adversarial-review-protocol.md`: assume total failure, cite real evidence, end with a single `PASS`/`FAIL` token plus a numbered defect list.
-- **Enforcement** is local via `.githooks/pre-commit` and the scripts in `tools/` (`check-gate.ps1`, `check-enforcement.ps1`, `review_verdict.ps1`, `start-run.ps1`, `stop-run.ps1`, `setup-hooks.ps1`).
+- **Enforcement** is local via `.githooks/pre-commit` and the scripts in `tools/` — the review-evidence gate (`verdict-core.ps1`, `validate-verdict.ps1`, `persist-review.ps1`, `review_verdict.ps1`) plus `check-gate.ps1`, `check-enforcement.ps1`, `start-run.ps1`, `stop-run.ps1`, `setup-hooks.ps1`.
 
 ## Roles and models
 
@@ -39,7 +39,7 @@ Agent definitions live in `agents/` (ported separately). Each agent must satisfy
 ## Independence and rigor
 
 - High-stakes review uses at least three independent adversaries; a finding or a clean verdict needs two of three to agree.
-- A **system-level change** (pipeline, enforcement hooks, standards, or agent definitions) uses two independent reviewers who must **both** reach PASS; disagreement is FAIL.
+- A **system-level change** (the governing-artifact surface defined in `DESIGN.md`, enforced by the same list in `tools/verdict-core.ps1`) uses two independent reviewers who must **both** reach PASS; disagreement is FAIL.
 - A **bias gate** audits the briefing before fan-out: the only allowed bias is anti-builder.
 
 ## Environment

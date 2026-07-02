@@ -2,8 +2,7 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-<main class="container admin">
-  <h1 class="display">Guests</h1>
+  <h1 class="display-title">Guests</h1>
 
   <% if (msg) { %>
     <p class="flash"><%= msg %></p>
@@ -14,7 +13,7 @@
     <a class="btn" href="/admin/qrsheet">Print QR place-cards</a>
   </p>
 
-  <section class="form-row">
+  <section class="admin-form-row">
     <form action="/admin/guests" method="post" class="inline-form">
       <h2>Add one guest</h2>
       <label>
@@ -40,70 +39,71 @@
     sheet, or copy a link below.
   </p>
 
-  <table class="admin-table">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Name</th>
-        <th>Points</th>
-        <th>Done</th>
-        <th>Private link</th>
-        <th>Bonus points</th>
-        <th>Special badges</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% guests.forEach(function (g) { %>
+  <div class="page--wide">
+    <table class="data-table">
+      <thead>
         <tr>
-          <td><%= g.id %></td>
-          <td>
-            <form action="/admin/guests/<%= g.id %>/edit" method="post" class="cell-form">
-              <input type="text" name="name" value="<%= g.name %>" placeholder="(no name)" />
-              <button type="submit" class="btn btn-small">Save</button>
-            </form>
-          </td>
-          <td><%= g.points %></td>
-          <td><%= g.completed %></td>
-          <td class="link-cell">
-            <input type="text" readonly value="<%= g.link %>"
-                   onclick="this.select();" />
-          </td>
-          <td>
-            <form action="/admin/guests/<%= g.id %>/points" method="post" class="cell-form">
-              <input type="number" name="delta" value="1" />
-              <button type="submit" class="btn btn-small">Apply</button>
-            </form>
-            <span class="muted">cur: <%= g.bonus_points %></span>
-          </td>
-          <td class="badge-cell">
-            <% specialBadges.forEach(function (b) { %>
-              <% var held = g.heldCodes.indexOf(b.code) !== -1; %>
-              <form action="/admin/guests/<%= g.id %>/badge" method="post" class="badge-form">
-                <input type="hidden" name="code" value="<%= b.code %>" />
-                <input type="hidden" name="action" value="<%= held ? 'remove' : 'award' %>" />
-                <button type="submit"
-                        class="btn btn-small <%= held ? 'btn-on' : '' %>"
-                        title="<%= b.name %>">
-                  <%= held ? '★ ' : '+ ' %><%= b.name %>
-                </button>
-              </form>
-            <% }); %>
-          </td>
-          <td>
-            <form action="/admin/guests/<%= g.id %>/delete" method="post"
-                  data-confirm="Delete <%= g.name || ('guest #' + g.id) %> and PERMANENTLY remove all their photos (files deleted from disk) and badges? This cannot be undone.">
-              <button type="submit" class="btn btn-small btn-danger">Delete</button>
-            </form>
-          </td>
+          <th>#</th>
+          <th>Name</th>
+          <th>Points</th>
+          <th>Done</th>
+          <th>Private link</th>
+          <th>Bonus points</th>
+          <th>Special badges</th>
+          <th>Actions</th>
         </tr>
-      <% }); %>
-      <% if (guests.length === 0) { %>
-        <tr><td colspan="8" class="muted">No guests yet. Add one above.</td></tr>
-      <% } %>
-    </tbody>
-  </table>
-</main>
+      </thead>
+      <tbody>
+        <% guests.forEach(function (g) { %>
+          <tr>
+            <td><%= g.id %></td>
+            <td>
+              <form action="/admin/guests/<%= g.id %>/edit" method="post" class="cell-form">
+                <input type="text" name="name" value="<%= g.name %>" placeholder="(no name)" />
+                <button type="submit" class="btn btn-sm">Save</button>
+              </form>
+            </td>
+            <td><%= g.points %></td>
+            <td><%= g.completed %></td>
+            <td class="link-cell">
+              <input type="text" readonly value="<%= g.link %>"
+                     onclick="this.select();" />
+            </td>
+            <td>
+              <form action="/admin/guests/<%= g.id %>/points" method="post" class="cell-form">
+                <input type="number" name="delta" value="1" />
+                <button type="submit" class="btn btn-sm">Apply</button>
+              </form>
+              <span class="muted">cur: <%= g.bonus_points %></span>
+            </td>
+            <td class="badge-cell">
+              <% specialBadges.forEach(function (b) { %>
+                <% var held = g.heldCodes.indexOf(b.code) !== -1; %>
+                <form action="/admin/guests/<%= g.id %>/badge" method="post" class="badge-form">
+                  <input type="hidden" name="code" value="<%= b.code %>" />
+                  <input type="hidden" name="action" value="<%= held ? 'remove' : 'award' %>" />
+                  <button type="submit"
+                          class="btn btn-sm <%= held ? 'btn-on' : '' %>"
+                          title="<%= b.name %>">
+                    <%= held ? '★ ' : '+ ' %><%= b.name %>
+                  </button>
+                </form>
+              <% }); %>
+            </td>
+            <td>
+              <form action="/admin/guests/<%= g.id %>/delete" method="post"
+                    data-confirm="Delete <%= g.name || ('guest #' + g.id) %> and PERMANENTLY remove all their photos (files deleted from disk) and badges? This cannot be undone.">
+                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+        <% if (guests.length === 0) { %>
+          <tr><td colspan="8" class="muted">No guests yet. Add one above.</td></tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
 
 <script src="/js/admin.js" defer></script>
 <%- include('partials/footer') %>

@@ -17,6 +17,19 @@ const { db } = require('../db');
 const AUTO_THRESHOLDS = [5, 10, 15];
 
 /**
+ * Prepend an apostrophe to any string value whose first character would be
+ * interpreted as a spreadsheet formula trigger (=, +, -, @, tab, CR). Numbers
+ * and non-string values pass through unchanged.
+ * Reference: OWASP CSV Injection — https://owasp.org/www-community/attacks/CSV_Injection
+ */
+function neutralizeCell(value) {
+  if (typeof value === 'string' && value.length > 0 && /^[=+@\t\r-]/.test(value)) {
+    return "'" + value;
+  }
+  return value;
+}
+
+/**
  * Turn any guest name / task title into something safe to use as a file or
  * folder name on Windows (and everywhere else).
  *  - keeps letters, numbers, space, dash, underscore, dot
@@ -140,12 +153,12 @@ async function buildSummaryBuffer() {
 
     guestsSheet.addRow({
       id: g.id,
-      name: g.name || '(no name yet)',
+      name: neutralizeCell(g.name || '(no name yet)'),
       completed,
       bonus,
       total,
-      badges: names,
-      social: socialText,
+      badges: neutralizeCell(names),
+      social: neutralizeCell(socialText),
     });
   }
 
@@ -169,9 +182,9 @@ async function buildSummaryBuffer() {
     const t = taskById.get(s.task_id);
     subsSheet.addRow({
       guestId: s.guest_id,
-      guest: g ? g.name || '(no name yet)' : `#${s.guest_id}`,
-      task: t ? t.title : `Task #${s.task_id}`,
-      caption: s.caption || '',
+      guest: neutralizeCell(g ? g.name || '(no name yet)' : `#${s.guest_id}`),
+      task: neutralizeCell(t ? t.title : `Task #${s.task_id}`),
+      caption: neutralizeCell(s.caption || ''),
       date: fmtDate(s.created_at),
       takenDown: s.taken_down === 1 ? 'YES' : 'no',
     });
@@ -191,11 +204,11 @@ async function buildSummaryBuffer() {
 
   for (const b of badges) {
     badgesSheet.addRow({
-      code: b.code,
-      name: b.name,
+      code: neutralizeCell(b.code),
+      name: neutralizeCell(b.name),
       type: b.type,
       threshold: b.threshold == null ? '' : b.threshold,
-      description: b.description || '',
+      description: neutralizeCell(b.description || ''),
     });
   }
 
@@ -290,4 +303,4 @@ async function streamExportZip(res) {
   await archive.finalize();
 }
 
-module.exports = { streamExportZip, buildSummaryBuffer, safeName };
+module.exports = { streamExportZip, buildSummaryBuffer, safeName, neutralizeCell };

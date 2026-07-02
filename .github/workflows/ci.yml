@@ -8,12 +8,12 @@ permissions:
   contents: read
 
 jobs:
-  # Server-side backstop for the local commit gate: the gate file must exist,
+  # Server-side backstop for the local commit gates: each hook file must exist,
   # be LF-protected (autocrlf would corrupt the shebang), and start with a sh shebang.
   commit-gate-integrity:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Commit-gate integrity
         run: |
           test -f .githooks/pre-commit || { echo "commit gate missing: .githooks/pre-commit"; exit 1; }
@@ -21,12 +21,41 @@ jobs:
             || { echo "commit gate not LF-protected (autocrlf could corrupt it)"; exit 1; }
           head -1 .githooks/pre-commit | grep -q '^#!/bin/sh' \
             || { echo "commit gate shebang corrupt"; exit 1; }
+          test -f .githooks/commit-msg || { echo "commit-msg hook missing: .githooks/commit-msg"; exit 1; }
+          git check-attr text eol -- .githooks/commit-msg | grep -q 'eol: lf' \
+            || { echo "commit-msg hook not LF-protected (autocrlf could corrupt it)"; exit 1; }
+          head -1 .githooks/commit-msg | grep -q '^#!/bin/sh' \
+            || { echo "commit-msg hook shebang corrupt"; exit 1; }
+
+  # Advisory check: warn when a PR has no linked issue in its commits or title.
+  # This is a soft backstop; the un-bypassable version is issue #48.
+  merge-association:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check PR links an issue
+        run: |
+          # Collect commit messages on this PR branch (not on base).
+          base="${{ github.event.pull_request.base.sha }}"
+          msgs="$(git log "$base"..HEAD --format='%s %b')"
+          pr_title="${{ github.event.pull_request.title }}"
+          combined="$msgs $pr_title"
+          # Accept (#N), Closes #N, Fixes #N, Resolves #N (case-insensitive).
+          if echo "$combined" | grep -qiE '(\(#[0-9]+\)|closes\s+#[0-9]+|fixes\s+#[0-9]+|resolves\s+#[0-9]+)'; then
+            echo "merge-association: issue link found."
+          else
+            echo "::warning::merge-association: no linked issue found in commit messages or PR title. Add (#N) or 'Closes #N' to a commit message or the PR title. The un-bypassable version is issue #48."
+            exit 0
+          fi
 
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -39,8 +68,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -49,7 +78,7 @@ jobs:
         run: npm run test:coverage
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage/

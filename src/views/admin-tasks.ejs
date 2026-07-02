@@ -2,8 +2,7 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-<main class="container admin">
-  <h1 class="display">Tasks</h1>
+  <h1 class="display-title">Tasks</h1>
 
   <% if (msg) { %>
     <p class="flash"><%= msg %></p>
@@ -24,62 +23,63 @@
     <button type="submit" class="btn btn-primary">Add task</button>
   </form>
 
-  <table class="admin-table">
-    <thead>
-      <tr>
-        <th>Order</th>
-        <th>Title &amp; description</th>
-        <th>Photos</th>
-        <th>Visible?</th>
-        <th>Move</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% tasks.forEach(function (t) { %>
-        <tr class="<%= t.is_active ? '' : 'row-inactive' %>">
-          <td><%= t.sort_order %></td>
-          <td>
-            <form action="/admin/tasks/<%= t.id %>/edit" method="post" class="cell-form-stacked">
-              <input type="text" name="title" value="<%= t.title %>" required />
-              <textarea name="description" rows="2"><%= t.description %></textarea>
-              <button type="submit" class="btn btn-small">Save</button>
-            </form>
-          </td>
-          <td><%= t.submissions %></td>
-          <td>
-            <form action="/admin/tasks/<%= t.id %>/active" method="post">
-              <button type="submit" class="btn btn-small">
-                <%= t.is_active ? 'Active (hide)' : 'Hidden (show)' %>
-              </button>
-            </form>
-          </td>
-          <td class="move-cell">
-            <form action="/admin/tasks/reorder" method="post">
-              <input type="hidden" name="id" value="<%= t.id %>" />
-              <input type="hidden" name="direction" value="up" />
-              <button type="submit" class="btn btn-small" <%= t.isFirst ? 'disabled' : '' %>>▲</button>
-            </form>
-            <form action="/admin/tasks/reorder" method="post">
-              <input type="hidden" name="id" value="<%= t.id %>" />
-              <input type="hidden" name="direction" value="down" />
-              <button type="submit" class="btn btn-small" <%= t.isLast ? 'disabled' : '' %>>▼</button>
-            </form>
-          </td>
-          <td>
-            <form action="/admin/tasks/<%= t.id %>/delete" method="post"
-                  data-confirm="Delete the task &quot;<%= t.title %>&quot; and ALL its photo submissions? This cannot be undone.">
-              <button type="submit" class="btn btn-small btn-danger">Delete</button>
-            </form>
-          </td>
+  <div class="page--wide">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th>Title &amp; description</th>
+          <th>Photos</th>
+          <th>Visible?</th>
+          <th>Move</th>
+          <th>Actions</th>
         </tr>
-      <% }); %>
-      <% if (tasks.length === 0) { %>
-        <tr><td colspan="6" class="muted">No tasks yet. Add one above.</td></tr>
-      <% } %>
-    </tbody>
-  </table>
-</main>
+      </thead>
+      <tbody>
+        <% tasks.forEach(function (t) { %>
+          <tr class="<%= t.is_active ? '' : 'row-inactive' %>">
+            <td><%= t.sort_order %></td>
+            <td>
+              <form action="/admin/tasks/<%= t.id %>/edit" method="post" class="cell-form-stacked">
+                <input type="text" name="title" value="<%= t.title %>" required />
+                <textarea name="description" rows="2"><%= t.description %></textarea>
+                <button type="submit" class="btn btn-sm">Save</button>
+              </form>
+            </td>
+            <td><%= t.submissions %></td>
+            <td>
+              <form action="/admin/tasks/<%= t.id %>/active" method="post">
+                <button type="submit" class="btn btn-sm">
+                  <%= t.is_active ? 'Active (hide)' : 'Hidden (show)' %>
+                </button>
+              </form>
+            </td>
+            <td class="move-cell">
+              <form action="/admin/tasks/reorder" method="post">
+                <input type="hidden" name="id" value="<%= t.id %>" />
+                <input type="hidden" name="direction" value="up" />
+                <button type="submit" class="btn btn-sm" <%= t.isFirst ? 'disabled' : '' %>>▲</button>
+              </form>
+              <form action="/admin/tasks/reorder" method="post">
+                <input type="hidden" name="id" value="<%= t.id %>" />
+                <input type="hidden" name="direction" value="down" />
+                <button type="submit" class="btn btn-sm" <%= t.isLast ? 'disabled' : '' %>>▼</button>
+              </form>
+            </td>
+            <td>
+              <form action="/admin/tasks/<%= t.id %>/delete" method="post"
+                    data-confirm="Delete the task &quot;<%= t.title %>&quot; and ALL its photo submissions? This cannot be undone.">
+                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+        <% if (tasks.length === 0) { %>
+          <tr><td colspan="6" class="muted">No tasks yet. Add one above.</td></tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
 
 <script src="/js/admin.js" defer></script>
 <%- include('partials/footer') %>

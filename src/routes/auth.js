@@ -15,16 +15,19 @@ const router = express.Router();
 // 14 days in milliseconds — how long a guest/admin stays signed in.
 const COOKIE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
-// Shared cookie options. secure:false because the laptop serves plain http;
-// Cloudflare adds https on the outside. signed:true makes the value tamper-proof.
-const COOKIE_OPTS = {
-  httpOnly: true,
-  sameSite: 'lax',
-  secure: false,
-  signed: true,
-  maxAge: COOKIE_MAX_AGE_MS,
-  path: '/',
-};
+// Returns fresh cookie options each call so config.COOKIE_SECURE is read at
+// request time, not at module-load time. That keeps the value correct when the
+// app starts before NODE_ENV is known, and lets tests toggle the flag.
+function cookieOpts() {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.COOKIE_SECURE,
+    signed: true,
+    maxAge: COOKIE_MAX_AGE_MS,
+    path: '/',
+  };
+}
 
 // Avatar upload: keep the file in memory so the photos service (section 05)
 // can process the buffer; only one file, field name "avatar".
@@ -84,7 +87,7 @@ router.get('/j/:token', (req, res) => {
     res.status(404).type('html').send(unknownLinkPage());
     return;
   }
-  res.cookie('gsid', guest.token, COOKIE_OPTS);
+  res.cookie('gsid', guest.token, cookieOpts());
   // Anyone who has not finished onboarding goes to the form; everyone else
   // goes home. We key on the `onboarded` flag (not name-emptiness) so that
   // guests the admin pre-named still get to add an avatar and social links.
@@ -140,15 +143,27 @@ router.post('/onboard', requireGuest, upload.single('avatar'), async (req, res) 
 
 // --- Admin login / logout ---------------------------------------------------
 
+// Module-scoped lockout state. A single-admin app warrants a global counter;
+// no per-IP tracking needed (see issue #37 for the trust-proxy rationale).
+let failedAttempts = 0;
+let lockedUntil = 0;
+
+const ADMIN_LOGIN_TITLE = 'Admin Login';
+
 // GET /admin/login — show the password form.
 router.get('/admin/login', (req, res) => {
-  res.render('admin-login', { title: 'Admin Login', error: null });
+  res.render('admin-login', { title: ADMIN_LOGIN_TITLE, error: null });
 });
 
 // POST /admin/login — check password against the bcrypt hash on disk.
 // Note: app.js (section 01) already parses urlencoded bodies globally, so we
 // do NOT add an inline body parser here — req.body.password is already populated.
-router.post('/admin/login', (req, res) => {
+//
+// Security note (issue #49): the password is evaluated BEFORE the lockout check.
+// A correct password always authenticates and clears the failure counter, so the
+// real admin cannot be locked out by others' failed attempts. Only wrong passwords
+// increment the counter and are throttled.
+router.post('/admin/login', async (req, res) => {
   const password = req.body.password || '';
 
   let hash;
@@ -156,26 +171,42 @@ router.post('/admin/login', (req, res) => {
     hash = fs.readFileSync(config.ADMIN_HASH_PATH, 'utf8').trim();
   } catch (err) {
     res.status(500).render('admin-login', {
-      title: 'Admin Login',
-      error:
-        'Admin password is not set up yet. Run: node scripts/set-admin-password.js ButtMonster',
+      title: ADMIN_LOGIN_TITLE,
+      error: 'The admin area is not set up yet. Please ask the host to finish setup.',
     });
     return;
   }
 
-  const ok = bcrypt.compareSync(password, hash);
-  if (!ok) {
-    res.status(401).render('admin-login', {
-      title: 'Admin Login',
-      error: 'Incorrect password. Please try again.',
+  const ok = await bcrypt.compare(password, hash);
+  if (ok) {
+    // Correct password — clear any active lockout and authenticate.
+    failedAttempts = 0;
+    lockedUntil = 0;
+    res.cookie('admin', '1', cookieOpts());
+    // Lands on the section-08 admin dashboard, which must be mounted at /admin.
+    // Until section 08 exists this 404s, which is fine for section 03.
+    res.redirect('/admin');
+    return;
+  }
+
+  // Wrong password — check lockout window first, then increment.
+  if (Date.now() < lockedUntil) {
+    res.status(429).render('admin-login', {
+      title: ADMIN_LOGIN_TITLE,
+      error: 'Too many failed attempts. Please wait before trying again.',
     });
     return;
   }
 
-  res.cookie('admin', '1', COOKIE_OPTS);
-  // Lands on the section-08 admin dashboard, which must be mounted at /admin.
-  // Until section 08 exists this 404s, which is fine for section 03.
-  res.redirect('/admin');
+  failedAttempts += 1;
+  if (failedAttempts >= config.ADMIN_LOGIN_MAX_ATTEMPTS) {
+    lockedUntil = Date.now() + config.ADMIN_LOGIN_LOCKOUT_MS;
+    failedAttempts = 0;
+  }
+  res.status(401).render('admin-login', {
+    title: ADMIN_LOGIN_TITLE,
+    error: 'Incorrect password. Please try again.',
+  });
 });
 
 // POST /admin/logout — clear the admin cookie.
@@ -195,20 +226,23 @@ function unknownLinkPage() {
 <title>Link not recognized</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600&family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=EB+Garamond:wght@400;600&display=swap" rel="stylesheet">
 <style>
   body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-       background:#fff8f0;color:#5b5552;font-family:'Quicksand',sans-serif;padding:24px;}
-  .card{background:#ffffff;border:1px solid #f3e3df;border-radius:18px;max-width:380px;
-        width:100%;padding:28px 24px;text-align:center;box-shadow:0 8px 24px rgba(214,180,180,.18);}
-  h1{font-family:'Dancing Script',cursive;color:#e7a6b6;font-size:2rem;margin:.2em 0 .4em;}
-  p{line-height:1.5;margin:.5em 0;}
+       background:#ffffff;color:#467058;font-family:'EB Garamond',Georgia,serif;padding:24px;}
+  .card{background:#f0f4f2;border:1px solid #aebbb2;border-radius:14px;max-width:380px;
+        width:100%;padding:32px 24px;text-align:center;}
+  .heart{fill:#467058;display:inline-block;margin-bottom:12px;}
+  h1{font-family:'Cormorant Garamond',Georgia,serif;color:#467058;font-size:1.9rem;font-weight:600;
+     letter-spacing:0.03em;margin:.2em 0 .4em;}
+  p{line-height:1.6;margin:.5em 0;color:#6e8478;font-size:1.05rem;}
 </style>
 </head>
 <body>
   <div class="card">
-    <h1>Hmm, that link didn't work</h1>
-    <p>We couldn't find that private link. Double-check you scanned the QR code on your own place-card, or ask Axel &amp; Lily for help.</p>
+    <svg class="heart" viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/></svg>
+    <h1>Link Not Recognized</h1>
+    <p>We could not find that private link. Double-check you scanned the QR code on your own place-card, or ask Lilly &amp; Axel for help.</p>
   </div>
 </body>
 </html>`;

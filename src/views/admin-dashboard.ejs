@@ -2,32 +2,31 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-<main class="container admin">
-  <h1 class="display">Admin Dashboard</h1>
+  <h1 class="display-title">Admin Dashboard</h1>
 
   <% if (msg) { %>
     <p class="flash"><%= msg %></p>
   <% } %>
 
-  <section class="card-grid">
-    <div class="stat-card">
-      <span class="stat-number"><%= counts.guests %></span>
+  <section class="stat-grid">
+    <div class="stat">
+      <span class="stat-num"><%= counts.guests %></span>
       <span class="stat-label">Guests</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-number"><%= counts.activeTasks %></span>
+    <div class="stat">
+      <span class="stat-num"><%= counts.activeTasks %></span>
       <span class="stat-label">Active tasks (<%= counts.tasks %> total)</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-number"><%= counts.livePhotos %></span>
+    <div class="stat">
+      <span class="stat-num"><%= counts.livePhotos %></span>
       <span class="stat-label">Live photos</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-number"><%= counts.takenDown %></span>
+    <div class="stat">
+      <span class="stat-num"><%= counts.takenDown %></span>
       <span class="stat-label">Taken down</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-number"><%= counts.badgesAwarded %></span>
+    <div class="stat">
+      <span class="stat-num"><%= counts.badgesAwarded %></span>
       <span class="stat-label">Badges held</span>
     </div>
   </section>
@@ -45,6 +44,5 @@
     <a href="/leaderboard">/leaderboard</a> and
     <a href="/gallery">/gallery</a>.
   </p>
-</main>
 
 <%- include('partials/footer') %>

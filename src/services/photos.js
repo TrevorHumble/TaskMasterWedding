@@ -366,6 +366,99 @@ function deleteThumbFile(thumbPath) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Access-control guard middlewares for static file mounts.
+//
+// blockTakenDownOriginal — mount before app.use('/uploads', express.static(...))
+// blockTakenDownThumb    — mount before app.use('/thumbs',  express.static(...))
+//
+// Two-stage guard (per issue #34 design):
+//   Stage 1: Allowlist the filename shape.  Any name that is NOT the exact shape
+//            of a real stored filename is rejected immediately with 404.  This
+//            kills the whole class of resolver-divergence bypasses (case-variants,
+//            NTFS alternate-data-stream syntax, 8.3 short names, trailing dots/
+//            spaces) without having to enumerate them.
+//   Stage 2: Case-insensitive takedown check.  For an allowlisted name, query
+//            the DB (COLLATE NOCASE) and 404 if it belongs to a taken-down
+//            submission.  Avatars and live photos match no taken-down row, so
+//            they pass through.
+//
+// decodeURIComponent is wrapped in try/catch: a malformed percent-escape (e.g.
+// %ZZ) throws URIError — we catch it and return 404, never 500.
+// ---------------------------------------------------------------------------
+
+// Stored original / avatar filenames:  <16 hex chars>-<ms timestamp>.<ext>
+const ORIGINAL_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp|heic)$/i;
+
+// Stored thumbnail filenames:  <16 hex chars>-<ms timestamp>.<ext>.jpg
+const THUMB_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp|heic)\.jpg$/i;
+
+const _isTakenDownOriginal = db.prepare(
+  `SELECT 1 FROM submissions
+    WHERE photo_path = ? COLLATE NOCASE
+      AND taken_down = 1
+    LIMIT 1`
+);
+
+const _isTakenDownThumb = db.prepare(
+  `SELECT 1 FROM submissions
+    WHERE thumb_path = ? COLLATE NOCASE
+      AND taken_down = 1
+    LIMIT 1`
+);
+
+/**
+ * Guard middleware for the /uploads static mount.
+ * Blocks taken-down submission originals; passes avatars and live photos.
+ */
+function blockTakenDownOriginal(req, res, next) {
+  let name;
+  try {
+    name = path.basename(decodeURIComponent(req.path));
+  } catch {
+    return res.sendStatus(404);
+  }
+
+  // Stage 1: allowlist check — reject anything that is not a real stored name.
+  if (!ORIGINAL_RE.test(name)) {
+    return res.sendStatus(404);
+  }
+
+  // Stage 2: takedown check (case-insensitive).
+  const row = _isTakenDownOriginal.get(name);
+  if (row) {
+    return res.sendStatus(404);
+  }
+
+  return next();
+}
+
+/**
+ * Guard middleware for the /thumbs static mount.
+ * Blocks taken-down submission thumbnails; passes live thumbnails.
+ */
+function blockTakenDownThumb(req, res, next) {
+  let name;
+  try {
+    name = path.basename(decodeURIComponent(req.path));
+  } catch {
+    return res.sendStatus(404);
+  }
+
+  // Stage 1: allowlist check.
+  if (!THUMB_RE.test(name)) {
+    return res.sendStatus(404);
+  }
+
+  // Stage 2: takedown check (case-insensitive).
+  const row = _isTakenDownThumb.get(name);
+  if (row) {
+    return res.sendStatus(404);
+  }
+
+  return next();
+}
+
 module.exports = {
   // multer middleware + the limit/type constants (handy for views + error text)
   upload,
@@ -382,6 +475,10 @@ module.exports = {
   urlForThumb,
   absOriginalPath,
   absThumbPath,
+
+  // access-control guard middlewares (mount before the static mounts in app.js)
+  blockTakenDownOriginal,
+  blockTakenDownThumb,
 
   // takedown / restore (flag flips, files kept)
   hideSubmission,

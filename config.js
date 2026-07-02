@@ -53,9 +53,18 @@ if (!cookieSecret || cookieSecret.trim() === '') {
   );
 }
 
+// ---- Resolve whether cookies should use the Secure flag -------------------
+// Set COOKIE_SECURE=true in .env to force Secure cookies even outside NODE_ENV
+// production (e.g. an ngrok/Cloudflare tunnel in development). In production,
+// Secure is always on so browsers refuse to send cookies over plain HTTP.
+const cookieSecure =
+  process.env.COOKIE_SECURE !== undefined
+    ? process.env.COOKIE_SECURE === 'true'
+    : process.env.NODE_ENV === 'production';
+
 // ---- Absolute base directories --------------------------------------------
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
+const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 
 // ---- The exported config object (UPPER_SNAKE_CASE = canonical) -------------
 const config = {
@@ -63,13 +72,16 @@ const config = {
   PORT: parseInt(process.env.PORT, 10) || 3000,
   BASE_URL: process.env.BASE_URL || 'http://localhost:3000',
   COOKIE_SECRET: cookieSecret,
+  // True when cookies must carry the Secure flag. On by default in production
+  // and when COOKIE_SECURE=true; off in test/dev so plain-HTTP supertest works.
+  COOKIE_SECURE: cookieSecure,
 
   // Project root
   ROOT: ROOT,
 
   // Data directories (absolute paths)
   DATA_DIR: DATA_DIR,
-  DB_PATH: path.join(DATA_DIR, 'app.db'),
+  DB_PATH: process.env.DB_PATH || path.join(DATA_DIR, 'app.db'),
   UPLOADS_DIR: path.join(DATA_DIR, 'uploads'),
   THUMBS_DIR: path.join(DATA_DIR, 'thumbs'),
   EXPORTS_DIR: path.join(DATA_DIR, 'exports'),
@@ -84,6 +96,14 @@ const config = {
   MAX_UPLOAD_BYTES: 12 * 1024 * 1024, // 12 MB
   THUMB_WIDTH: 400,
   ALLOWED_MIME: ['image/jpeg', 'image/png', 'image/webp'],
+
+  // Maintenance mode — set MAINTENANCE=1 or MAINTENANCE=true in the environment
+  // to serve a 503 page to guests while /admin remains reachable.
+  MAINTENANCE: process.env.MAINTENANCE === '1' || process.env.MAINTENANCE === 'true',
+
+  // Admin login throttling
+  ADMIN_LOGIN_MAX_ATTEMPTS: parseInt(process.env.ADMIN_LOGIN_MAX_ATTEMPTS, 10) || 10,
+  ADMIN_LOGIN_LOCKOUT_MS: parseInt(process.env.ADMIN_LOGIN_LOCKOUT_MS, 10) || 15 * 60 * 1000,
 
   // Auto-badge thresholds — THE single source of truth for these numbers.
   // scoring.js (section 06) imports BADGE_THRESHOLDS from this config instead
@@ -116,5 +136,6 @@ config.maxUploadBytes = config.MAX_UPLOAD_BYTES;
 config.thumbWidth = config.THUMB_WIDTH;
 config.allowedMime = config.ALLOWED_MIME;
 config.badgeThresholds = config.BADGE_THRESHOLDS;
+config.maintenance = config.MAINTENANCE;
 
 module.exports = config;
