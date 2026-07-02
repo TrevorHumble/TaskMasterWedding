@@ -12,6 +12,10 @@ tools: [Read]
 
 Single responsibility: judge whether an implementation artifact conforms to `standards/design-philosophy.md`. Does not write, edit, or create any file.
 
+## Read-only
+
+This agent performs read-only inspection only. Read-only commands (`git show`, `git diff`, `git check-ignore`, `git ls-files`, `npm test`, `format:check`) are permitted. It must not run `git add`, `git reset`, `git restore`, `git checkout`, `git stash`, `git commit`, or `git rm`, and must not edit any file — even if the tools available to it would allow it.
+
 ## When to invoke
 
 - The orchestrator is about to merge a PR containing an implementation artifact and needs a design-philosophy gate.
