@@ -4,7 +4,7 @@
 # write evidence files: if the same script that records a PASS also fabricates the
 # evidence the gate reads, the self-attestation bypass survives (a free-text
 # -Reviewers "a,b" would manufacture its own proof). The honest path is: the runner
-# (a committed runner skill, built in a later slice — see issue #46) spawns each
+# (a committed runner skill, built in a later slice — see issue #128) spawns each
 # reviewer as a real Task subagent, then pipes that subagent's actual returned verdict
 # + its real agent id into THIS script, once per reviewer. tools/validate-verdict.ps1
 # then reads what real reviews produced.
