@@ -12,7 +12,8 @@
 //     Buffer (auth.js section 03 uses multer MEMORY storage for the 'avatar' field),
 //     writing it to UPLOADS_DIR and recording it on the guests row.
 //   - URL/path builders so routes/views can serve files at /uploads and /thumbs.
-//   - hideSubmission/restoreSubmission: flip submissions.taken_down (HIDE, keep file).
+//   - hideSubmission/restoreSubmission: the single writer of taken_down for moderation —
+//     flips the flag AND recomputes the guest's auto-badges in one transaction.
 //   - hardDelete(submissionId): permanently remove BOTH files + the row (rarely used).
 //
 // STORAGE MODEL (reconciles sections 03/04/05):
@@ -45,6 +46,7 @@ const sharp = require('sharp');
 
 const config = require('../../config');
 const { db } = require('../db');
+const scoring = require('./scoring');
 
 // ---------------------------------------------------------------------------
 // Constants. This file is the ONE place the photo-pipeline limits live, so the
@@ -268,28 +270,58 @@ function absThumbPath(thumbPath) {
 // Takedown / restore. These flip a flag; they do NOT touch files on disk.
 // taken_down=1 hides a submission from gallery, profiles AND scoring (all of
 // those queries filter on taken_down=0), while the file stays available for export.
+//
+// This file is the SINGLE WRITER of taken_down for moderation: hideSubmission
+// and restoreSubmission are the only functions allowed to flip the flag for a
+// takedown/restore, and each does the flip and the auto-badge recount inside
+// ONE db.transaction. better-sqlite3 nests transactions as SAVEPOINTs, so
+// calling scoring.recomputeAutoBadges (itself a db.transaction) from inside
+// this one is safe. Folding both writes into one transaction is what makes it
+// impossible for a caller to flip the flag without the recount running too —
+// no route may run its own `UPDATE submissions SET taken_down` for moderation.
 // ---------------------------------------------------------------------------
 
+const _getSubmissionGuest = db.prepare('SELECT guest_id FROM submissions WHERE id = ?');
 const _setTakenDown = db.prepare('UPDATE submissions SET taken_down = ? WHERE id = ?');
 
 /**
- * Hide a submission (admin photo takedown). Keeps the file on disk for export.
+ * Flip a submission's taken_down flag and recompute the owning guest's
+ * auto-badges, atomically. Returns the guest_id so callers can report success
+ * without a second lookup; returns undefined if no such submission exists (so
+ * callers can guard on that the same way they guarded a raw UPDATE before).
  * @param {number} submissionId
- * @returns {boolean} true if a row was changed.
+ * @param {0|1} takenDown
+ * @returns {number|undefined} the submission's guest_id, or undefined if not found.
+ */
+const _setTakenDownAndRecount = db.transaction((submissionId, takenDown) => {
+  const row = _getSubmissionGuest.get(submissionId);
+  if (!row) return undefined;
+  _setTakenDown.run(takenDown, submissionId);
+  scoring.recomputeAutoBadges(row.guest_id);
+  return row.guest_id;
+});
+
+/**
+ * Hide a submission (admin photo takedown). Keeps the file on disk for export.
+ * Recomputes the guest's auto-badges in the same transaction as the flag flip,
+ * so a dropped visible-submission count immediately revokes any auto badge
+ * whose threshold is no longer met.
+ * @param {number} submissionId
+ * @returns {number|undefined} the submission's guest_id, or undefined if not found.
  */
 function hideSubmission(submissionId) {
-  const info = _setTakenDown.run(1, submissionId);
-  return info.changes > 0;
+  return _setTakenDownAndRecount(submissionId, 1);
 }
 
 /**
- * Restore a previously hidden submission.
+ * Restore a previously hidden submission. Recomputes the guest's auto-badges
+ * in the same transaction as the flag flip, so a restored submission
+ * immediately re-grants any auto badge whose threshold is met again.
  * @param {number} submissionId
- * @returns {boolean} true if a row was changed.
+ * @returns {number|undefined} the submission's guest_id, or undefined if not found.
  */
 function restoreSubmission(submissionId) {
-  const info = _setTakenDown.run(0, submissionId);
-  return info.changes > 0;
+  return _setTakenDownAndRecount(submissionId, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -480,7 +512,7 @@ module.exports = {
   blockTakenDownOriginal,
   blockTakenDownThumb,
 
-  // takedown / restore (flag flips, files kept)
+  // takedown / restore (flag flip + auto-badge recount, atomic; files kept)
   hideSubmission,
   restoreSubmission,
 
