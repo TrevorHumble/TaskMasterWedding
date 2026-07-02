@@ -4,6 +4,8 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
 
 **North Star / goals:** confirmed. The product goals live in [`docs/north-star.md`](docs/north-star.md) (one-screen summary in [`CLAUDE.md`](CLAUDE.md)). The decisions recorded below serve those goals — most directly getting any guest in fast and keeping the app standing under the whole guest list at once (Goal A). One goal-driven decision is still **open and unbuilt**: Goal C's contained sharing (scoping content to the right audience). Moderation today is takedown-only (see "Photos: … takedown over delete" below); the audience-split design will be recorded here once chosen. The app must be live for guests by **Friday, Aug 7, 2026**.
 
+**2026-07-02 — social layer admitted.** The owner expanded scope on 2026-07-02 (see `docs/north-star.md` § Scope): likes, host-moderated comments, and per-photo points are now in scope, tied to Goals B and D. This does not change the open item above — Goal C's audience-split design is still unbuilt — but it does mean the social layer is no longer merely "open and unbuilt" the way that item is: it is a confirmed, bounded feature set (see the north-star's "look up, not look down" guiding principle and its moderation reconciliation: takedown/hide of photos and comments is in scope, a pre-publish approval pipeline is not).
+
 ## Constraints that shaped the design
 
 - One Windows 11 laptop hosts everything for a single weekend. No cloud servers, no paid services.

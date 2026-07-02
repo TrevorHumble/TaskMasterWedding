@@ -49,7 +49,15 @@ This states the outcomes we're building toward — the destination, not a status
 
 ## Scope
 
-Built for **this** wedding: ~100 guests, run once over the weekend, then exported and taken down. Out of scope for this build: multi-event or organizer accounts, native apps, a permanent hosting service, in-app messaging / likes / feeds, a per-photo approval pipeline or AI moderation, teams or GPS/check-in mechanics, RSVP / guest-management / payments, and internet-scale load. The visual design and brand look are the owner's separate track — agents do not redesign.
+Built for **this** wedding: ~100 guests, run once over the weekend, then exported and taken down. Out of scope for this build: multi-event or organizer accounts, native apps, a permanent hosting service, in-app messaging, teams or GPS/check-in mechanics, RSVP / guest-management / payments, and internet-scale load. The visual design and brand look are the owner's separate track — agents do not redesign.
+
+**In scope: a bounded social layer.** Guests can give **likes**, leave host-moderated **comments**, and earn per-photo **points** on the gallery — tied to Goal B (an instant, sustaining reward loop) and Goal D (the gallery as a real, shared record people actually watch and return to).
+
+**Moderation, reconciled.** Host **takedown/hide** of a photo or a comment is in scope — the same reversible moderation already described in `DESIGN.md`. A **per-photo pre-approval pipeline** (screening before anything is visible) remains out of scope; moderation here is after-the-fact, not gatekeeping.
+
+**Guiding principle for the social layer: "look up, not look down."** Likes, comments, and points exist to pull a guest's eyes back up from the phone into the room — never to build a second screen worth staring at. In service of that test, comments ship with **no notifications** and **no reply threads**.
+
+Confirmed with the owner 2026-06-28. **Scope expanded by the owner on 2026-07-02** to admit the social layer above (likes, host-moderated comments, per-photo points); the 2026-06-28 confirmation stands, this is additive.
 
 ## The longer horizon
 
