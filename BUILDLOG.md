@@ -12,6 +12,10 @@ Three entry types, appended in reverse-chronological order:
 
 The run-time Live-log ledger (per-increment `[HH:MM] elapsed=…` lines) lives in `docs/RESUME-STATE.md`.
 
+## 2026-07-01
+
+- #40 — alpha mobile-design pass: `.task-link` gets `min-width:0` so a long title/description can't push a task row past the mobile column (description already truncates; done/todo pill stays pinned); guest-home profile header collapses points + "Edit profile" onto one line with a mid-dot divider; new `src/utils/initials.js` (exposed as `app.locals.initials`) derives two-letter avatar initials ("Ava Fenwick"→"AF", "Cher"→"C", ""→"") and replaces four inline single-letter fallbacks across guest-home/public-profile/leaderboard; `crowdfav.svg` orbiting circles moved inward (radius 46→30). Serves Goals A/B (finished-feeling mobile UI). Visual — left as an open PR for the owner's eye. Reviewed: issue PASS; PR panel (3 Opus) unanimous PASS; design-philosophy PASS.
+
 ## 2026-06-30
 
 - #44 — maintenance mode: a `MAINTENANCE` config flag makes guest routes serve an on-brand 503 "We'll be right back" page (reusing the error-page design) with a `Retry-After` header, while `/admin` stays reachable so the host can recover; plus `scripts/serve-resilient.js`, a no-dependency wrapper that relaunches the server on crash with backoff + a crash-loop cap and forwards SIGINT/SIGTERM to the child. Resilience for the live event (Goal A). Behavior decided from the goals (the issue left it open); the page reuses the established design system, not new product direction.

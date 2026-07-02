@@ -10,7 +10,7 @@
            width="96" height="96" />
     <% } else { %>
       <div class="profile-avatar-empty" aria-hidden="true">
-        <%= (profileGuest.name || '?').trim().charAt(0).toUpperCase() || '?' %>
+        <%= initials(profileGuest.name) || '?' %>
       </div>
     <% } %>
 
