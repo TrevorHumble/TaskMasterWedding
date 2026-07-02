@@ -58,3 +58,4 @@ One token verdict, then one `verified by` line per AC, then the numbered defect 
 - [ ] If the diff adds or changes tests, each asserts a specific expected output VALUE (not merely that code ran, returned non-null, or did not throw). Confirm at least one test would fail if the AC behavior were inverted; a test that cannot fail when the behavior is wrong is a major.
 - [ ] Changed files match the `Touches` field in the issue's dependency map; unannounced files are a finding.
 - [ ] No FINAL, LAST, or TRULY_FINAL appear in any changed filename or section header.
+- [ ] Before citing any `file:line`, opened the file and confirmed the line number is within its actual line count. An out-of-range or unverified citation is itself a defect.
