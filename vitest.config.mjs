@@ -8,6 +8,10 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.js'],
+    // Bounded retry absorbs transient pwsh-spawn flakes on CI (cold-start
+    // contention can push a launcher past the default timeout) without
+    // masking a genuine regression, which still fails every attempt. See #68.
+    retry: 2,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
