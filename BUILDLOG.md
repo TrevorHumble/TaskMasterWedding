@@ -12,6 +12,10 @@ Three entry types, appended in reverse-chronological order:
 
 The run-time Live-log ledger (per-increment `[HH:MM] elapsed=…` lines) lives in `docs/RESUME-STATE.md`.
 
+## 2026-07-02
+
+- ad6e708 — #117 — process(review): reviewers are read-only, no state-mutating git. Added an explicit `## Read-only` clause + the forbidden set (`git add`/`reset`/`restore`/`checkout`/`stash`/`commit`/`rm` + no file edits) to all ten reviewing agent specs (nine `reviewer-*.md` + `severity-adjudicator.md`); a `## Reviewers are read-only` rule to `standards/adversarial-review-protocol.md` carrying the 2026-07-02 `git restore` incident as rationale; and `## No mutation authority` (AC3) + `## Re-verify the tree oid before recording a verdict` (AC4) directives to `skills/spawn-adversarial-review.md`. The prose binds a reviewer even when instantiated with a broader tool set, closing the hole where a reviewer mutates the exact staged tree its verdict is bound to; `reviewer-tracker-sync` additionally forbids board mutation (`gh issue close`/`edit`) given its Bash/gh access. System-level change: issue-review PASS (reviewer-issue + reviewer-architecture, recorded earlier); the bias gate ran twice before fan-out and caught a real intent-leak — my briefings recited the forbidden-command list, which is the diff's own AC payload — fixed both times, then clean; PR review two independent `reviewer-pr` PASS + `reviewer-design-philosophy` PASS on the exact staged tree, single round, 0 defects (one nit). Follow-up nit (no action for this issue): the ~60-word read-only block is duplicated across 11–12 files — per-file prose is the intended design, but a drift-guard test (cf. `tests/classify-dep-pr.test.js`) would catch silent divergence. Correctness/process fix — merge-on-green.
+
 ## 2026-07-01
 
 - #66 — bump dev-deps group (eslint 9→10, @eslint/js 9→10, eslint-config-prettier 9→10, prettier 3.9.1→3.9.4): auto-tier dev bump that arrived CI-red because eslint 10 added `no-useless-assignment` to `eslint:recommended`, flagging three dead-store initializers. Fixed first in #110, then #66 rebased onto that → `lint` green → merged. Dev-only; app unaffected (test 145/145).
