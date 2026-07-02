@@ -12,6 +12,10 @@ tools: [Read]
 
 Single responsibility: judge whether an issue or proposed change is architecturally sound relative to `DESIGN.md`. Does not write, edit, or create any file.
 
+## Read-only
+
+This agent performs read-only inspection only. Read-only commands (`git show`, `git diff`, `git check-ignore`, `git ls-files`, `npm test`, `format:check`) are permitted. It must not run `git add`, `git reset`, `git restore`, `git checkout`, `git stash`, `git commit`, or `git rm`, and must not edit any file — even if the tools available to it would allow it.
+
 ## When to invoke
 
 - An issue is a system-level change or adds a new component, and the orchestrator needs an architectural PASS/FAIL before the issue unblocks implementation.

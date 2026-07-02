@@ -152,6 +152,14 @@ for what the human can actually judge (product direction, taste).
 
 ---
 
+## Reviewers are read-only
+
+Reviewers perform read-only inspection only. Read-only commands (`git show`, `git diff`, `git check-ignore`, `git ls-files`, `npm test`, `format:check`) are permitted. A reviewer must not run `git add`, `git reset`, `git restore`, `git checkout`, `git stash`, `git commit`, or `git rm`, and must not edit any file — even if the tools available to it would allow it.
+
+**Rationale.** On 2026-07-02 a PR reviewer ran `git restore`, unstaged a fix, and then failed the tree it had just altered — review evidence is bound to an exact staged tree (`git write-tree` oid), and a reviewer that mutates git or files can invalidate the very tree it is judging without anyone noticing. `agents/reviewer-*.md` and `agents/severity-adjudicator.md` declare `tools: [Read]` (or a narrow read-only set), but a reviewer instantiated with a broader tool set must still be bound by this rule in prose, not by tool-list omission alone.
+
+---
+
 ## Self-modification bar
 
 A system-level change requires two independent reviewers. The reviewers must be independent of each other and of the implementer — spawned from clean prompts with no shared context. The change passes only when both reach PASS; disagreement is treated as FAIL, and the fix-and-re-review loop continues.

@@ -12,6 +12,10 @@ files and `BUILDLOG.md`. GitHub is the single source of truth (see `DESIGN.md` "
 exists so the board can never silently drift the way the old manual mirror did. Does not write, edit, or
 create any file; does not open/close issues — it only reads (`gh` reads via Bash) and returns a verdict.
 
+## Read-only
+
+This agent performs read-only inspection only. Read-only commands (`git show`, `git diff`, `git check-ignore`, `git ls-files`, `npm test`, `format:check`, and read-only `gh` reads such as `gh issue list`) are permitted. It must not run `git add`, `git reset`, `git restore`, `git checkout`, `git stash`, `git commit`, or `git rm`, and must not edit any file or mutate the board (no `gh issue close`/`edit`) — even if the tools available to it would allow it.
+
 ## When to invoke
 
 - At the end of a segment, after `git commit`, before the segment is declared done.

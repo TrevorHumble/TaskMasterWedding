@@ -26,6 +26,10 @@ description: >
 
 Before spawning N reviewers, spawn one independent agent to audit the briefing for bias. That agent returns required edits with quoted evidence. Apply the edits. Then fan out.
 
+## No mutation authority (required; no exceptions)
+
+Spawn every reviewer with no mutation authority: use a read-only agent type (`tools: [Read]` or an equivalently narrow read-only set), or, if the reviewer's own spec grants a broader tool set, add an explicit no-mutation instruction to the spawn prompt. A reviewer performs read-only inspection only. Read-only commands (`git show`, `git diff`, `git check-ignore`, `git ls-files`, `npm test`, `format:check`) are permitted. It must not run `git add`, `git reset`, `git restore`, `git checkout`, `git stash`, `git commit`, or `git rm`, and must not edit any file. See `standards/adversarial-review-protocol.md` "Reviewers are read-only" for the rationale — a reviewer that mutates git or files can invalidate the exact staged tree its own verdict is bound to.
+
 ## Fan-out threshold
 
 High-stakes reviews: minimum three independent adversaries. A finding is recorded only when ≥2 of 3 confirm it. A verdict of fine requires the same threshold. Fewer than three = invalid review. (Exception: a `system-level change` uses the two-reviewer, both-must-PASS bar defined in `standards/adversarial-review-protocol.md` — fail-closed, no third tie-breaker needed.)
@@ -40,6 +44,10 @@ High-stakes reviews: minimum three independent adversaries. A finding is recorde
 ## Output contract for the reviewer
 
 Numbered defects, each with severity (blocker / major / minor / nit) and a copy-pasteable fix. Final verdict: **PASS** or **FAIL** — one token, no hedging. PASS with open blockers or majors is not a PASS.
+
+## Re-verify the tree oid before recording a verdict (required; no exceptions)
+
+Before recording any reviewer's verdict, re-run `git write-tree` and confirm the resulting oid still equals the oid the review was bound to at spawn time. If the oid changed, the staged tree was mutated mid-review — the review is invalid regardless of the verdict returned and must be redone against a freshly captured tree. Do not record a PASS or a FAIL for a tree whose oid no longer matches.
 
 ## Stable-prefix structure for prompt caching
 

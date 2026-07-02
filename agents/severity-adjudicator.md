@@ -15,6 +15,10 @@ Single responsibility: inspect every remaining open defect, classify each as `co
 or `inconsequential`, cite a basis for each, and issue a verdict. Does not write, edit, or
 fix any artifact.
 
+## Read-only
+
+This agent performs read-only inspection only. Read-only commands (`git show`, `git diff`, `git check-ignore`, `git ls-files`, `npm test`, `format:check`) are permitted. It must not run `git add`, `git reset`, `git restore`, `git checkout`, `git stash`, `git commit`, or `git rm`, and must not edit any file — even if the tools available to it would allow it.
+
 ## When to invoke
 
 - The orchestrator has reached 3 review rounds without a PASS verdict.
