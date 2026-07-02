@@ -2,11 +2,18 @@
 
 Behavioral rules for any AI agent working in this repository. This file is the repo's own operating contract. It is not the user's global `CLAUDE.md`.
 
-<!-- CUSTOMIZE: North Star pending — owner defines goals in an upcoming session; do not fill in autonomously -->
+## North Star
 
-**North Star / goals:** pending. The owner defines the North Star, goals, and success outcomes in an upcoming session. Until then, do not invent goals, a vision statement, KPIs, or a roadmap.
+Every change serves the goals in [`docs/north-star.md`](docs/north-star.md). Orient your work to them; if a change moves none of them, question whether it belongs in this build.
 
-Stand-in description (neutral, not a goal): Garden Party Pastels is a self-hosted wedding scavenger-hunt web app where about 100 guests sign in by per-guest QR link, complete photo tasks for points and badges, share a gallery, and appear on a leaderboard, with an admin who manages the event and exports the results.
+**The shift we design for:** a wedding guest goes from passive spectator to active, _steered_ participant — engaging with what the hosts highlight, mingling beyond their own circle, and adding to a shared record of the weekend, because the game rewards it — engaged in the celebration, not the screen. The end user is the **guest**; it pays off for the couple (Axel & Lily) and their planners. Live for guests by **Friday, Aug 7, 2026**.
+
+The four goals (full text and outcomes in [`docs/north-star.md`](docs/north-star.md)):
+
+- **A — Easy in, solid throughout:** any guest playing in seconds, fast under the whole party at once, no one sidelined by the tech.
+- **B — A game worth playing:** instant rewards, badges and standings, prizes on display — guests active in the celebration, not spectators or screen-bound.
+- **C — The hosts run the show:** the couple and planners steer tasks, set prizes, and moderate (hide / move / delete) — choreographing the weekend they planned.
+- **D — One shared record, kept:** a hundred phones pooled into one gallery, a favorites slideshow at the end, a keepsake export after.
 
 ## How work flows: the orchestrator pipeline
 
@@ -16,7 +23,7 @@ All changes go through an enforced pipeline. Do not commit code straight to the 
 2. **Adversarial review of the issue** — independent reviewers attack the issue against the standard before any code is written. See `standards/adversarial-review-protocol.md`.
 3. **Implement** — an implementer agent writes the change to satisfy the issue's acceptance criteria.
 4. **Adversarial review of the PR** — independent reviewers attack the implementation against the issue and the standards.
-5. **Commit / PR** — only after review passes. The `.githooks/pre-commit` hook and the scripts in `tools/` enforce the gates locally.
+5. **Commit / PR** — only after review passes. Push the branch, open a pull request (`gh pr create`), watch CI to green, then merge (bug / security / refactor / correctness / tests) or leave the PR open for the owner (visual / product-direction — owner merge boundary). The `.githooks/pre-commit` hook and the scripts in `tools/` enforce the gates locally.
 
 Standards live in `standards/`. Agent definitions live in `agents/`. Both are ported in separately; treat them as the source of truth and point to them rather than restating them.
 
@@ -38,8 +45,11 @@ Reviewers run on a different model than the implementer so they do not inherit t
 - Every finding cites real evidence (`file:line`, command output, issue/PR number). Every best-practice claim cites a current dated source.
 - The spawner gives the goal, not the implementation. No positive framing, no planted suspicions, full scope.
 - Final verdict is a single `PASS`/`FAIL` token with a numbered defect list. A PASS with open blockers or majors is not a PASS.
+- **Issues and plans: 1 Opus reviewer** (`reviewer-issue`). Never a panel of issue-reviewers.
+- **Code review, round 1: panel up to 5, judged unanimous-PASS** (risk-scaled; routine code).
+- **Code review, rounds 2+: 1 fresh reviewer** each round (except system-level changes — those need two independent PASSes on the final tree).
 
-Full protocol, including the high-stakes 3-reviewer rule, the system-level-change bar, the bias gate, and the soft-cap severity gate: `standards/adversarial-review-protocol.md`.
+Full protocol, including the risk-tier precedence order, the high-stakes 3-reviewer rule, the system-level-change bar, the bias gate, and the soft-cap severity gate: `standards/adversarial-review-protocol.md`.
 
 ## Documentation split
 
@@ -62,6 +72,30 @@ Do not mix them. No FINAL / LAST / TRULY_FINAL in filenames or headers. No AI-sl
 - **Config is central.** Read paths, port, and badge thresholds from `config.js`. Do not hard-code a path or port elsewhere.
 - **This documentation pass does not touch source code, `standards/`, `agents/`, `skills/`, or config.** Another process owns those.
 
+## Dependency updates (Dependabot)
+
+Dependabot PRs are classified into two tiers by `tools/classify-dep-pr.ps1`:
+
+- **auto** — may merge on green CI with no separate review. Applies to: all GitHub Actions bumps; all npm dev-dependency bumps (any semver — a dev bump cannot break the running app, and CI catches a broken build); npm prod minor/patch bumps to non-wedding-critical packages.
+- **review** — held for a tracked decision before merge. Applies to: any npm prod major bump; any bump (even patch or minor) to a wedding-critical prod dependency.
+
+**Wedding-critical prod dependencies** (a bad bump breaks a core guest path):
+`multer`, `sharp`, `ejs`, `better-sqlite3`, `bcryptjs`, `archiver`
+
+The authoritative tier logic lives in `tools/classify-dep-pr.ps1`; the summary here is a human-readable restatement, and the wedding-critical list is drift-guarded by `tests/classify-dep-pr.test.js`.
+
+Run the classifier against a PR's metadata to determine its tier:
+
+```powershell
+powershell -File tools/classify-dep-pr.ps1 -Ecosystem npm -DepName multer -SemverBump minor -DepType prod
+```
+
+Output is the single token `auto` or `review`, exit 0.
+
 ## What needs extra rigor
 
-A system-level change (one that alters the pipeline, the enforcement hooks in `.githooks/` or `tools/`, the standards, or the agent definitions) uses the stricter two-independent-reviewer, both-must-PASS bar in `standards/adversarial-review-protocol.md`. See `DESIGN.md` for the definition of a system-level change.
+A system-level change uses the stricter two-independent-reviewer, both-must-PASS bar in `standards/adversarial-review-protocol.md`. Its definition — the governing-artifact surface — lives in `DESIGN.md` and is enforced by the same list in `tools/verdict-core.ps1`.
+
+**Issue-review gate:** every code commit must name a reviewed GitHub issue. After an issue-review PASS, record it with `powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS` — the `.githooks/commit-msg` gate blocks any code commit whose named issue lacks that record. Full rationale and the honest bar in `DESIGN.md` § "Issue-review gate".
+
+**Issue lifecycle marker:** new issues are born carrying the `needs-issue-review` label (applied at `gh issue create` time). The label is cleared only by a recorded issue-review PASS, via `powershell -File tools/clear-issue-marker.ps1 -IssueNumber <N>`.

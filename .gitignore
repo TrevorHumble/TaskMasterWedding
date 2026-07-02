@@ -8,8 +8,20 @@ data/
 # Environment secrets
 .env
 
+# Local enforcement state, per working copy -- never commit:
+#  - .review_state/ : commit-gate verdicts (a committed or forged verdict defeats the gate)
+#  - .run_state/    : timed-run + loop-gate state (machine-local run.json / STOP sentinel)
+.review_state/
+.run_state/
+
 # OS / editor noise
 Thumbs.db
 .DS_Store
 *.log
 npm-debug.log*
+
+# Generated symlink mirror of .agents/skills/ (core.symlinks=false would commit these as broken text files)
+.claude/skills/
+
+# Test coverage output
+coverage/

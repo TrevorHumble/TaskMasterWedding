@@ -11,8 +11,15 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 
 const config = require('../config');
+const photos = require('./services/photos');
+const initials = require('./utils/initials');
 
 const app = express();
+
+// Make the initials helper available to every EJS template as a callable local,
+// so avatar fallbacks across guest-home, public-profile, and leaderboard all
+// derive initials from the same function rather than inline one-liners.
+app.locals.initials = initials;
 
 // ---------------------------------------------------------------------------
 // 1. Make sure the data directories exist before anything tries to use them.
@@ -51,8 +58,19 @@ app.use(cookieParser(config.COOKIE_SECRET));
 //    /thumbs  -> data/thumbs  (thumbnails)
 // ---------------------------------------------------------------------------
 app.use(express.static(config.PUBLIC_DIR));
-app.use('/uploads', express.static(config.UPLOADS_DIR));
-app.use('/thumbs', express.static(config.THUMBS_DIR));
+app.use('/uploads', photos.blockTakenDownOriginal, express.static(config.UPLOADS_DIR));
+app.use('/thumbs', photos.blockTakenDownThumb, express.static(config.THUMBS_DIR));
+
+// ---------------------------------------------------------------------------
+// 4b. Maintenance mode.
+//     When config.MAINTENANCE is true, respond 503 to every guest path.
+//     /admin paths and the static assets already served above fall through.
+// ---------------------------------------------------------------------------
+app.use((req, res, next) => {
+  if (!config.MAINTENANCE) return next();
+  if (req.path === '/admin' || req.path.startsWith('/admin/')) return next();
+  return res.status(503).set('Retry-After', '120').render('maintenance');
+});
 
 // ---------------------------------------------------------------------------
 // 5. attachGuest middleware (added by section 03).
@@ -137,12 +155,14 @@ app.use((err, req, res, next) => {
 // ---------------------------------------------------------------------------
 // 10. Start listening.
 // ---------------------------------------------------------------------------
-app.listen(config.PORT, () => {
-  console.log('');
-  console.log('  Garden Party Pastels is running.');
-  console.log('  Local:   http://localhost:' + config.PORT);
-  console.log('  Press Ctrl+C to stop.');
-  console.log('');
-});
+if (require.main === module) {
+  app.listen(config.PORT, () => {
+    console.log('');
+    console.log('  Garden Party Pastels is running.');
+    console.log('  Local:   http://localhost:' + config.PORT);
+    console.log('  Press Ctrl+C to stop.');
+    console.log('');
+  });
+}
 
 module.exports = app;

@@ -2,19 +2,14 @@
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
 
-<main class="page page-task">
+  <p class="back-link"><a href="/tasks">&#8592; All tasks</a></p>
+  <p class="back-link"><a href="/gallery?task=<%= task.id %>">See photos for this task</a></p>
 
-  <% if (typeof flash !== 'undefined' && flash) { %>
-    <div class="flash flash-<%= flash.type %>"><%= flash.msg %></div>
-  <% } else if (typeof locals.flash !== 'undefined' && locals.flash) { %>
-    <div class="flash flash-<%= locals.flash.type %>"><%= locals.flash.msg %></div>
-  <% } %>
+  <h1 class="page-title center"><%= task.title %></h1>
+  <div class="heart-divider" style="color:var(--color-primary);"><%- include('partials/heart', { size: 20 }) %></div>
 
-  <p class="back-link"><a href="/tasks">← All tasks</a></p>
-
-  <h1 class="page-title"><%= task.title %></h1>
   <% if (task.description) { %>
-    <p class="task-detail-desc"><%= task.description %></p>
+    <p class="task-detail-desc center"><%= task.description %></p>
   <% } %>
 
   <% if (submission) { %>
@@ -35,8 +30,7 @@
 
     <form action="/tasks/<%= task.id %>/submit"
           method="POST"
-          enctype="multipart/form-data"
-          class="upload-form">
+          enctype="multipart/form-data">
 
       <div class="form-row">
         <label for="photo" class="form-label">Choose a photo</label>
@@ -65,8 +59,8 @@
                class="text-input" />
       </div>
 
-      <button type="submit" class="btn btn-primary">
-        <%= submission ? 'Replace photo' : 'Upload & complete' %>
+      <button type="submit" class="btn btn-block">
+        <%= submission ? 'Replace photo' : 'Upload &amp; complete' %>
       </button>
     </form>
   </section>
@@ -74,7 +68,5 @@
   <!-- Direct include of the preview script (belt-and-suspenders alongside
        the footer's page-script mechanism; see section intro note). -->
   <script src="/js/upload.js" defer></script>
-
-</main>
 
 <%- include('partials/footer') %>
