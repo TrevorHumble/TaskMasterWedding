@@ -140,7 +140,7 @@ async function buildSummaryBuffer() {
     const names = (badgeNamesByGuest.get(g.id) || []).join(', ');
 
     // social_links is a JSON object string; show it as "key: value" pairs.
-    let socialText = '';
+    let socialText;
     try {
       const obj = JSON.parse(g.social_links || '{}');
       socialText = Object.keys(obj)

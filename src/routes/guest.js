@@ -344,7 +344,7 @@ router.get('/me/edit', function (req, res) {
   const guest = res.locals.guest;
 
   // Parse social_links JSON safely into an object for the form.
-  let social = {};
+  let social;
   try {
     social = JSON.parse(guest.social_links || '{}');
     if (social === null || typeof social !== 'object') {
