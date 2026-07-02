@@ -64,7 +64,7 @@ function parseSocialLinks(raw) {
     }
 
     // Final safety check: only allow http, https, mailto.
-    let ok = false;
+    let ok;
     try {
       const proto = new URL(href).protocol;
       ok = proto === 'http:' || proto === 'https:' || proto === 'mailto:';
