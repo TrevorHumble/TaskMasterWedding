@@ -13,6 +13,7 @@
     "seed": "node scripts/seed.js",
     "seed-event": "node scripts/seed-event.js",
     "set-admin": "node scripts/set-admin-password.js",
+    "loadtest": "node scripts/loadtest.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
