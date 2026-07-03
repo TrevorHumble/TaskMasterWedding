@@ -71,6 +71,7 @@ Do not mix them. No FINAL / LAST / TRULY_FINAL in filenames or headers. No AI-sl
 - **Secrets and runtime state are gitignored:** `data/` (database, uploads, thumbnails, exports, `admin.hash`) and `.env`. Never commit them.
 - **Config is central.** Read paths, port, and badge thresholds from `config.js`. Do not hard-code a path or port elsewhere.
 - **This documentation pass does not touch source code, `standards/`, `agents/`, `skills/`, or config.** Another process owns those.
+- **One working tree = one driver.** Any file-mutating agent or concurrent session operates in its own git worktree, created via `tools/new-agent-worktree.ps1 -Branch <name>` — never share the primary checkout with another running session. This is what stops concurrent sessions from stashing, reverting, or switch-branch-under-ing each other's uncommitted work.
 
 ## Dependency updates (Dependabot)
 
