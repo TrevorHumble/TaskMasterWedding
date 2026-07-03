@@ -1,0 +1,35 @@
+<!-- src/views/feed.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+  <h1 class="page-title">Feed</h1>
+
+  <% if (photos.length === 0) { %>
+    <p class="muted">No photos yet. Be the first to share one!</p>
+  <% } %>
+
+  <div class="feed">
+    <% photos.forEach(function (p) { %>
+      <article id="photo-<%= p.submission_id %>" class="feed-item">
+        <img
+          class="feed-photo"
+          src="/uploads/<%= p.photo_path %>"
+          alt="<%= p.task_title %>"
+          loading="lazy"
+        />
+        <div class="feed-body">
+          <p class="feed-by">
+            <a href="/u/<%= p.guest_id %>"><%= p.guest_name || 'Guest' %></a>
+          </p>
+          <% if (p.caption) { %>
+            <p class="feed-caption"><%= p.caption %></p>
+          <% } %>
+        </div>
+        <!-- Placeholder for the future like/comment/points controls (separate
+             follow-up issues). Ships empty in this issue. -->
+        <div class="feed-actionbar"></div>
+      </article>
+    <% }); %>
+  </div>
+
+<%- include('partials/footer') %>

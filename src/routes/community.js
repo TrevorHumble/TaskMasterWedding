@@ -168,6 +168,20 @@ router.get('/gallery', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /feed  — full-screen vertical scroll of every visible photo.
+//
+// The gallery grid's thumbnails link here as /feed#photo-<id>: the browser's
+// native fragment anchoring scrolls straight to that photo on load (no JS).
+// That only works if every visible submission is on the page, so this route
+// renders feed.allVisible() — the flat, unpaginated, newest-first list — not
+// a paginated or grouped view.
+// ---------------------------------------------------------------------------
+router.get('/feed', (req, res) => {
+  const photos = feed.allVisible();
+  return res.render('feed', { title: 'Feed', photos });
+});
+
+// ---------------------------------------------------------------------------
 // GET /p/:submissionId  — full-resolution photo detail view
 //
 // Shows the original-resolution image, caption, task title, and uploader link.

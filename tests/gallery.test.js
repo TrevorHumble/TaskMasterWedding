@@ -19,8 +19,8 @@ describe('gallery page', () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
     expect(res.text).toContain('src="/thumbs/t.jpg"');
-    // Thumbnails now link to /p/<id> (issue #42 — lightbox removed).
-    expect(res.text).toContain('href="/p/' + ids.submissionId + '"');
+    // Thumbnails now open the full-screen feed at that photo (issue #84).
+    expect(res.text).toContain('href="/feed#photo-' + ids.submissionId + '"');
     expect(res.text).toContain('Selfie with the cake');
   });
 

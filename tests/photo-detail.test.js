@@ -173,24 +173,24 @@ describe('AC4: 404 for nonexistent and non-numeric ids', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC5 — gallery renders href="/p/<N>" for each visible submission
+// AC5 — gallery renders href="/feed#photo-<N>" for each visible submission
 // ---------------------------------------------------------------------------
-describe('AC5: gallery thumbnails link to /p/<id>', () => {
-  it('GET /gallery contains href="/p/<idA>"', async () => {
+describe('AC5: gallery thumbnails open the feed at that photo', () => {
+  it('GET /gallery contains href="/feed#photo-<idA>"', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('href="/p/' + idA + '"');
+    expect(res.text).toContain('href="/feed#photo-' + idA + '"');
   });
 
-  it('GET /gallery contains href="/p/<idC>" (newest)', async () => {
+  it('GET /gallery contains href="/feed#photo-<idC>" (newest)', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('href="/p/' + idC + '"');
+    expect(res.text).toContain('href="/feed#photo-' + idC + '"');
   });
 
   it('GET /gallery does not link to taken-down submission X', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
-    expect(res.text).not.toContain('href="/p/' + idX + '"');
+    expect(res.text).not.toContain('href="/feed#photo-' + idX + '"');
   });
 });

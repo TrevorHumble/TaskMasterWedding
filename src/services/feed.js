@@ -148,6 +148,21 @@ function recentPage(taskFilter, page) {
 }
 
 /**
+ * Every visible submission, flat and newest-first, unpaginated.
+ *
+ * Backs the full-screen feed (/feed), where every submission must be
+ * present so a `#photo-<id>` fragment link always resolves to an element on
+ * the page — unlike recentPage() (LIMIT/OFFSET) or grouped() (sections,
+ * not a flat list), neither of which guarantees that.
+ *
+ * @returns {object[]}
+ */
+function allVisible() {
+  const { sql, args } = galleryQuery('all', null);
+  return db.prepare(sql).all(...args);
+}
+
+/**
  * All visible photos for a task filter, grouped by task title or guest name.
  *
  * @param {'task'|'user'} kind
@@ -266,6 +281,7 @@ function neighbors(submissionId) {
 module.exports = {
   GALLERY_PAGE_SIZE,
   recentPage,
+  allVisible,
   grouped,
   guestPhotos,
   detail,
