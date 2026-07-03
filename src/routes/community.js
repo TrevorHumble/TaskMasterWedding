@@ -119,7 +119,7 @@ function loadGuestBadges(guestId) {
 // Every branch calls this so the template's expected keys live in one place.
 function renderGallery(
   res,
-  { view, groups = [], photos = [], page = 1, totalPages = 1, total = 0, taskFilter = null }
+  { view, groups = [], photos = [], page = 1, totalPages = 1, total = 0, taskFilter = null, q = '' }
 ) {
   return res.render('gallery', {
     title: 'Gallery',
@@ -130,6 +130,7 @@ function renderGallery(
     totalPages,
     total,
     taskFilter,
+    q,
   });
 }
 
@@ -155,9 +156,12 @@ router.get('/gallery', (req, res) => {
 
   if (view === 'task' || view === 'user') {
     // --- Grouped views: no pagination; all visible photos. ---
-    const groups = feed.grouped(view, taskFilter);
+    // ?q= is an optional search term (blank/absent = no filter), trimmed here
+    // so feed.grouped() never has to distinguish "absent" from "whitespace".
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const groups = feed.grouped(view, taskFilter, q);
     const total = groups.reduce((sum, g) => sum + g.photos.length, 0);
-    return renderGallery(res, { view, groups, total, taskFilter });
+    return renderGallery(res, { view, groups, total, taskFilter, q });
   }
 
   // --- recent view: flat, paginated, newest-first. ---

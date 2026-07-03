@@ -23,6 +23,9 @@
 'use strict';
 
 const { db } = require('../db');
+// grouped('user', ...) orders its groups by total points — reuse the single
+// scoring authority (issue #104) rather than re-deriving COUNT + bonus_points.
+const scoring = require('./scoring');
 
 // How many gallery thumbnails to load per "page" (used for pagination links).
 // Moved here from community.js — the feed owns pagination sizing because it
@@ -167,16 +170,45 @@ function allVisible() {
  *
  * @param {'task'|'user'} kind
  * @param {number|null} taskFilter
- * @returns {Array<{ heading: string, photos: object[] }>}
+ * @param {string} [q] - optional search text. Blank/absent means no filter.
+ *        Groups whose heading does not contain q (case-insensitive substring)
+ *        are dropped entirely.
+ * @returns {Array<{ heading: string, photos: object[] }>} for kind='user',
+ *        ordered by the group's guest's total points (scoring.getPoints)
+ *        descending, tie-broken by heading ascending; for kind='task',
+ *        newest-first insertion order (unchanged).
  */
-function grouped(kind, taskFilter) {
+function grouped(kind, taskFilter, q) {
   const { sql, args } = galleryQuery('all', taskFilter);
   const photos = db.prepare(sql).all(...args);
 
+  let groups;
   if (kind === 'task') {
-    return groupPhotos(photos, (p) => p.task_title);
+    groups = groupPhotos(photos, (p) => p.task_title);
+  } else {
+    groups = groupPhotos(photos, (p) => p.guest_name || 'Guest');
   }
-  return groupPhotos(photos, (p) => p.guest_name || 'Guest');
+
+  const needle = typeof q === 'string' ? q.trim().toLowerCase() : '';
+  if (needle !== '') {
+    groups = groups.filter((g) => g.heading.toLowerCase().includes(needle));
+  }
+
+  if (kind === 'user') {
+    // Every photo in a user-group belongs to the same guest (the groups were
+    // keyed by guest_name), so the group's guest id is well-defined. Capture
+    // it and the guest's total points (single scoring authority, #104) once
+    // per group as named fields, then sort on the named `points` — the
+    // comparator never reaches back into the group's photo array.
+    groups = groups
+      .map((g) => {
+        const guestId = g.photos[0].guest_id;
+        return { ...g, guest_id: guestId, points: scoring.getPoints(guestId) };
+      })
+      .sort((a, b) => b.points - a.points || a.heading.localeCompare(b.heading));
+  }
+
+  return groups;
 }
 
 // One guest's visible submissions, newest first, with the task title.
