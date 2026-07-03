@@ -132,6 +132,7 @@ standards/                Checkable standards the orchestrator pipeline enforces
 
 ## Documentation
 
+- Manual pre-wedding walkthrough (step-by-step test plan): [`docs/test-plan.md`](docs/test-plan.md).
 - Detailed build plan: [`PLAN/00-README.md`](PLAN/00-README.md) and the numbered files through `10-theme-and-art.md`.
 - Architecture diagrams and walkthroughs: [`docs/architecture.md`](docs/architecture.md).
 - Design rationale and tradeoffs: [`DESIGN.md`](DESIGN.md).
