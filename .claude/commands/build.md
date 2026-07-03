@@ -26,6 +26,8 @@ Run goal: $ARGUMENTS
 
 Execute the steps below in order. Do not skip or reorder.
 
+**0 — Isolate.** Before any research or file mutation, run `powershell -File tools/assert-worktree.ps1`. If it exits non-zero (the session is running in the shared primary checkout, not an isolated worktree), run `powershell -File tools/new-agent-worktree.ps1 -Branch <session-branch>`, then `cd` into the returned worktree path and run every remaining step of this pipeline from inside it. If it exits `0`, the session is already isolated — continue in place.
+
 **1 — Research.** Before drafting anything, check local prior art: the codebase itself, `standards/`, `agents/`, `skills/`, `docs/`, `DESIGN.md`. For Node/Express/EJS/better-sqlite3/vitest questions, consult the installed package docs and existing tests in `tests/`. Web search is a last resort when local sources do not answer the question — delegate through `agents/researcher.md` / `skills/research-prior-art.md`.
 
 **2 — Issue.** Draft the issue in `data/wip-issues/NNNN-*.md` using `skills/issue-create.md`. Once it passes review (step 3), open its GitHub issue with `"C:\Program Files\GitHub CLI\gh.exe" issue create`, labelled by tier. GitHub is the single source of truth — the board reflects the task from creation.
@@ -36,7 +38,7 @@ Execute the steps below in order. Do not skip or reorder.
 
 **5 — Artifact review.** Spawn the appropriate `agents/reviewer-*.md` (Opus) against the artifact. Reviewer receives only the artifact and the relevant standard — no framing, no positive hints, no planted suspicions. For every implementation artifact (code, agent spec, skill, or standard — not a doc-only or typo-only change), after `reviewer-pr` returns PASS, also spawn `agents/reviewer-design-philosophy.md` (Opus). Both gates must pass before commit.
 
-**6 — Create branch, then commit through the gate.** Create the descriptive branch first — this ensures the commit lands on the new branch, not on main:
+**6 — Create branch, then commit through the gate.** Confirm isolation is still in effect before cutting the per-issue branch — per-issue branches are always cut inside the worktree, never in the primary checkout: `powershell -File tools/assert-worktree.ps1` (if it fails, this session did not properly complete step 0 — return to step 0 before proceeding). Then create the descriptive branch — this ensures the commit lands on the new branch, not on main:
 
 ```powershell
 git switch -c <descriptive-branch-name>

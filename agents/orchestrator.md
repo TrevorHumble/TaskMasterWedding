@@ -25,6 +25,19 @@ allowed rounds.
 
 ---
 
+## Operating rules
+
+1. **Isolation precondition — run in your own worktree, never the primary checkout.** Before any
+   research or file mutation, the session must be running inside its own linked git worktree, not
+   the shared primary checkout: `powershell -File tools/assert-worktree.ps1`. If it exits non-zero,
+   create and enter a worktree with `powershell -File tools/new-agent-worktree.ps1 -Branch <name>`
+   and continue the entire pipeline from inside it. Two sessions sharing one working directory can
+   stash, revert, or switch-branch under each other's uncommitted work — the exact collision #113
+   documented on 2026-07-02. This is enforced by `.claude/commands/build.md` Step 0, not opt-in
+   prose; a session invoked directly (not via `/build`) must still satisfy it before proceeding.
+
+---
+
 ## Pipeline (ordered)
 
 1. **Issue** — read or create the issue with `skills/issue-create.md`. When a new issue file is created,
