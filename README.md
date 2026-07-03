@@ -46,6 +46,16 @@ cloudflared tunnel --url http://localhost:3000
 
 Cloudflare prints a public `https://<random>.trycloudflare.com` URL that forwards to the laptop. Share that URL (or print QR codes against it) so guests can reach the app from anywhere. The URL changes on each run.
 
+### Working in a worktree
+
+Running more than one AI build session against this repo at once? Give each one its own folder so they cannot interfere with each other's uncommitted work:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/new-agent-worktree.ps1 -Branch <name>
+```
+
+This creates a sibling folder checked out on `<name>`, sharing this repo's history. It prints the folder's path once ready — `cd` there and work as normal; the commit gate is already active.
+
 ## Where things live
 
 ```
