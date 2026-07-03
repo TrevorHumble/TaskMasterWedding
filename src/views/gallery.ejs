@@ -43,15 +43,6 @@
               height="400"
             />
           </a>
-          <figcaption class="gallery-caption">
-            <a class="gallery-task" href="/gallery?task=<%= p.task_id %>"><%= p.task_title %></a>
-            <span class="gallery-by">by
-              <a href="/u/<%= p.guest_id %>"><%= p.guest_name || 'Guest' %></a>
-            </span>
-            <% if (p.caption) { %>
-              <span class="gallery-text"><%= p.caption %></span>
-            <% } %>
-          </figcaption>
         </figure>
       <% }); %>
     </div>

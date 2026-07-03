@@ -905,19 +905,24 @@ input[type='file'],
 }
 
 /* ----------------------- Gallery ----------------------- */
+/* Instagram-style photo wall: gapless square tiles, full-bleed on phones
+   (the mobile viewport IS the frame), capped and centred on desktop via the
+   700px breakpoint below. Captions live on the photo-detail page, not here —
+   the grid is photos only. */
 .gallery-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 0;
+  gap: 2px;
+  width: 100vw;
+  margin-inline: calc(50% - 50vw);
 }
 .gallery-item {
   position: relative;
   display: block;
-  border-radius: var(--radius-input);
-  overflow: hidden;
-  background: var(--green-50);
-  border: var(--border-hairline);
   aspect-ratio: 1 / 1;
+  background: var(--green-50);
+  content-visibility: auto;
+  contain-intrinsic-size: 200px 200px;
 }
 .gallery-thumb-btn {
   display: block;
@@ -937,6 +942,10 @@ input[type='file'],
   aspect-ratio: 1;
   display: block;
 }
+/* Caption overlay — no longer used by the main /gallery grid (issue #81
+   moved captions off the grid), but src/views/public-profile.ejs still
+   renders .gallery-caption/.gallery-task/.gallery-text on its own photo
+   grid, so these rules stay live for that page. */
 .gallery-caption {
   position: absolute;
   left: 0;
@@ -953,12 +962,6 @@ input[type='file'],
 .gallery-task {
   font-weight: 600;
   color: var(--white);
-}
-.gallery-by {
-  color: rgba(255, 255, 255, 0.8);
-}
-.gallery-by a {
-  color: rgba(255, 255, 255, 0.8);
 }
 .gallery-text {
   color: rgba(255, 255, 255, 0.8);
@@ -1836,10 +1839,6 @@ input[type='file'],
 
 /* ----------------------- Wider screens ----------------------- */
 @media (min-width: 620px) {
-  .gallery-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0;
-  }
   .badge-grid {
     grid-template-columns: repeat(4, 1fr);
   }
@@ -1850,5 +1849,16 @@ input[type='file'],
     max-width: 680px;
     flex-direction: row;
     justify-content: space-between;
+  }
+}
+
+/* Gallery grid on desktop: cap and centre the photo wall instead of letting
+   tiles stretch full-viewport-width like they do on mobile. */
+@media (min-width: 700px) {
+  .gallery-grid {
+    grid-template-columns: repeat(3, 1fr);
+    width: auto;
+    margin-inline: auto;
+    max-width: 900px;
   }
 }
