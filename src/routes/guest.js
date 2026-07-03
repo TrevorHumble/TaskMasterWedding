@@ -27,6 +27,12 @@ const photos = require('../services/photos');
 // Scoring service (section 06) — REAL exports only.
 const scoring = require('../services/scoring');
 
+// Submission-intake service (issue #106) — owns the whole submit-or-replace
+// sequence for POST /tasks/:id/submit: task-active check, thumbnail, upsert,
+// caption normalization, and scoring recompute. This route calls it once and
+// maps the returned status to a response; see the handler below.
+const submissions = require('../services/submissions');
+
 // Numeric auto-badge thresholds derived from the {code,n} catalog.
 // e.g. BADGE_THRESHOLDS = [{code:'BLOOM',n:5},{code:'BOUQUET',n:10},{code:'GARDEN',n:15}]
 // -> AUTO_THRESHOLDS = [5, 10, 15]
@@ -215,26 +221,21 @@ router.get('/tasks/:id', function (req, res) {
 // POST /tasks/:id/submit  — handle the multipart photo upload.
 // Field name is "photo" (single). photos.upload is multer DISK storage, so
 // after the middleware runs req.file.filename is the stored original filename
-// and req.file.path its absolute path on disk. We make a thumbnail with
-// photos.makeThumb(req.file.path), insert OR replace the submission
-// (UNIQUE(guest_id,task_id)), save caption, recompute scoring, then redirect
-// back with a flash.
+// and req.file.path its absolute path on disk. Everything past "we have a
+// file" — task-active check, thumbnail, insert-or-replace, caption, scoring
+// recompute — is one call to submissions.submitPhoto (issue #106); this
+// handler only owns what needs req/res: running multer, the multer-error and
+// missing-file branches, and mapping the returned status to a response.
 // ---------------------------------------------------------------------------
 router.post('/tasks/:id/submit', function (req, res) {
   // Run multer first; it may error (file too big, wrong type, no file).
   // photos.upload is the ALREADY-BOUND single('photo') middleware (section 05),
-  // so call it directly. The callback is async because makeThumb() is async.
+  // so call it directly. The callback is async because submitPhoto is async.
   photos.upload(req, res, async function (err) {
     const guest = res.locals.guest;
     const taskId = Number(req.params.id);
 
     if (!Number.isInteger(taskId) || taskId <= 0) {
-      return res.status(404).render('404', { title: 'Not found' });
-    }
-
-    // Task must exist and be active.
-    const task = db.prepare('SELECT id, is_active FROM tasks WHERE id = ?').get(taskId);
-    if (!task || task.is_active !== 1) {
       return res.status(404).render('404', { title: 'Not found' });
     }
 
@@ -250,80 +251,26 @@ router.post('/tasks/:id/submit', function (req, res) {
       return res.redirect('/tasks/' + taskId);
     }
 
-    // Caption is optional; trim and cap length defensively.
-    let caption = '';
-    if (typeof req.body.caption === 'string') {
-      caption = req.body.caption.trim().slice(0, 500);
-    }
+    const result = await submissions.submitPhoto({
+      guestId: guest.id,
+      taskId: taskId,
+      file: req.file,
+      caption: req.body.caption,
+    });
 
-    // The original is already saved on disk by multer. Make the thumbnail.
-    // photo_path = the stored original's filename; thumb_path = makeThumb()'s
-    // returned thumbnail filename.
-    const photoPath = req.file.filename;
-    let thumbPath;
-    try {
-      thumbPath = await photos.makeThumb(req.file.path); // makeThumb is async
-    } catch (e) {
-      // Clean up the orphaned original we just wrote, then bail.
-      try {
-        photos.deleteOriginalFile(photoPath);
-      } catch (e2) {
-        /* non-fatal */
-      }
+    if (result.status === 'task_inactive') {
+      return res.status(404).render('404', { title: 'Not found' });
+    }
+    if (result.status === 'thumb_failed') {
       setFlash(res, 'error', 'Sorry, we could not save that photo. Please try again.');
       return res.redirect('/tasks/' + taskId);
     }
 
-    // Is there an existing submission for this guest+task? UNIQUE constraint
-    // means at most one row. We REPLACE the photo if it exists.
-    const existing = db
-      .prepare(
-        'SELECT id, photo_path, thumb_path FROM submissions WHERE guest_id = ? AND task_id = ?'
-      )
-      .get(guest.id, taskId);
-
-    if (existing) {
-      // Replace: update paths + caption, clear taken_down, and delete the
-      // old files from disk so we don't leave orphans.
-      const oldPhoto = existing.photo_path;
-      const oldThumb = existing.thumb_path;
-
-      db.prepare(
-        `UPDATE submissions
-            SET photo_path = ?, thumb_path = ?, caption = ?, taken_down = 0,
-                created_at = datetime('now')
-          WHERE id = ?`
-      ).run(photoPath, thumbPath, caption, existing.id);
-
-      // Delete old files AFTER the DB update succeeds. Ignore failures.
-      try {
-        if (oldPhoto && oldPhoto !== photoPath) {
-          photos.deleteOriginalFile(oldPhoto);
-        }
-        if (oldThumb && oldThumb !== thumbPath) {
-          photos.deleteThumbFile(oldThumb);
-        }
-      } catch (e) {
-        // Non-fatal: a leftover file is harmless.
-      }
-    } else {
-      // First submission for this task.
-      db.prepare(
-        `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, caption, taken_down)
-         VALUES (?, ?, ?, ?, ?, 0)`
-      ).run(guest.id, taskId, photoPath, thumbPath, caption);
-    }
-
-    // Recompute points + auto badges now that completion may have changed.
-    try {
-      scoring.recomputeAutoBadges(guest.id);
-    } catch (e) {
-      // Scoring failure should not lose the photo; just log to console.
-      // eslint-disable-next-line no-console
-      console.error('recomputeAutoBadges failed:', e);
-    }
-
-    setFlash(res, 'success', existing ? 'Photo replaced!' : 'Task complete! +1 point.');
+    setFlash(
+      res,
+      'success',
+      result.status === 'replaced' ? 'Photo replaced!' : 'Task complete! +1 point.'
+    );
     return res.redirect('/tasks/' + taskId);
   });
 });
