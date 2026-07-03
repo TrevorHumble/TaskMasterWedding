@@ -25,13 +25,36 @@
             <p class="feed-caption"><%= p.caption %></p>
           <% } %>
         </div>
-        <!-- Comment and per-photo-points controls are separate follow-up
-             issues; this action bar carries only the like control for now. -->
+        <!-- Per-photo-points controls are a separate follow-up issue; this
+             action bar carries the like control and comments for now. -->
         <div class="feed-actionbar">
           <span class="like-count"><%= p.like_count %> <%= p.like_count === 1 ? 'like' : 'likes' %></span>
           <% if (guest) { %>
             <form method="post" action="/p/<%= p.submission_id %>/like" class="like-form">
               <button type="submit" class="like-button" aria-label="Like this photo">&hearts;</button>
+            </form>
+          <% } %>
+        </div>
+
+        <!-- Flat comment list — no nested replies. -->
+        <div class="feed-comments">
+          <% p.comments.forEach(function (c) { %>
+            <p class="feed-comment">
+              <a href="/u/<%= c.guest_id %>"><%= c.guest_name || 'Guest' %></a>
+              <%= c.body %>
+            </p>
+          <% }); %>
+          <% if (guest) { %>
+            <form method="post" action="/p/<%= p.submission_id %>/comments" class="comment-form">
+              <input
+                type="text"
+                name="body"
+                maxlength="<%= commentMaxLength %>"
+                placeholder="Add a comment"
+                aria-label="Add a comment"
+                required
+              />
+              <button type="submit" class="btn btn-sm">Post</button>
             </form>
           <% } %>
         </div>

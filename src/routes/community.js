@@ -141,6 +141,56 @@ function hasLiked(submissionId, guestId) {
     .get(submissionId, guestId);
 }
 
+// The single source of the comment-length cap. It is enforced server-side in
+// the POST route below (AC4) AND passed to the feed view, which renders it as
+// the comment input's maxlength — so the browser-side limit is never a
+// hand-copied literal that can drift from this server rule.
+const COMMENT_MAX_LENGTH = 300;
+
+/**
+ * Attach a `comments` array to each photo in place, in one grouped query
+ * rather than one query per photo. Loaded only for the submission ids the
+ * feed already handed us — those rows are already visible because they came
+ * from feed.allVisible(), which owns the taken_down = 0 rule on submissions.
+ * This function never re-types that rule; it only adds the comment-level
+ * taken_down = 0 filter, which is a separate moderation flag on comments
+ * themselves. Oldest-first within each photo, joined to the commenter's name.
+ * Photos with zero comments get [], not undefined, so the view never has to
+ * branch on a missing field.
+ */
+function attachComments(photos) {
+  if (photos.length === 0) {
+    return photos;
+  }
+  const placeholders = photos.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT c.id            AS id,
+              c.submission_id AS submission_id,
+              c.body          AS body,
+              g.id            AS guest_id,
+              g.name          AS guest_name
+         FROM comments c
+         JOIN guests g ON g.id = c.guest_id
+        WHERE c.submission_id IN (${placeholders})
+          AND c.taken_down = 0
+        ORDER BY c.created_at ASC, c.id ASC`
+    )
+    .all(...photos.map((p) => p.submission_id));
+
+  const commentsById = new Map();
+  for (const row of rows) {
+    if (!commentsById.has(row.submission_id)) {
+      commentsById.set(row.submission_id, []);
+    }
+    commentsById.get(row.submission_id).push(row);
+  }
+  for (const p of photos) {
+    p.comments = commentsById.get(p.submission_id) || [];
+  }
+  return photos;
+}
+
 // ---------------------------------------------------------------------------
 // GET /gallery  — the shared photo wall.
 //
@@ -223,8 +273,8 @@ router.get('/gallery', (req, res) => {
 // a paginated or grouped view.
 // ---------------------------------------------------------------------------
 router.get('/feed', (req, res) => {
-  const photos = attachLikeCounts(feed.allVisible());
-  return res.render('feed', { title: 'Feed', photos });
+  const photos = attachComments(attachLikeCounts(feed.allVisible()));
+  return res.render('feed', { title: 'Feed', photos, commentMaxLength: COMMENT_MAX_LENGTH });
 });
 
 // ---------------------------------------------------------------------------
@@ -259,6 +309,42 @@ router.post('/p/:submissionId/like', requireGuest, (req, res) => {
       req.guest.id
     );
   }
+
+  return res.redirect('/feed#photo-' + submissionId);
+});
+
+// ---------------------------------------------------------------------------
+// POST /p/:submissionId/comments  — a signed-in guest leaves a comment.
+//
+// Guest-only (requireGuest 403s anonymous requests before this handler runs,
+// so no comments row is ever created for AC8). A taken-down or missing
+// submission 404s, mirroring the like route above. The body is trimmed and
+// rejected (no insert) if empty or over COMMENT_MAX_LENGTH — that rejection
+// is silent (redirect, no row), matching the issue's server-side-cap AC4;
+// there is no separate error page because "your comment didn't post" needs
+// no more ceremony than the redirect back to the same photo.
+// ---------------------------------------------------------------------------
+router.post('/p/:submissionId/comments', requireGuest, (req, res) => {
+  const submissionId = parseInt(req.params.submissionId, 10);
+  if (!Number.isInteger(submissionId) || submissionId < 1) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  const photo = feed.detail(submissionId);
+  if (!photo) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  const body = (req.body.body || '').trim();
+  if (body.length === 0 || body.length > COMMENT_MAX_LENGTH) {
+    return res.redirect('/feed#photo-' + submissionId);
+  }
+
+  db.prepare(`INSERT INTO comments (submission_id, guest_id, body) VALUES (?, ?, ?)`).run(
+    submissionId,
+    req.guest.id,
+    body
+  );
 
   return res.redirect('/feed#photo-' + submissionId);
 });
