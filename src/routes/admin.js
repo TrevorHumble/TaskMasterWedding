@@ -19,6 +19,9 @@
 //   GET  /admin/photos                   ALL submissions incl. taken-down
 //   POST /admin/photos/:id/takedown      hide a photo + recompute auto-badges
 //   POST /admin/photos/:id/restore       unhide a photo + recompute auto-badges
+//   GET  /admin/comments                 ALL comments incl. taken-down
+//   POST /admin/comments/:id/hide        hide a comment
+//   POST /admin/comments/:id/restore     unhide a comment
 //   GET  /admin/export                   defined in 09-export (see ADD-THIS there)
 //
 // NOTE: GET/POST /admin/login and POST /admin/logout live in 03-auth (routes/auth.js).
@@ -493,6 +496,67 @@ router.post('/photos/:id/restore', (req, res) => {
     return redirectWithMsg(res, '/admin/photos', 'Submission not found.');
   }
   redirectWithMsg(res, '/admin/photos', 'Photo restored.');
+});
+
+// ---------------------------------------------------------------------------
+// GET /admin/comments  — recent comments (any taken_down state), joined to
+// the commenter's name and the photo/task they were left on.
+// ---------------------------------------------------------------------------
+router.get('/comments', (req, res) => {
+  const commentRows = db
+    .prepare(
+      `SELECT c.id            AS id,
+              c.body          AS body,
+              c.taken_down    AS taken_down,
+              c.created_at    AS created_at,
+              g.id            AS guest_id,
+              g.name          AS guest_name,
+              s.id            AS submission_id,
+              t.title         AS task_title
+         FROM comments c
+         JOIN guests g      ON g.id = c.guest_id
+         JOIN submissions s ON s.id = c.submission_id
+         JOIN tasks t       ON t.id = s.task_id
+        ORDER BY c.created_at DESC, c.id DESC`
+    )
+    .all();
+
+  res.render('admin-comments', {
+    title: 'Comments',
+    comments: commentRows,
+    msg: req.query.msg || '',
+    isAdmin: true,
+  });
+});
+
+// POST /admin/comments/:id/hide  — hide a comment (taken_down = 1).
+//
+// Comment moderation uses "hide", not the "takedown" verb the photo routes
+// use, because the two actions are not the same operation. A photo takedown
+// removes a SCORED submission: it must recompute the guest's auto-badges in a
+// transaction (photos.hideSubmission), because a hidden photo can no longer
+// count toward points or badges. A comment carries no score and no badge, so
+// hiding one is lighter, text-only moderation — a plain taken_down flag flip
+// with no scoring side effect. The different verb marks the different weight.
+router.post('/comments/:id/hide', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const comment = db.prepare('SELECT id FROM comments WHERE id = ?').get(id);
+  if (!comment) {
+    return redirectWithMsg(res, '/admin/comments', 'Comment not found.');
+  }
+  db.prepare('UPDATE comments SET taken_down = 1 WHERE id = ?').run(id);
+  redirectWithMsg(res, '/admin/comments', 'Comment hidden.');
+});
+
+// POST /admin/comments/:id/restore  — restore a hidden comment (taken_down = 0).
+router.post('/comments/:id/restore', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const comment = db.prepare('SELECT id FROM comments WHERE id = ?').get(id);
+  if (!comment) {
+    return redirectWithMsg(res, '/admin/comments', 'Comment not found.');
+  }
+  db.prepare('UPDATE comments SET taken_down = 0 WHERE id = ?').run(id);
+  redirectWithMsg(res, '/admin/comments', 'Comment restored.');
 });
 
 // ---------------------------------------------------------------------------

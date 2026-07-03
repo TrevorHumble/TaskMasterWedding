@@ -84,6 +84,15 @@ db.exec(`
     UNIQUE (submission_id, guest_id)
   );
 
+  CREATE TABLE IF NOT EXISTS comments (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    submission_id INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+    guest_id      INTEGER NOT NULL REFERENCES guests(id)      ON DELETE CASCADE,
+    body          TEXT    NOT NULL,
+    taken_down    INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_submissions_photo_path
     ON submissions(photo_path COLLATE NOCASE);
 
@@ -92,6 +101,9 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_likes_submission
     ON likes(submission_id);
+
+  CREATE INDEX IF NOT EXISTS idx_comments_submission
+    ON comments(submission_id, taken_down);
 `);
 
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
