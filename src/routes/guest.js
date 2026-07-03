@@ -19,9 +19,13 @@ const { requireGuest } = require('../middleware/session');
 // — call it directly as `photos.upload(req, res, cb)` (do NOT call .single on it).
 // After it runs, req.file.filename is the stored original filename and
 // req.file.path its absolute path. makeThumb(path) is ASYNC and returns the
-// thumbnail filename. saveAvatar(buffer, guestId) is ASYNC, writes the avatar
-// file, sets guests.avatar_path, and returns the filename. deleteOriginalFile()
-// and deleteThumbFile() remove files from disk.
+// thumbnail filename.
+// `uploadAvatar` is the multer MEMORY-storage middleware ALREADY BOUND to
+// single('avatar') (issue #122) — call it directly the same way. After it runs,
+// req.file.buffer holds the raw bytes (no req.file.path on this path).
+// saveAvatar(buffer, guestId) is ASYNC, writes the avatar file, sets
+// guests.avatar_path, and returns the filename. deleteOriginalFile() and
+// deleteThumbFile() remove files from disk.
 const photos = require('../services/photos');
 
 // Scoring service (section 06) — REAL exports only.
@@ -302,16 +306,16 @@ router.get('/me/edit', function (req, res) {
 
 // ---------------------------------------------------------------------------
 // POST /me/edit  — save name, optional new avatar, and social links.
-// Avatar uses the SAME disk-storage `upload` middleware (field name "photo").
-// Because saveAvatar wants a Buffer, we read the uploaded file back into bytes,
-// call photos.saveAvatar(buffer, guestId) (async; it sets avatar_path), and
-// remove a replaced avatar with deleteOriginalFile. No thumbnail, no submission
-// row.
+// Avatar uses the SAME memory-storage `uploadAvatar` middleware (field name
+// "avatar") as onboarding (issue #122), so req.file.buffer is already the raw
+// bytes — no disk read-back/unlink needed. We call photos.saveAvatar(buffer,
+// guestId) (async; it sets avatar_path) and remove a replaced avatar with
+// deleteOriginalFile. No thumbnail, no submission row.
 // ---------------------------------------------------------------------------
 router.post('/me/edit', function (req, res) {
-  // photos.upload is the ALREADY-BOUND single('photo') DISK-storage middleware
-  // (section 05). The callback is async because saveAvatar() is async.
-  photos.upload(req, res, async function (err) {
+  // photos.uploadAvatar is the ALREADY-BOUND single('avatar') MEMORY-storage
+  // middleware (section 05). The callback is async because saveAvatar() is async.
+  photos.uploadAvatar(req, res, async function (err) {
     const guest = res.locals.guest;
 
     if (err) {
@@ -353,32 +357,19 @@ router.post('/me/edit', function (req, res) {
     });
     const socialJson = JSON.stringify(social);
 
-    // Optional new avatar. photos.saveAvatar expects the raw BYTES (a Buffer)
-    // and is async (section 05). This route uses DISK storage, so multer wrote
-    // the upload to req.file.path — read it back into a Buffer, hand it to
-    // saveAvatar(buffer, guestId), then drop the raw upload. saveAvatar writes
-    // the stored avatar file, sets guests.avatar_path, and returns the filename.
-    const fs = require('fs');
+    // Optional new avatar. photos.uploadAvatar (memory storage, field "avatar")
+    // already gives us req.file.buffer directly — hand it straight to
+    // saveAvatar(buffer, guestId), which writes the stored avatar file, sets
+    // guests.avatar_path, and returns the filename. No temp file to read back
+    // or clean up.
     let newAvatarPath = guest.avatar_path; // keep existing unless replaced
     if (req.file) {
       let savedAvatar;
       try {
-        const buf = fs.readFileSync(req.file.path);
-        savedAvatar = await photos.saveAvatar(buf, guest.id); // stored filename
+        savedAvatar = await photos.saveAvatar(req.file.buffer, guest.id); // stored filename
       } catch (e) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch (e2) {
-          /* non-fatal */
-        }
         setFlash(res, 'error', 'Sorry, we could not save that avatar. Please try again.');
         return res.redirect('/me/edit');
-      }
-      // Drop the raw multer upload now that saveAvatar made its own copy.
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch (e2) {
-        /* non-fatal */
       }
 
       const oldAvatar = guest.avatar_path;
