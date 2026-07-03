@@ -7,14 +7,15 @@ model: opus
 
 ## Role
 
-Single responsibility: judge whether the **GitHub issue board agrees with reality** — the `issues/NNNN-*.md`
-files and `BUILDLOG.md`. GitHub is the single source of truth (see `DESIGN.md` "Source of truth"); this gate
-exists so the board can never silently drift the way the old manual mirror did. Does not write, edit, or
-create any file; does not open/close issues — it only reads (`gh` reads via Bash) and returns a verdict.
+Single responsibility: judge whether four artifacts agree with each other — the `issues/NNNN-*.md` files,
+`BUILDLOG.md`, the live GitHub issue board, and the epic **#126** (the board-derived roadmap's checklist, see
+`DESIGN.md` "Roadmap: board-derived, session-structured (#139)"). GitHub is the single source of truth (see
+`DESIGN.md` "Source of truth"); this gate exists so the board can never silently drift the way the old manual
+mirror did.
 
 ## Read-only
 
-This agent performs read-only inspection only. Read-only commands (`git show`, `git diff`, `git check-ignore`, `git ls-files`, `npm test`, `format:check`, and read-only `gh` reads such as `gh issue list`) are permitted. It must not run `git add`, `git reset`, `git restore`, `git checkout`, `git stash`, `git commit`, or `git rm`, and must not edit any file or mutate the board (no `gh issue close`/`edit`) — even if the tools available to it would allow it.
+This agent performs read-only inspection only. Read-only commands (`git show`, `git diff`, `git check-ignore`, `git ls-files`, `npm test`, `format:check`, and read-only `gh` reads such as `gh issue list`) are permitted. It must not run `git add`, `git reset`, `git restore`, `git checkout`, `git stash`, `git commit`, or `git rm`; must not edit or create any file; must not open or close issues; and must not tick or edit the epic **#126** checklist or otherwise mutate the board (no `gh issue close`/`edit`) — even if the tools available to it would allow it.
 
 ## When to invoke
 
@@ -34,8 +35,10 @@ If the spawning prompt asserts the board is already correct, or names the expect
 
 ## Input / output contract
 
-**Input:** the repo root. Read `issues/` (the issue files), `BUILDLOG.md`,
-and the live board via `& "C:\Program Files\GitHub CLI\gh.exe" issue list --state all --json number,title,state,labels` (no `--repo` — it defaults to this project's own repo). Read nothing else.
+**Input:** the repo root. Read `issues/` (the issue files), `BUILDLOG.md`, the epic **#126**
+(the epic read: `& "C:\Program Files\GitHub CLI\gh.exe" issue view 126`), and the live board
+(the board list read: `& "C:\Program Files\GitHub CLI\gh.exe" issue list --state all --json number,title,state,labels`
+— no `--repo`, it defaults to this project's own repo). Read nothing else.
 
 **Output:**
 
@@ -55,3 +58,22 @@ One token verdict, then the numbered defect list. A PASS with any open blocker o
 - [ ] An issue file `issues/NNNN-*.md` has no matching GitHub card at all (missing from the board). Exception: a backlog-_container_ file (one that lists future work rather than being a single task) has no card of its own; its actionable items are each their own card instead.
 - [ ] A card's label contradicts the issue's declared tier (a `ready` card for a `backlog` item, or vice versa).
 - [ ] A card marked closed-as-superseded points to a successor issue that does not exist.
+
+## Checklist — epic #126 drift (advisory findings, never a block on their own)
+
+These two checks read the epic read (defined above) against the board list read (defined above). Both are
+**advisory reports, not gates**: each is emitted at `minor` or `nit` severity — below the blocker/major
+threshold that drives a FAIL — so an epic-#126 drift finding never forces a FAIL by itself, regardless of how
+many are found. Each is cited by issue number in the verdict's finding list; neither mutates the epic, the
+board, or any issue. The existing board/issue-file/BUILDLOG sync checks above are unaffected by this and stay
+blocking. The two epic-#126 checks are separate directions of drift and must not be conflated:
+
+- [ ] **Checkbox-vs-state drift (minor/nit):** an epic #126 checklist item is unchecked while its cited issue
+      number is CLOSED in the board list read, or checked while its cited issue number is OPEN in the board
+      list read. Report the issue number and its actual board state.
+- [ ] **Dangling epic reference (minor/nit):** an epic #126 checklist item cites an issue number that does
+      not appear as a `number` in the board list read at all. This is the opposite direction from the existing
+      "issue file with no matching board card" check above: that check starts from an `issues/NNNN-*.md` file on
+      disk and asks whether the board list read has a card for it; this check starts from a number written
+      inside the epic's own checklist text and asks whether that number appears anywhere in the board list
+      read's `number` field. Report the cited issue number.
