@@ -11,7 +11,7 @@ This states the outcomes we're building toward — the destination, not a status
 > A wedding guest goes from passive spectator to active, _steered_ participant — drawn to the moments, activities, and people the hosts point them toward, mingling beyond their own circle, and dropping what they capture into a shared record of the weekend, because the game makes it rewarding. The engagement is in the celebration itself, not on the screen.
 
 - **End user (whose behavior changes):** the wedding guest.
-- **Who it pays off for:** the couple (Axel & Lily) and their planners.
+- **Who it pays off for:** the couple (Lilly & Axel) and their planners.
 
 ## The four goals
 
