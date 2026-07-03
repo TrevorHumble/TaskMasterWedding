@@ -106,13 +106,13 @@ describe('AC2: recent view — no per-thumbnail caption', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC4 — each thumbnail links to /p/<submission_id>
+// AC4 — each thumbnail links to /feed#photo-<submission_id> (repointed by #84)
 // ---------------------------------------------------------------------------
 describe('AC4: thumbnail links to the photo', () => {
-  it('response body contains href="/p/<seeded id>"', async () => {
+  it('response body contains href="/feed#photo-<seeded id>"', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
-    expect(res.text).toContain(`href="/p/${visibleSubmissionId}"`);
+    expect(res.text).toContain(`href="/feed#photo-${visibleSubmissionId}"`);
   });
 });
 

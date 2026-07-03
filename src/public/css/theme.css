@@ -1093,6 +1093,50 @@ input[type='file'],
   pointer-events: none;
 }
 
+/* ----------------------- Photo feed ----------------------- */
+/* Full-screen vertical scroll (issue #84). Each .feed-item is a fragment
+   target (#photo-<id>) that the gallery grid links to directly, so
+   scroll-margin-top has to clear the sticky .site-header — sized for the
+   tallest header state (mobile, where brand + nav stack to two rows) so the
+   landed-on photo is never hidden underneath it. content-visibility keeps a
+   long, fully-unpaginated feed (every visible photo, per AC1/AC2) cheap to
+   render off-screen. */
+.feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.feed-item {
+  margin: 0;
+  scroll-margin-top: 140px;
+  content-visibility: auto;
+  contain-intrinsic-size: 600px;
+}
+.feed-photo {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-card);
+  border: var(--border-hairline);
+  background: var(--green-50);
+}
+.feed-body {
+  margin-top: var(--space-3);
+}
+.feed-by {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  margin: 0 0 var(--space-1);
+}
+.feed-caption {
+  font-style: italic;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+.feed-actionbar {
+  margin-top: var(--space-2);
+}
+
 /* ----------------------- Leaderboard ----------------------- */
 /* podium */
 .podium {
@@ -1860,5 +1904,14 @@ input[type='file'],
     width: auto;
     margin-inline: auto;
     max-width: 900px;
+  }
+}
+
+/* Photo feed on desktop: cap the photo width instead of stretching it
+   full-viewport-width. */
+@media (min-width: 700px) {
+  .feed-item {
+    max-width: 560px;
+    margin-inline: auto;
   }
 }
