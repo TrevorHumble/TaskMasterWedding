@@ -297,10 +297,10 @@ function absThumbPath(thumbPath) {
 //
 // This file is the SINGLE WRITER of taken_down for moderation: hideSubmission
 // and restoreSubmission are the only functions allowed to flip the flag for a
-// takedown/restore, and each does the flip and the auto-badge recount inside
+// takedown/restore, and each does the flip and the badge recount inside
 // ONE db.transaction. better-sqlite3 nests transactions as SAVEPOINTs, so
-// calling scoring.recomputeAutoBadges (itself a db.transaction) from inside
-// this one is safe. Folding both writes into one transaction is what makes it
+// calling scoring.recomputeAfterSubmissionChange (itself a db.transaction)
+// from inside this one is safe. Folding both writes into one transaction is what makes it
 // impossible for a caller to flip the flag without the recount running too —
 // no route may run its own `UPDATE submissions SET taken_down` for moderation.
 // ---------------------------------------------------------------------------
@@ -321,7 +321,13 @@ const _setTakenDownAndRecount = db.transaction((submissionId, takenDown) => {
   const row = _getSubmissionGuest.get(submissionId);
   if (!row) return undefined;
   _setTakenDown.run(takenDown, submissionId);
-  scoring.recomputeAutoBadges(row.guest_id);
+  // One recompute seam runs the per-guest auto/metric pass and the global
+  // transferable pass in order (issue #80) — a takedown/restore can change
+  // who holds a transferable badge like MOSTPHOTOS, not just this guest's own
+  // metric badges. The seam is itself a db.transaction, and better-sqlite3
+  // nests transaction functions via SAVEPOINTs, so calling it from inside
+  // this outer transaction is safe.
+  scoring.recomputeAfterSubmissionChange(row.guest_id);
   return row.guest_id;
 });
 

@@ -39,6 +39,25 @@
     sheet, or copy a link below.
   </p>
 
+  <section class="admin-form-row">
+    <form action="/admin/badges" method="post" class="inline-form">
+      <h2>Create a custom badge</h2>
+      <label>
+        Name
+        <input type="text" name="name" required placeholder="e.g. Best Dressed" />
+      </label>
+      <label>
+        Art (image path or emoji)
+        <input type="text" name="art_path" required placeholder="e.g. 🎩 or /badges/best-dressed.svg" />
+      </label>
+      <label>
+        Description (optional)
+        <input type="text" name="description" placeholder="Why this badge exists" />
+      </label>
+      <button type="submit" class="btn btn-primary">Create badge</button>
+    </form>
+  </section>
+
   <div class="page--wide">
     <table class="data-table">
       <thead>
@@ -49,7 +68,7 @@
           <th>Done</th>
           <th>Private link</th>
           <th>Bonus points</th>
-          <th>Special badges</th>
+          <th>Special / custom badges</th>
           <th>Actions</th>
         </tr>
       </thead>
