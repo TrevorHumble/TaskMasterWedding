@@ -1,12 +1,9 @@
 // src/app.js
 // Express bootstrap for Garden Party Pastels.
-// Boots cleanly even before later sections add the db/routers/middleware:
-// optional modules are mounted only if their files are present.
 //
 // All config reads below use the canonical UPPER_SNAKE_CASE keys from config.js.
 
 const fs = require('fs');
-const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 
@@ -73,75 +70,41 @@ app.use((req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. attachGuest middleware (added by section 03).
+// 5. attachGuest middleware.
 //    Reads the signed gsid cookie and loads the guest into res.locals.
-//    Mounted only if the file exists so the app boots before section 03.
 // ---------------------------------------------------------------------------
-const sessionPath = path.join(__dirname, 'middleware', 'session.js');
-if (fs.existsSync(sessionPath)) {
-  const session = require('./middleware/session');
-  if (typeof session.attachGuest === 'function') {
-    app.use(session.attachGuest);
-  }
-} else {
-  // Until section 03 exists, make sure views that read res.locals.guest /
-  // res.locals.flash do not crash.
-  app.use((req, res, next) => {
-    if (res.locals.guest === undefined) res.locals.guest = null;
-    if (res.locals.flash === undefined) res.locals.flash = null;
-    next();
-  });
-}
+const session = require('./middleware/session');
+app.use(session.attachGuest);
 
 // ---------------------------------------------------------------------------
-// 6. Routers (added by sections 03/04/07/08). Each is an express.Router().
-//    Mounted only if its file exists yet. IMPORTANT: admin.js mounts at
+// 6. Routers. Each is an express.Router(). IMPORTANT: admin.js mounts at
 //    '/admin' (its routes are written relative to /admin); every other router
 //    mounts at '/'.
 // ---------------------------------------------------------------------------
-function mountRouterIfPresent(relativeFile) {
-  const full = path.join(__dirname, 'routes', relativeFile);
-  if (fs.existsSync(full)) {
-    const router = require('./routes/' + relativeFile.replace(/\.js$/, ''));
-    const mountPath = relativeFile === 'admin.js' ? '/admin' : '/';
-    app.use(mountPath, router);
-    console.log('[app] mounted router:', relativeFile, 'at', mountPath);
-  } else {
-    console.log('[app] router not present yet (skipped):', relativeFile);
-  }
-}
-mountRouterIfPresent('auth.js'); // section 03  -> mounts at '/'  (public links, onboarding, admin login)
-mountRouterIfPresent('admin.js'); // section 08  -> mounts at '/admin'  MUST be before guest.js: guest.js
-//   applies requireGuest to every path under '/', which would otherwise
-//   intercept /admin and bounce admins to the "private link needed" page.
-mountRouterIfPresent('guest.js'); // section 04  -> mounts at '/'
-mountRouterIfPresent('community.js'); // section 07  -> mounts at '/'
+const authRouter = require('./routes/auth'); // mounts at '/'  (public links, onboarding, admin login)
+app.use('/', authRouter);
+
+// admin.js MUST be before guest.js: guest.js applies requireGuest to every
+// path under '/', which would otherwise intercept /admin and bounce admins
+// to the "private link needed" page.
+const adminRouter = require('./routes/admin'); // mounts at '/admin'
+app.use('/admin', adminRouter);
+
+const guestRouter = require('./routes/guest'); // mounts at '/'
+app.use('/', guestRouter);
+
+const communityRouter = require('./routes/community'); // mounts at '/'
+app.use('/', communityRouter);
 
 // ---------------------------------------------------------------------------
-// 7. Temporary home route, ONLY used until the guest router (section 04)
-//    provides GET /. Once routes/guest.js exists this block is skipped, so
-//    the real guest home wins. This keeps "/" from 404ing during early setup.
-// ---------------------------------------------------------------------------
-if (!fs.existsSync(path.join(__dirname, 'routes', 'guest.js'))) {
-  app.get('/', (req, res) => {
-    res
-      .type('text/plain')
-      .send(
-        'Garden Party Pastels server is running. ' +
-          'Guest and admin pages are added in later build sections.'
-      );
-  });
-}
-
-// ---------------------------------------------------------------------------
-// 8. 404 handler. Any request that matched no route lands here.
+// 7. 404 handler. Any request that matched no route lands here.
 // ---------------------------------------------------------------------------
 app.use((req, res) => {
   res.status(404).render('404', { url: req.originalUrl });
 });
 
 // ---------------------------------------------------------------------------
-// 9. Error handler. Express recognizes this by its FOUR arguments.
+// 8. Error handler. Express recognizes this by its FOUR arguments.
 //    Anything that throws or calls next(err) lands here.
 // ---------------------------------------------------------------------------
 // eslint-disable-next-line no-unused-vars
@@ -153,7 +116,7 @@ app.use((err, req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// 10. Start listening.
+// 9. Start listening.
 // ---------------------------------------------------------------------------
 if (require.main === module) {
   app.listen(config.PORT, () => {

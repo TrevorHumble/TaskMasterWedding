@@ -159,3 +159,30 @@ application's threat model.
 
 The dismissals are a post-merge action performed by the orchestrator using `gh
 api`. They are not part of this diff.
+
+---
+
+## 2026-07-02 — re-surfaced instance (PR #138 / issue #119)
+
+`js/missing-rate-limiting`, alert **#42**, `src/app.js:77` — `app.use(session.attachGuest)`.
+
+Issue #119 removed the dead `if (fs.existsSync(...))` bootstrap scaffolding and
+now installs `attachGuest` directly at `src/app.js:77`. CodeQL reports an alert on
+a **moved** line as "new in this PR," so the `js/missing-rate-limiting` disposition
+above did not carry over automatically and the PR check went red on one high alert.
+
+**Verdict: unchanged — won't fix / not exploitable.** Confirmed by a fresh adversarial
+security review (2026-07-02, independent of the prior triage). `attachGuest` performs
+a single indexed point lookup `SELECT * FROM guests WHERE token = ?`
+(`src/middleware/session.js:18`; `guests.token` is `TEXT NOT NULL UNIQUE` → indexed,
+`src/db.js:30`) against a ~100-row single-event table (`docs/north-star.md`). The read
+is **gated behind a valid HMAC-signed `gsid` cookie**: cookie-parser sets the value to
+`false` for an unsigned/tampered cookie, and the `typeof token === 'string'` guard
+(`src/middleware/session.js:17`) drops it before any DB access — so an unauthenticated
+flood does **zero** database work and there is no amplification. This instance is
+therefore weaker than the routes already dispositioned above (it is secret-gated). A
+rate limiter here (global middleware, behind Cloudflare's variable proxy-hop count)
+would sideline legitimate guests on shared venue Wi-Fi (Goal A) for no real gain.
+
+Alert #42 dismissed in code scanning via `gh api` (reason `won't fix`), pre-merge here
+because the "new alert" check blocked PR #138.
