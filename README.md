@@ -56,6 +56,46 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/new-agent-worktree.ps1
 
 This creates a sibling folder checked out on `<name>`, sharing this repo's history. It prints the folder's path once ready — `cd` there and work as normal; the commit gate is already active.
 
+## Backups
+
+`data/` is the only copy of the event on the laptop: the SQLite database plus every uploaded photo and thumbnail. Back it up during the event, to a **second location** — a copy sitting next to `data/` on the same disk does not survive a disk failure or an accidental `rm -rf data/`.
+
+Run a backup any time the app is up (safe to run against a live, in-use database):
+
+```powershell
+node scripts/backup.js
+```
+
+This writes a timestamped snapshot to `backups/<YYYYMMDD-HHMMSS>/`, containing:
+
+- `app.db` — a consistent copy of the database, taken with SQLite's own online backup API (not a plain file copy, which can read a torn/partial file while the app is writing in WAL mode)
+- `uploads/` — a copy of every uploaded photo and avatar
+- `thumbs/` — a copy of every generated thumbnail
+
+The backup folder location is controlled by the `BACKUP_DIR` config key. Its default resolves to `<ROOT>/backups` — a sibling of `<ROOT>/data`, i.e. outside `data/`, not a subfolder of it (see `config.js`). Set the `BACKUP_DIR` environment variable to point backups at a second drive or a mounted external location.
+
+### Restoring
+
+To restore a snapshot back into a fresh `data/` (e.g. after a crash or corrupted database):
+
+1. Stop the app.
+2. Make sure `data/` is empty (or doesn't exist yet) — restoring on top of an existing `data/` overwrites it.
+3. Create an empty `data/` directory (needed before the `app.db` copy below, since `Copy-Item` will not create a missing parent):
+   ```powershell
+   New-Item -ItemType Directory -Force data | Out-Null
+   ```
+4. Copy the snapshot's database and photo folders back:
+   ```powershell
+   Copy-Item backups\<timestamp>\app.db data\app.db
+   Copy-Item backups\<timestamp>\uploads data\uploads -Recurse
+   Copy-Item backups\<timestamp>\thumbs data\thumbs -Recurse
+   ```
+5. Start the app again.
+
+### Gitignored, and cleared at teardown
+
+`backups/` is gitignored, exactly like `data/` — it holds the same database and guest photos, so it must never be committed. Post-event teardown must clear **both** `data/` and the backup directory (`BACKUP_DIR`), not just `data/`.
+
 ## Where things live
 
 ```

@@ -86,6 +86,12 @@ const config = {
   THUMBS_DIR: path.join(DATA_DIR, 'thumbs'),
   EXPORTS_DIR: path.join(DATA_DIR, 'exports'),
   ADMIN_HASH_PATH: path.join(DATA_DIR, 'admin.hash'),
+  // Deliberately OUTSIDE DATA_DIR: a backup that lives inside the same
+  // directory a disk failure or accidental `rm -rf data/` takes out offers no
+  // protection. The default resolves to <ROOT>/backups -- a sibling of
+  // <ROOT>/data, i.e. outside data/, not a subfolder of it. Override with the
+  // BACKUP_DIR env var to point at a second disk/location entirely.
+  BACKUP_DIR: process.env.BACKUP_DIR || path.join(DATA_DIR, '..', 'backups'),
 
   // Static source directories (css / js / badges, and EJS views)
   PUBLIC_DIR: path.join(ROOT, 'src', 'public'),
@@ -113,6 +119,7 @@ config.uploadsDir = config.UPLOADS_DIR;
 config.thumbsDir = config.THUMBS_DIR;
 config.exportsDir = config.EXPORTS_DIR;
 config.adminHashPath = config.ADMIN_HASH_PATH;
+config.backupDir = config.BACKUP_DIR;
 config.publicDir = config.PUBLIC_DIR;
 config.viewsDir = config.VIEWS_DIR;
 config.maintenance = config.MAINTENANCE;
