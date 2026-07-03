@@ -3,7 +3,9 @@
   'use strict';
 
   function init() {
-    var input = document.getElementById('photo');
+    // Serves two forms: the task-photo upload (#photo on task.ejs) and the
+    // profile-edit avatar upload (#avatar on me-edit.ejs). Only one is present per page.
+    var input = document.getElementById('photo') || document.getElementById('avatar');
     var preview = document.getElementById('upload-preview');
 
     if (!input || !preview) {

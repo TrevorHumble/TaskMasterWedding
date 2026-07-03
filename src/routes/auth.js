@@ -4,7 +4,6 @@
 const fs = require('fs');
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const multer = require('multer');
 
 const config = require('../../config');
 const { db } = require('../db');
@@ -29,15 +28,6 @@ function cookieOpts() {
     path: '/',
   };
 }
-
-// Avatar upload: keep the file in memory so the photos service can process
-// the buffer; only one file, field name "avatar". The size limit is read from
-// the photos service — the single owner of MAX_UPLOAD_BYTES — so avatars and
-// task-submission photos always enforce the same limit and cannot drift apart.
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: photos.MAX_UPLOAD_BYTES, files: 1 },
-});
 
 /**
  * Build a clean JSON string from the three optional social fields.
@@ -110,7 +100,7 @@ router.get('/onboard', requireGuest, (req, res) => {
 
 // POST /onboard — save the guest's name, optional avatar, optional socials,
 // and mark them onboarded so they never see this form again.
-router.post('/onboard', requireGuest, upload.single('avatar'), async (req, res) => {
+router.post('/onboard', requireGuest, photos.uploadAvatar, async (req, res) => {
   const name = (req.body.name || '').trim();
   if (!name) {
     res.status(400).render('onboard', {

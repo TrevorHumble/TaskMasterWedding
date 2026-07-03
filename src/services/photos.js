@@ -6,22 +6,27 @@
 //   - Configure multer DISK storage that writes the original task-submission photo
 //     straight to UPLOADS_DIR with a random crypto filename that keeps the original
 //     extension. (Task-submission path: NO req.file.buffer — disk storage.)
+//   - Configure multer MEMORY storage for avatar intake (field name "avatar"), shared
+//     by both onboarding (auth.js) and profile-edit (guest.js) so avatar bytes always
+//     arrive as req.file.buffer through the ONE mechanism (issue #122).
 //   - Validate type (jpeg/png/webp/heic) and size (15 MB) with clear errors.
 //   - makeThumb(originalPath): sharp -> width-400 JPEG written to THUMBS_DIR.
-//   - saveAvatar(buffer, guestId): persist an onboarding avatar that arrives as a
-//     Buffer (auth.js section 03 uses multer MEMORY storage for the 'avatar' field),
-//     writing it to UPLOADS_DIR and recording it on the guests row.
+//   - saveAvatar(buffer, guestId): persist an avatar that arrives as a Buffer
+//     (via the uploadAvatar middleware below), writing it to UPLOADS_DIR and
+//     recording it on the guests row.
 //   - URL/path builders so routes/views can serve files at /uploads and /thumbs.
 //   - hideSubmission/restoreSubmission: the single writer of taken_down for moderation —
 //     flips the flag AND recomputes the guest's auto-badges in one transaction.
 //   - hardDelete(submissionId): permanently remove BOTH files + the row (rarely used).
 //
-// STORAGE MODEL (reconciles sections 03/04/05):
+// STORAGE MODEL (reconciles sections 03/04/05, updated by issue #122):
 //   * Task submissions  -> multer DISK storage via the exported `upload` middleware.
 //                          The route reads req.file.path / req.file.filename. There is
 //                          NO req.file.buffer on this path. makeThumb(req.file.path).
-//   * Onboarding avatar -> auth.js (03) uses multer MEMORY storage for the 'avatar'
-//                          field, so it has a Buffer, and calls saveAvatar(buffer, id).
+//   * Avatar intake     -> multer MEMORY storage via the exported `uploadAvatar`
+//                          middleware (field name "avatar"), used by BOTH auth.js
+//                          (onboarding) and guest.js (profile-edit), so it has a
+//                          Buffer and calls saveAvatar(buffer, id).
 //   These are the ONLY two upload paths. There is no saveSubmissionPhoto/deletePhotoFiles
 //   function — section 04's submit handler uses `upload` + makeThumb + a manual INSERT.
 //
@@ -114,8 +119,9 @@ function randomFilename(ext) {
 
 // ---------------------------------------------------------------------------
 // multer configuration: DISK storage straight into UPLOADS_DIR.
-// This is the TASK-SUBMISSION path only. (Avatars use memory storage configured
-// in auth.js and go through saveAvatar() instead.)
+// This is the TASK-SUBMISSION path only. (Avatars use the memory-storage
+// uploadAvatar middleware defined below in this file and go through
+// saveAvatar() instead.)
 // ---------------------------------------------------------------------------
 
 const storage = multer.diskStorage({
@@ -158,6 +164,24 @@ const multerInstance = multer({
 const upload = multerInstance.single('photo');
 
 // ---------------------------------------------------------------------------
+// multer configuration: MEMORY storage for avatar intake (issue #122).
+// Shared by onboarding (auth.js POST /onboard) and profile-edit (guest.js
+// POST /me/edit) so avatar bytes always arrive as req.file.buffer through the
+// SAME mechanism — no route reads a file back off disk to get a Buffer.
+// Field name is "avatar" (e.g. <input type="file" name="avatar">). Reuses the
+// same MAX_UPLOAD_BYTES ceiling as task-submission photos so avatars and
+// submissions cannot drift onto different limits.
+// ---------------------------------------------------------------------------
+const uploadAvatar = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: MAX_UPLOAD_BYTES,
+    files: 1,
+  },
+}).single('avatar');
+
+// ---------------------------------------------------------------------------
 // Thumbnail generation.
 // ---------------------------------------------------------------------------
 
@@ -196,10 +220,10 @@ async function makeThumb(originalPath) {
 }
 
 // ---------------------------------------------------------------------------
-// Avatar persistence (onboarding).
-// auth.js (section 03) configures its OWN multer.memoryStorage() for the single
-// 'avatar' field, so on that route — and ONLY that route — it has req.file.buffer.
-// It calls saveAvatar(req.file.buffer, guest.id). We write the bytes to UPLOADS_DIR
+// Avatar persistence (onboarding + profile-edit).
+// Both routes run avatar bytes through the `uploadAvatar` middleware above
+// (multer memoryStorage, field "avatar"), so both have req.file.buffer and
+// call saveAvatar(req.file.buffer, guest.id). We write the bytes to UPLOADS_DIR
 // (re-encoding to a normalized JPEG so HEIC/odd avatars are viewable everywhere) and
 // record the stored filename on the guests row. Returns the stored filename.
 // ---------------------------------------------------------------------------
@@ -207,8 +231,8 @@ async function makeThumb(originalPath) {
 const _setGuestAvatar = db.prepare('UPDATE guests SET avatar_path = ? WHERE id = ?');
 
 /**
- * Persist an onboarding avatar that arrived as an in-memory Buffer.
- * @param {Buffer} buffer - the raw uploaded bytes (req.file.buffer from auth.js)
+ * Persist an avatar that arrived as an in-memory Buffer.
+ * @param {Buffer} buffer - the raw uploaded bytes (req.file.buffer via uploadAvatar)
  * @param {number} guestId - the guest to attach the avatar to
  * @returns {Promise<string>} the stored avatar filename (also written to guests.avatar_path)
  *
@@ -221,7 +245,7 @@ const _setGuestAvatar = db.prepare('UPDATE guests SET avatar_path = ? WHERE id =
 async function saveAvatar(buffer, guestId) {
   if (!buffer || !buffer.length) {
     throw new Error(
-      'saveAvatar: empty buffer (onboarding must use multer memoryStorage for the avatar field).'
+      'saveAvatar: empty buffer (caller must use the uploadAvatar memory-storage middleware).'
     );
   }
   const name = randomFilename('.jpg'); // avatars are always normalized to .jpg
@@ -494,6 +518,7 @@ function blockTakenDownThumb(req, res, next) {
 module.exports = {
   // multer middleware + the limit/type constants (handy for views + error text)
   upload,
+  uploadAvatar,
   MAX_UPLOAD_BYTES,
   THUMB_WIDTH,
   ALLOWED_LABEL,
