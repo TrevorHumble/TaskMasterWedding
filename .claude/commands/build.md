@@ -30,7 +30,7 @@ Execute the steps below in order. Do not skip or reorder.
 
 **1 — Research.** Before drafting anything, check local prior art: the codebase itself, `standards/`, `agents/`, `skills/`, `docs/`, `DESIGN.md`. For Node/Express/EJS/better-sqlite3/vitest questions, consult the installed package docs and existing tests in `tests/`. Web search is a last resort when local sources do not answer the question — delegate through `agents/researcher.md` / `skills/research-prior-art.md`.
 
-**2 — Issue.** Draft the issue in `data/wip-issues/NNNN-*.md` using `skills/issue-create.md`. Once it passes review (step 3), open its GitHub issue with `"C:\Program Files\GitHub CLI\gh.exe" issue create`, labelled by tier. GitHub is the single source of truth — the board reflects the task from creation.
+**2 — Issue.** Create the GitHub issue first — `"C:\Program Files\GitHub CLI\gh.exe" issue create --label needs-issue-review`, labelled by tier — and capture the assigned number `N`. Then write the draft as `data/wip-issues/<N>-slug.md` using `skills/issue-create.md`. GitHub is the single source of truth — the board reflects the task from creation.
 
 **3 — Issue review.** Spawn `agents/reviewer-issue.md` (Opus) via `skills/spawn-adversarial-review.md`. A FAIL is fixed, never overridden. Re-review with a fresh instance. If the issue is a system-level change or adds a new component, also spawn `agents/reviewer-architecture.md` (Opus) — both gates must pass before implementation begins.
 
