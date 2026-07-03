@@ -49,7 +49,18 @@ function requireGuest(req, res, next) {
   if (req.guest) {
     return next();
   }
-  res.status(403).type('html').send(linkRequiredPage());
+  res.status(403).render('partials/message-card', {
+    title: 'Your private link is needed',
+    heading: 'Private Link Needed',
+    paragraphs: [
+      'This page is for guests who have signed in with their own private link.',
+      {
+        html: true,
+        text: "Find your <strong>place-card QR code</strong> and scan it with your phone's camera, or ask Lilly &amp; Axel for your link.",
+      },
+    ],
+    hint: 'Once you scan it, you will stay signed in on this phone.',
+  });
   return undefined;
 }
 
@@ -64,45 +75,6 @@ function requireAdmin(req, res, next) {
   }
   res.redirect('/admin/login');
   return undefined;
-}
-
-/**
- * Small self-contained themed HTML page shown when a non-signed-in visitor
- * tries to reach a guest page. Inline (not an EJS view) so this section has
- * no dependency on views owned by other sections.
- */
-function linkRequiredPage() {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Your private link is needed</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=EB+Garamond:wght@400;600&display=swap" rel="stylesheet">
-<style>
-  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-       background:#ffffff;color:#467058;font-family:'EB Garamond',Georgia,serif;padding:24px;}
-  .card{background:#f0f4f2;border:1px solid #aebbb2;border-radius:14px;max-width:380px;
-        width:100%;padding:32px 24px;text-align:center;}
-  .heart{fill:#467058;display:inline-block;margin-bottom:12px;}
-  h1{font-family:'Cormorant Garamond',Georgia,serif;color:#467058;font-size:1.9rem;font-weight:600;
-     letter-spacing:0.03em;margin:.2em 0 .4em;}
-  p{line-height:1.6;margin:.5em 0;color:#6e8478;font-size:1.05rem;}
-  .hint{font-size:0.9rem;color:#aebbb2;}
-</style>
-</head>
-<body>
-  <div class="card">
-    <svg class="heart" viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/></svg>
-    <h1>Private Link Needed</h1>
-    <p>This page is for guests who have signed in with their own private link.</p>
-    <p>Find your <strong>place-card QR code</strong> and scan it with your phone's camera, or ask Lilly &amp; Axel for your link.</p>
-    <p class="hint">Once you scan it, you will stay signed in on this phone.</p>
-  </div>
-</body>
-</html>`;
 }
 
 module.exports = { attachGuest, requireGuest, requireAdmin };
