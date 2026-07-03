@@ -35,4 +35,12 @@ describe('single <main> per page', () => {
     expect(count).toBe(1);
     expect(res.text).toContain('Seed Guest');
   });
+
+  it('issue #119 AC3: seeded guest GET / renders guest-home, not the retired placeholder string', async () => {
+    const agent = request.agent(app);
+    await agent.get('/j/seedtoken');
+    const res = await agent.get('/');
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('Garden Party Pastels server is running');
+  });
 });

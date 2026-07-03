@@ -9,6 +9,7 @@ const multer = require('multer');
 const config = require('../../config');
 const { db } = require('../db');
 const { requireGuest } = require('../middleware/session');
+const photos = require('../services/photos');
 
 const router = express.Router();
 
@@ -29,8 +30,8 @@ function cookieOpts() {
   };
 }
 
-// Avatar upload: keep the file in memory so the photos service (section 05)
-// can process the buffer; only one file, field name "avatar".
+// Avatar upload: keep the file in memory so the photos service can process
+// the buffer; only one file, field name "avatar".
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.MAX_UPLOAD_BYTES, files: 1 },
@@ -52,22 +53,11 @@ function buildSocialLinks(body) {
 }
 
 /**
- * Try to save the avatar buffer via the photos service. Returns the relative
- * filename to store in guests.avatar_path, or null if no file / service not
- * available yet. This keeps section 03 runnable before section 05 exists.
+ * Save the avatar buffer via the photos service. Returns the relative
+ * filename to store in guests.avatar_path, or null if no file was uploaded.
  */
 async function trySaveAvatar(file, guestId) {
   if (!file || !file.buffer || file.buffer.length === 0) {
-    return null;
-  }
-  let photos;
-  try {
-    photos = require('../services/photos');
-  } catch (err) {
-    // photos.js not created yet (section 05). Skip the avatar for now.
-    return null;
-  }
-  if (!photos || typeof photos.saveAvatar !== 'function') {
     return null;
   }
   // photos.saveAvatar(buffer, guestId) is ASYNC (sharp returns a Promise). It
@@ -124,7 +114,7 @@ router.post('/onboard', requireGuest, upload.single('avatar'), async (req, res) 
   }
 
   const socialLinks = buildSocialLinks(req.body);
-  const avatarPath = await trySaveAvatar(req.file, req.guest.id); // null if no file / service
+  const avatarPath = await trySaveAvatar(req.file, req.guest.id); // null if no uploaded file
 
   if (avatarPath) {
     db.prepare(
@@ -183,8 +173,7 @@ router.post('/admin/login', async (req, res) => {
     failedAttempts = 0;
     lockedUntil = 0;
     res.cookie('admin', '1', cookieOpts());
-    // Lands on the section-08 admin dashboard, which must be mounted at /admin.
-    // Until section 08 exists this 404s, which is fine for section 03.
+    // Lands on the admin dashboard, mounted at /admin.
     res.redirect('/admin');
     return;
   }
