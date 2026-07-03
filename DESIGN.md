@@ -45,9 +45,23 @@ Uploads come in through multer; sharp produces a normalized full-size original p
 
 A guest's score is computed: one point per completed task (a non-taken-down submission) plus `bonus_points` the admin sets by judgment. Completion count drives auto badges. Keeping score derived avoids a denormalized total that can drift out of sync when a photo is taken down or restored.
 
-### Badge thresholds are config, special badges are a fixed set
+### Badge thresholds are config; custom badges reverse the earlier "fixed catalog" decision
 
-Auto-badge thresholds (5 / 10 / 15) live once in `config.BADGE_THRESHOLDS` and are read by scoring and the guest routes; there is no second copy. The four special badges (EARLYBIRD, SHUTTERBUG, CROWDFAV, CHOICE) are a fixed catalog: the admin awards them but cannot invent new badge types. Adding one means adding an SVG in `src/public/badges/` and a seed row, then re-seeding. This keeps the admin UI small and matches the spec, which calls for special badges the admin awards, not an admin-managed badge catalog.
+Auto-badge thresholds (5 / 10 / 15) live once in `config.BADGE_THRESHOLDS` and are read by scoring and the guest routes; there is no second copy.
+
+This section previously said the four special badges were a fixed catalog and the admin could not invent new badge types. **Issue #80 reverses that by owner direction**: the admin can now create host-defined `custom` badges (name + `art_path`, an image path or emoji) at runtime via `POST /admin/badges`, no re-seed or SVG-add-and-redeploy required.
+
+Badge identity stays the single existing `badges.code` column (`NOT NULL UNIQUE`) — issue #80 did not add a second identity key. The `type` vocabulary is now five values, in two ownership groups:
+
+- **System-computed** (`awarded_by = 'system'`, only ever written by `scoring.recomputeBadges`/`recomputeTransferableBadges`, never by an admin route):
+  - `auto` — the three completed-task threshold badges (BLOOM/BOUQUET/GARDEN), unchanged.
+  - `metric` — one-time badges computed per guest from live data, keyed by `code` to a compute function in `src/services/badges.js` (e.g. `COMPLETIONIST`: holds a visible submission for every active task; auto-revokes the moment that stops being true, such as a newly added active task).
+  - `transferable` — "steal-able" badges computed globally and reassigned on every recompute (e.g. `MOSTPHOTOS`: the guest(s) with the strict-most visible submissions; ties are held by everyone tied).
+- **Admin-awarded** (`awarded_by = 'admin'`, written only via `scoring.awardSpecialBadge`/`removeSpecialBadge`/`createCustomBadge`):
+  - `special` — the original fixed four (EARLYBIRD, SHUTTERBUG, CROWDFAV, CHOICE).
+  - `custom` — new: any badge the admin invents at runtime.
+
+An admin create/award/remove request for a `metric` or `transferable` code is refused outright (no row written) — `scoring.js`'s `ADMIN_AWARDABLE_TYPES` guard and the `POST /admin/guests/:id/badge` route both enforce this, so the system-computed types can never be hand-edited out from under the recompute engine.
 
 ### Two UNIQUE constraints enforce the core rules in the schema
 

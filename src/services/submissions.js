@@ -140,13 +140,16 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
     status = 'created';
   }
 
-  // Recompute points + auto badges now that completion may have changed. A
-  // failure here must not lose the photo just recorded above, so it is
-  // logged and swallowed rather than propagated.
+  // Recompute points + badges now that completion may have changed: one seam
+  // that runs the per-guest auto/metric pass and the global transferable pass
+  // in order (issue #80 — a new submission can both grant this guest a metric
+  // badge AND change who holds a transferable one, e.g. MOSTPHOTOS). A failure
+  // here must not lose the photo just recorded above, so it is logged and
+  // swallowed rather than propagated.
   try {
-    scoring.recomputeAutoBadges(guestId);
+    scoring.recomputeAfterSubmissionChange(guestId);
   } catch (err) {
-    console.error('recomputeAutoBadges failed:', err);
+    console.error('recomputeAfterSubmissionChange failed:', err);
   }
 
   return { status, submissionId };

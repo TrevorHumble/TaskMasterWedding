@@ -61,7 +61,7 @@ db.exec(`
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     code         TEXT    NOT NULL UNIQUE,
     name         TEXT    NOT NULL,
-    type         TEXT    NOT NULL CHECK (type IN ('auto','special')),
+    type         TEXT    NOT NULL CHECK (type IN ('auto','special','metric','transferable','custom')),
     threshold    INTEGER,
     art_path     TEXT    NOT NULL,
     description  TEXT    NOT NULL DEFAULT ''
@@ -130,6 +130,67 @@ function ensurePhotoBonusColumn() {
 // module's `require('../db')` call returns.
 ensurePhotoBonusColumn();
 
+// --- Guarded migration: widen badges.type CHECK (issue #80) ---
+/**
+ * Widen the `badges.type` CHECK to accept 'metric'/'transferable'/'custom'
+ * alongside the existing 'auto'/'special', if it does not already.
+ *
+ * SQLite cannot ALTER a CHECK constraint in place, so on an old-vocabulary
+ * table we rebuild it: create a new table with the widened CHECK, copy every
+ * row across (preserving id via INSERT ... SELECT with explicit columns so
+ * guest_badges.badge_id foreign keys stay valid), drop the old table, and
+ * rename the new one into place — all inside one transaction so a mid-migration
+ * crash cannot leave the database half-migrated.
+ *
+ * Detection: read sqlite_master's stored CREATE TABLE SQL for `badges` and
+ * check whether it mentions 'metric'. A fresh DB's CREATE TABLE IF NOT EXISTS
+ * above already carries the widened CHECK, so this is a no-op there too.
+ * Exported so tests can bind to this real guard rather than an inline copy.
+ */
+function ensureBadgeTypeCheckWidened() {
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'badges'`)
+    .get();
+  if (!row || row.sql.includes("'metric'")) {
+    // No badges table yet, or already widened — nothing to do.
+    return;
+  }
+
+  // guest_badges.badge_id REFERENCES badges(id): dropping `badges` mid-rebuild
+  // trips FK enforcement even though the replacement table restores the same
+  // ids, so foreign_keys is turned off for the duration of the rebuild only,
+  // exactly as SQLite's own documented "12 steps" ALTER-TABLE recipe requires,
+  // and turned back on immediately after (this is NOT the app's steady-state
+  // pragma, which stays ON at every other point in this file).
+  db.pragma('foreign_keys = OFF');
+  try {
+    const migrate = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE badges_new (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          code         TEXT    NOT NULL UNIQUE,
+          name         TEXT    NOT NULL,
+          type         TEXT    NOT NULL CHECK (type IN ('auto','special','metric','transferable','custom')),
+          threshold    INTEGER,
+          art_path     TEXT    NOT NULL,
+          description  TEXT    NOT NULL DEFAULT ''
+        );
+
+        INSERT INTO badges_new (id, code, name, type, threshold, art_path, description)
+          SELECT id, code, name, type, threshold, art_path, description FROM badges;
+
+        DROP TABLE badges;
+        ALTER TABLE badges_new RENAME TO badges;
+      `);
+    });
+    migrate();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+ensureBadgeTypeCheckWidened();
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -154,6 +215,7 @@ function getGuestById(guestId) {
 module.exports = {
   db,
   ensurePhotoBonusColumn,
+  ensureBadgeTypeCheckWidened,
   getGuestByToken,
   getGuestById,
 };

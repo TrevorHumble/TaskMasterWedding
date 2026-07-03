@@ -458,12 +458,18 @@ function seedEvent(db, options = {}) {
 
   const result = run();
 
-  // Recompute auto-badges (BLOOM/BOUQUET/GARDEN) per guest from their actual
-  // visible-submission count, exactly like a real submit/takedown would.
-  // NEVER hand-insert guest_badges — scoring.js owns that write path.
+  // Recompute badges per guest from their actual visible-submission count,
+  // exactly like a real submit/takedown would: the per-guest auto/metric pass
+  // for each guest, then a single global transferable pass once all guests
+  // exist (MOSTPHOTOS is a whole-population comparison, so it only needs to
+  // run once at the end, not per guest). NEVER hand-insert guest_badges —
+  // scoring.js owns that write path. (Callers that only seed the auto/special
+  // catalog rows simply get the auto badges; the metric/transferable passes
+  // skip any code whose catalog row is absent.)
   for (const guestId of result.guestIds) {
-    scoring.recomputeAutoBadges(guestId);
+    scoring.recomputeBadges(guestId);
   }
+  scoring.recomputeTransferableBadges();
 
   // Hand-award a handful of special badges (admin-style), spread deterministically.
   const SPECIAL_CODES = ['EARLYBIRD', 'SHUTTERBUG', 'CROWDFAV', 'CHOICE'];

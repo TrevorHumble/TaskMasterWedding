@@ -106,9 +106,11 @@ router.get('/', (req, res) => {
 router.get('/guests', (req, res) => {
   const guests = db.prepare('SELECT * FROM guests ORDER BY created_at ASC, id ASC').all();
 
-  // List of special badges so the per-guest award control can offer them.
+  // List of admin-awardable badges (special + custom, issue #80 AC5) so the
+  // per-guest award control can offer them. 'metric'/'transferable' are
+  // system-owned and never appear here.
   const specialBadges = db
-    .prepare("SELECT * FROM badges WHERE type = 'special' ORDER BY name ASC")
+    .prepare("SELECT * FROM badges WHERE type IN ('special', 'custom') ORDER BY type ASC, name ASC")
     .all();
 
   // For each guest, attach link, points, completed count, and held badge codes.
@@ -235,9 +237,13 @@ router.post('/guests/:id/points', (req, res) => {
   );
 });
 
-// POST /admin/guests/:id/badge  — award OR remove a special badge.
-// Body: code = badge code (EARLYBIRD/SHUTTERBUG/CROWDFAV/CHOICE),
-//       action = "award" or "remove".
+// POST /admin/guests/:id/badge  — award OR remove a special OR custom badge.
+// Body: code = badge code (EARLYBIRD/SHUTTERBUG/CROWDFAV/CHOICE, or any
+//       admin-created custom code), action = "award" or "remove".
+// 'metric'/'transferable' codes are refused (issue #80 AC5) — those types are
+// system-owned by scoring.recomputeBadges/recomputeTransferableBadges, and an
+// admin award/remove attempt on one must not create or delete a guest_badges
+// row.
 router.post('/guests/:id/badge', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const code = (req.body.code || '').trim().toUpperCase();
@@ -247,9 +253,11 @@ router.post('/guests/:id/badge', (req, res) => {
   if (!guest) {
     return redirectWithMsg(res, '/admin/guests', 'Guest not found.');
   }
-  const badge = db.prepare("SELECT * FROM badges WHERE code = ? AND type = 'special'").get(code);
+  const badge = db
+    .prepare("SELECT * FROM badges WHERE code = ? AND type IN ('special', 'custom')")
+    .get(code);
   if (!badge) {
-    return redirectWithMsg(res, '/admin/guests', 'Unknown special badge.');
+    return redirectWithMsg(res, '/admin/guests', 'Unknown special or custom badge.');
   }
 
   if (action === 'remove') {
@@ -258,6 +266,61 @@ router.post('/guests/:id/badge', (req, res) => {
   } else {
     scoring.awardSpecialBadge(id, code);
     redirectWithMsg(res, '/admin/guests', 'Awarded badge "' + badge.name + '".');
+  }
+});
+
+// POST /admin/badges  — create a new host-defined CUSTOM badge.
+// Body: name (required), art_path (required, non-empty — an image path or an
+// emoji string), description (optional).
+// Always creates type = 'custom' — this route can never be used to create a
+// 'metric'/'transferable' catalog row (those are seeded by scripts/seed.js
+// only, keyed to a registry function in src/services/badges.js). The code is
+// derived from the name (uppercased, non-alnum stripped) so the admin never
+// has to invent a machine code by hand; scoring.createCustomBadge's UNIQUE
+// constraint on `code` still guards against a collision.
+router.post('/badges', (req, res) => {
+  const name = (req.body.name || '').trim();
+  const artPath = (req.body.art_path || '').trim();
+  const description = (req.body.description || '').trim();
+
+  if (!name) {
+    return redirectWithMsg(res, '/admin/guests', 'A custom badge needs a name.');
+  }
+  if (!artPath) {
+    return redirectWithMsg(
+      res,
+      '/admin/guests',
+      'A custom badge needs art (an image path or emoji).'
+    );
+  }
+
+  const code = name
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '')
+    .slice(0, 40);
+  if (!code) {
+    return redirectWithMsg(
+      res,
+      '/admin/guests',
+      'That name has no usable characters for a badge code.'
+    );
+  }
+
+  try {
+    const badge = scoring.createCustomBadge({ code, name, type: 'custom', artPath, description });
+    if (!badge) {
+      return redirectWithMsg(
+        res,
+        '/admin/guests',
+        'Refused: custom badges cannot be metric/transferable.'
+      );
+    }
+    redirectWithMsg(res, '/admin/guests', 'Created custom badge "' + badge.name + '".');
+  } catch (err) {
+    if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return redirectWithMsg(res, '/admin/guests', 'A badge with that code already exists.');
+    }
+    throw err;
   }
 });
 

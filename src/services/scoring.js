@@ -4,8 +4,12 @@
 //
 // Responsibilities:
 //   - getPoints / getCompletedCount: how many points a guest has.
-//   - recomputeAutoBadges: grant/revoke the auto badges (BLOOM/BOUQUET/GARDEN)
-//     based on the guest's current completed-task count. Idempotent.
+//   - recomputeBadges: grant/revoke a guest's auto (BLOOM/BOUQUET/GARDEN) and
+//     metric (COMPLETIONIST) badges from their current data. Idempotent.
+//   - recomputeTransferableBadges: reassign the global transferable badges
+//     (MOSTPHOTOS) to their current holder set.
+//   - recomputeAfterSubmissionChange: the seam mutators call — runs the two
+//     above in the correct order so no caller has to.
 //   - awardSpecialBadge / removeSpecialBadge: admin-only hand-awarded badges.
 //   - addBonusPoints: admin adjusts a guest's bonus point total (clamped at 0).
 //   - leaderboard: every guest ordered by total points, with their badge codes.
@@ -18,6 +22,7 @@
 // `const db = require('../db')` or `db.prepare` is undefined and this file
 // crashes at load time on the first prepared statement below.
 const { db } = require('../db');
+const { METRIC_BADGES, TRANSFERABLE_BADGES } = require('./badges');
 
 // ---------------------------------------------------------------------------
 // Canonical auto-badge thresholds. These MUST match the seeded `badges` rows
@@ -25,7 +30,7 @@ const { db } = require('../db');
 //
 // Two shapes are exported on purpose:
 //   - BADGE_THRESHOLDS: array of { code, n } objects, used internally by
-//     recomputeAutoBadges to map a code to its threshold number.
+//     recomputeBadges to map a code to its threshold number.
 //   - AUTO_THRESHOLDS:  plain array of numbers [5, 10, 15], used by section 04
 //     for numeric comparisons and progress-bar math. It is derived from
 //     BADGE_THRESHOLDS so the two can never drift apart.
@@ -104,6 +109,16 @@ const stmtGrantBadge = db.prepare(
 // Remove a specific badge from a guest.
 const stmtRevokeBadge = db.prepare('DELETE FROM guest_badges WHERE guest_id = ? AND badge_id = ?');
 
+// All badges of a given type (used by recomputeTransferableBadges to walk
+// every 'transferable' catalog row without hard-coding a code list here).
+const stmtBadgesByType = db.prepare('SELECT * FROM badges WHERE type = ?');
+
+// Every 'system'-awarded holder of one badge (used by recomputeTransferableBadges
+// to diff the current holder set against the freshly computed one).
+const stmtSystemHoldersOfBadge = db.prepare(
+  "SELECT guest_id FROM guest_badges WHERE badge_id = ? AND awarded_by = 'system'"
+);
+
 // Adjust a guest's bonus points by a delta (can be negative), clamped at 0.
 // MAX(0, ...) enforces the floor (see section 1a, Decision B): a deduction can
 // never drive bonus_points below zero. Section 08's admin acceptance check
@@ -149,10 +164,13 @@ function getPoints(guestId) {
 // ---------------------------------------------------------------------------
 
 /**
- * Recompute the three AUTO badges for one guest based on their current
- * completed-task count. GRANTS any auto badge whose threshold is met and
- * REVOKES any auto badge whose threshold is no longer met (e.g. after a
- * photo takedown drops the count). Special badges are NEVER touched here.
+ * Recompute every PER-GUEST badge kind for one guest: (a) the three AUTO
+ * threshold badges based on their current completed-task count, and (b) every
+ * 'metric' badge in the
+ * registry (src/services/badges.js METRIC_BADGES), grant if its compute
+ * function returns true, revoke the system row if it returns false. Special
+ * and custom (admin-awarded) badges are NEVER touched here — this function
+ * only ever writes/deletes `awarded_by = 'system'` rows (AC4).
  *
  * Idempotent: running it repeatedly produces the same end state, so it is
  * safe to call after every submit, takedown, or restore.
@@ -162,7 +180,7 @@ function getPoints(guestId) {
  *
  * @param {number} guestId
  */
-const recomputeAutoBadges = db.transaction((guestId) => {
+const recomputeBadges = db.transaction((guestId) => {
   const completed = getCompletedCount(guestId);
 
   for (const { code, n } of BADGE_THRESHOLDS) {
@@ -188,24 +206,117 @@ const recomputeAutoBadges = db.transaction((guestId) => {
       }
     }
   }
+
+  for (const code of Object.keys(METRIC_BADGES)) {
+    const badge = stmtBadgeByCode.get(code);
+    if (!badge) {
+      // Catalog row not seeded yet — skip rather than crash. Run seed.js.
+      continue;
+    }
+
+    const qualifies = METRIC_BADGES[code](guestId);
+    const has = stmtGuestBadge.get(guestId, badge.id);
+
+    if (qualifies) {
+      if (!has) {
+        stmtGrantBadge.run(guestId, badge.id, 'system');
+      }
+    } else if (has && has.awarded_by === 'system') {
+      stmtRevokeBadge.run(guestId, badge.id);
+    }
+  }
+});
+
+/**
+ * Recompute every 'transferable' badge GLOBALLY (not per-guest): for each
+ * transferable catalog row, compute its current holder set from the registry
+ * (src/services/badges.js TRANSFERABLE_BADGES), then replace that badge's
+ * `awarded_by = 'system'` rows with exactly that set — revoking anyone who
+ * dropped out and granting anyone who newly qualifies (including ties, AC2).
+ * Admin-awarded rows on the same badge code are never touched (AC4), though
+ * in practice a transferable code is refused at admin-award time (AC5) so
+ * that case should not arise.
+ *
+ * Wrapped in a transaction. better-sqlite3 nests transaction functions via
+ * SAVEPOINTs, so calling this from inside another db.transaction (e.g.
+ * photos.js's hide/restore transaction) is safe.
+ */
+const recomputeTransferableBadges = db.transaction(() => {
+  const transferableCatalog = stmtBadgesByType.all('transferable');
+
+  for (const badge of transferableCatalog) {
+    const computeHolders = TRANSFERABLE_BADGES[badge.code];
+    if (!computeHolders) {
+      // A 'transferable' catalog row with no registered rule — skip rather
+      // than crash (defensive; every seeded transferable badge should have one).
+      continue;
+    }
+
+    const currentHolders = computeHolders();
+    const existingSystemHolders = new Set(
+      stmtSystemHoldersOfBadge.all(badge.id).map((row) => row.guest_id)
+    );
+
+    for (const guestId of existingSystemHolders) {
+      if (!currentHolders.has(guestId)) {
+        stmtRevokeBadge.run(guestId, badge.id);
+      }
+    }
+    for (const guestId of currentHolders) {
+      if (!existingSystemHolders.has(guestId)) {
+        stmtGrantBadge.run(guestId, badge.id, 'system');
+      }
+    }
+  }
+});
+
+/**
+ * The single recompute seam a data-mutating caller invokes after a submission
+ * change (new/replaced submission, takedown, restore). Runs the per-guest
+ * pass (auto + metric) and THEN the global transferable pass, in that order —
+ * the order that keeps a transferable badge like MOSTPHOTOS consistent with
+ * the guest's just-changed visible-submission count.
+ *
+ * This exists so no mutator has to remember the ordered pair itself: a future
+ * mutator that adopts only recomputeBadges (forgetting recomputeTransferableBadges)
+ * would silently desync MOSTPHOTOS. Both mutators (submissions.js, photos.js)
+ * go through here instead.
+ *
+ * Itself a db.transaction, and better-sqlite3 nests transaction functions via
+ * SAVEPOINTs, so it is safe to call from inside photos.js's existing
+ * hide/restore transaction as well as standalone from submissions.js.
+ *
+ * @param {number} guestId - the guest whose submission set just changed.
+ */
+const recomputeAfterSubmissionChange = db.transaction((guestId) => {
+  recomputeBadges(guestId);
+  recomputeTransferableBadges();
 });
 
 // ---------------------------------------------------------------------------
 // Special (hand-awarded) badges
 // ---------------------------------------------------------------------------
 
+// Badge types the admin may hand-award/remove. 'metric' and 'transferable'
+// are system-owned (computed by recomputeBadges/recomputeTransferableBadges)
+// and are deliberately excluded here — an admin award/remove request for
+// either is refused (issue #80 AC5), so recompute's exclusive ownership of
+// those rows can never be bypassed by hand.
+const ADMIN_AWARDABLE_TYPES = new Set(['special', 'custom']);
+
 /**
- * Admin hand-awards a SPECIAL badge to a guest.
- * Validates that the code exists and is of type 'special' (so this can never
- * be used to fake an auto badge). awarded_by = 'admin'. No-op if already held.
+ * Admin hand-awards a SPECIAL or CUSTOM badge to a guest.
+ * Validates that the code exists and is of an admin-awardable type (so this
+ * can never be used to fake an auto/metric/transferable badge). awarded_by =
+ * 'admin'. No-op if already held.
  *
  * @param {number} guestId
- * @param {string} code  one of EARLYBIRD / SHUTTERBUG / CROWDFAV / CHOICE
- * @returns {boolean} true if a badge was granted (or already present), false if the code was invalid
+ * @param {string} code  a 'special' or 'custom' badge code
+ * @returns {boolean} true if a badge was granted (or already present), false if the code was invalid/refused
  */
 function awardSpecialBadge(guestId, code) {
   const badge = stmtBadgeByCode.get(code);
-  if (!badge || badge.type !== 'special') {
+  if (!badge || !ADMIN_AWARDABLE_TYPES.has(badge.type)) {
     return false;
   }
   stmtGrantBadge.run(guestId, badge.id, 'admin');
@@ -213,20 +324,44 @@ function awardSpecialBadge(guestId, code) {
 }
 
 /**
- * Admin removes a SPECIAL badge from a guest.
- * Only removes badges of type 'special' so this can never strip an auto badge.
+ * Admin removes a SPECIAL or CUSTOM badge from a guest.
+ * Only removes admin-awardable badge types so this can never strip an
+ * auto/metric/transferable (system-owned) badge.
  *
  * @param {number} guestId
  * @param {string} code
- * @returns {boolean} true if the code was a valid special badge, false otherwise
+ * @returns {boolean} true if the code was a valid admin-awardable badge, false otherwise
  */
 function removeSpecialBadge(guestId, code) {
   const badge = stmtBadgeByCode.get(code);
-  if (!badge || badge.type !== 'special') {
+  if (!badge || !ADMIN_AWARDABLE_TYPES.has(badge.type)) {
     return false;
   }
   stmtRevokeBadge.run(guestId, badge.id);
   return true;
+}
+
+/**
+ * Admin creates a new host-defined CUSTOM badge in the catalog.
+ * Refuses to create a badge whose type is 'metric' or 'transferable'
+ * (system-owned types — AC5): no row is written and the function returns
+ * null. `code` must be unique (the DB's UNIQUE constraint enforces this;
+ * a duplicate throws SqliteError like any other catalog insert would).
+ *
+ * @param {{code: string, name: string, type: string, artPath: string, description?: string}} params
+ * @returns {object|null} the inserted badge row, or null if the type was refused
+ */
+function createCustomBadge({ code, name, type, artPath, description }) {
+  if (!ADMIN_AWARDABLE_TYPES.has(type)) {
+    return null;
+  }
+  const info = db
+    .prepare(
+      `INSERT INTO badges (code, name, type, threshold, art_path, description)
+       VALUES (?, ?, ?, NULL, ?, ?)`
+    )
+    .run(code, name, type, artPath, description || '');
+  return db.prepare('SELECT * FROM badges WHERE id = ?').get(info.lastInsertRowid);
 }
 
 // ---------------------------------------------------------------------------
@@ -358,9 +493,12 @@ module.exports = {
   getCompletedCount,
   getPoints,
   getGuestBadges,
-  recomputeAutoBadges,
+  recomputeBadges,
+  recomputeTransferableBadges,
+  recomputeAfterSubmissionChange,
   awardSpecialBadge,
   removeSpecialBadge,
+  createCustomBadge,
   addBonusPoints,
   leaderboard,
 };

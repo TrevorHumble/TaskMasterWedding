@@ -245,17 +245,20 @@ describe('submissions.submitPhoto — direct calls (issue #106)', () => {
     expect(getSubmission(guestId, taskB).caption).toBe('');
   });
 
-  it('AC7: recomputeAutoBadges throwing does not lose the submission or the status', async () => {
+  it('AC7: recomputeAfterSubmissionChange throwing does not lose the submission or the status', async () => {
     const guestId = insertGuest(`intake-ac7-${crypto.randomUUID()}`);
     const taskId = insertTask('AC7 Task');
 
     const scoring = require('../src/services/scoring');
-    const original = scoring.recomputeAutoBadges;
+    const original = scoring.recomputeAfterSubmissionChange;
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     // Monkeypatch the shared scoring module so submissions.js (which required
-    // the same cached module instance) picks up the throwing version.
-    scoring.recomputeAutoBadges = () => {
+    // the same cached module instance) picks up the throwing version. Issue
+    // #80 routes submitPhoto's post-submit recompute through the single
+    // recomputeAfterSubmissionChange seam, so patching that seam is what
+    // exercises submitPhoto's swallow-and-log path.
+    scoring.recomputeAfterSubmissionChange = () => {
       throw new Error('boom: recompute failed');
     };
 
@@ -272,7 +275,7 @@ describe('submissions.submitPhoto — direct calls (issue #106)', () => {
       // The failure was logged.
       expect(consoleErrorSpy).toHaveBeenCalled();
     } finally {
-      scoring.recomputeAutoBadges = original;
+      scoring.recomputeAfterSubmissionChange = original;
       consoleErrorSpy.mockRestore();
     }
   });
