@@ -1,0 +1,28 @@
+<%# src/views/partials/upload-field.ejs
+    Shared styled file-upload control: a visually-hidden native input paired
+    with a styled label + filename span, so task-photo and avatar uploads
+    share one markup structure (issue #79).
+
+    Locals:
+      id       (required) - input id; also used as the label's `for`
+      name     (required) - input name
+      accept   (optional) - input accept attribute
+      capture  (optional) - input capture attribute (e.g. "environment")
+      required (optional) - boolean; adds the required attribute
+%>
+<div class="upload-field">
+  <%# No-JS baseline: this visible text intentionally mirrors PLACEHOLDER /
+      uploadLabelText('') in src/public/js/upload-filename.js. AC3 requires
+      this label render server-side so the control works with no JS; AC1
+      requires the helper return the same copy once JS wires the filename
+      display. This is the one remaining, deliberate duplication. %>
+  <label class="btn" for="<%= id %>">Choose a photo…</label>
+  <input type="file"
+         id="<%= id %>"
+         name="<%= name %>"
+         <% if (typeof accept !== 'undefined' && accept) { %>accept="<%= accept %>"<% } %>
+         <% if (typeof capture !== 'undefined' && capture) { %>capture="<%= capture %>"<% } %>
+         <% if (typeof required !== 'undefined' && required) { %>required<% } %>
+         class="visually-hidden" />
+  <span class="upload-filename"></span>
+</div>
