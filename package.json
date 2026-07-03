@@ -11,6 +11,7 @@
     "start": "node src/app.js",
     "dev": "node src/app.js",
     "seed": "node scripts/seed.js",
+    "seed-event": "node scripts/seed-event.js",
     "set-admin": "node scripts/set-admin-password.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
