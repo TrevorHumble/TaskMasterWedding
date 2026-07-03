@@ -3,13 +3,18 @@
 // (src/services/scoring.js), so the admin guests page, the export Guests
 // sheet, and scoring.js itself can never disagree.
 //
-// Fixture: one guest with one VISIBLE submission (taken_down = 0), one
-// TAKEN-DOWN submission (taken_down = 1), and bonus_points = 4.
-// Canonical rule (scoring.js): completed = COUNT(visible submissions) = 1.
-//                               points    = completed + bonus_points = 1 + 4 = 5.
-// If the completed-count rule were inverted (e.g. counting ALL submissions,
-// or counting only taken-down ones), completed would read 2 or 0 and points
-// would read 6 or 4 — every assertion below would fail.
+// Fixture: one guest with one VISIBLE submission (taken_down = 0, photo_bonus
+// = 3), one TAKEN-DOWN submission (taken_down = 1, photo_bonus = 9), and
+// guests.bonus_points = 4.
+// Canonical rule (scoring.js, three-term formula, issue #89):
+//   completed = COUNT(visible submissions) = 1.
+//   points    = completed*POINTS_PER_PHOTO + SUM(visible photo_bonus) + guests.bonus_points
+//             = 1*1 + 3 + 4 = 8.
+// The taken-down submission's photo_bonus (9) is excluded, so it never adds to
+// the total. If the completed-count rule were inverted (counting ALL or only
+// taken-down submissions), completed would read 2 or 0; if the photo_bonus
+// term were dropped from scoring.js, points would read 5 instead of 8 — either
+// way an assertion below would fail.
 'use strict';
 
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
@@ -22,7 +27,7 @@ let buildSummaryBuffer;
 let guestId;
 
 const EXPECTED_COMPLETED = 1;
-const EXPECTED_POINTS = 5; // 1 completed + 4 bonus
+const EXPECTED_POINTS = 8; // completed(1)*1 + visible photo_bonus(3) + guests.bonus_points(4)
 
 beforeAll(async () => {
   const loaded = loadApp();
@@ -44,16 +49,17 @@ beforeAll(async () => {
     .prepare('INSERT INTO guests (token, name, bonus_points) VALUES (?, ?, ?)')
     .run('authority-guest', 'Authority Guest', 4).lastInsertRowid;
 
-  // Visible submission — counts.
+  // Visible submission — counts, and its photo_bonus (3) is included.
   db.prepare(
-    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
-     VALUES (?, ?, ?, ?, 0)`
+    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down, photo_bonus)
+     VALUES (?, ?, ?, ?, 0, 3)`
   ).run(guestId, taskA, 'visible.jpg', 'visible-thumb.jpg');
 
-  // Taken-down submission — must NOT count.
+  // Taken-down submission — must NOT count: neither its base point nor its
+  // photo_bonus (9) contributes to the total.
   db.prepare(
-    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
-     VALUES (?, ?, ?, ?, 1)`
+    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down, photo_bonus)
+     VALUES (?, ?, ?, ?, 1, 9)`
   ).run(guestId, taskB, 'hidden.jpg', 'hidden-thumb.jpg');
 
   adminAgent = await makeAdminAgent(loaded.app);
@@ -64,7 +70,7 @@ describe('scoring single authority — issue #104', () => {
     expect(scoring.getCompletedCount(guestId)).toBe(EXPECTED_COMPLETED);
   });
 
-  it('AC: scoring.getPoints = completed + bonus_points', () => {
+  it('AC: scoring.getPoints = completed*POINTS_PER_PHOTO + visible photo_bonus + guests.bonus_points', () => {
     expect(scoring.getPoints(guestId)).toBe(EXPECTED_POINTS);
   });
 

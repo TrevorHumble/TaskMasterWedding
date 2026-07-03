@@ -29,6 +29,13 @@
         <% if (p.caption) { %>
           <p class="photo-caption"><%= p.caption %></p>
         <% } %>
+        <form action="/admin/photos/<%= p.id %>/points" method="post" class="photo-points-form">
+          <label>
+            Bonus points
+            <input type="number" name="bonus" min="0" step="1" value="<%= p.photo_bonus %>" />
+          </label>
+          <button type="submit" class="btn btn-sm">Set points</button>
+        </form>
         <% if (p.taken_down) { %>
           <p class="status-down">TAKEN DOWN</p>
           <form action="/admin/photos/<%= p.id %>/restore" method="post">
