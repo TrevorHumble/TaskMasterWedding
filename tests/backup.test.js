@@ -1,0 +1,266 @@
+// tests/backup.test.js
+'use strict';
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const Database = require('better-sqlite3');
+const { backupData } = require('../scripts/backup');
+
+// This test builds its own isolated temp DB/dirs directly with better-sqlite3
+// rather than going through tests/helpers/testApp.js: backup.js operates on
+// raw file paths (dbPath/uploadsDir/thumbsDir/backupDir), not the Express app,
+// so there is no need to boot the app or its session middleware here.
+
+const GUEST_COUNT = 8;
+const SUBMISSION_COUNT = 25;
+const GUEST_BADGE_COUNT = 4;
+const UPLOAD_FILE_COUNT = 6;
+const THUMB_FILE_COUNT = 6;
+
+/**
+ * Create a fresh temp "data/" layout (db file path + uploads/thumbs dirs,
+ * none pre-created) so each test run is fully isolated from the real event
+ * data and from other test files.
+ * @returns {{ root: string, dbPath: string, uploadsDir: string, thumbsDir: string }}
+ */
+function makeTempLayout() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gpp-backup-test-'));
+  return {
+    root,
+    dbPath: path.join(root, 'data', 'app.db'),
+    uploadsDir: path.join(root, 'data', 'uploads'),
+    thumbsDir: path.join(root, 'data', 'thumbs'),
+  };
+}
+
+/**
+ * Open (creating if needed) a DB at dbPath with the same schema shape as
+ * src/db.js and the same pragmas (WAL + foreign_keys ON), so the backup
+ * routine is exercised against a DB that behaves like the real one.
+ * @param {string} dbPath
+ * @returns {import('better-sqlite3').Database}
+ */
+function openSchemaDb(dbPath) {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  db.exec(`
+    CREATE TABLE guests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL
+    );
+    CREATE TABLE submissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guest_id INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+      task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      photo_path TEXT NOT NULL,
+      thumb_path TEXT NOT NULL,
+      CONSTRAINT uq_sub UNIQUE (guest_id, task_id)
+    );
+    CREATE TABLE badges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE
+    );
+    CREATE TABLE guest_badges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guest_id INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+      badge_id INTEGER NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
+      CONSTRAINT uq_gb UNIQUE (guest_id, badge_id)
+    );
+  `);
+  return db;
+}
+
+/**
+ * Seed exactly GUEST_COUNT guests, SUBMISSION_COUNT submissions (spread across
+ * enough tasks that 25 distinct (guest,task) pairs satisfy the UNIQUE
+ * constraint), 2 badges, and GUEST_BADGE_COUNT guest_badges rows.
+ * @param {import('better-sqlite3').Database} db
+ */
+function seedFixture(db) {
+  const insertGuest = db.prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`);
+  const guestIds = [];
+  for (let i = 0; i < GUEST_COUNT; i++) {
+    guestIds.push(insertGuest.run(`tok-${i}`, `Guest ${i}`).lastInsertRowid);
+  }
+
+  // 4 tasks x 8 guests = 32 possible (guest,task) pairs -- comfortably more
+  // than the 25 distinct pairs UNIQUE(guest_id,task_id) requires.
+  const insertTask = db.prepare(`INSERT INTO tasks (title) VALUES (?)`);
+  const taskIds = [];
+  for (let i = 0; i < 4; i++) {
+    taskIds.push(insertTask.run(`Task ${i}`).lastInsertRowid);
+  }
+
+  const insertSubmission = db.prepare(
+    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path) VALUES (?, ?, ?, ?)`
+  );
+  let inserted = 0;
+  outer: for (const taskId of taskIds) {
+    for (const guestId of guestIds) {
+      if (inserted >= SUBMISSION_COUNT) break outer;
+      insertSubmission.run(guestId, taskId, `p${inserted}.jpg`, `t${inserted}.jpg`);
+      inserted += 1;
+    }
+  }
+  if (inserted !== SUBMISSION_COUNT) {
+    throw new Error(`fixture bug: seeded ${inserted} submissions, expected ${SUBMISSION_COUNT}`);
+  }
+
+  const insertBadge = db.prepare(`INSERT INTO badges (code) VALUES (?)`);
+  const badgeIds = [
+    insertBadge.run('BLOOM').lastInsertRowid,
+    insertBadge.run('BOUQUET').lastInsertRowid,
+  ];
+
+  const insertGuestBadge = db.prepare(
+    `INSERT INTO guest_badges (guest_id, badge_id) VALUES (?, ?)`
+  );
+  for (let i = 0; i < GUEST_BADGE_COUNT; i++) {
+    // Alternate badge id so both rows in `badges` are actually referenced.
+    insertGuestBadge.run(guestIds[i], badgeIds[i % badgeIds.length]);
+  }
+}
+
+/**
+ * Write UPLOAD_FILE_COUNT small files under uploadsDir (created if needed).
+ * @param {string} uploadsDir
+ */
+function seedUploadFiles(uploadsDir) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  for (let i = 0; i < UPLOAD_FILE_COUNT; i++) {
+    fs.writeFileSync(path.join(uploadsDir, `photo-${i}.jpg`), `fake-bytes-${i}`);
+  }
+}
+
+/**
+ * Write THUMB_FILE_COUNT small files under thumbsDir (created if needed).
+ * @param {string} thumbsDir
+ */
+function seedThumbFiles(thumbsDir) {
+  fs.mkdirSync(thumbsDir, { recursive: true });
+  for (let i = 0; i < THUMB_FILE_COUNT; i++) {
+    fs.writeFileSync(path.join(thumbsDir, `thumb-${i}.jpg`), `fake-thumb-${i}`);
+  }
+}
+
+/**
+ * Mirror the restore steps documented in README.md: create a fresh data/,
+ * then copy the snapshot's app.db, uploads/, and thumbs/ back into it.
+ * @param {string} snapshotDir
+ * @param {string} restoredDataDir
+ */
+function restoreFromSnapshot(snapshotDir, restoredDataDir) {
+  fs.mkdirSync(restoredDataDir, { recursive: true });
+  fs.copyFileSync(path.join(snapshotDir, 'app.db'), path.join(restoredDataDir, 'app.db'));
+  fs.cpSync(path.join(snapshotDir, 'uploads'), path.join(restoredDataDir, 'uploads'), {
+    recursive: true,
+  });
+  fs.cpSync(path.join(snapshotDir, 'thumbs'), path.join(restoredDataDir, 'thumbs'), {
+    recursive: true,
+  });
+}
+
+describe('scripts/backup.js', () => {
+  it('AC1/AC2: produces a consistent snapshot -- app.db alone reports the true submissions count', async () => {
+    const { root, dbPath, uploadsDir, thumbsDir } = makeTempLayout();
+    const db = openSchemaDb(dbPath);
+    seedFixture(db);
+    seedUploadFiles(uploadsDir);
+    // thumbsDir is deliberately never created -- exercises the missing-source guard.
+
+    const backupDir = path.join(root, 'backups');
+    const destDir = await backupData({
+      dbPath,
+      uploadsDir,
+      thumbsDir,
+      backupDir,
+      timestamp: '20260807-000000',
+    });
+    db.close();
+
+    expect(destDir).toBe(path.join(backupDir, '20260807-000000'));
+    const snapshotDbPath = path.join(destDir, 'app.db');
+    expect(fs.existsSync(snapshotDbPath)).toBe(true);
+
+    // AC2: open the snapshot read-only and confirm the exact count. If
+    // backupData had done a naive fs.copyFile of a WAL-mode app.db instead of
+    // the online .backup(), this could read a torn/partial file (0 rows, or
+    // a file SQLite refuses to open) instead of the true 25 -- so this
+    // assertion actually distinguishes "consistent snapshot" from "torn copy".
+    const snapshotDb = new Database(snapshotDbPath, { readonly: true });
+    const count = snapshotDb.prepare('SELECT COUNT(*) AS n FROM submissions').get().n;
+    snapshotDb.close();
+    expect(count).toBe(SUBMISSION_COUNT);
+  });
+
+  it('AC3/AC4: restore into an emptied data/ recovers exact guests/submissions/guest_badges/file counts', async () => {
+    const { root, dbPath, uploadsDir, thumbsDir } = makeTempLayout();
+    const db = openSchemaDb(dbPath);
+    seedFixture(db);
+    seedUploadFiles(uploadsDir);
+    seedThumbFiles(thumbsDir);
+
+    const backupDir = path.join(root, 'backups');
+    const destDir = await backupData({
+      dbPath,
+      uploadsDir,
+      thumbsDir,
+      backupDir,
+      timestamp: '20260807-010000',
+    });
+    db.close();
+
+    // Simulate the disaster: the live data/ directory is gone.
+    fs.rmSync(path.join(root, 'data'), { recursive: true, force: true });
+    expect(fs.existsSync(path.join(root, 'data'))).toBe(false);
+
+    // Documented restore: copy app.db + uploads/ + thumbs/ back into a fresh data/.
+    const restoredDataDir = path.join(root, 'data');
+    restoreFromSnapshot(destDir, restoredDataDir);
+
+    const restoredDb = new Database(path.join(restoredDataDir, 'app.db'), { readonly: true });
+    const guestCount = restoredDb.prepare('SELECT COUNT(*) AS n FROM guests').get().n;
+    const submissionCount = restoredDb.prepare('SELECT COUNT(*) AS n FROM submissions').get().n;
+    const guestBadgeCount = restoredDb.prepare('SELECT COUNT(*) AS n FROM guest_badges').get().n;
+    restoredDb.close();
+
+    expect(guestCount).toBe(GUEST_COUNT);
+    expect(submissionCount).toBe(SUBMISSION_COUNT);
+    expect(guestBadgeCount).toBe(GUEST_BADGE_COUNT);
+
+    const restoredFiles = fs.readdirSync(path.join(restoredDataDir, 'uploads'));
+    expect(restoredFiles.length).toBe(UPLOAD_FILE_COUNT);
+
+    const restoredThumbs = fs.readdirSync(path.join(restoredDataDir, 'thumbs'));
+    expect(restoredThumbs.length).toBe(THUMB_FILE_COUNT);
+  });
+
+  it('guards a missing source directory instead of throwing (thumbs/ never created)', async () => {
+    const { root, dbPath, uploadsDir, thumbsDir } = makeTempLayout();
+    const db = openSchemaDb(dbPath);
+    seedFixture(db);
+    db.close();
+    // uploadsDir and thumbsDir both left uncreated.
+
+    const backupDir = path.join(root, 'backups');
+    const destDir = await backupData({
+      dbPath,
+      uploadsDir,
+      thumbsDir,
+      backupDir,
+      timestamp: '20260807-020000',
+    });
+
+    expect(fs.existsSync(path.join(destDir, 'app.db'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'uploads'))).toBe(false);
+    expect(fs.existsSync(path.join(destDir, 'thumbs'))).toBe(false);
+  });
+});
