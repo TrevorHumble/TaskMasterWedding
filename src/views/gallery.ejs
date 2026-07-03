@@ -17,6 +17,19 @@
        href="?view=user">By person</a>
   </nav>
 
+  <% if (view === 'task' || view === 'user') { %>
+    <form class="gallery-search" method="get">
+      <input type="hidden" name="view" value="<%= view %>">
+      <input
+        type="text"
+        name="q"
+        value="<%= q %>"
+        placeholder="<%= view === 'user' ? 'Search people' : 'Search tasks' %>"
+        aria-label="<%= view === 'user' ? 'Search people' : 'Search tasks' %>"
+      >
+    </form>
+  <% } %>
+
   <% if (groups.length === 0 && photos.length === 0) { %>
     <p class="muted">No photos yet. Be the first to share one!</p>
   <% } %>
