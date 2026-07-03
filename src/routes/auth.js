@@ -31,10 +31,12 @@ function cookieOpts() {
 }
 
 // Avatar upload: keep the file in memory so the photos service can process
-// the buffer; only one file, field name "avatar".
+// the buffer; only one file, field name "avatar". The size limit is read from
+// the photos service — the single owner of MAX_UPLOAD_BYTES — so avatars and
+// task-submission photos always enforce the same limit and cannot drift apart.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: config.MAX_UPLOAD_BYTES, files: 1 },
+  limits: { fileSize: photos.MAX_UPLOAD_BYTES, files: 1 },
 });
 
 /**
