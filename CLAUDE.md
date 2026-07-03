@@ -6,7 +6,7 @@ Behavioral rules for any AI agent working in this repository. This file is the r
 
 Every change serves the goals in [`docs/north-star.md`](docs/north-star.md). Orient your work to them; if a change moves none of them, question whether it belongs in this build.
 
-**The shift we design for:** a wedding guest goes from passive spectator to active, _steered_ participant — engaging with what the hosts highlight, mingling beyond their own circle, and adding to a shared record of the weekend, because the game rewards it — engaged in the celebration, not the screen. The end user is the **guest**; it pays off for the couple (Axel & Lily) and their planners. Live for guests by **Friday, Aug 7, 2026**.
+**The shift we design for:** a wedding guest goes from passive spectator to active, _steered_ participant — engaging with what the hosts highlight, mingling beyond their own circle, and adding to a shared record of the weekend, because the game rewards it — engaged in the celebration, not the screen. The end user is the **guest**; it pays off for the couple (Lilly & Axel) and their planners. Live for guests by **Friday, Aug 7, 2026**.
 
 The four goals (full text and outcomes in [`docs/north-star.md`](docs/north-star.md)):
 

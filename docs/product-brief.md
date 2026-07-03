@@ -11,7 +11,7 @@ What the owner asked for, in his own words, captured from discovery. This is the
 |                     |                                                                                               |
 | ------------------- | --------------------------------------------------------------------------------------------- |
 | **What**            | A phone web app that turns a wedding into a photo scavenger hunt                              |
-| **Couple**          | Axel Fenwick & Lily Sckeiky                                                                   |
+| **Couple**          | Lilly & Axel                                                                                  |
 | **Theme**           | "Garden Party Pastels" (soft pastel palette; reference: the bouquet photo the owner provided) |
 | **Guests**          | ~100, each on their own phone                                                                 |
 | **Sign-in**         | Tap a personal link (no email, no password)                                                   |
@@ -24,7 +24,7 @@ What the owner asked for, in his own words, captured from discovery. This is the
 
 ## The wedding & vibe
 
-- **Couple:** Axel Fenwick & Lily Sckeiky.
+- **Couple:** Lilly & Axel.
 - **Dates:** the wedding weekend is **Aug 7–9, 2026** — Fri the 7th welcome dinner, Sat the 8th wedding + party, Sun the 9th brunch. The app must be live for guests by **Friday, Aug 7**.
 - **Theme:** "Garden Party Pastels" — a soft pastel palette, referenced by a bouquet photo the owner supplied. Visual design is the owner's call; agents do not redesign.
 - **Hashtag / monogram:** none requested.
