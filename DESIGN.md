@@ -118,6 +118,18 @@ Every GitHub issue is created carrying the `needs-issue-review` label (`gh issue
 
 **Relation to #48:** this is GitHub-native branch protection — it governs merge _ordering and freshness_, not review _authenticity_. It is not #48's un-bypassable issue-review merge gate (the server-side backstop for the tamper-evident-not-tamper-proof residual documented under "Issue-review gate" above); that stays a separate, still-open piece of work.
 
+### Server-side issue-creation guard (#116)
+
+**Binding decision:** `gh issue create` is a direct GitHub API call — it triggers no local git hook, so no local mechanism can gate it. The only enforcement point is server-side: `.github/workflows/issue-guard.yml`, a GitHub Action on `issues.opened`. Every sanctioned issue is born carrying `needs-issue-review` (see "Issue-creation review marker" above). When the guard sees an issue opened without that label, it adds `unverified-issue` and posts a comment naming the required flow; an issue opened with the marker is left alone — that is the sanctioned pre-review state, not a defect to flag.
+
+**Setup dependency:** the `unverified-issue` label is pre-created out-of-band (`gh label create unverified-issue`), a one-time step outside the workflow. The guard assumes the label exists and never creates it — keeping the guard a pure reader-and-flagger, not a label-schema owner.
+
+**Honest bar:** tamper-evident, not tamper-proof — the same residual as every other gate in this file. An actor with repo write can still add or remove `needs-issue-review` or `unverified-issue` by hand; the guard makes an unreviewed issue conspicuous on the board, it does not make bypass impossible. It is the advisory-visibility sibling of #48 (un-bypassable server-side merge enforcement), not a replacement for it — #48 still governs whether unreviewed work can reach `main`, this guard only governs whether it can sit unnoticed on the issue board.
+
+**Execution surface:** runs on GitHub-hosted Actions (`runs-on: ubuntu-latest`), not the event laptop — consistent with the existing `commit-gate-integrity`/`merge-association` CI backstop (see "Issue-review gate" above, #46). The laptop-only constraint at the top of this file governs where the running wedding app is hosted; it says nothing about the CI/enforcement surface, so this guard adds no app runtime to the cloud.
+
+**Distinct from `merge-association`:** that CI job checks commit→issue linkage at PR/merge time; this guard fires on `issues.opened`, before any code exists. No overlap between the two.
+
 ## System-level change (definition)
 
 A **system-level change** is one that alters the development system itself rather than the wedding app's features. The gate (`tools/verdict-core.ps1`) treats a staged path as system-level when it is under `.githooks/`, `tools/`, `standards/`, `agents/`, `skills/`, `.github/`, or `.claude/`, or is `docs/north-star.md`, `DESIGN.md`, `CLAUDE.md`, or `AGENTS.md`. `skills/` is included deliberately: the runner's own logic lives there, so editing it must trip the stricter bar. These changes use the stricter two-independent-reviewer, both-must-PASS bar in `standards/adversarial-review-protocol.md`, because a defect there weakens every future change rather than one feature. (This prose and the regex in `tools/verdict-core.ps1` must list the same surface.)

@@ -1,0 +1,56 @@
+name: Issue creation guard
+
+# Flags an issue opened outside the sanctioned flow. Every sanctioned issue is
+# born carrying `needs-issue-review` (applied at `gh issue create` time,
+# cleared only by a recorded issue-review PASS via tools/clear-issue-marker.ps1).
+# An issue missing that marker did not come through the pipeline and is made
+# conspicuous here, not silently accepted. See DESIGN.md "Server-side
+# issue-creation guard (#116)" for the trigger, scope, and honest bar.
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Flag issues missing the needs-issue-review marker
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const labels = context.payload.issue.labels.map((label) => label.name);
+            const hasReviewMarker = labels.includes('needs-issue-review');
+
+            // Carrying `needs-issue-review` is the sanctioned pre-review birth
+            // state (cleared only by a recorded issue-review PASS), so leave it alone.
+            if (hasReviewMarker) {
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.issue.number;
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number,
+              labels: ['unverified-issue'],
+            });
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body:
+                'This issue was opened without the `needs-issue-review` label. ' +
+                'Every sanctioned issue in this repo is born carrying that label ' +
+                '(applied at `gh issue create` time) and it is cleared only after ' +
+                'a recorded issue-review PASS. This issue lacked the marker, so it ' +
+                'has been labelled `unverified-issue` for visibility. Route it ' +
+                'through the review flow before treating it as ready work.',
+            });
