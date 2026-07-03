@@ -19,6 +19,7 @@
 //   GET  /admin/photos                   ALL submissions incl. taken-down
 //   POST /admin/photos/:id/takedown      hide a photo + recompute auto-badges
 //   POST /admin/photos/:id/restore       unhide a photo + recompute auto-badges
+//   POST /admin/photos/:id/points        set a photo's bonus points (absolute set)
 //   GET  /admin/comments                 ALL comments incl. taken-down
 //   POST /admin/comments/:id/hide        hide a comment
 //   POST /admin/comments/:id/restore     unhide a comment
@@ -454,6 +455,7 @@ router.get('/photos', (req, res) => {
               s.thumb_path   AS thumb_path,
               s.caption      AS caption,
               s.taken_down   AS taken_down,
+              s.photo_bonus  AS photo_bonus,
               s.created_at   AS created_at,
               g.id           AS guest_id,
               g.name         AS guest_name,
@@ -496,6 +498,37 @@ router.post('/photos/:id/restore', (req, res) => {
     return redirectWithMsg(res, '/admin/photos', 'Submission not found.');
   }
   redirectWithMsg(res, '/admin/photos', 'Photo restored.');
+});
+
+// POST /admin/photos/:id/points  — set a photo's bonus points (issue #89).
+// Body: bonus = the new photo_bonus value.
+// This is an ABSOLUTE SET (submissions.photo_bonus = bonus), unlike the
+// per-guest points route above, which is additive (bonus_points = bonus_points
+// + delta). A photo's award is a single Task Master judgment on that one
+// photo, replaced whenever re-judged — there is no "stack of past awards" to
+// accumulate, so a set is the natural operation, not a delta.
+// Only a non-negative integer is accepted; anything else redirects with a
+// message and writes nothing, leaving the stored value unchanged.
+router.post('/photos/:id/points', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+
+  const submission = db.prepare('SELECT id FROM submissions WHERE id = ?').get(id);
+  if (!submission) {
+    return redirectWithMsg(res, '/admin/photos', 'Submission not found.');
+  }
+
+  // Accept only a bare non-negative integer string (e.g. "0", "4", "12"). This
+  // regex rejects decimals, signs, whitespace-padded junk, and non-numeric
+  // input in one guard, rather than relying on parseInt's lenient prefix
+  // parsing (which would silently accept "4abc" as 4).
+  const raw = typeof req.body.bonus === 'string' ? req.body.bonus.trim() : '';
+  if (!/^\d+$/.test(raw)) {
+    return redirectWithMsg(res, '/admin/photos', 'Enter a whole number of 0 or more.');
+  }
+  const bonus = parseInt(raw, 10);
+
+  db.prepare('UPDATE submissions SET photo_bonus = ? WHERE id = ?').run(bonus, id);
+  redirectWithMsg(res, '/admin/photos', 'Set photo points bonus to ' + bonus + '.');
 });
 
 // ---------------------------------------------------------------------------

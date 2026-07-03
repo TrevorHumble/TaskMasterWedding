@@ -42,6 +42,24 @@ const BADGE_THRESHOLDS = [
 // `completedTasks < AUTO_THRESHOLDS[i]` style comparisons and progress math.
 const AUTO_THRESHOLDS = BADGE_THRESHOLDS.map((b) => b.n);
 
+// The base points a visible photo earns just for being shared, before any
+// per-photo admin bonus (issue #89). This is the single source of the "1"
+// in the per-photo point rule: getPoints and the leaderboard() SQL both
+// reference this constant, and the /feed display goes through photoPoints()
+// below, so the base never appears as a bare literal at a call site.
+const POINTS_PER_PHOTO = 1;
+
+/**
+ * Points a single photo is worth: the shared-photo base plus its admin bonus.
+ * The /feed per-photo display calls this so the base lives only here, not as a
+ * literal in the route.
+ * @param {number} photoBonus - the photo's submissions.photo_bonus value
+ * @returns {number}
+ */
+function photoPoints(photoBonus) {
+  return POINTS_PER_PHOTO + photoBonus;
+}
+
 // ---------------------------------------------------------------------------
 // Prepared statements (compiled once, reused on every call for speed).
 // ---------------------------------------------------------------------------
@@ -61,6 +79,15 @@ const stmtCompletedCount = db.prepare(
 
 // Read a guest's admin-set bonus points.
 const stmtBonusPoints = db.prepare('SELECT bonus_points FROM guests WHERE id = ?');
+
+// Sum a guest's per-photo bonus (submissions.photo_bonus, issue #89) over
+// their VISIBLE submissions only — same taken_down = 0 guard as
+// stmtCompletedCount, so a taken-down photo's bonus never counts (AC6).
+// COALESCE(..., 0) covers the guest-has-no-submissions case, where SUM would
+// otherwise return SQL NULL.
+const stmtPhotoBonusSum = db.prepare(
+  'SELECT COALESCE(SUM(photo_bonus), 0) AS pb FROM submissions WHERE guest_id = ? AND taken_down = 0'
+);
 
 // Look up a badge row by its code (e.g. 'BLOOM', 'EARLYBIRD').
 const stmtBadgeByCode = db.prepare('SELECT * FROM badges WHERE code = ?');
@@ -101,16 +128,20 @@ function getCompletedCount(guestId) {
 }
 
 /**
- * Total points for a guest = completed tasks (1 each) + admin bonus_points.
- * bonus_points is stored clamped at >= 0, so total points are always >= 0.
+ * Total points for a guest = completed tasks (1 each)
+ *   + per-photo bonus (SUM of submissions.photo_bonus over visible submissions, issue #89)
+ *   + admin guests.bonus_points.
+ * bonus_points is stored clamped at >= 0, and photo_bonus is a non-negative
+ * admin-set absolute value, so total points are always >= 0.
  * @param {number} guestId
  * @returns {number}
  */
 function getPoints(guestId) {
   const completed = getCompletedCount(guestId);
+  const photoBonus = stmtPhotoBonusSum.get(guestId).pb;
   const bonusRow = stmtBonusPoints.get(guestId);
   const bonus = bonusRow ? bonusRow.bonus_points : 0;
-  return completed + bonus;
+  return completed * POINTS_PER_PHOTO + photoBonus + bonus;
 }
 
 // ---------------------------------------------------------------------------
@@ -224,13 +255,16 @@ function addBonusPoints(guestId, delta) {
 
 /**
  * Public leaderboard: every guest ordered by total points (desc), then by
- * name, then id (stable tiebreak). Total points = visible submissions + bonus.
- * Each row carries the guest's earned badge codes (auto + special).
+ * name, then id (stable tiebreak). Total points = visible submissions
+ * + per-photo bonus (SUM of submissions.photo_bonus over visible submissions,
+ * issue #89) + guests.bonus_points. Each row carries the guest's earned badge
+ * codes (auto + special).
  *
  * The completed-count here uses the SAME canonical rule as getCompletedCount
  * (section 1a, Decision A): visible submissions only (taken_down = 0), with no
  * is_active filter, so leaderboard points always match a guest's own
- * "X complete" home-page count. bonus_points is clamped >= 0, so points >= 0.
+ * "X complete" home-page count. bonus_points is clamped >= 0 and photo_bonus
+ * is a non-negative admin-set value, so points >= 0.
  *
  * @returns {Array<{
  *   id: number,
@@ -246,7 +280,11 @@ function leaderboard() {
   // One query computes completed-count and points per guest. We LEFT JOIN
   // submissions filtered to taken_down = 0 so guests with zero (or all
   // taken-down) photos still appear with 0 points. No tasks join / is_active
-  // filter — same canonical rule as getCompletedCount.
+  // filter — same canonical rule as getCompletedCount. COALESCE(SUM(...), 0)
+  // covers guests with no visible submissions, where SUM would otherwise
+  // contribute SQL NULL to the points expression. POINTS_PER_PHOTO is a
+  // trusted internal integer constant (not user input), interpolated so the
+  // per-photo base lives in exactly one place shared with getPoints/photoPoints.
   const rows = db
     .prepare(
       `SELECT
@@ -254,8 +292,8 @@ function leaderboard() {
          g.name          AS name,
          g.avatar_path   AS avatar_path,
          g.bonus_points  AS bonus_points,
-         COUNT(s.id)                 AS completed,
-         COUNT(s.id) + g.bonus_points AS points
+         COUNT(s.id)                                          AS completed,
+         COUNT(s.id) * ${POINTS_PER_PHOTO} + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points AS points
        FROM guests g
        LEFT JOIN submissions s
          ON s.guest_id = g.id AND s.taken_down = 0
@@ -315,6 +353,8 @@ function getGuestBadges(guestId) {
 module.exports = {
   BADGE_THRESHOLDS,
   AUTO_THRESHOLDS,
+  POINTS_PER_PHOTO,
+  photoPoints,
   getCompletedCount,
   getPoints,
   getGuestBadges,

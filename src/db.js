@@ -106,6 +106,30 @@ db.exec(`
     ON comments(submission_id, taken_down);
 `);
 
+// --- Guarded migration: submissions.photo_bonus (issue #89) ---
+/**
+ * Add submissions.photo_bonus if it is not already present.
+ *
+ * The submissions CREATE TABLE above deliberately omits photo_bonus, so the
+ * column is absent on BOTH a fresh DB and an existing pre-change app.db; on
+ * either, the ALTER TABLE ... ADD COLUMN adds it on the first boot. PRAGMA
+ * table_info lists the table's current columns; we run ADD COLUMN only when
+ * photo_bonus is absent, so every later boot (or a repeat call) is a no-op and
+ * never throws "duplicate column" (AC1). Exported so tests bind to this real
+ * guard rather than an inline copy of it.
+ */
+function ensurePhotoBonusColumn() {
+  const cols = db.prepare(`PRAGMA table_info(submissions)`).all();
+  if (!cols.some((col) => col.name === 'photo_bonus')) {
+    db.exec(`ALTER TABLE submissions ADD COLUMN photo_bonus INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
+// Run once at module load, before scoring.js prepares any statement that reads
+// photo_bonus — db.js fully evaluates this module-load code before any other
+// module's `require('../db')` call returns.
+ensurePhotoBonusColumn();
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -129,6 +153,7 @@ function getGuestById(guestId) {
 
 module.exports = {
   db,
+  ensurePhotoBonusColumn,
   getGuestByToken,
   getGuestById,
 };

@@ -191,6 +191,39 @@ function attachComments(photos) {
   return photos;
 }
 
+/**
+ * Attach a `points` field (base + photo_bonus) to each photo in place, in
+ * one grouped query rather than one query per photo — mirrors
+ * attachLikeCounts/attachComments above. Loaded only for the submission ids
+ * the feed already handed us — those rows are already visible because they
+ * came from feed.allVisible(), which owns the taken_down = 0 rule. This
+ * function never re-types that visibility rule; it only reads photo_bonus for
+ * ids already known to be visible. The per-photo point value comes from
+ * scoring.photoPoints (the single authority for the base), so the "1" base is
+ * never a literal here. A photo with no row found (should not happen given the
+ * id came from feed.allVisible()) zero-fills its bonus to 0, so the view never
+ * has to branch on a missing field.
+ */
+function attachPhotoPoints(photos) {
+  if (photos.length === 0) {
+    return photos;
+  }
+  const placeholders = photos.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT id AS submission_id, photo_bonus AS photo_bonus
+         FROM submissions
+        WHERE id IN (${placeholders})`
+    )
+    .all(...photos.map((p) => p.submission_id));
+
+  const bonusById = new Map(rows.map((r) => [r.submission_id, r.photo_bonus]));
+  for (const p of photos) {
+    p.points = scoring.photoPoints(bonusById.get(p.submission_id) || 0);
+  }
+  return photos;
+}
+
 // ---------------------------------------------------------------------------
 // GET /gallery  — the shared photo wall.
 //
@@ -273,7 +306,7 @@ router.get('/gallery', (req, res) => {
 // a paginated or grouped view.
 // ---------------------------------------------------------------------------
 router.get('/feed', (req, res) => {
-  const photos = attachComments(attachLikeCounts(feed.allVisible()));
+  const photos = attachComments(attachPhotoPoints(attachLikeCounts(feed.allVisible())));
   return res.render('feed', { title: 'Feed', photos, commentMaxLength: COMMENT_MAX_LENGTH });
 });
 
