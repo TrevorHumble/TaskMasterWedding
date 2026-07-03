@@ -142,6 +142,14 @@ Every GitHub issue is created carrying the `needs-issue-review` label (`gh issue
 
 **Distinct from `merge-association`:** that CI job checks commit→issue linkage at PR/merge time; this guard fires on `issues.opened`, before any code exists. No overlap between the two.
 
+### Roadmap: board-derived, session-structured (#139)
+
+The build roadmap is **not** a committed file. The **roadmap is derived from the board on demand** — from the epic (#126), the milestones, and each issue's `Depends on` / `Touches` fields — rather than stored as a second copy in the tree. A stored `docs/roadmap.md` was wiped twice by build-session git operations on 2026-07-03 (the #113 hazard) precisely because it duplicated, as an untracked file, state the board already holds durably. Deriving it removes that second source of truth: the board cannot be wiped by a `git clean` / checkout, and it can never silently disagree with itself. This is a distinct decision from "Scoring derived, not stored" above (that governs a guest's point total; this governs the planning roadmap).
+
+Sessions are **grouped by file-locality**, not by theme. The epic's session groups are chunked by the file-family / subsystem they share — each group carries a `Files:` annotation — so a session fits a cheap context window and two sessions that share no file can run in parallel safely. Theme-grouping produced monster sessions that bloat context, cost more, and cannot pivot; file-locality keeps each session small and its merge-collisions visible. Each group lists at most four issues and carries exactly one relation tag: `depends on <group>`, `parallel-safe with <group>`, or `parallel after #<root>` (a fan-out — the group is unblocked once root issue `#<root>` merges).
+
+**Out of scope — the historical refactor plan.** The committed `PLAN.md` and `CONTEXT.md` are a _different_ artifact: the as-built refactor roadmap and its domain context (`README.md` links `PLAN.md` as the "Refactor roadmap"). They are the historical refactor plan, not the board-derived _build_ roadmap this decision governs, and are neither retired nor restructured by #139.
+
 ## System-level change (definition)
 
 A **system-level change** is one that alters the development system itself rather than the wedding app's features. The gate (`tools/verdict-core.ps1`) treats a staged path as system-level when it is under `.githooks/`, `tools/`, `standards/`, `agents/`, `skills/`, `.github/`, or `.claude/`, or is `docs/north-star.md`, `DESIGN.md`, `CLAUDE.md`, or `AGENTS.md`. `skills/` is included deliberately: the runner's own logic lives there, so editing it must trip the stricter bar. These changes use the stricter two-independent-reviewer, both-must-PASS bar in `standards/adversarial-review-protocol.md`, because a defect there weakens every future change rather than one feature. (This prose and the regex in `tools/verdict-core.ps1` must list the same surface.)
