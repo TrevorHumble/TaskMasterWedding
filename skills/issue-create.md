@@ -2,8 +2,8 @@
 name: issue-create
 description: >
   How to draft an issue in this repo. Use when asked to "create an issue", "write a ticket",
-  "draft an issue for X", or "spec out a feature" — and when the output is an `issues/*.md` file
-  that an implementation agent will act on.
+  "draft an issue for X", or "spec out a feature" — and when the output is a `data/wip-issues/*.md`
+  file that an implementation agent will act on.
 ---
 
 # Drafting an issue
@@ -40,14 +40,14 @@ The plan must be unambiguous at the level of a weak model. If a step says "do th
 
 ## Creating the GitHub issue
 
-When creating the GitHub issue, apply the `needs-issue-review` label at creation time:
+Create the GitHub issue **first**, before writing the local draft, applying the `needs-issue-review` label at creation time:
 
 ```
 gh issue create --label needs-issue-review ...
 ```
 
-Every newly created issue is born carrying the `needs-issue-review` label. The label is cleared only after a recorded issue-review PASS, by running `tools/clear-issue-marker.ps1 -IssueNumber <N>`.
+Capture the number GitHub assigns — that number is the draft's identity (see Naming). Every newly created issue is born carrying the `needs-issue-review` label. The label is cleared only after a recorded issue-review PASS, by running `tools/clear-issue-marker.ps1 -IssueNumber <N>`.
 
 ## Naming
 
-Issue files: `NNNN-slug.md` — four-digit zero-padded number, lowercase hyphenated slug. No FINAL/LAST.
+Draft files live in `data/wip-issues/` and are named `<N>-slug.md`, where `N` is the **GitHub-assigned issue number** from `gh issue create` above — never a locally-minted number. Lowercase hyphenated slug. No FINAL/LAST. Full rule: `standards/issue-standards.md`.

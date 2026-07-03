@@ -40,8 +40,9 @@ allowed rounds.
 
 ## Pipeline (ordered)
 
-1. **Issue** — read or create the issue with `skills/issue-create.md`. When a new issue file is created,
-   **open its GitHub issue** (`gh issue create --label needs-issue-review`, plus any tier label) so the board
+1. **Issue** — read an existing issue, or create a new one with `skills/issue-create.md`. For a new issue,
+   **open its GitHub issue first** (`gh issue create --label needs-issue-review`, plus any tier label),
+   capture the assigned number `N`, then write the local draft as `data/wip-issues/<N>-slug.md` — so the board
    reflects it from the start carrying the `needs-issue-review` label — GitHub is the single source of truth
    (see `skills/github-write.md`). After the issue-review PASSes and `tools/persist-issue-review.ps1` records
    the evidence, run `tools/clear-issue-marker.ps1 -IssueNumber <N>` to clear the label from the board.
