@@ -23,7 +23,7 @@ All changes go through an enforced pipeline. Do not commit code straight to the 
 2. **Adversarial review of the issue** — independent reviewers attack the issue against the standard before any code is written. See `standards/adversarial-review-protocol.md`.
 3. **Implement** — an implementer agent writes the change to satisfy the issue's acceptance criteria.
 4. **Adversarial review of the PR** — independent reviewers attack the implementation against the issue and the standards.
-5. **Commit / PR** — only after review passes. Push the branch, open a pull request (`gh pr create`), watch CI to green, then merge (bug / security / refactor / correctness / tests) or leave the PR open for the owner (visual / product-direction — owner merge boundary). The `.githooks/pre-commit` hook and the scripts in `tools/` enforce the gates locally.
+5. **Commit / PR** — only after review passes. Push the branch, open a pull request (`gh pr create`), watch CI to green, then merge — every change type, including visual / product-direction, merges once adversarial review has passed and CI is green. The `.githooks/pre-commit` hook and the scripts in `tools/` enforce the gates locally.
 
 Standards live in `standards/`. Agent definitions live in `agents/`. Both are ported in separately; treat them as the source of truth and point to them rather than restating them.
 

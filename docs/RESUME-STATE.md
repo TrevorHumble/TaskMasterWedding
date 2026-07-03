@@ -20,15 +20,15 @@ Verified live over real HTTP: every page returns 200 with the serif/heart/green 
 
 **Prototype is ready for user testing.** The design is done and the top privacy hole is closed. Remaining items below are production-hardening (for the live wedding Aug 7) and new features, not alpha-test blockers.
 
-## The owner's standing directives (unchanged)
+## The owner's standing directives
 
-- **Merge boundary:** auto-merge bug fixes / security / refactor / tests / correctness + the _functional_ part of builds on adversarial-review PASS + green CI; **leave visual-design / product-direction changes as an open PR for the owner.** NOTE: for this session the owner explicitly authorized the full redesign to merge (so the alpha is testable); he remains the final visual eye and should eyeball the live result.
+- **Merge policy:** all change types — bug fixes, security, refactor, tests, correctness, and visual / product-direction — auto-merge on adversarial-review PASS + green CI (owner pre-merge gate retired 2026-07-02; see the "Merge policy" decision in `DESIGN.md`). The owner reviews the live result after the fact and can request changes or revert; owner control is upstream (issue-speccing), not a pre-merge gate.
 - **5 derived decisions:** contained-sharing → lean ("after-party section, hidden until unlocked"); task changes → next-tap; new-feature UI → existing theme, minimal; test fixtures → generate a real image; admin password value stays the owner's (fix code only).
 - **OPEN owner question (non-blocking):** couple-name spelling. The design system says **"Lillian & Axel" / "Lilly & Axel"**; repo docs say **"Lily Sckeiky."** The redesign uses the design system's spelling. One-line sweep to change if the owner says otherwise.
 
 ## The pipeline every change goes through (do not skip)
 
-Per `CLAUDE.md` / `AGENTS.md` / `standards/`: file a GitHub issue (issue-standards) → independent **Opus** adversarial review of the issue (de-biased: goal not mechanisms, assume failure, cite evidence, PASS/FAIL) → **Sonnet** implements → independent **Opus** adversarial review of the PR (MUST run `npm test` itself) → commit through the gate (`git add -A`; `tools/review_verdict.ps1 -Verdict PASS -Reviewers "..."` binds the verdict to `git write-tree`; `git commit -F data/commitmsg-*.txt`) → push → `gh pr create --body-file` → watch CI → merge or leave-open per the boundary. System-level changes need two reviewers, both PASS.
+Per `CLAUDE.md` / `AGENTS.md` / `standards/`: file a GitHub issue (issue-standards) → independent **Opus** adversarial review of the issue (de-biased: goal not mechanisms, assume failure, cite evidence, PASS/FAIL) → **Sonnet** implements → independent **Opus** adversarial review of the PR (MUST run `npm test` itself) → commit through the gate (`git add -A`; `tools/review_verdict.ps1 -Verdict PASS -Reviewers "..."` binds the verdict to `git write-tree`; `git commit -F data/commitmsg-*.txt`) → push → `gh pr create --body-file` → watch CI → merge on green CI. System-level changes need two reviewers, both PASS.
 
 ## Backlog remaining (priority order)
 
@@ -36,11 +36,11 @@ Per `CLAUDE.md` / `AGENTS.md` / `standards/`: file a GitHub issue (issue-standar
 
 **Correctness cluster (auto-merge):** centralize scoring/points + bonus-clamp; de-scaffold the `mountRouterIfPresent` bootstrap in `app.js`; single-source upload config (config.js `MAX_UPLOAD_BYTES` 12 MB vs photos.js 15 MB mismatch; avatar parity; thumb naming); delete orphan photo files on task deletion; admin views render their own `<p class="flash">` for `msg` (minor dup-flash, cosmetic).
 
-**Goal-builds (leave as open PRs for owner — UI/product):** contained sharing (lean after-party section) + hide/move/delete moderation (now unblocked by the real-takedown fix); host-curated favorites → end-of-night slideshow; prizes the hosts set, shown to guests.
+**Goal-builds (UI/product):** contained sharing (lean after-party section) + hide/move/delete moderation (now unblocked by the real-takedown fix); host-curated favorites → end-of-night slideshow; prizes the hosts set, shown to guests.
 
 **Durability (auto-merge):** expand the test suite toward ~80% meaningful coverage + ramp the CI coverage gate; move the in-memory ZIP+xlsx export off the request thread.
 
-**UX (mostly leave for owner):** tap-target/button spacing (owner wants this); forced-camera `capture` removal; client-side upload validation + HEIC accept.
+**UX:** tap-target/button spacing (owner wants this); forced-camera `capture` removal; client-side upload validation + HEIC accept.
 
 **Dependabot:** 14 open PRs (#2–#15). Merge low-risk action/minor bumps; hold risky majors (ejs 3→6, eslint 9→10, multer 1→2, better-sqlite3, sharp, archiver) until verified against the suite.
 
@@ -59,7 +59,7 @@ Per `CLAUDE.md` / `AGENTS.md` / `standards/`: file a GitHub issue (issue-standar
 
 1. Read this file + [`north-star.md`](north-star.md) + `standards/`.
 2. `gh issue list` / `gh pr list` for live state; confirm `main` is green.
-3. Pick the highest-priority remaining backlog item; run the full pipeline; auto-merge or leave-for-owner per the boundary.
+3. Pick the highest-priority remaining backlog item; run the full pipeline; merge on green CI (adversarial-review PASS + green checks).
 4. Update this file at each pause.
 
 ## Live log
