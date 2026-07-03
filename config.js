@@ -91,12 +91,6 @@ const config = {
   PUBLIC_DIR: path.join(ROOT, 'src', 'public'),
   VIEWS_DIR: path.join(ROOT, 'src', 'views'),
 
-  // Upload / image settings (used by section 05; defined here so all config
-  // lives in one place)
-  MAX_UPLOAD_BYTES: 12 * 1024 * 1024, // 12 MB
-  THUMB_WIDTH: 400,
-  ALLOWED_MIME: ['image/jpeg', 'image/png', 'image/webp'],
-
   // Maintenance mode — set MAINTENANCE=1 or MAINTENANCE=true in the environment
   // to serve a 503 page to guests while /admin remains reachable.
   MAINTENANCE: process.env.MAINTENANCE === '1' || process.env.MAINTENANCE === 'true',
@@ -104,17 +98,6 @@ const config = {
   // Admin login throttling
   ADMIN_LOGIN_MAX_ATTEMPTS: parseInt(process.env.ADMIN_LOGIN_MAX_ATTEMPTS, 10) || 10,
   ADMIN_LOGIN_LOCKOUT_MS: parseInt(process.env.ADMIN_LOGIN_LOCKOUT_MS, 10) || 15 * 60 * 1000,
-
-  // Auto-badge thresholds — THE single source of truth for these numbers.
-  // scoring.js (section 06) imports BADGE_THRESHOLDS from this config instead
-  // of redefining it, and guest.js (section 04) consumes the same export.
-  // Shape: an ordered array of { code, n } so callers can both look a value up
-  // by code and iterate thresholds in ascending order.
-  BADGE_THRESHOLDS: [
-    { code: 'BLOOM', n: 5 },
-    { code: 'BOUQUET', n: 10 },
-    { code: 'GARDEN', n: 15 },
-  ],
 };
 
 // ---- Lowercase aliases (backwards compatibility ONLY) ----------------------
@@ -132,10 +115,6 @@ config.exportsDir = config.EXPORTS_DIR;
 config.adminHashPath = config.ADMIN_HASH_PATH;
 config.publicDir = config.PUBLIC_DIR;
 config.viewsDir = config.VIEWS_DIR;
-config.maxUploadBytes = config.MAX_UPLOAD_BYTES;
-config.thumbWidth = config.THUMB_WIDTH;
-config.allowedMime = config.ALLOWED_MIME;
-config.badgeThresholds = config.BADGE_THRESHOLDS;
 config.maintenance = config.MAINTENANCE;
 
 module.exports = config;
