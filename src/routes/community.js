@@ -3,7 +3,7 @@
 
 const express = require('express');
 const { db } = require('../db');
-const { attachGuest } = require('../middleware/session');
+const { attachGuest, requireGuest } = require('../middleware/session');
 const scoring = require('../services/scoring');
 const feed = require('../services/feed');
 
@@ -99,6 +99,48 @@ function loadGuestBadges(guestId) {
     .all(guestId);
 }
 
+/**
+ * Attach a `like_count` to each photo in place, in one grouped query rather
+ * than one query per photo. The count is computed only over the submission ids
+ * the feed already handed us — those rows are already visible because they came
+ * from feed.allVisible(), which owns the taken_down = 0 rule. Visibility stays
+ * owned by feed.js; this function never re-types the takedown rule. A like on a
+ * taken-down photo is therefore never counted, because that photo's id is not
+ * in the list.
+ * Photos with zero likes get 0, not undefined, so the view never has to branch
+ * on a missing field.
+ */
+function attachLikeCounts(photos) {
+  if (photos.length === 0) {
+    return photos;
+  }
+  const placeholders = photos.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT submission_id AS submission_id, COUNT(*) AS n
+         FROM likes
+        WHERE submission_id IN (${placeholders})
+        GROUP BY submission_id`
+    )
+    .all(...photos.map((p) => p.submission_id));
+
+  const countsById = new Map(rows.map((r) => [r.submission_id, r.n]));
+  for (const p of photos) {
+    p.like_count = countsById.get(p.submission_id) || 0;
+  }
+  return photos;
+}
+
+/**
+ * Has this guest already liked this submission? Used by the toggle route to
+ * decide insert vs. delete.
+ */
+function hasLiked(submissionId, guestId) {
+  return !!db
+    .prepare(`SELECT 1 FROM likes WHERE submission_id = ? AND guest_id = ?`)
+    .get(submissionId, guestId);
+}
+
 // ---------------------------------------------------------------------------
 // GET /gallery  — the shared photo wall.
 //
@@ -181,8 +223,44 @@ router.get('/gallery', (req, res) => {
 // a paginated or grouped view.
 // ---------------------------------------------------------------------------
 router.get('/feed', (req, res) => {
-  const photos = feed.allVisible();
+  const photos = attachLikeCounts(feed.allVisible());
   return res.render('feed', { title: 'Feed', photos });
+});
+
+// ---------------------------------------------------------------------------
+// POST /p/:submissionId/like  — toggle the signed-in guest's like on a photo.
+//
+// Guest-only (requireGuest 403s anonymous requests before this handler runs,
+// so no likes row is ever created for AC4). One like per guest per photo is
+// the schema's job (UNIQUE (submission_id, guest_id)) — this handler just
+// decides which half of the toggle to run: a row already exists → remove it;
+// otherwise add it. A taken-down or missing submission 404s, mirroring the
+// GET /p/:submissionId handler below.
+// ---------------------------------------------------------------------------
+router.post('/p/:submissionId/like', requireGuest, (req, res) => {
+  const submissionId = parseInt(req.params.submissionId, 10);
+  if (!Number.isInteger(submissionId) || submissionId < 1) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  const photo = feed.detail(submissionId);
+  if (!photo) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  if (hasLiked(submissionId, req.guest.id)) {
+    db.prepare(`DELETE FROM likes WHERE submission_id = ? AND guest_id = ?`).run(
+      submissionId,
+      req.guest.id
+    );
+  } else {
+    db.prepare(`INSERT OR IGNORE INTO likes (submission_id, guest_id) VALUES (?, ?)`).run(
+      submissionId,
+      req.guest.id
+    );
+  }
+
+  return res.redirect('/feed#photo-' + submissionId);
 });
 
 // ---------------------------------------------------------------------------

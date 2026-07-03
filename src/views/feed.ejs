@@ -25,9 +25,16 @@
             <p class="feed-caption"><%= p.caption %></p>
           <% } %>
         </div>
-        <!-- Placeholder for the future like/comment/points controls (separate
-             follow-up issues). Ships empty in this issue. -->
-        <div class="feed-actionbar"></div>
+        <!-- Comment and per-photo-points controls are separate follow-up
+             issues; this action bar carries only the like control for now. -->
+        <div class="feed-actionbar">
+          <span class="like-count"><%= p.like_count %> <%= p.like_count === 1 ? 'like' : 'likes' %></span>
+          <% if (guest) { %>
+            <form method="post" action="/p/<%= p.submission_id %>/like" class="like-form">
+              <button type="submit" class="like-button" aria-label="Like this photo">&hearts;</button>
+            </form>
+          <% } %>
+        </div>
       </article>
     <% }); %>
   </div>
