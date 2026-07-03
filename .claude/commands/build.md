@@ -54,12 +54,11 @@ powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id
 
 Then `git commit -F data/commitmsg-*.txt` with `(#N)` in the message. **Two gates run:** `pre-commit` checks the staged tree has a PASS review; `commit-msg` checks the issue has a recorded review PASS. Both must pass. If `commit-msg` blocks with "issue N has no recorded review PASS", the fix is to record the issue review above — never to forge a verdict. Append one line to `BUILDLOG.md`.
 
-**7 — Ship: push → PR → CI → merge or leave open.** Push the branch and open a pull request:
+**7 — Ship: push → PR → CI → merge on green.** Push the branch and open a pull request:
 
 Then push and open the PR: `"C:\Program Files\GitHub CLI\gh.exe" pr create --body-file data/<body-file>`. Watch CI to green. Then:
 
-- **Bug fix / security fix / refactor / correctness / tests:** merge when CI passes.
-- **Visual or product-direction change:** leave the PR open for the owner. This is the merge boundary — the owner, not the orchestrator, merges those.
+- **Every change type — bug fix, security fix, refactor, correctness, tests, visual, product-direction:** merge once the adversarial review has passed and CI is green. The owner does not perform merges; owner control is upstream (issue-speccing) and downstream (revert via git history).
 
 `main` is never knowingly left red. If CI goes red, fix the cause or revert the commit before proceeding. Then close the GitHub issue referencing the commit and spawn `agents/reviewer-tracker-sync.md` (Opus) to confirm the board is in sync.
 

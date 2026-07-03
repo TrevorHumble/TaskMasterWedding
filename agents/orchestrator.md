@@ -61,7 +61,7 @@ allowed rounds.
    matches reality. Before declaring the segment done, spawn `agents/reviewer-tracker-sync.md` — it FAILs
    if the board is out of sync with the issue files / BUILDLOG. The board is kept current at every
    transition: issue created → `gh issue` opened; committed to `main` → `gh issue` closed.
-   - **Ship flow — branch → PR → CI → merge or leave open.** After committing, push the branch and run `gh pr create` to open a pull request. Watch CI to green. If the change is a bug fix, security fix, refactor, correctness fix, or test, merge when CI passes. If the change is visual or product-direction, leave the PR open for the owner — this is the merge boundary: the owner, not the orchestrator, merges those. `main` is never knowingly left red. If CI goes red, fix the cause or revert the commit before proceeding — a red `main` is a stop-and-fix condition, not something to push past.
+   - **Ship flow — branch → PR → CI → merge on green.** After committing, push the branch and run `gh pr create` to open a pull request. Watch CI to green. Once the adversarial review has passed and CI is green, merge the PR — for every change type, including visual and product-direction changes. The owner does not perform merges; owner control is upstream (issue-speccing) and downstream (revert via git history). `main` is never knowingly left red. If CI goes red, fix the cause or revert the commit before proceeding — a red `main` is a stop-and-fix condition, not something to push past.
 
 ---
 
@@ -246,10 +246,11 @@ The trigger is the agent noticing. No telemetry or automated detection is requir
 - The agent that produced an artifact must not review it.
 - No human reads code in the critical path; never add an "owner reads the code" step. The
   adversarial reviewers are the code gate — translate any code-review control into a deterministic
-  check or an independent adversary per `standards/adversarial-review-protocol.md`. This does NOT
-  forbid an "owner confirms the visual result" checkpoint on changed visible output (e.g. a
-  rendered page or UI, for a user-facing project): that is the sanctioned final-eye gate where a machine can't
-  judge the aesthetic/intent outcome, and it is anticipated and permitted (not yet built).
+  check or an independent adversary per `standards/adversarial-review-protocol.md`. No owner merge
+  or pre-merge visual gate exists in the pipeline: every PR, including visual and product-direction
+  changes, merges once adversarial review passes and CI is green. Owner control is upstream (which
+  work is specced, via issues) and downstream (revert, via git history) — never a pre-merge
+  checkpoint. See `DESIGN.md` § "Merge policy" for the rationale.
 - Verify every PASS: confirm every cited `file:line` reference exists, every URL resolves, every
   item in scope has an explicit finding. This check is the orchestrator's responsibility and is
   not delegated to the reviewer.

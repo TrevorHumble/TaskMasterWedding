@@ -1,6 +1,6 @@
 # What a green build actually proves
 
-Plain-English guide for the owner. This explains what a passing build checks for this app — and the one thing it cannot check, where you remain the final eye.
+Plain-English guide for the owner. This explains what a passing build checks for this app — and the one thing it cannot check, where you remain the eye after the fact.
 
 ---
 
@@ -33,12 +33,12 @@ The commit gate proves a passing review was recorded for the exact code being co
 
 ---
 
-## What the checks cannot answer — where you are the final eye
+## What the checks cannot answer — where you are the eye after the fact
 
 A machine can confirm the math is right. It cannot confirm the result **looks** right or that it is what you **meant**.
 
 Every build that changes something a guest or admin sees produces a result you can look at — a rendered page, a flow through the app. The checks above guarantee the logic is correct. The question they cannot answer is: _is this what I wanted?_ That judgment is yours, as the owner.
 
-The orchestrator's pipeline flags visual and product-direction changes as open pull requests waiting for your approval before they merge into the main codebase. Bug fixes, security fixes, and under-the-hood correctness work merge automatically on a green build. Anything that changes what the app looks like or how it behaves comes to you first.
+Every change type — bug fixes, security fixes, under-the-hood correctness work, and visual or product-direction changes alike — merges automatically once the adversarial review passes and the build is green. Visual and product-direction changes are not held open for your approval first; you review the live result after the fact and can request changes or revert if it isn't what you wanted. Your control is upstream (which work gets specced, via issues) and downstream (revert, via git history), not a pre-merge checkpoint.
 
-**Green means the work is correct and built to standard. Whether it is the right work is still your eye.**
+**Green means the work is correct and built to standard. Whether it is the right work is still your eye — just after it has already shipped.**
