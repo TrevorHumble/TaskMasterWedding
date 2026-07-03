@@ -20,9 +20,8 @@
     </div>
 
     <div class="form-row">
-      <label class="form-label" for="avatar">Profile photo (optional)</label>
-      <input class="form-input" type="file" id="avatar" name="avatar"
-             accept="image/jpeg,image/png,image/webp">
+      <span class="form-label">Profile photo (optional)</span>
+      <%- include('partials/upload-field', { id: 'avatar', name: 'avatar', accept: 'image/jpeg,image/png,image/webp' }) %>
       <p class="form-help">A selfie or any picture of you. You can add or change this later.</p>
     </div>
 
@@ -51,5 +50,7 @@
 
     <button class="btn btn--primary" type="submit">Start the hunt</button>
   </form>
+
+  <script src="/js/upload-filename.js" defer></script>
 
 <%- include('partials/footer') %>

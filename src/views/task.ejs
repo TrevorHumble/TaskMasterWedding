@@ -33,14 +33,8 @@
           enctype="multipart/form-data">
 
       <div class="form-row">
-        <label for="photo" class="form-label">Choose a photo</label>
-        <input type="file"
-               id="photo"
-               name="photo"
-               accept="image/*"
-               capture="environment"
-               required
-               class="file-input" />
+        <span class="form-label">Choose a photo</span>
+        <%- include('partials/upload-field', { id: 'photo', name: 'photo', accept: 'image/*', capture: 'environment', required: true }) %>
       </div>
 
       <!-- Live preview target; filled by /js/upload.js -->
@@ -67,6 +61,7 @@
 
   <!-- Direct include of the preview script (belt-and-suspenders alongside
        the footer's page-script mechanism; see section intro note). -->
+  <script src="/js/upload-filename.js" defer></script>
   <script src="/js/upload.js" defer></script>
 
 <%- include('partials/footer') %>
