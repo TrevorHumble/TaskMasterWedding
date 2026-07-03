@@ -1915,3 +1915,59 @@ input[type='file'],
     margin-inline: auto;
   }
 }
+
+/* ----------------------- Message card -----------------------
+   Standalone themed page (partials/message-card.ejs): the shared card for
+   every access-gate or error page — 404, "private link needed" (403),
+   unknown token (404), server error (500), maintenance (503). Distinct
+   from .card (an in-app dashboard component) — this one centers full-page
+   with no header/nav around it. */
+.message-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--gutter);
+}
+.message-card {
+  background: var(--color-surface);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  max-width: 28rem;
+  width: 100%;
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+}
+.message-card-heart {
+  display: inline-block;
+  margin-bottom: var(--space-3);
+}
+.message-card-heading {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  color: var(--color-heading);
+  letter-spacing: var(--tracking-display);
+  margin: 0.2em 0 0.4em;
+}
+.message-card-body {
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--color-text-muted);
+  margin: 0.5em 0;
+}
+.message-card-body code {
+  background: var(--color-bg);
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-input);
+  word-break: break-all;
+  font-family: inherit;
+}
+.message-card-body a {
+  color: var(--color-primary);
+}
+.message-card-hint {
+  font-size: var(--fs-small);
+  color: var(--color-hairline);
+}

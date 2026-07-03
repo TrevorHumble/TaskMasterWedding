@@ -1,0 +1,63 @@
+<%# src/views/partials/message-card.ejs %>
+<%#
+  Standalone themed "message card" page — the one place the brand card
+  (heart + heading + body copy) is assembled. Used for every access-gate or
+  error page (404, 403 "private link needed", 500, 503) so a brand change is
+  one edit instead of five.
+
+  Renders entirely from named locals. Does NOT read res.locals.guest — it
+  must be safe to render for signed-out visitors and from middleware that
+  runs before a guest is known.
+
+  Locals (all optional except heading):
+    title      - <title> text. Defaults to head.ejs's own default.
+    heading    - card heading (required). Rendered RAW (not HTML-escaped) so
+                 copy like "We'll be right back" is not mangled into "&#39;".
+                 Every caller in this repo passes static, repo-authored copy —
+                 NEVER pass a value derived from request input here.
+    paragraphs - array of paragraph specs, each either:
+                   a string                       -> escaped text
+                   { text, code, after }          -> text, then an inline
+                                                      <code> segment, then an
+                                                      optional trailing string
+                                                      (e.g. '.'); text/code/after
+                                                      are all escaped — code is
+                                                      the only piece of this that
+                                                      may carry user input (e.g.
+                                                      req.originalUrl), so it MUST
+                                                      stay on the escaped path
+                   { html: true, text }            -> pre-escaped/trusted markup
+                                                      (only for copy authored in
+                                                      this repo, never user input)
+    links      - array of { href, text } shown as a list of card links.
+    hint       - optional small muted line under the links (plain text, escaped).
+%>
+<%
+  var _paragraphs = (typeof paragraphs !== 'undefined' && Array.isArray(paragraphs)) ? paragraphs : [];
+  var _links = (typeof links !== 'undefined' && Array.isArray(links)) ? links : [];
+  var _hint = (typeof hint !== 'undefined' && hint) ? hint : null;
+%>
+<%- include('head', { title: (typeof title !== 'undefined' ? title : undefined) }) %>
+  <div class="message-page">
+    <div class="message-card">
+      <div class="message-card-heart" style="color:var(--color-primary);"><%- include('heart', { size: 32 }) %></div>
+      <h1 class="message-card-heading"><%- heading %></h1>
+      <% _paragraphs.forEach(function (p) { %>
+        <% if (typeof p === 'string') { %>
+          <p class="message-card-body"><%= p %></p>
+        <% } else if (p && p.html) { %>
+          <p class="message-card-body"><%- p.text %></p>
+        <% } else if (p && typeof p.code !== 'undefined') { %>
+          <p class="message-card-body"><%= p.text %> <code><%= p.code %></code><%= (typeof p.after !== 'undefined' && p.after) ? p.after : '' %></p>
+        <% } %>
+      <% }); %>
+      <% _links.forEach(function (link) { %>
+        <p class="message-card-body"><a href="<%= link.href %>"><%= link.text %></a></p>
+      <% }); %>
+      <% if (_hint) { %>
+        <p class="message-card-hint"><%= _hint %></p>
+      <% } %>
+    </div>
+  </div>
+</body>
+</html>
