@@ -16,13 +16,40 @@
 # kind gets its own single-writer to keep the self-attestation surface isolated — a
 # shared writer would let one script fabricate another's evidence.
 #
+# -SelfCertify (issue #203): writes a passing bias-gate artifact attributed to
+# fable-self, per standards/adversarial-review-protocol.md "## Fable self-certification
+# (full exception)". A Fable-certified system-level tree does not additionally require
+# an independent bias-gate agent run. The gate_id is fixed to 'fable-self' (not
+# free-text) so the record is honestly distinguishable from an independent gate
+# agent's run in the audit trail. -SelfCertify is mutually exclusive with -GateId /
+# -Verdict — it always writes GateId='fable-self', Verdict='PASS'.
+#
 # Windows PowerShell 5.1-compatible: no ternary, no ??, no &&, no ||.
 param(
   [Parameter(Mandatory = $true)][string]$TreeOid,
-  [Parameter(Mandatory = $true)][string]$GateId,
-  [Parameter(Mandatory = $true)][ValidateSet('PASS', 'FAIL')][string]$Verdict,
+  [string]$GateId,
+  [ValidateSet('PASS', 'FAIL')][string]$Verdict,
+  [switch]$SelfCertify,
   [string]$BiasGateRoot = ''
 )
+
+if ($SelfCertify) {
+  if ($GateId -or $Verdict) {
+    [Console]::Error.WriteLine('persist-bias-gate: -SelfCertify is mutually exclusive with -GateId / -Verdict')
+    exit 1
+  }
+  $GateId = 'fable-self'
+  $Verdict = 'PASS'
+} else {
+  if (-not $GateId) {
+    [Console]::Error.WriteLine('persist-bias-gate: -GateId is required unless -SelfCertify is passed')
+    exit 1
+  }
+  if (-not $Verdict) {
+    [Console]::Error.WriteLine('persist-bias-gate: -Verdict is required unless -SelfCertify is passed')
+    exit 1
+  }
+}
 
 $top = "$(& git rev-parse --show-toplevel 2>$null)".Trim()
 if (-not $top) { [Console]::Error.WriteLine('persist-bias-gate: not inside a git repo'); exit 1 }
