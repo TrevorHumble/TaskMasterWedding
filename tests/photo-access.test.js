@@ -13,8 +13,8 @@ const { loadApp } = require('./helpers/testApp');
 
 // ---------------------------------------------------------------------------
 // Realistic stored filenames (must match allowlist regex).
-// Original:  ^[0-9a-f]{16}-\d+\.(jpg|png|webp|heic)$
-// Thumb:     ^[0-9a-f]{16}-\d+\.(jpg|png|webp|heic)\.jpg$
+// Original:  ^[0-9a-f]{16}-\d+\.(jpg|png|webp)$
+// Thumb:     ^[0-9a-f]{16}-\d+\.(jpg|png|webp)\.jpg$
 // ---------------------------------------------------------------------------
 const PHOTO_NAME = 'a1b2c3d4e5f60718-1719500000000.jpg';
 const THUMB_NAME = 'a1b2c3d4e5f60718-1719500000000.jpg.jpg';
