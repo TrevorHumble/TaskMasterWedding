@@ -37,15 +37,6 @@ const scoring = require('../services/scoring');
 // maps the returned status to a response; see the handler below.
 const submissions = require('../services/submissions');
 
-// Numeric auto-badge thresholds derived from the {code,n} catalog.
-// e.g. BADGE_THRESHOLDS = [{code:'BLOOM',n:5},{code:'BOUQUET',n:10},{code:'GARDEN',n:15}]
-// -> AUTO_THRESHOLDS = [5, 10, 15]
-const AUTO_THRESHOLDS = scoring.BADGE_THRESHOLDS.map(function (t) {
-  return t.n;
-}).sort(function (a, b) {
-  return a - b;
-});
-
 // ---------------------------------------------------------------------------
 // Small local helper: set a one-shot flash message.
 // Section 03's attachGuest reads the signed `flash` cookie into
@@ -70,8 +61,8 @@ router.use(requireGuest);
 
 // ---------------------------------------------------------------------------
 // GET /  — the guest's own home / profile page.
-// Shows: points, badges (with art), completed vs total tasks, and a
-// progress bar toward the next auto badge.
+// Shows: points, badges (with art), and a task-completion progress bar
+// (completed tasks vs total active tasks).
 // ---------------------------------------------------------------------------
 router.get('/', function (req, res) {
   const guest = res.locals.guest;
@@ -103,36 +94,20 @@ router.get('/', function (req, res) {
     )
     .all(guest.id);
 
-  // Progress to next auto badge.
-  // AUTO_THRESHOLDS is [5, 10, 15]. Find the first threshold the guest has
-  // not yet reached. If they've reached the highest, they're maxed out.
-  let nextThreshold = null;
-  for (let i = 0; i < AUTO_THRESHOLDS.length; i++) {
-    if (completedTasks < AUTO_THRESHOLDS[i]) {
-      nextThreshold = AUTO_THRESHOLDS[i];
-      break;
-    }
-  }
-  // The previous threshold (lower bound of the current band) so the bar
-  // fills from the last badge to the next, not from zero each time.
-  let prevThreshold = 0;
-  for (let i = 0; i < AUTO_THRESHOLDS.length; i++) {
-    if (AUTO_THRESHOLDS[i] <= completedTasks) {
-      prevThreshold = AUTO_THRESHOLDS[i];
-    }
-  }
-
-  let progressPercent;
-  let remainingToNext;
-  if (nextThreshold === null) {
-    progressPercent = 100;
-    remainingToNext = 0;
-  } else {
-    const span = nextThreshold - prevThreshold;
-    const into = completedTasks - prevThreshold;
-    progressPercent = Math.max(0, Math.min(100, Math.round((into / span) * 100)));
-    remainingToNext = nextThreshold - completedTasks;
-  }
+  // Progress bar reflects task completion (X of Y), not badge thresholds —
+  // the "next badge" framing was removed because it contradicted this bar
+  // whenever the highest badge threshold was unreachable given the active
+  // task count (see issue #88).
+  //
+  // Clamp to [0,100]: completedTasks uses the canonical count (visible
+  // submissions, NO is_active filter) while totalTasks counts only active
+  // tasks, so a guest who completed a task the admin later deactivated can
+  // have completedTasks > totalTasks. Without the clamp that overflows the
+  // bar's width and pushes aria-valuenow past aria-valuemax="100".
+  const progressPercent =
+    totalTasks === 0
+      ? 0
+      : Math.max(0, Math.min(100, Math.round((completedTasks / totalTasks) * 100)));
 
   res.render('guest-home', {
     title: 'My Garden',
@@ -141,8 +116,6 @@ router.get('/', function (req, res) {
     submissions: submissions,
     totalTasks: totalTasks,
     completedTasks: completedTasks,
-    nextThreshold: nextThreshold,
-    remainingToNext: remainingToNext,
     progressPercent: progressPercent,
   });
 });

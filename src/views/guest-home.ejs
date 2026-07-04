@@ -23,13 +23,6 @@
   </section>
 
   <section class="progress-section">
-    <p class="progress-label">
-      <% if (nextThreshold === null) { %>
-        You have earned every auto badge.
-      <% } else { %>
-        <%= remainingToNext %> more task<%= remainingToNext === 1 ? '' : 's' %> to your next badge (at <%= nextThreshold %> tasks)
-      <% } %>
-    </p>
     <div class="progress" role="progressbar"
          aria-valuenow="<%= progressPercent %>" aria-valuemin="0" aria-valuemax="100">
       <div class="progress-fill" style="width: <%= progressPercent %>%;"></div>
