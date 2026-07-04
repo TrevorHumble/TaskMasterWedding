@@ -317,6 +317,14 @@ Expected: Both attempts are rejected with a clear, human-readable error message 
 
 - [ ] Pass/fail
 
+### X2b. Real-phone uploads: HEIC is either transcoded or rejected with instructions (issue #188)
+
+Steps: From a **real iPhone**, upload a camera-roll photo to a task twice — once picking from the Photos app, once picking the same photo via the Files app. Then repeat from a **real Android phone** (Samsung if available) using its default picker. Use photos taken with the phone's default camera settings (iPhones produce HEIC by default).
+
+Expected: Every attempt ends in one of exactly two outcomes — the photo uploads and its thumbnail appears (the picker transcoded it to JPEG), or it is rejected with the actionable message telling you to take a screenshot or switch the camera to "Most Compatible". **Never** the dead-end "could not save that photo. Please try again."
+
+- [ ] Pass/fail
+
 ### X3. Admin login locks out after repeated failed attempts
 
 Steps: On `/admin/login`, deliberately enter the wrong password several times in a row (10+).

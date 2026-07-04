@@ -9,7 +9,9 @@
 //   - Configure multer MEMORY storage for avatar intake (field name "avatar"), shared
 //     by both onboarding (auth.js) and profile-edit (guest.js) so avatar bytes always
 //     arrive as req.file.buffer through the ONE mechanism (issue #122).
-//   - Validate type (jpeg/png/webp/heic) and size (15 MB) with clear errors.
+//   - Validate type (jpeg/png/webp) and size (15 MB) with clear errors.
+//     HEIC/HEIF is deliberately REJECTED with actionable copy — see the
+//     allowlist note below (issue #188).
 //   - makeThumb(originalPath): sharp -> width-400 JPEG written to THUMBS_DIR.
 //   - saveAvatar(buffer, guestId): persist an avatar that arrives as a Buffer
 //     (via the uploadAvatar middleware below), writing it to UPLOADS_DIR and
@@ -38,7 +40,7 @@
 // CONSTANTS OWNERSHIP: this file is the single source of truth for MAX_UPLOAD_BYTES,
 // THUMB_WIDTH, and the allowed image types. config.js only supplies UPLOADS_DIR/THUMBS_DIR.
 //
-// sharp@0.33.5 installs PREBUILT libvips binaries for Windows x64 on Node 20 — no build
+// sharp@0.35.2 installs PREBUILT libvips binaries for Windows x64 on Node 20 — no build
 // tools (Visual Studio / node-gyp) are required.
 
 'use strict';
@@ -72,21 +74,34 @@ const THUMB_WIDTH = 400;
 const THUMB_JPEG_QUALITY = 78;
 
 // Accepted upload MIME types -> the file extension we store the original under.
-// HEIC is what iPhones produce by default and acceptance is INTENTIONAL so guests
-// uploading straight from an iPhone are not rejected. We store HEIC originals as-is
-// (.heic) and let sharp convert to JPEG only for the thumbnail.
+//
+// HEIC/HEIF is deliberately ABSENT (issue #188). The prebuilt sharp binaries
+// this app runs on cannot decode real iPhone/Samsung HEIC: their bundled
+// libheif has only an AV1 decoder (sharp.format.heif.input.fileSuffix ===
+// ['.avif']), and HEVC is excluded for patent-licensing reasons. Accepting
+// HEIC would store an original that can never be thumbnailed (makeThumb
+// throws) and that most browsers cannot display. Do NOT re-add HEIC here
+// without shipping an HEVC-capable libvips; the fileFilter below rejects it
+// with copy that tells the guest what to do instead.
 const ALLOWED_MIME_TO_EXT = {
   'image/jpeg': '.jpg',
   'image/jpg': '.jpg', // some browsers/devices report this non-standard value
   'image/pjpeg': '.jpg', // progressive JPEG variant some clients send
   'image/png': '.png',
   'image/webp': '.webp',
-  'image/heic': '.heic',
-  'image/heif': '.heic',
 };
 
 // Human-readable list for error messages.
-const ALLOWED_LABEL = 'JPEG, PNG, WebP, or HEIC';
+const ALLOWED_LABEL = 'JPEG, PNG, or WebP';
+
+// HEIC/HEIF mimetypes get their own rejection copy: the generic "not allowed"
+// message would leave iPhone/Samsung guests stuck, since their camera produces
+// HEIC by default. Issue #188 binds tests to the phrases "photo format",
+// "screenshot", and "Most Compatible"; keep them if the copy is reworded.
+const HEIC_MIMES = new Set(['image/heic', 'image/heif']);
+const HEIC_REJECTION_MESSAGE =
+  "That photo format (HEIC) can't be uploaded here. Take a screenshot of the photo " +
+  "and upload that, or switch your camera to 'Most Compatible' in Settings → Camera → Formats.";
 
 // ---------------------------------------------------------------------------
 // Resolve the storage directories from config and make sure they exist.
@@ -139,13 +154,21 @@ const storage = multer.diskStorage({
  * Reject anything that is not one of our accepted image types.
  * On rejection we pass an Error whose .message is safe to show the guest, and we
  * tag it with .code = 'BAD_IMAGE_TYPE' so the route can detect it specifically.
+ * HEIC/HEIF gets dedicated actionable copy (issue #188): the routes flash
+ * err.message, so the guest-facing remedy lives here, in the single place the
+ * rejection is decided. This filter is shared by the task-submission `upload`
+ * and the avatar `uploadAvatar` middlewares, so HEIC avatars are rejected too —
+ * intentionally: sharp cannot decode them either.
  */
 function fileFilter(req, file, cb) {
   if (ALLOWED_MIME_TO_EXT[file.mimetype]) {
     cb(null, true); // accept
     return;
   }
-  const err = new Error(`That file type is not allowed. Please upload a ${ALLOWED_LABEL} image.`);
+  const message = HEIC_MIMES.has(file.mimetype)
+    ? HEIC_REJECTION_MESSAGE
+    : `That file type is not allowed. Please upload a ${ALLOWED_LABEL} image.`;
+  const err = new Error(message);
   err.code = 'BAD_IMAGE_TYPE';
   cb(err, false); // reject
 }
@@ -196,18 +219,19 @@ const uploadAvatar = multer({
  * Notes:
  *  - We derive the thumb filename from the original's FULL filename + ".jpg" so the
  *    two files are trivially correlated on disk. This means a .jpg original named
- *    "ab12-...-1719.jpg" produces a thumb "ab12-...-1719.jpg.jpg" and a .heic original
- *    produces "<orig>.heic.jpg". The route stores EXACTLY this returned name in
+ *    "ab12-...-1719.jpg" produces a thumb "ab12-...-1719.jpg.jpg", a .webp original
+ *    "<orig>.webp.jpg". The route stores EXACTLY this returned name in
  *    submissions.thumb_path, so /thumbs/<thumb_path> always resolves to the real file.
  *  - sharp's .rotate() with no args applies EXIF orientation, so iPhone photos that
  *    were taken sideways come out upright in the thumbnail.
  *  - withoutEnlargement keeps small images from being upscaled past their real size.
- *  - sharp reads HEIC originals fine via its bundled libvips and outputs JPEG.
+ *  - HEIC never reaches this function: the fileFilter rejects it at intake because
+ *    prebuilt sharp has no HEVC decoder and would throw here (issue #188).
  */
 async function makeThumb(originalPath) {
   const absOriginal = path.resolve(originalPath);
   const originalBase = path.basename(absOriginal); // e.g. "ab12cd...-1719.jpg"
-  const thumbName = `${originalBase}.jpg`; // append .jpg so even .heic -> .heic.jpg
+  const thumbName = `${originalBase}.jpg`; // append .jpg so even .webp -> .webp.jpg
   const absThumb = path.join(THUMBS_DIR, thumbName);
 
   await sharp(absOriginal)
@@ -224,7 +248,7 @@ async function makeThumb(originalPath) {
 // Both routes run avatar bytes through the `uploadAvatar` middleware above
 // (multer memoryStorage, field "avatar"), so both have req.file.buffer and
 // call saveAvatar(req.file.buffer, guest.id). We write the bytes to UPLOADS_DIR
-// (re-encoding to a normalized JPEG so HEIC/odd avatars are viewable everywhere) and
+// (re-encoding to a normalized JPEG so oddly-encoded avatars are viewable everywhere) and
 // record the stored filename on the guests row. Returns the stored filename.
 // ---------------------------------------------------------------------------
 
@@ -237,7 +261,9 @@ const _setGuestAvatar = db.prepare('UPDATE guests SET avatar_path = ? WHERE id =
  * @returns {Promise<string>} the stored avatar filename (also written to guests.avatar_path)
  *
  * Notes:
- *  - We normalize to JPEG so a HEIC avatar from an iPhone is viewable in any browser.
+ *  - We normalize to JPEG so an oddly-encoded avatar is viewable in any browser.
+ *    (HEIC never reaches this function — the shared fileFilter rejects it at
+ *    intake; prebuilt sharp could not decode it anyway. Issue #188.)
  *  - .rotate() honors EXIF orientation just like makeThumb.
  *  - The avatar is stored in UPLOADS_DIR and served via the /uploads mount, so use
  *    urlForOriginal(avatar_path) to build its URL.
@@ -450,10 +476,10 @@ function deleteThumbFile(thumbPath) {
 // ---------------------------------------------------------------------------
 
 // Stored original / avatar filenames:  <16 hex chars>-<ms timestamp>.<ext>
-const ORIGINAL_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp|heic)$/i;
+const ORIGINAL_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)$/i;
 
 // Stored thumbnail filenames:  <16 hex chars>-<ms timestamp>.<ext>.jpg
-const THUMB_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp|heic)\.jpg$/i;
+const THUMB_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)\.jpg$/i;
 
 const _isTakenDownOriginal = db.prepare(
   `SELECT 1 FROM submissions

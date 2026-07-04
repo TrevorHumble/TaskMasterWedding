@@ -13,8 +13,8 @@
 // Filename convention: submissions.photo_path / thumb_path (and
 // guests.avatar_path) must match the storage-filename allowlist enforced by
 // src/services/photos.js's static-serve guards:
-//   ORIGINAL_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp|heic)$/i
-//   THUMB_RE    = /^[0-9a-f]{16}-\d+\.(jpg|png|webp|heic)\.jpg$/i
+//   ORIGINAL_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)$/i
+//   THUMB_RE    = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)\.jpg$/i
 // Any other name 404s when the gallery tries to load it. The MANIFEST below
 // uses fixed (non-random) 16-hex-char + numeric-stamp names so re-seeding is
 // idempotent and always matches whatever installSamplePhotos() wrote to disk.
