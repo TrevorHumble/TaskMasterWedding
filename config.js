@@ -104,6 +104,12 @@ const config = {
   // Admin login throttling
   ADMIN_LOGIN_MAX_ATTEMPTS: parseInt(process.env.ADMIN_LOGIN_MAX_ATTEMPTS, 10) || 10,
   ADMIN_LOGIN_LOCKOUT_MS: parseInt(process.env.ADMIN_LOGIN_LOCKOUT_MS, 10) || 15 * 60 * 1000,
+
+  // Leaderboard display — the maximum number of badge icons rendered on a
+  // single leaderboard row. Beyond this the row shows the first N icons plus a
+  // "+K" overflow chip, so a guest with a large collection never overflows the
+  // fixed-height row. Display-only; does not affect how many badges a guest holds.
+  LEADERBOARD_BADGE_CAP: parseInt(process.env.LEADERBOARD_BADGE_CAP, 10) || 8,
 };
 
 // ---- Lowercase aliases (backwards compatibility ONLY) ----------------------
