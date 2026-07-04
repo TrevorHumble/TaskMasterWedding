@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node src/app.js",
+    "serve": "node scripts/serve-resilient.js",
     "dev": "node src/app.js",
     "seed": "node scripts/seed.js",
     "seed-event": "node scripts/seed-event.js",

@@ -28,7 +28,7 @@ Do this once, before you start testing.
 
    ```powershell
    $env:DATA_DIR = "data-demo"
-   npm start
+   npm run serve
    ```
 
    Leave this running in its own terminal window for the rest of the walkthrough.
@@ -84,7 +84,7 @@ Steps: Stop the server. Restart it with maintenance mode on:
 ```powershell
 $env:DATA_DIR = "data-demo"
 $env:MAINTENANCE = "1"
-npm start
+npm run serve
 ```
 
 Then load `/` as a guest, and separately load `/admin/login` as admin.

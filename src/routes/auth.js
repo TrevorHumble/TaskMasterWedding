@@ -98,35 +98,84 @@ router.get('/onboard', requireGuest, (req, res) => {
   });
 });
 
+// Shown when the uploaded avatar cannot be used — a type/size rejection from
+// multer or bytes sharp cannot decode. Issue #187 binds tests to the substring
+// "could not use that photo"; keep it if the copy is ever reworded.
+const AVATAR_ERROR =
+  'Sorry, we could not use that photo. Please try another one — or skip it for now and add one later.';
+
 // POST /onboard — save the guest's name, optional avatar, optional socials,
 // and mark them onboarded so they never see this form again.
-router.post('/onboard', requireGuest, photos.uploadAvatar, async (req, res) => {
-  const name = (req.body.name || '').trim();
-  if (!name) {
-    res.status(400).render('onboard', {
-      title: 'Welcome',
-      error: 'Please tell us your name so it can appear on the leaderboard.',
-      guest: req.guest,
-    });
-    return;
-  }
+//
+// photos.uploadAvatar is invoked with an explicit callback (the same pattern as
+// guest.js POST /me/edit) instead of being mounted as bare route middleware, so
+// a fileFilter or size-limit rejection re-renders this form with a friendly
+// error instead of falling through to the global 500 handler — and a corrupt
+// image that sharp cannot decode is caught here rather than crashing the
+// process (Express 4 does not catch async-handler rejections; issue #187).
+router.post('/onboard', requireGuest, (req, res, next) => {
+  photos.uploadAvatar(req, res, async (err) => {
+    try {
+      const name = ((req.body && req.body.name) || '').trim();
 
-  const socialLinks = buildSocialLinks(req.body);
-  const avatarPath = await trySaveAvatar(req.file, req.guest.id); // null if no uploaded file
+      // Re-render the form with an avatar error, keeping whatever name the
+      // guest submitted so they do not have to retype it. The guest is NOT
+      // marked onboarded on this path — they retry or skip the photo.
+      function renderAvatarError() {
+        res.status(400).render('onboard', {
+          title: 'Welcome',
+          error: AVATAR_ERROR,
+          guest: { ...req.guest, name: name || req.guest.name },
+        });
+      }
 
-  if (avatarPath) {
-    db.prepare(
-      'UPDATE guests SET name = ?, social_links = ?, avatar_path = ?, onboarded = 1 WHERE id = ?'
-    ).run(name, socialLinks, avatarPath, req.guest.id);
-  } else {
-    db.prepare('UPDATE guests SET name = ?, social_links = ?, onboarded = 1 WHERE id = ?').run(
-      name,
-      socialLinks,
-      req.guest.id
-    );
-  }
+      if (err) {
+        // multer rejection: not an accepted image type (fileFilter) or over
+        // the size limit.
+        renderAvatarError();
+        return;
+      }
 
-  res.redirect('/');
+      if (!name) {
+        res.status(400).render('onboard', {
+          title: 'Welcome',
+          error: 'Please tell us your name so it can appear on the leaderboard.',
+          guest: req.guest,
+        });
+        return;
+      }
+
+      const socialLinks = buildSocialLinks(req.body);
+
+      let avatarPath; // null if no uploaded file
+      try {
+        avatarPath = await trySaveAvatar(req.file, req.guest.id);
+      } catch {
+        // sharp could not decode the bytes (corrupt or mislabelled image).
+        renderAvatarError();
+        return;
+      }
+
+      if (avatarPath) {
+        db.prepare(
+          'UPDATE guests SET name = ?, social_links = ?, avatar_path = ?, onboarded = 1 WHERE id = ?'
+        ).run(name, socialLinks, avatarPath, req.guest.id);
+      } else {
+        db.prepare('UPDATE guests SET name = ?, social_links = ?, onboarded = 1 WHERE id = ?').run(
+          name,
+          socialLinks,
+          req.guest.id
+        );
+      }
+
+      res.redirect('/');
+    } catch (e) {
+      // Anything unexpected in this async callback (e.g. a DB write failure)
+      // must not become an unhandled rejection that kills the process —
+      // route it to the global error handler (500 page, server stays up).
+      next(e);
+    }
+  });
 });
 
 // --- Admin login / logout ---------------------------------------------------
