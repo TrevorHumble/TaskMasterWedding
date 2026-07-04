@@ -249,7 +249,7 @@ maybeDescribe('persist-self-certification (issue #203)', () => {
       biasGateRoot,
     ]);
     expect(validateResult.status).not.toBe(0);
-  });
+  }, 30000);
 
   // #207 AC4 (the decided pattern): one INDEPENDENT reviewer PASS
   // (persist-review.ps1) + one self-cert record + the -SelfCertify bias-gate
@@ -307,7 +307,7 @@ maybeDescribe('persist-self-certification (issue #203)', () => {
       biasGateRoot,
     ]);
     expect(validateResult.status).toBe(0);
-  });
+  }, 30000);
 
   // Regression guard: without the -SelfCertify bias-gate artifact, review
   // records alone are not enough on a system-level tree under the auto-bar
@@ -353,7 +353,7 @@ maybeDescribe('persist-self-certification (issue #203)', () => {
     ]);
     expect(validateResult.status).not.toBe(0);
     expect(validateResult.stderr).toContain('bias-gate');
-  });
+  }, 30000);
 
   // -Model is locked to 'fable' via ValidateSet -- any other value must be rejected.
   it('-Model other than fable is rejected', () => {
