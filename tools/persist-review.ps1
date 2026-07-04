@@ -25,6 +25,9 @@ param(
   [string]$ReviewsRoot = ''
 )
 
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptDir 'verdict-core.ps1')
+
 $top = "$(& git rev-parse --show-toplevel 2>$null)".Trim()
 if (-not $top) { [Console]::Error.WriteLine('persist-review: not inside a git repo'); exit 1 }
 
@@ -35,10 +38,11 @@ if (-not $ReviewsRoot) {
 $dir = Join-Path $ReviewsRoot $TreeOid
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
-# Schema 'rev1' — must match tools/verdict-core.ps1 Read-Evidence (which keeps only
-# files whose inner tree_oid equals the directory/tree it is validating).
+# Schema $SCHEMA_REV1 (declared in tools/verdict-core.ps1) — must match
+# tools/verdict-core.ps1 Read-Evidence (which keeps only files whose inner
+# tree_oid equals the directory/tree it is validating).
 $ev = [ordered]@{
-  schema         = 'rev1'
+  schema         = $SCHEMA_REV1
   reviewer_id    = $ReviewerId
   model          = $Model
   role           = $Role

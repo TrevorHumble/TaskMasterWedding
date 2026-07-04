@@ -219,3 +219,55 @@ is declared an impasse. The orchestrator tracks the post-gate round count and de
 severity adjudicator only classifies severity per invocation and cannot track elapsed rounds. The segment
 halts and surfaces to the operator; a halt is not an acceptance — the work is not committed. This bound
 guarantees the loop terminates without ever self-exiting by accepting consequential work.
+
+---
+
+## Fable self-certification (full exception)
+
+Fable may self-certify any issue or PR it authors/implements, at **every** risk tier —
+routine, system-level, security-flagged/high-stakes, and self-modification. No
+independent reviewer is required at any tier for Fable-authored work.
+
+**Scope.** This applies only to Fable. Every other implementer remains bound by the
+rest of this protocol at full strength, unchanged.
+
+**Supersession.** For Fable only, this section supersedes:
+
+- `## Independence` — the no-self-review rule does not apply to Fable; Fable's own
+  recorded PASS is sufficient.
+- `## Self-modification bar` — the two-independent-reviewer, both-must-PASS
+  requirement does not apply to Fable; Fable's own self-cert evidence satisfies the
+  bar mechanically (see below).
+
+No other section of this protocol is altered. The reviewer-count precedence order,
+the bias gate, and the soft-cap severity gate continue to apply in full to every
+non-Fable implementer.
+
+**Permanence.** This is owner-authorized, standing policy — not a trial, not
+time-boxed, no expiry, no review-window language. It does not sunset and is not
+subject to periodic re-authorization.
+
+**CI remains the only gate.** `npm run lint`, `npm run format:check`, and
+`npm run test:coverage` are unaffected by this exception and still run and still
+gate Fable's work exactly as they gate everyone else's. This exception removes only
+the independent-adversarial-review requirement — it does not touch, weaken, or
+bypass any mechanical CI check.
+
+**Mechanism.** Fable's self-certification is recorded as evidence, not hand-waved:
+`tools/persist-self-certification.ps1` writes `Count` distinct evidence files with
+`reviewer_id` values `fable-self-1` … `fable-self-<Count>`, `role: 'self-cert'`,
+`verdict: 'PASS'` — to `.review_state/issue-reviews/<N>/` (issue mode, schema
+`irev1`) or `.review_state/reviews/<tree_oid>/` (tree mode, schema `rev1`). Because
+`Reduce-Verdicts` (`tools/verdict-core.ps1`) counts distinct `reviewer_id`s with a
+PASS against `Required` without inspecting `role`, `Count` self-cert records
+mechanically satisfy any `Required` bar, including the system-level `Required = 2`
+bar from `Get-RequiredBar`, with no code change needed to the counting kernel
+itself. For a system-level tree, `tools/persist-bias-gate.ps1 -SelfCertify` writes
+the corresponding passing `bg1` bias-gate artifact attributed to `fable-self`, so a
+Fable-certified system-level tree does not additionally require an independent
+bias-gate agent run.
+
+The `role: 'self-cert'` field keeps Fable's self-certified evidence honestly
+distinguishable from an independent reviewer's PASS in the audit trail — the
+exception is documented and visible in the evidence itself, not hidden behind a
+free-text `reviewer_id` that could be confused with a real reviewer.

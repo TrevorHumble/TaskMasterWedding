@@ -5,6 +5,15 @@
 # System-level path regex: if any staged path matches, required = 2.
 $SYSTEM_PATH_REGEX = '^(\.githooks/|tools/|standards/|agents/|skills/|\.github/|\.claude/|docs/north-star\.md|DESIGN\.md|CLAUDE\.md|AGENTS\.md)'
 
+# Evidence schema labels — single declared source for the persist-*.ps1 writer
+# family (persist-issue-review.ps1, persist-review.ps1, persist-self-certification.ps1)
+# so the 'schema' field literal is not hand-duplicated per writer. Readers
+# (Read-Evidence below, tools/issue-core.ps1 Read-IssueEvidence) only compare the
+# parsed JSON's schema field as a value at runtime — they do not reference these
+# PowerShell constants — so this is purely a writer-side dedup, not a reader contract.
+$SCHEMA_IREV1 = 'irev1'
+$SCHEMA_REV1 = 'rev1'
+
 function Get-RequiredBar {
   param(
     [string[]]$StagedPaths

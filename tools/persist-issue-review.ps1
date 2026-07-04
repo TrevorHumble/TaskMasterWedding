@@ -21,6 +21,9 @@ param(
   [string]$IssueReviewsRoot = ''
 )
 
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptDir 'verdict-core.ps1')
+
 $top = "$(& git rev-parse --show-toplevel 2>$null)".Trim()
 if (-not $top) { [Console]::Error.WriteLine('persist-issue-review: not inside a git repo'); exit 1 }
 
@@ -31,10 +34,11 @@ if (-not $IssueReviewsRoot) {
 $dir = Join-Path $IssueReviewsRoot ([string]$IssueNumber)
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
-# Schema 'irev1' -- must match tools/issue-core.ps1 Read-IssueEvidence (which keeps
-# only files whose inner issue_number equals the directory/issue it is validating).
+# Schema $SCHEMA_IREV1 (declared in tools/verdict-core.ps1) -- must match
+# tools/issue-core.ps1 Read-IssueEvidence (which keeps only files whose inner
+# issue_number equals the directory/issue it is validating).
 $ev = [ordered]@{
-  schema         = 'irev1'
+  schema         = $SCHEMA_IREV1
   issue_number   = $IssueNumber
   reviewer_id    = $ReviewerId
   model          = $Model
