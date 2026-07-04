@@ -22,6 +22,7 @@ try {
 
 const TOOLS_DIR = path.resolve(__dirname, '..', 'tools');
 const PERSIST_SELF_CERT = path.join(TOOLS_DIR, 'persist-self-certification.ps1');
+const PERSIST_REVIEW = path.join(TOOLS_DIR, 'persist-review.ps1');
 const PERSIST_BIAS_GATE = path.join(TOOLS_DIR, 'persist-bias-gate.ps1');
 const CHECK_ISSUE_REVIEWED = path.join(TOOLS_DIR, 'check-issue-reviewed.ps1');
 const VALIDATE = path.join(TOOLS_DIR, 'validate-verdict.ps1');
@@ -163,7 +164,7 @@ maybeDescribe('persist-self-certification (issue #203)', () => {
   });
 
   // Tree mode field-set check: schema rev1, role self-cert, verdict PASS,
-  // reviewer_id fable-self-<i>, tree_oid bound.
+  // reviewer_id fable-self-1, tree_oid bound. Count is 1 — the tree-mode max (#207).
   it('tree mode: writes rev1 evidence with role self-cert and PASS verdict', () => {
     const { tmp, treeOid } = makeSystemLevelTree('sc-tree-fields-');
     const reviewsRoot = path.join(tmp, '.review_state', 'reviews');
@@ -174,7 +175,7 @@ maybeDescribe('persist-self-certification (issue #203)', () => {
       '-Model',
       'fable',
       '-Count',
-      '2',
+      '1',
       '-ReviewsRoot',
       reviewsRoot,
     ]);
@@ -188,13 +189,33 @@ maybeDescribe('persist-self-certification (issue #203)', () => {
     expect(f1.tree_oid).toBe(treeOid);
   });
 
-  // AC4 (full flow): real git scratch repo, system-level path staged, no
-  // -Tree/-Required override passed to validate-verdict.ps1 -- so the auto-bar
-  // path runs (Get-RequiredBar derives Required=2 from the staged standards/ path)
-  // and the bias gate auto-enforces. Self-cert records + a -SelfCertify bias-gate
-  // artifact for that exact tree must make it exit 0.
-  it('tree mode + auto-bar validate-verdict: self-cert records + -SelfCertify bias gate -> exit 0', () => {
-    const { tmp, treeOid } = makeSystemLevelTree('sc-autobar-');
+  // #207 AC4: tree mode refuses -Count > 1, writing nothing — so a
+  // system-level tree (Required = 2 via Get-RequiredBar) can never be
+  // satisfied by self-certification alone.
+  it('tree mode: -Count 2 is refused and writes no evidence (#207 cap)', () => {
+    const { tmp, treeOid } = makeSystemLevelTree('sc-tree-cap-');
+    const reviewsRoot = path.join(tmp, '.review_state', 'reviews');
+
+    const result = runPersistSelfCert(tmp, [
+      '-TreeOid',
+      treeOid,
+      '-Model',
+      'fable',
+      '-Count',
+      '2',
+      '-ReviewsRoot',
+      reviewsRoot,
+    ]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('caps -Count at 1');
+    expect(fs.existsSync(path.join(reviewsRoot, treeOid))).toBe(false);
+  });
+
+  // #207 AC4: a lone self-cert record on a system-level tree does NOT
+  // authorize — validate-verdict's auto-bar (Required=2 from the staged
+  // standards/ path) still blocks, even with the bias-gate artifact present.
+  it('tree mode + auto-bar validate-verdict: self-cert alone on a system-level tree -> blocked', () => {
+    const { tmp, treeOid } = makeSystemLevelTree('sc-autobar-selfonly-');
     const reviewsRoot = path.join(tmp, '.review_state', 'reviews');
     const biasGateRoot = path.join(tmp, '.review_state', 'bias-gate');
 
@@ -204,7 +225,62 @@ maybeDescribe('persist-self-certification (issue #203)', () => {
       '-Model',
       'fable',
       '-Count',
-      '2',
+      '1',
+      '-ReviewsRoot',
+      reviewsRoot,
+    ]);
+    expect(certResult.status).toBe(0);
+
+    const gateResult = runInDir(tmp, [
+      PERSIST_BIAS_GATE,
+      '-TreeOid',
+      treeOid,
+      '-SelfCertify',
+      '-BiasGateRoot',
+      biasGateRoot,
+    ]);
+    expect(gateResult.status).toBe(0);
+
+    const validateResult = runInDir(tmp, [
+      VALIDATE,
+      '-ReviewsRoot',
+      reviewsRoot,
+      '-BiasGateRoot',
+      biasGateRoot,
+    ]);
+    expect(validateResult.status).not.toBe(0);
+  }, 30000);
+
+  // #207 AC4 (the decided pattern): one INDEPENDENT reviewer PASS
+  // (persist-review.ps1) + one self-cert record + the -SelfCertify bias-gate
+  // artifact satisfies the system-level auto-bar (Required=2) -> exit 0.
+  it('tree mode + auto-bar validate-verdict: one independent PASS + one self-cert + bias gate -> exit 0', () => {
+    const { tmp, treeOid } = makeSystemLevelTree('sc-autobar-indep-');
+    const reviewsRoot = path.join(tmp, '.review_state', 'reviews');
+    const biasGateRoot = path.join(tmp, '.review_state', 'bias-gate');
+
+    const indepResult = runInDir(tmp, [
+      PERSIST_REVIEW,
+      '-TreeOid',
+      treeOid,
+      '-ReviewerId',
+      'reviewer-pr-independent',
+      '-Model',
+      'opus',
+      '-Verdict',
+      'PASS',
+      '-ReviewsRoot',
+      reviewsRoot,
+    ]);
+    expect(indepResult.status).toBe(0);
+
+    const certResult = runPersistSelfCert(tmp, [
+      '-TreeOid',
+      treeOid,
+      '-Model',
+      'fable',
+      '-Count',
+      '1',
       '-ReviewsRoot',
       reviewsRoot,
     ]);
@@ -231,15 +307,30 @@ maybeDescribe('persist-self-certification (issue #203)', () => {
       biasGateRoot,
     ]);
     expect(validateResult.status).toBe(0);
-  });
+  }, 30000);
 
-  // Regression guard: without the -SelfCertify bias-gate artifact, self-cert
-  // review records alone are not enough on a system-level tree under the
-  // auto-bar path -- the bias gate must still fail closed.
-  it('tree mode + auto-bar validate-verdict: self-cert reviews without bias-gate artifact -> blocked', () => {
+  // Regression guard: without the -SelfCertify bias-gate artifact, review
+  // records alone are not enough on a system-level tree under the auto-bar
+  // path -- the bias gate must still fail closed.
+  it('tree mode + auto-bar validate-verdict: reviews without bias-gate artifact -> blocked', () => {
     const { tmp, treeOid } = makeSystemLevelTree('sc-autobar-noBG-');
     const reviewsRoot = path.join(tmp, '.review_state', 'reviews');
     const biasGateRoot = path.join(tmp, '.review_state', 'bias-gate'); // never created
+
+    const indepResult = runInDir(tmp, [
+      PERSIST_REVIEW,
+      '-TreeOid',
+      treeOid,
+      '-ReviewerId',
+      'reviewer-pr-independent',
+      '-Model',
+      'opus',
+      '-Verdict',
+      'PASS',
+      '-ReviewsRoot',
+      reviewsRoot,
+    ]);
+    expect(indepResult.status).toBe(0);
 
     const certResult = runPersistSelfCert(tmp, [
       '-TreeOid',
@@ -247,7 +338,7 @@ maybeDescribe('persist-self-certification (issue #203)', () => {
       '-Model',
       'fable',
       '-Count',
-      '2',
+      '1',
       '-ReviewsRoot',
       reviewsRoot,
     ]);
@@ -262,7 +353,7 @@ maybeDescribe('persist-self-certification (issue #203)', () => {
     ]);
     expect(validateResult.status).not.toBe(0);
     expect(validateResult.stderr).toContain('bias-gate');
-  });
+  }, 30000);
 
   // -Model is locked to 'fable' via ValidateSet -- any other value must be rejected.
   it('-Model other than fable is rejected', () => {

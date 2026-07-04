@@ -65,6 +65,25 @@ jobs:
       - name: Prettier (check)
         run: npm run format:check
 
+  # Empirical smoke gate (#197): boots the real app against a seeded throwaway
+  # DB and probes behavior (hot paths, hostile input, referenced assets).
+  # Deliberately a separate job from `test` so a smoke failure reads distinctly
+  # from a unit failure. NOT a required status check yet: the gate correctly
+  # fails while #187 (onboarding crash) and #193 (missing badge art) are open
+  # on main. Promote once green on main: tools/apply-branch-protection.ps1
+  # -RequireSmoke. See DESIGN.md "Empirical smoke gate (#197)".
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Smoke — boot, probe, verify assets
+        run: node scripts/smoke.js
+
   test:
     runs-on: ubuntu-latest
     steps:
