@@ -21,10 +21,12 @@ Requires **Node.js 20+** on Windows (PowerShell). From the project root:
 npm install
 node scripts/set-admin-password.js <password>   # sets the admin (Task Master) password
 node scripts/seed.js                  # creates tables, badges, and sample data
-npm start                             # starts the server on port 3000
+npm run serve                         # starts the server on port 3000
 ```
 
 Then open <http://localhost:3000>.
+
+- `npm run serve` runs the app under `scripts/serve-resilient.js`, which restarts the server about a second after any crash — one bad request cannot end the event. (`npm start` runs the bare server with no restart safety net; use it only when you want a crash to stay down, e.g. while debugging.)
 
 - `node scripts/set-admin-password.js <password>` writes a bcrypt hash to `data/admin.hash`. Run it again any time to change the password; the old one stops working immediately.
 - `node scripts/seed.js` creates the SQLite schema and seeds badges plus sample tasks/guests.
