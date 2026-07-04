@@ -1,8 +1,9 @@
 # apply-branch-protection.ps1 -- require main to be up to date before merge.
 #
 # WHAT: PUTs GitHub branch protection onto `main` requiring a pull request,
-# five named status checks, and required_status_checks.strict = true (GitHub's
-# "require branches to be up to date before merging").
+# five named status checks (six with -RequireSmoke, see below), and
+# required_status_checks.strict = true (GitHub's "require branches to be up
+# to date before merging").
 #
 # WHY: two PRs can each go green against an older `main`, then both merge close
 # together. The second merge lands without ever running CI against the tree
@@ -11,11 +12,17 @@
 # behind `main` must update and re-run CI before GitHub will allow the merge,
 # serializing concurrent merges through CI instead of racing them.
 #
-# The five required checks are the real, observed check-run names on `main`
-# (confirmed via `gh api repos/<slug>/commits/main/check-runs`), not job names
-# guessed from the workflow YAML -- CodeQL's job is literally named
+# The five base required checks are the real, observed check-run names on
+# `main` (confirmed via `gh api repos/<slug>/commits/main/check-runs`), not job
+# names guessed from the workflow YAML -- CodeQL's job is literally named
 # `Analyze (javascript)`, not `CodeQL`, and a required context that never
 # matches an actual check-run name would permanently block every merge.
+#
+# -RequireSmoke appends the sixth check, `smoke` (#197). It is a switch, not
+# part of the base list, because promoting a check that is red on `main` (or
+# that has never produced a check-run there) blocks every merge -- run this
+# with -RequireSmoke only once the smoke job is green on `main` (i.e. after
+# #187 and #193 merge). See DESIGN.md "Empirical smoke gate (#197)".
 #
 # required_approving_review_count stays 0: the repo owner is a solo maintainer
 # and GitHub does not let an author approve their own PR, so requiring >= 1
@@ -27,7 +34,8 @@
 #
 # Windows PowerShell 5.1-compatible: no ternary, no ??, no &&, no ||.
 param(
-  [string]$Branch = 'main'
+  [string]$Branch = 'main',
+  [switch]$RequireSmoke
 )
 
 $gh = 'C:\Program Files\GitHub CLI\gh.exe'
@@ -47,6 +55,9 @@ $requiredChecks = @(
   'merge-association',
   'Analyze (javascript)'
 )
+if ($RequireSmoke) {
+  $requiredChecks += 'smoke'
+}
 
 # restrictions must be present and explicitly null in the payload -- GitHub's
 # branch protection PUT replaces the whole object, and omitting a key is not

@@ -1,6 +1,9 @@
-# persist-self-certification.ps1 — write Fable's full self-certification evidence,
-# per standards/adversarial-review-protocol.md "## Fable self-certification (full
-# exception)".
+# persist-self-certification.ps1 — write Fable's self-certification evidence,
+# per standards/adversarial-review-protocol.md "## Fable review patterns" (#203,
+# narrowed same-day by #207: routine work self-certifies via a fresh-context
+# design-philosophy review; system-level / security-flagged / self-modification
+# trees additionally require one independent reviewer PASS, enforced here by
+# the tree-mode -Count cap below).
 #
 # Dual-mode writer: exactly one of -IssueNumber (issue-review evidence, schema
 # irev1) or -TreeOid (tree/PR evidence, schema rev1) must be given. `-Model` is
@@ -47,6 +50,17 @@ if (-not $haveIssue -and -not $haveTree) {
 }
 if ($Count -lt 1) {
   [Console]::Error.WriteLine('persist-self-certification: -Count must be >= 1')
+  exit 1
+}
+# #207: tree mode is capped at one self-cert record. Reduce-Verdicts counts
+# distinct reviewer_ids against Required, and a system-level tree carries
+# Required = 2 (Get-RequiredBar) -- so with at most one fable-self record on
+# any tree, self-certification alone can never satisfy the system-level bar.
+# The second PASS must come from a real independent reviewer via
+# tools/persist-review.ps1. This makes the "one independent reviewer on the
+# governance surface" rule mechanical, not prose.
+if ($haveTree -and $Count -gt 1) {
+  [Console]::Error.WriteLine('persist-self-certification: tree mode caps -Count at 1 (#207) -- a system-level tree (Required = 2) needs at least one independent reviewer PASS via tools/persist-review.ps1; self-certification alone cannot satisfy it')
   exit 1
 }
 
