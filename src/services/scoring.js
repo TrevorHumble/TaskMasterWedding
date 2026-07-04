@@ -428,12 +428,25 @@ function leaderboard() {
          g.avatar_path   AS avatar_path,
          g.bonus_points  AS bonus_points,
          COUNT(s.id)                                          AS completed,
-         COUNT(s.id) * ${POINTS_PER_PHOTO} + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points AS points
+         COUNT(s.id) * ${POINTS_PER_PHOTO} + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points AS points,
+         MAX(s.created_at)                                    AS last_submission_at
        FROM guests g
        LEFT JOIN submissions s
          ON s.guest_id = g.id AND s.taken_down = 0
        GROUP BY g.id
-       ORDER BY points DESC, g.name ASC, g.id ASC`
+       -- Tiebreak within an equal-points group by "earliest to reach the
+       -- score" (oldest latest-submission first). A guest with no visible
+       -- submissions has last_submission_at = NULL; SQLite sorts NULL first
+       -- under plain ASC, which would wrongly place them ahead of guests who
+       -- actually scored, so the (last_submission_at IS NULL) ASC key pushes
+       -- NULLs LAST within the tie. name/id remain the final stable keys. This
+       -- never changes a guest's DISPLAYED rank (rank is derived from points
+       -- alone downstream); it only orders rows inside a tie.
+       ORDER BY points DESC,
+                (last_submission_at IS NULL) ASC,
+                last_submission_at ASC,
+                g.name ASC,
+                g.id ASC`
     )
     .all();
 

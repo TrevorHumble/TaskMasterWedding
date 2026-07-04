@@ -1222,6 +1222,63 @@ textarea {
   height: 40px;
 }
 
+/* Collapsed multi-way tie tile — shares the plinth visual language but reads as
+   a group rather than a single guest. */
+.podium-tie {
+  flex: 1;
+  text-align: center;
+}
+.podium-tie-avatar {
+  color: var(--color-primary);
+  font-size: 24px;
+}
+/* A 3+-way tie for FIRST is reachable (any lower group keeps the podium shown),
+   so give the rank-1 tie tile the same tall, primary-color treatment the solo
+   first-place slot gets, for visual consistency. */
+.podium-tie.rank-1 .podium-avatar {
+  background: var(--color-primary);
+  color: var(--white);
+  border: none;
+}
+.podium-tie.rank-1 .podium-bar {
+  background: var(--color-primary);
+  color: var(--white);
+  height: 78px;
+  font-size: var(--fs-h1);
+}
+.podium-tie.rank-2 .podium-bar {
+  height: 54px;
+}
+.podium-tie.rank-3 .podium-bar {
+  height: 40px;
+}
+
+/* Overflow chip when a row holds more badges than the per-row cap. */
+.lb-badge-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-input);
+  background: var(--green-50);
+  border: var(--border-hairline);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* Section heading above the full standings list — subordinate to the page
+   title, marking the list as the complete field below the podium highlight. */
+.lb-standings-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: var(--space-6) 0 var(--space-3);
+}
+
 /* leaderboard rows (rank 4+) */
 .leaderboard {
   width: 100%;

@@ -2,6 +2,7 @@
 'use strict';
 
 const express = require('express');
+const config = require('../../config');
 const { db } = require('../db');
 const { attachGuest, requireGuest } = require('../middleware/session');
 const scoring = require('../services/scoring');
@@ -428,17 +429,24 @@ router.get('/leaderboard', (req, res) => {
   // in section 06's query — read row.completed here.
   const rows = scoring.leaderboard();
 
-  // Attach rank (with ties sharing a rank) and each guest's badge icons.
+  // Compute rank ONCE here (rows arrive ordered best-first from scoring), so
+  // the podium and the list agree. Standard-competition ("1224") ranking: a
+  // guest's rank is 1 + the number of guests with strictly MORE points, which
+  // makes tied guests share a rank and skips the numbers after a tie
+  // (points [5,4,3,3,3,3,1] -> ranks 1,2,3,3,3,3,7). Because rows are already
+  // sorted by points DESC, the first index at which a given points value
+  // appears is exactly that "count of guests with strictly more points", i.e.
+  // the shared rank for the whole tie group.
   let lastPoints = null;
   let lastRank = 0;
   const ranked = rows.map((row, index) => {
     let rank;
     if (lastPoints === null || row.points !== lastPoints) {
-      rank = index + 1; // standard competition ranking (1,2,2,4,...)
+      rank = index + 1; // first row of a new points value: 1 + (rows above it)
       lastRank = rank;
       lastPoints = row.points;
     } else {
-      rank = lastRank;
+      rank = lastRank; // same points as the row above: share its rank
     }
     return {
       rank,
@@ -451,9 +459,61 @@ router.get('/leaderboard', (req, res) => {
     };
   });
 
+  // A row is tied when it shares its rank with an adjacent row. Mark each row
+  // and give it the display label the view renders verbatim: `T{rank}` when
+  // tied, else `{rank}`. Done in a second pass so a row can see BOTH neighbors.
+  ranked.forEach((row, index) => {
+    const prev = ranked[index - 1];
+    const next = ranked[index + 1];
+    row.isTied = Boolean((prev && prev.rank === row.rank) || (next && next.rank === row.rank));
+    row.rankLabel = row.isTied ? `T${row.rank}` : `${row.rank}`;
+  });
+
+  // Low-spread guard (authoritative comment). distinctRankCount is how many
+  // distinct ranks exist across the whole field. When it is 1, every guest is
+  // tied on points, so the podium conveys nothing — showPodium (below) is false
+  // and the view renders a friendly "everyone's tied" banner instead (AC4).
+  const distinctRankCount = new Set(ranked.map((r) => r.rank)).size;
+
+  // Build the podium's group structure HERE so "what is a tie" lives in exactly
+  // one layer (this route), not re-derived in the view. Group the ranked rows
+  // by their shared rank, keep only ranks 1-3, and return them in podium
+  // display order (2nd, 1st, 3rd — 1st centered/tallest). Each group carries
+  // its precomputed rankLabel and an isCollapsedTie flag (3+ members render as
+  // one collapsed tile instead of individual plinths). The view renders this
+  // structure verbatim and never re-buckets or re-tests tie membership.
+  const groupsByRank = new Map();
+  for (const row of ranked) {
+    // rows are sorted by rank ascending, so once rank > 3 no rank <= 3 can
+    // follow — safe to stop.
+    if (row.rank > 3) break;
+    if (!groupsByRank.has(row.rank)) {
+      groupsByRank.set(row.rank, {
+        rank: row.rank,
+        rankLabel: row.rankLabel,
+        members: [],
+        isCollapsedTie: false,
+      });
+    }
+    groupsByRank.get(row.rank).members.push(row);
+  }
+  for (const group of groupsByRank.values()) {
+    group.isCollapsedTie = group.members.length >= 3;
+  }
+  // Podium display order: 2nd, 1st, 3rd. Skip ranks with no members.
+  const podiumGroups = [groupsByRank.get(2), groupsByRank.get(1), groupsByRank.get(3)].filter(
+    Boolean
+  );
+
+  // See the low-spread guard comment at distinctRankCount above.
+  const showPodium = distinctRankCount > 1;
+
   res.render('leaderboard', {
     title: 'Leaderboard',
     rows: ranked,
+    podiumGroups,
+    showPodium,
+    badgeCap: config.LEADERBOARD_BADGE_CAP,
   });
 });
 
