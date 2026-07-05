@@ -15,6 +15,14 @@ It runs on a single Windows laptop for the wedding weekend and is made publicly 
 
 ## Quickstart
 
+**Already have this folder checked out? Check it is current first:**
+
+```powershell
+powershell -File tools/check-freshness.ps1
+```
+
+Build sessions merge their work on GitHub from separate worktrees, so this folder never updates itself — if the check says you are N commits behind, run `git pull` before looking at the app, or you will be reviewing a version that no longer exists. The check is read-only; it never changes your files.
+
 Requires **Node.js 20+** on Windows (PowerShell). From the project root:
 
 ```powershell

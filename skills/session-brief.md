@@ -14,6 +14,12 @@ GitHub every time, per `DESIGN.md` § "Roadmap: board-derived, session-structure
 
 ## Procedure
 
+0. **Freshness check:** run `powershell -File tools/check-freshness.ps1` before anything else. It
+   is read-only (`git fetch` + an ahead/behind count) and exits non-zero when the local checkout
+   is behind `origin/main` — if it reports drift, `git pull` before proceeding. Build sessions
+   merge on GitHub from isolated worktrees, so a primary checkout never updates itself; a brief
+   (or an owner review) started from a stale checkout is pointed at code that no longer exists
+   (#200: the owner once reviewed a checkout 32 commits behind without knowing).
 1. **Read the epic:** `gh issue view 126` — find the named track's section, its `Files:` line,
    its relation tag (`depends on <track>` / `parallel-safe with <track>` / `parallel after
 #<root>`), and its issue checklist in listed order. This order **is** the build order.
