@@ -46,7 +46,7 @@ function makeRepo(opts) {
   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# rules\n');
   fs.writeFileSync(path.join(dir, 'DESIGN.md'), '# design\n');
   fs.writeFileSync(path.join(dir, 'docs', 'north-star.md'), '# goals\n');
-  if (opts && opts.ledger) {
+  if (opts && typeof opts.ledger === 'string') {
     fs.mkdirSync(path.join(dir, 'governance'));
     fs.writeFileSync(path.join(dir, 'governance', 'ledger.ndjson'), opts.ledger);
   }
@@ -119,6 +119,48 @@ maybeDescribe('snapshot-governance.ps1', () => {
     expect(r.status).not.toBe(0);
     const tags = git(dir, ['tag', '-l', 'governance-v9']);
     expect(tags.stdout.trim()).toBe('');
+  }, 60000);
+
+  // #228 AC4: rows live on the ledger branch; origin/ledger wins over HEAD's seed.
+  it('origin/ledger with rows and empty HEAD copy -> stats.txt carries the report', () => {
+    const ledgerRow =
+      JSON.stringify({
+        schema: 'gl1',
+        pr: 3,
+        issue: 8,
+        merged_sha: 'def',
+        ts: '2026-07-02T00:00:00Z',
+        reviews: [
+          {
+            role: 'design-philosophy',
+            model: 'opus',
+            verdict: 'PASS',
+            defects: { blocker: 0, major: 0, minor: 0, nit: 0 },
+            round: 1,
+          },
+        ],
+        labels: [],
+        freeze: false,
+      }) + '\n';
+    // HEAD carries an EMPTY seed ledger; the rows exist only on origin/ledger.
+    const dir = makeRepo({ ledger: '' });
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gov-bare-'));
+    git(base, ['init', '--bare', '-q']);
+    git(dir, ['remote', 'add', 'origin', base]);
+    // Build the ledger branch: one commit on top of main with the real rows.
+    git(dir, ['switch', '-q', '-c', 'ledger']);
+    fs.writeFileSync(path.join(dir, 'governance', 'ledger.ndjson'), ledgerRow);
+    git(dir, ['add', 'governance/ledger.ndjson']);
+    git(dir, ['commit', '-q', '-m', 'ledger: append harvested rows']);
+    git(dir, ['push', '-q', 'origin', 'ledger']);
+    git(dir, ['switch', '-q', '-']);
+    git(dir, ['fetch', '-q', 'origin']);
+
+    const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gov-exp-'));
+    const r = runSnapshot(dir, 3, exportDir);
+    expect(r.status).toBe(0);
+    const stats = fs.readFileSync(path.join(exportDir, 'governance-v3', 'stats.txt'), 'utf8');
+    expect(stats).toMatch(/design-philosophy: total 1, PASS 1, FAIL 0/);
   }, 60000);
 
   it('committed ledger with rows -> stats.txt carries the report', () => {

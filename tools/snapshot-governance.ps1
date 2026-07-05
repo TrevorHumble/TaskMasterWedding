@@ -7,8 +7,9 @@
 #
 # Creates annotated tag governance-v<N> at HEAD (refusing on a dirty tree or an
 # existing tag), then exports the governance surface plus stats.txt (the output
-# of tools/governance-report.ps1 against governance/ledger.ndjson at HEAD, or
-# the literal line 'no ledger rows' when the ledger is absent). Copying the
+# of tools/governance-report.ps1 against governance/ledger.ndjson sourced from
+# origin/ledger first, falling back to HEAD's seed copy, or the literal line
+# 'no ledger rows' when neither carries the ledger — #228). Copying the
 # export into the scaffold-project template repo remains a manual owner step -
 # this tool never pushes anywhere. See DESIGN.md "Governance snapshots (#224)".
 param(
@@ -73,11 +74,15 @@ foreach ($p in $surfacePaths) {
   Copy-Item -LiteralPath $p -Destination $target -Recurse -Force
 }
 
-# stats.txt - the ledger's report at this commit. The tree is clean (checked
-# above), so HEAD's ledger content is read via git show rather than trusting
-# the working copy; an absent ledger writes the literal 'no ledger rows'.
+# stats.txt - the ledger's report. Rows live on the dedicated `ledger` branch
+# (#228: main's protection blocks the CI appender's direct pushes), so the
+# source order is origin/ledger, then HEAD's copy (seed), then the literal
+# 'no ledger rows'. git show is used rather than trusting the working copy.
 $statsPath = Join-Path $dest 'stats.txt'
-$ledgerContent = & git show 'HEAD:governance/ledger.ndjson' 2>$null
+$ledgerContent = & git show 'refs/remotes/origin/ledger:governance/ledger.ndjson' 2>$null
+if ($LASTEXITCODE -ne 0) {
+  $ledgerContent = & git show 'HEAD:governance/ledger.ndjson' 2>$null
+}
 if ($LASTEXITCODE -eq 0) {
   $ledgerTmp = Join-Path ([IO.Path]::GetTempPath()) ('gov-ledger-' + [Guid]::NewGuid().ToString('N') + '.ndjson')
   if ($null -eq $ledgerContent) { $ledgerContent = @() }
