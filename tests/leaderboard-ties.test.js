@@ -116,12 +116,18 @@ function podiumMarkup(html) {
 }
 
 // Strip tags and collapse runs of whitespace so text split across EJS output
-// lines ("Cara</a>, <a>Dara</a> and 2 more") compares as one string.
+// lines ("Cara</a>, <a>Dara</a> and 2 more") compares as one string. Tag
+// stripping loops until stable — this is a comparison helper on our own
+// rendered markup, but the loop also keeps CodeQL's incomplete-sanitization
+// check (js/incomplete-multi-character-sanitization) satisfied.
 function collapse(html) {
-  return html
-    .replace(/<[^>]*>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  let out = html;
+  let prev;
+  do {
+    prev = out;
+    out = out.replace(/<[^>]*>/g, '');
+  } while (out !== prev);
+  return out.replace(/\s+/g, ' ').trim();
 }
 
 // Extract the text of every <span class="rank ...">…</span> element in order.
