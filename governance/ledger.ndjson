@@ -6,3 +6,4 @@
 {"schema":"gl1","pr":232,"issue":null,"merged_sha":"a36c90eada5660c3d7928bd7422e4bc8fb50a6e2","ts":"2026-07-05T06:17:52Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":234,"issue":222,"merged_sha":"220a3bdcc493ae5a441c9fb83d92513b56bd97e7","ts":"2026-07-05T06:47:22Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":234,"merged_sha":"220a3bdcc493ae5a441c9fb83d92513b56bd97e7","ts":"2026-07-05T06:47:22Z","files":["DESIGN.md","standards/adversarial-review-protocol.md"]}
+{"schema":"gl1","pr":235,"issue":null,"merged_sha":"485886a24fbdb08d9d151edf3558475b87a9a83f","ts":"2026-07-05T06:52:40Z","reviews":[],"labels":[],"freeze":false}
