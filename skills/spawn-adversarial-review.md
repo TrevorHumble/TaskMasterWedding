@@ -26,6 +26,8 @@ description: >
 
 Before spawning N reviewers, spawn one independent agent to audit the briefing for bias. That agent returns required edits with quoted evidence. Apply the edits. Then fan out.
 
+Cadence per `standards/adversarial-review-protocol.md` § Bias gate: the audit runs once per distinct briefing template — a template reused verbatim across rounds is audited on first use only; a fresh briefing (different artifact type, different instructions) requires a fresh audit.
+
 ## No mutation authority (required; no exceptions)
 
 Spawn every reviewer with no mutation authority: use a read-only agent type (`tools: [Read]` or an equivalently narrow read-only set), or, if the reviewer's own spec grants a broader tool set, add an explicit no-mutation instruction to the spawn prompt. A reviewer performs read-only inspection only. Read-only commands (`git show`, `git diff`, `git check-ignore`, `git ls-files`, `npm test`, `format:check`) are permitted. It must not run `git add`, `git reset`, `git restore`, `git checkout`, `git stash`, `git commit`, or `git rm`, and must not edit any file. See `standards/adversarial-review-protocol.md` "Reviewers are read-only" for the rationale — a reviewer that mutates git or files can invalidate the exact staged tree its own verdict is bound to.
