@@ -1,0 +1,3 @@
+{"schema":"gl1","pr":101,"issue":50,"merged_sha":"aaa1111","ts":"2026-07-01T10:00:00Z","reviews":[{"role":"design-philosophy","model":"fable","verdict":"PASS","defects":{"blocker":0,"major":0,"minor":1,"nit":2},"round":1}],"labels":[],"freeze":false}
+{"schema":"gl1","pr":102,"issue":50,"merged_sha":"bbb2222","ts":"2026-07-02T10:00:00Z","reviews":[{"role":"design-philosophy","model":"fable","verdict":"FAIL","defects":{"blocker":1,"major":2,"minor":0,"nit":0},"round":2}],"labels":[],"freeze":false}
+{"schema":"gl1","pr":103,"issue":51,"merged_sha":"ccc3333","ts":"2026-07-03T10:00:00Z","reviews":[{"role":"pr","model":"opus","verdict":"PASS","defects":{"blocker":0,"major":0,"minor":0,"nit":0},"round":1}],"labels":["fable"],"freeze":false}
