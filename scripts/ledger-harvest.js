@@ -65,10 +65,22 @@ function resolveIssueNumber(pr) {
   return null;
 }
 
+// Event mode (#220): a PR carrying any commit whose subject starts 'hotfix: '
+// is a freeze shipment — during a valid event-mode window the hooks let such
+// commits through without review evidence, so the row is marked freeze:true
+// and becomes the retro-review worklist that tools/set-event-mode.ps1 -Clear
+// refuses to dissolve until every entry has a recorded retro-review PASS.
+// Deliberately over-inclusive: a 'hotfix: ' commit that WAS reviewed still
+// gets freeze:true, which only ever adds a review, never skips one.
+function hasFreezeCommit(commitMessages) {
+  return (commitMessages || []).some((m) => typeof m === 'string' && m.startsWith('hotfix: '));
+}
+
 // One gl1 row per merged PR (schema v1). `comments` is the PR's issue-comment
 // list; the reviews array is taken VERBATIM from the governance-ledger comment,
-// or [] when none exists.
-function buildRow(pr, comments) {
+// or [] when none exists. `commitMessages` is the PR's commit-subject list,
+// used only to derive freeze (see hasFreezeCommit above).
+function buildRow(pr, comments, commitMessages) {
   const report = extractLedgerComment(comments);
   return {
     schema: 'gl1',
@@ -78,7 +90,7 @@ function buildRow(pr, comments) {
     ts: pr.merged_at,
     reviews: report && Array.isArray(report.reviews) ? report.reviews : [],
     labels: (pr.labels || []).map((l) => l.name),
-    freeze: false,
+    freeze: hasFreezeCommit(commitMessages),
   };
 }
 
@@ -169,7 +181,10 @@ async function harvestPush(repo, token, payload) {
     const files = (await ghApi(`/repos/${repo}/pulls/${pr.number}/files?per_page=100`, token)).map(
       (f) => f.filename
     );
-    rows.push(buildRow(pr, comments));
+    const commitMessages = (
+      await ghApi(`/repos/${repo}/pulls/${pr.number}/commits?per_page=100`, token)
+    ).map((c) => (c.commit && c.commit.message ? c.commit.message : ''));
+    rows.push(buildRow(pr, comments, commitMessages));
     if (touchesKernelSurface(files)) {
       rows.push(buildGovernanceRow(pr, files));
     }
@@ -227,6 +242,7 @@ module.exports = {
   buildGovernanceRow,
   buildReversalRow,
   touchesKernelSurface,
+  hasFreezeCommit,
   appendRows,
 };
 

@@ -225,6 +225,20 @@ This bar is additive to the soft cap and severity gate below. When a system-leve
 
 ---
 
+## Event mode (#220) — the wedding-day freeze exception
+
+A pre-declared, expiring window in which a mid-event hotfix ships on green automated checks alone, with review owed — and mechanically collected — after the event. Full design and rationale: `DESIGN.md` § "Event mode (#220)".
+
+**What it bypasses.** While `governance/event-mode.json` is a valid `em1` flag with a future expiry, a commit whose subject starts `hotfix: ` passes the local hooks with **no review evidence and no reviewed issue** (pre-commit defers the evidence gate to commit-msg, which honors the prefix; the shared gate body is `.githooks/gate-core.sh`). While the flag **file** is present, every other commit meets the full evidence gate at commit-msg (keyed on file presence, not ACTIVE state, so the flag expiring between the two hooks can never skip the gate in both — see `DESIGN.md`); with no flag file, the hooks behave exactly as always. An expired or invalid flag enables nothing.
+
+**What it never bypasses.** CI stays fully required: lint, format, tests + coverage, commit-gate integrity, the smoke job — and main's branch protection (PR + green required checks). Review is deferred, never waived.
+
+**Single writer.** `tools/set-event-mode.ps1` is the only writer of the flag (`-ExpiresUtc <date> -Reason <text>` / `-Clear`). The flag file is never hand-edited, and committing its creation or removal takes the normal gate.
+
+**Retro-review consumer.** Each freeze shipment produces a `freeze:true` ledger row (harvest marks merged PRs carrying a `hotfix: ` commit subject). `tools/set-event-mode.ps1 -Clear` **refuses** to remove the flag while any such row since the flag's creation lacks a review PASS bound to that commit's tree (recorded via `tools/persist-review.ps1`). The CI job `event-mode-expiry` goes red while an expired flag remains in the tree, forcing the cleanup — and through it, the retro reviews. A retro review applies this protocol's full stance to the shipped tree; it is a real review that happened late, not a rubber stamp.
+
+---
+
 ## Stop condition — soft cap and severity gate
 
 the 3-round mark is a trigger, not a hard cap.
