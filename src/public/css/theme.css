@@ -169,10 +169,6 @@ p {
   max-width: 360px;
 }
 
-.page--wide {
-  max-width: 680px;
-}
-
 .section {
   margin-bottom: var(--space-6);
 }
@@ -1668,29 +1664,207 @@ textarea {
   color: var(--color-on-primary);
 }
 
-/* ----------------------- Tables (admin generic) ----------------------- */
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--white);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  box-shadow: var(--shadow-card);
+/* ----------------------- Admin card lists (guests + tasks) -----------------
+   Phone-first replacements for the old admin tables (issues #257/#258,
+   design-language rule 12: no multi-column tables at phone width). Every
+   control inside a card meets the 44px tap-target floor (rule 3). */
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
 }
-.data-table th,
-.data-table td {
-  padding: var(--space-3) var(--space-4);
-  text-align: left;
-  border-bottom: var(--border-hairline);
+
+.guest-search {
+  margin-bottom: var(--space-4);
+}
+
+.guest-list,
+.task-admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.guest-card,
+.task-admin-card {
+  background: var(--white);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The live search hides cards via the HTML hidden attribute. The display:flex
+   above would beat the UA's plain [hidden] { display: none } rule on engines
+   that don't mark it !important (WebKit; pre-until-found Firefox), so restate
+   it with !important here — the one place author CSS must not win. */
+.guest-card[hidden] {
+  display: none !important;
+}
+
+/* 44px tap-target floor for everything interactive inside a card. */
+.guest-card .btn,
+.guest-card input,
+.guest-card select,
+.task-admin-card .btn,
+.task-admin-card input[type='text'] {
+  min-height: 44px;
+}
+
+.guest-name-form {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.guest-name-form input {
+  flex: 1 1 auto;
+  width: 70%;
+  min-width: 0;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font-body);
+  font-weight: 600;
+  color: var(--color-text);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+
+.guest-meta,
+.task-meta {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+
+.guest-link-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.guest-link-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+  padding: 10px 8px;
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+  background: var(--white);
+  cursor: text;
+}
+.copy-confirm {
+  color: var(--ok-ink);
   font-size: var(--fs-small);
 }
-.data-table th {
+
+.guest-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.guest-points-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.guest-points-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--fs-small);
+}
+.guest-points-form input[type='number'] {
+  width: 72px;
+  padding: 10px 8px;
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+.badge-award-form {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex: 1 1 100%;
+}
+.badge-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 8px;
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text);
+  background: var(--white);
+}
+
+/* Collapsible setup sections below the guest list. */
+.setup-details {
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
   background: var(--green-50);
-  font-size: var(--fs-eyebrow);
-  letter-spacing: var(--tracking-eyebrow);
-  text-transform: uppercase;
+  margin-bottom: var(--space-3);
+}
+.setup-details summary {
+  cursor: pointer;
+  padding: var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.setup-details .inline-form {
+  border: none;
+  background: transparent;
+  padding-top: 0;
+}
+
+/* Task cards. */
+.task-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.task-edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--fs-small);
   color: var(--color-text-muted);
-  font-weight: normal;
+}
+.task-edit-form input[type='text'],
+.task-edit-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font-body);
+  color: var(--color-text);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+.task-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+/* Counts are metadata: pushed right, muted (design-language rule 6). */
+.task-card-actions .task-meta {
+  margin-left: auto;
+}
+.task-move-row {
+  display: flex;
+  gap: var(--space-2);
+}
+.stacked-form .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 /* ----------------------- Footer ----------------------- */
@@ -1855,33 +2029,7 @@ textarea {
   font-size: var(--fs-h3);
 }
 
-/* Compact inline: input and button side by side inside a table cell */
-.cell-form {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  flex-wrap: nowrap;
-}
-.cell-form input {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 6px 10px;
-  font-size: var(--fs-small);
-}
-
-/* Stacked form: inputs stacked vertically inside a table cell */
-.cell-form-stacked {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.cell-form-stacked input,
-.cell-form-stacked textarea {
-  padding: 6px 10px;
-  font-size: var(--fs-small);
-}
-
-/* Stacked add-a-task form above the table */
+/* Stacked add-a-task form above the card list */
 .stacked-form {
   background: var(--green-50);
   border: var(--border-hairline);
@@ -1905,55 +2053,12 @@ textarea {
   color: var(--color-text);
 }
 
-/* Move-up / move-down cell: two buttons stacked */
-.move-cell {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-/* Link cell: read-only input showing a URL */
-.link-cell input {
-  font-size: var(--fs-eyebrow);
-  color: var(--color-text-muted);
-  width: 100%;
-  min-width: 160px;
-  padding: 5px 8px;
-  border: var(--border-hairline);
-  border-radius: var(--radius-input);
-  background: var(--white);
-  cursor: text;
-}
-
-/* Badge cell: wraps badge-award forms inline */
-.badge-cell {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-/* Tiny form that wraps a single badge-award button */
-.badge-form {
-  margin: 0;
-}
-
-/* Inactive task row: dimmed */
+/* Inactive task card: dimmed */
 .row-inactive {
   opacity: 0.5;
 }
 .row-inactive:hover {
   opacity: 1;
-}
-
-/* Toggled-on button state (badge awarded / active) */
-.btn-on {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  border-color: var(--color-primary);
-}
-.btn-on:hover {
-  background: var(--color-primary-hover);
-  color: var(--color-on-primary);
 }
 
 /* ----------------------- Admin photo moderation grid ---- */
