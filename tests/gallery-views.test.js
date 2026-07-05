@@ -167,18 +167,20 @@ describe('AC6: taken-down photos never appear', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC4 — /tasks page contains href="/gallery?task=<id>" for each task
-// (AC4 is a guest route; agent is signed in as guestId1 via seedtoken)
+// AC4 (as amended by #250) — the task DETAIL page links to that task's
+// gallery. The per-row "See photos" links on the /tasks list were removed by
+// issue #250; the detail page is now the one path to a task's gallery view.
+// (Guest routes; agent is signed in as guestId1 via seedtoken)
 // ---------------------------------------------------------------------------
-describe('AC4: task panel links to task gallery', () => {
-  it('GET /tasks contains href="/gallery?task=<taskId1>"', async () => {
-    const res = await agent.get('/tasks');
+describe('AC4: task detail links to task gallery', () => {
+  it('GET /tasks/<taskId1> contains href="/gallery?task=<taskId1>"', async () => {
+    const res = await agent.get(`/tasks/${taskId1}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain(`href="/gallery?task=${taskId1}"`);
   });
 
-  it('GET /tasks contains href="/gallery?task=<taskId2>"', async () => {
-    const res = await agent.get('/tasks');
+  it('GET /tasks/<taskId2> contains href="/gallery?task=<taskId2>"', async () => {
+    const res = await agent.get(`/tasks/${taskId2}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain(`href="/gallery?task=${taskId2}"`);
   });

@@ -478,9 +478,9 @@ router.get('/leaderboard', (req, res) => {
   // Build the podium's group structure HERE so "what is a tie" lives in exactly
   // one layer (this route), not re-derived in the view. Group the ranked rows
   // by their shared rank, keep only ranks 1-3, and return them in podium
-  // display order (2nd, 1st, 3rd — 1st centered/tallest). Each group carries
-  // its precomputed rankLabel and an isCollapsedTie flag (3+ members render as
-  // one collapsed tile instead of individual plinths). The view renders this
+  // display order (2nd, 1st, 3rd — 1st centered/tallest). A tied group renders
+  // EVERY tied guest (issue #249): the view shows up to 3 overlapping avatars
+  // plus a "+N" chip, and a names line built here. The view renders this
   // structure verbatim and never re-buckets or re-tests tie membership.
   const groupsByRank = new Map();
   for (const row of ranked) {
@@ -492,13 +492,36 @@ router.get('/leaderboard', (req, res) => {
         rank: row.rank,
         rankLabel: row.rankLabel,
         members: [],
-        isCollapsedTie: false,
       });
     }
     groupsByRank.get(row.rank).members.push(row);
   }
+  const ORDINALS = { 1: '1st', 2: '2nd', 3: '3rd' };
   for (const group of groupsByRank.values()) {
-    group.isCollapsedTie = group.members.length >= 3;
+    const members = group.members;
+    group.ordinal = ORDINALS[group.rank];
+    group.points = members[0].points;
+    group.isTie = members.length > 1;
+    // Bar label rendered on every plinth, tied or not: "2nd · 12 pts".
+    group.barLabel = `${group.ordinal} · ${group.points} pt${group.points === 1 ? '' : 's'}`;
+    // Sub-line under a tied group's names: "2nd place · 12 pts each".
+    group.subLine = `${group.ordinal} place · ${group.points} pt${group.points === 1 ? '' : 's'} each`;
+    // Names line for tied groups joins first names naturally — "Liam, Priya
+    // and Noah" for up to 3 members; "Liam, Priya and 3 more" for 4+ (matching
+    // the 3-avatar cap). The view renders each name as a /u/<id> link, so the
+    // route hands it structure (named members + a tail), not a flat string.
+    members.forEach((m) => {
+      m.firstName = (m.name || 'Guest').trim().split(/\s+/)[0];
+    });
+    if (members.length <= 3) {
+      group.namedMembers = members;
+      group.namesTail = null; // every member is named, no "and N more"
+    } else {
+      group.namedMembers = members.slice(0, 2);
+      group.namesTail = `and ${members.length - 2} more`;
+    }
+    group.shownMembers = members.slice(0, 3);
+    group.extraCount = members.length - group.shownMembers.length;
   }
   // Podium display order: 2nd, 1st, 3rd. Skip ranks with no members.
   const podiumGroups = [groupsByRank.get(2), groupsByRank.get(1), groupsByRank.get(3)].filter(
