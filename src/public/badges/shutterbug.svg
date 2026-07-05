@@ -1,13 +1,12 @@
 <!-- src/public/badges/shutterbug.svg -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Shutterbug badge">
-  <circle cx="60" cy="60" r="56" fill="#fdf8f1" stroke="#bfe0f2" stroke-width="4"/>
-  <rect x="30" y="46" width="60" height="38" rx="8" fill="#d7c9ef" stroke="#b69fe0" stroke-width="2"/>
-  <rect x="48" y="38" width="24" height="12" rx="4" fill="#d7c9ef" stroke="#b69fe0" stroke-width="2"/>
-  <circle cx="60" cy="65" r="14" fill="#fdf8f1" stroke="#8ec5e6" stroke-width="3"/>
-  <circle cx="60" cy="65" r="7" fill="#bfe0f2" stroke="#8ec5e6" stroke-width="2"/>
-  <circle cx="60" cy="65" r="2.5" fill="#fdf8f1"/>
-  <circle cx="80" cy="54" r="3" fill="#fbedb0" stroke="#f3b68b" stroke-width="1.5"/>
-  <g fill="#fbedb0" stroke="#f3b68b" stroke-width="1">
-    <circle cx="40" cy="34" r="2.2"/><circle cx="86" cy="40" r="2.2"/><circle cx="34" cy="58" r="2"/>
-  </g>
+  <circle cx="60" cy="60" r="56" fill="#ffffff" stroke="#467058" stroke-width="4"/>
+  <circle cx="60" cy="60" r="47" fill="none" stroke="#aebbb2" stroke-width="1.5"/>
+  <rect x="76" y="39" width="9" height="7" rx="2" fill="#2a4335"/>
+  <rect x="46" y="37" width="24" height="11" rx="3" fill="#467058"/>
+  <rect x="28" y="45" width="64" height="38" rx="7" fill="#467058"/>
+  <circle cx="60" cy="64" r="14.5" fill="#ffffff"/>
+  <circle cx="60" cy="64" r="9.5" fill="#2a4335"/>
+  <circle cx="63.5" cy="60.5" r="2.5" fill="#f0f4f2"/>
+  <circle cx="84" cy="53" r="2.5" fill="#f0f4f2"/>
 </svg>

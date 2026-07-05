@@ -1,22 +1,35 @@
 <!-- src/public/badges/garden.svg -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Full Garden badge">
-  <circle cx="60" cy="60" r="56" fill="#fdf8f1" stroke="#c6dcc0" stroke-width="4"/>
-  <path d="M14 78 Q60 70 106 78 L106 92 Q60 86 14 92 Z" fill="#c6dcc0"/>
-  <g stroke="#9bc191" stroke-width="2.5" stroke-linecap="round" fill="none">
-    <path d="M38 80 L38 56"/><path d="M60 82 L60 50"/><path d="M82 80 L82 56"/>
+  <circle cx="60" cy="60" r="56" fill="#ffffff" stroke="#467058" stroke-width="4"/>
+  <circle cx="60" cy="60" r="47" fill="none" stroke="#aebbb2" stroke-width="1.5"/>
+  <rect x="24" y="82" width="72" height="6" rx="3" fill="#467058"/>
+  <g stroke="#467058" stroke-width="3.5" stroke-linecap="round" fill="none">
+    <path d="M38 82 L38 60"/>
+    <path d="M60 82 L60 50"/>
+    <path d="M82 82 L82 60"/>
   </g>
-  <g transform="translate(38 50)" fill="#f7c8d6" stroke="#ef9fb6" stroke-width="1.2">
-    <circle cx="0" cy="-8" r="5"/><circle cx="7" cy="3" r="5"/><circle cx="-7" cy="3" r="5"/>
-    <circle cx="0" cy="0" r="4.5" fill="#fbedb0" stroke="#f3b68b"/>
+  <g transform="translate(38 52)" fill="#6e8478">
+    <circle cx="0" cy="-6" r="4.5"/>
+    <circle cx="5.7" cy="-1.9" r="4.5"/>
+    <circle cx="3.5" cy="4.9" r="4.5"/>
+    <circle cx="-3.5" cy="4.9" r="4.5"/>
+    <circle cx="-5.7" cy="-1.9" r="4.5"/>
+    <circle cx="0" cy="0" r="4" fill="#f0f4f2"/>
   </g>
-  <g transform="translate(60 44)" fill="#fbedb0" stroke="#f3b68b" stroke-width="1.2">
-    <circle cx="0" cy="-9" r="6"/><circle cx="9" cy="3" r="6"/><circle cx="-9" cy="3" r="6"/>
-    <circle cx="5" cy="-5" r="6"/><circle cx="-5" cy="-5" r="6"/>
-    <circle cx="0" cy="0" r="5" fill="#f3b68b" stroke="#ef9fb6"/>
+  <g transform="translate(60 40)" fill="#467058">
+    <circle cx="0" cy="-7.5" r="5.5"/>
+    <circle cx="7.1" cy="-2.3" r="5.5"/>
+    <circle cx="4.4" cy="6.1" r="5.5"/>
+    <circle cx="-4.4" cy="6.1" r="5.5"/>
+    <circle cx="-7.1" cy="-2.3" r="5.5"/>
+    <circle cx="0" cy="0" r="4.5" fill="#2a4335"/>
   </g>
-  <g transform="translate(82 50)" fill="#d7c9ef" stroke="#b69fe0" stroke-width="1.2">
-    <circle cx="0" cy="-8" r="5"/><circle cx="7" cy="3" r="5"/><circle cx="-7" cy="3" r="5"/>
-    <circle cx="0" cy="0" r="4.5" fill="#fbedb0" stroke="#f3b68b"/>
+  <g transform="translate(82 52)" fill="#6e8478">
+    <circle cx="0" cy="-6" r="4.5"/>
+    <circle cx="5.7" cy="-1.9" r="4.5"/>
+    <circle cx="3.5" cy="4.9" r="4.5"/>
+    <circle cx="-3.5" cy="4.9" r="4.5"/>
+    <circle cx="-5.7" cy="-1.9" r="4.5"/>
+    <circle cx="0" cy="0" r="4" fill="#f0f4f2"/>
   </g>
-  <circle cx="92" cy="34" r="7" fill="#fbedb0" stroke="#f3b68b" stroke-width="1.5"/>
 </svg>
