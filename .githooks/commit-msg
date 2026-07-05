@@ -20,6 +20,20 @@ set -e
 msg_file="$1"
 root="$(git rev-parse --show-toplevel)"
 
+# Sanctioned ledger-appender exemption (#219): the governance ledger's ONLY
+# writer is the CI job in .github/workflows/ledger.yml (a ledger row is never
+# part of the tree it describes, so no reviewed-issue commit can carry it).
+# A commit is exempt ONLY when BOTH hold: the sole staged path is
+# governance/ledger.ndjson AND the message starts with "ledger: ". Any other
+# staged path alongside the ledger, or any other message, takes the full gate.
+# See DESIGN.md "Governance ledger (#219)".
+staged_paths="$(git diff --cached --name-only)"
+if [ "$staged_paths" = "governance/ledger.ndjson" ]; then
+  case "$(head -1 "$msg_file")" in
+    "ledger: "*) exit 0 ;;
+  esac
+fi
+
 # Require PowerShell before classification: classification itself calls into PS.
 _ps="$(command -v powershell 2>/dev/null)" || _ps=""
 if [ -z "$_ps" ]; then
