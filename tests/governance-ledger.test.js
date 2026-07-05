@@ -222,12 +222,22 @@ describe('commit-msg ledger exemption', () => {
     fs.mkdirSync(path.join(dir, '.githooks'));
     fs.mkdirSync(path.join(dir, 'tools'));
     fs.mkdirSync(path.join(dir, 'governance'));
-    // Byte-for-byte copies keep the LF-only hook intact.
+    // Byte-for-byte copies keep the LF-only hook intact. gate-core.sh rides
+    // along because commit-msg sources it (event mode, #220).
     fs.copyFileSync(
       path.join(REPO_ROOT, '.githooks', 'commit-msg'),
       path.join(dir, '.githooks', 'commit-msg')
     );
-    for (const t of ['issue-core.ps1', 'verdict-core.ps1', 'check-issue-reviewed.ps1']) {
+    fs.copyFileSync(
+      path.join(REPO_ROOT, '.githooks', 'gate-core.sh'),
+      path.join(dir, '.githooks', 'gate-core.sh')
+    );
+    for (const t of [
+      'issue-core.ps1',
+      'verdict-core.ps1',
+      'check-issue-reviewed.ps1',
+      'event-mode-core.ps1',
+    ]) {
       fs.copyFileSync(path.join(REPO_ROOT, 'tools', t), path.join(dir, 'tools', t));
     }
     fs.chmodSync(path.join(dir, '.githooks', 'commit-msg'), 0o755);

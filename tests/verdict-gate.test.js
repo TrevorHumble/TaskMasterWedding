@@ -217,12 +217,17 @@ maybeDescribe('verdict-gate (evidence gate)', () => {
       });
       execFileSync('git', ['-C', tmp, 'config', 'user.name', 'Test'], { encoding: 'utf8' });
 
-      // Copy the pre-commit hook into the temp repo
+      // Copy the pre-commit hook into the temp repo, plus gate-core.sh which
+      // it sources (the evidence gate body lives there since #220)
       const hooksDir = path.join(tmp, '.githooks');
       fs.mkdirSync(hooksDir, { recursive: true });
       const hookSrc = fs.readFileSync(PRE_COMMIT, 'utf8');
       const hookDest = path.join(hooksDir, 'pre-commit');
       fs.writeFileSync(hookDest, hookSrc);
+      fs.copyFileSync(
+        path.join(path.dirname(PRE_COMMIT), 'gate-core.sh'),
+        path.join(hooksDir, 'gate-core.sh')
+      );
       // Make hook executable (needed on non-Windows; on Windows git respects the bit via Git for Windows)
       try {
         fs.chmodSync(hookDest, 0o755);
