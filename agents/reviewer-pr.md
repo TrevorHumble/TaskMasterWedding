@@ -59,3 +59,5 @@ One token verdict, then one `verified by` line per AC, then the numbered defect 
 - [ ] Changed files match the `Touches` field in the issue's dependency map; unannounced files are a finding.
 - [ ] No FINAL, LAST, or TRULY_FINAL appear in any changed filename or section header.
 - [ ] Before citing any `file:line`, opened the file and confirmed the line number is within its actual line count. An out-of-range or unverified citation is itself a defect.
+- [ ] For every create/delete/hide/restore/resubmit in this diff: what happens to everything attached to that thing — files on disk, database rows, pages that render it, and reachable URLs? Name each attachment and its fate, or FAIL the item. (Evidence: #190, #191, #196.)
+- [ ] Does any route in this diff serve files, return lists, or run queries without a size/pagination/rate bound? Name each unbounded path, or state that none exist. (Evidence: #194.)
