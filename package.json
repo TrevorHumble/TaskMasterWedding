@@ -21,22 +21,25 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "mutation": "stryker run"
   },
   "dependencies": {
-    "express": "4.21.2",
-    "better-sqlite3": "12.11.1",
-    "ejs": "6.0.1",
-    "multer": "2.2.0",
-    "sharp": "0.35.2",
-    "qrcode": "1.5.4",
-    "bcryptjs": "3.0.3",
-    "cookie-parser": "1.4.7",
     "archiver": "7.0.1",
-    "exceljs": "4.4.0"
+    "bcryptjs": "3.0.3",
+    "better-sqlite3": "12.11.1",
+    "cookie-parser": "1.4.7",
+    "ejs": "6.0.1",
+    "exceljs": "4.4.0",
+    "express": "4.21.2",
+    "multer": "2.2.0",
+    "qrcode": "1.5.4",
+    "sharp": "0.35.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@vitest/coverage-v8": "^4.1.9",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
