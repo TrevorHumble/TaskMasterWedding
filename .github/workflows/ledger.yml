@@ -1,10 +1,13 @@
-# Governance ledger harvest (#219).
+# Governance ledger harvest (#219, delivery path fixed by #228).
 #
 # This job is the ONLY sanctioned writer of governance/ledger.ndjson.
 # No local session or agent ever writes that file: a ledger row must never be
 # part of the tree it describes (appending the row changes the tree and would
 # invalidate the tree-bound review verdict), so rows are appended here, by CI,
-# post-merge on main. See DESIGN.md "Governance ledger (#219)".
+# post-merge. Rows land on the dedicated `ledger` branch — main's protection
+# (PR required + required checks, enforced for admins) rejects any direct CI
+# push, and a GITHUB_TOKEN-created PR cannot trigger its own required checks
+# (#228). See DESIGN.md "Governance ledger (#219)".
 name: Governance ledger
 
 on:
@@ -43,18 +46,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
+      - name: Materialize current ledger from the ledger branch
+        run: node scripts/ledger-push.js --materialize
       - name: Harvest merged PRs into the ledger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/ledger-harvest.js
-      - name: Commit and push appended rows
-        run: |
-          if git diff --quiet -- governance/ledger.ndjson; then
-            echo "ledger: no rows appended, nothing to commit."
-            exit 0
-          fi
-          git config user.name "governance-ledger[bot]"
-          git config user.email "governance-ledger@users.noreply.github.com"
-          git add governance/ledger.ndjson
-          git commit -m "ledger: append harvested rows"
-          git push origin main
+      - name: Commit and push appended rows to the ledger branch
+        run: node scripts/ledger-push.js --push
