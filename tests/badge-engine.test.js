@@ -329,6 +329,70 @@ describe('AC7 (structural, verified behaviorally): submitPhoto and hide/restore 
   });
 });
 
+describe('#193 AC3: engine badges fire on event-seeded data', () => {
+  // seedEvent wipes submissions/guests and re-seeds event tasks, and this
+  // block empties and rebuilds the badge catalog, so it must stay the LAST
+  // state-mutating describe in this file (AC8 below only probes the schema).
+  it('a full-coverage guest gains COMPLETIONIST and every visible-submission leader holds MOSTPHOTOS', () => {
+    const { ensureBadgeCatalog } = require('../scripts/seed-event');
+    const { seedEvent } = require('./helpers/event-fixture');
+
+    // Prove the event-seed catalog path itself provides the engine rows:
+    // empty the catalog, then let ensureBadgeCatalog rebuild it from the
+    // shared module — exactly what scripts/seed-event.js main() runs. Without
+    // the wipe, the rows scripts/seed.js inserted in beforeAll would mask an
+    // incomplete event-seed catalog.
+    db.prepare('DELETE FROM guest_badges').run();
+    db.prepare('DELETE FROM badges').run();
+    const { inserted } = ensureBadgeCatalog(db);
+    expect(inserted).toBe(9);
+    const codes = db
+      .prepare('SELECT code FROM badges ORDER BY code')
+      .all()
+      .map((r) => r.code);
+    expect(codes).toContain('COMPLETIONIST');
+    expect(codes).toContain('MOSTPHOTOS');
+
+    const { taskIds, guestIds } = seedEvent(db, { guests: 5 });
+
+    // Deactivate every non-event task (earlier describes left some active)
+    // so "covers every active task" is unambiguous.
+    const placeholders = taskIds.map(() => '?').join(',');
+    db.prepare(`UPDATE tasks SET is_active = 0 WHERE id NOT IN (${placeholders})`).run(...taskIds);
+
+    // One event guest completes every active task.
+    const hero = guestIds[0];
+    const covered = new Set(
+      db
+        .prepare('SELECT DISTINCT task_id FROM submissions WHERE guest_id = ? AND taken_down = 0')
+        .all(hero)
+        .map((r) => r.task_id)
+    );
+    for (const taskId of taskIds) {
+      if (!covered.has(taskId)) submit(hero, taskId);
+    }
+
+    scoring.recomputeBadges(hero);
+    scoring.recomputeTransferableBadges();
+
+    expect(heldCodes(hero)).toContain('COMPLETIONIST');
+
+    // MOSTPHOTOS ties are held by all tied leaders, so assert set membership
+    // over the actual leader set rather than assuming a unique holder.
+    const counts = db
+      .prepare(
+        'SELECT guest_id, COUNT(*) AS n FROM submissions WHERE taken_down = 0 GROUP BY guest_id'
+      )
+      .all();
+    const max = Math.max(...counts.map((c) => c.n));
+    const leaders = counts.filter((c) => c.n === max).map((c) => c.guest_id);
+    expect(leaders.length).toBeGreaterThanOrEqual(1);
+    for (const leader of leaders) {
+      expect(heldCodes(leader)).toContain('MOSTPHOTOS');
+    }
+  });
+});
+
 describe('AC8: schema migration is guarded and idempotent', () => {
   it('a second call to ensureBadgeTypeCheckWidened on an already-widened table is a no-op', () => {
     const { ensureBadgeTypeCheckWidened } = require('../src/db');
