@@ -16,3 +16,7 @@ PLAN/
 *.ps1
 .githooks/
 docs/design-system/Examples/
+
+# Mutation-testing output (Stryker, #199)
+.stryker-tmp/
+reports/
