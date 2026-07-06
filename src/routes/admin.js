@@ -58,10 +58,13 @@ router.use((req, res, next) => {
 // Small local helpers
 // ---------------------------------------------------------------------------
 
-// Build a redirect target with a human message in the ?msg= query.
-function redirectWithMsg(res, path, msg) {
+// Build a redirect target with a human message in the ?msg= query. An
+// optional anchor lands the admin back at the element they acted on
+// (fragment goes after the query, per URL syntax).
+function redirectWithMsg(res, path, msg, anchor) {
   const sep = path.indexOf('?') === -1 ? '?' : '&';
-  res.redirect(303, path + sep + 'msg=' + encodeURIComponent(msg));
+  const hash = anchor ? '#' + anchor : '';
+  res.redirect(303, path + sep + 'msg=' + encodeURIComponent(msg) + hash);
 }
 
 // Generate a unique 32-hex-char token (crypto.randomBytes(16) -> 32 hex chars).
@@ -133,10 +136,20 @@ router.get('/guests', (req, res) => {
     };
   });
 
+  // Denominator for each card's "done/total tasks" meta line. ALL tasks, not
+  // just active ones: the completed numerator (scoring.getCompletedCount)
+  // counts visible submissions on hidden tasks too, and UNIQUE(guest_id,
+  // task_id) + ON DELETE CASCADE bound it by the number of existing tasks —
+  // so this denominator can never show "4/3 tasks". (Guest home clamps a
+  // percentage instead; here the raw pair is displayed, so the denominator
+  // must dominate.)
+  const totalTasks = db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n;
+
   res.render('admin-guests', {
     title: 'Guests',
     guests: rows,
     specialBadges,
+    totalTasks,
     msg: req.query.msg || '',
     isAdmin: true,
   });
@@ -239,7 +252,9 @@ router.post('/guests/:id/points', (req, res) => {
 
 // POST /admin/guests/:id/badge  — award OR remove a special OR custom badge.
 // Body: code = badge code (EARLYBIRD/SHUTTERBUG/CROWDFAV/CHOICE, or any
-//       admin-created custom code), action = "award" or "remove".
+//       admin-created custom code), action = "award", "remove", or "toggle"
+//       ("toggle" resolves against the guest's current held state server-side,
+//       so the badge-select form stays correct with JavaScript disabled).
 // 'metric'/'transferable' codes are refused (issue #80 AC5) — those types are
 // system-owned by scoring.recomputeBadges/recomputeTransferableBadges, and an
 // admin award/remove attempt on one must not create or delete a guest_badges
@@ -260,7 +275,15 @@ router.post('/guests/:id/badge', (req, res) => {
     return redirectWithMsg(res, '/admin/guests', 'Unknown special or custom badge.');
   }
 
-  if (action === 'remove') {
+  let effective = action;
+  if (action === 'toggle') {
+    const held = db
+      .prepare('SELECT 1 FROM guest_badges WHERE guest_id = ? AND badge_id = ?')
+      .get(id, badge.id);
+    effective = held ? 'remove' : 'award';
+  }
+
+  if (effective === 'remove') {
     scoring.removeSpecialBadge(id, code);
     redirectWithMsg(res, '/admin/guests', 'Removed badge "' + badge.name + '".');
   } else {
@@ -385,18 +408,26 @@ router.get('/tasks', (req, res) => {
   });
 });
 
-// POST /admin/tasks  — create a task. New task goes to the bottom of the order.
+// POST /admin/tasks  — create a task. Bottom of the order by default; the
+// "Add to top" checkbox (issue #258) puts it at position 1 so a mid-event
+// task can be featured without a click-reload reorder marathon.
 router.post('/tasks', (req, res) => {
   const title = (req.body.title || '').trim();
   const description = (req.body.description || '').trim();
   if (!title) {
     return redirectWithMsg(res, '/admin/tasks', 'A task needs a title.');
   }
-  const maxRow = db.prepare('SELECT MAX(sort_order) AS m FROM tasks').get();
-  const nextOrder = (maxRow.m == null ? -1 : maxRow.m) + 1;
+  let order;
+  if (req.body.add_to_top) {
+    const minRow = db.prepare('SELECT MIN(sort_order) AS m FROM tasks').get();
+    order = (minRow.m == null ? 1 : minRow.m) - 1;
+  } else {
+    const maxRow = db.prepare('SELECT MAX(sort_order) AS m FROM tasks').get();
+    order = (maxRow.m == null ? -1 : maxRow.m) + 1;
+  }
   db.prepare(
     'INSERT INTO tasks (title, description, sort_order, is_active) VALUES (?, ?, ?, 1)'
-  ).run(title, description, nextOrder);
+  ).run(title, description, order);
   redirectWithMsg(res, '/admin/tasks', 'Task added.');
 });
 
@@ -417,7 +448,7 @@ router.post('/tasks/:id/edit', (req, res) => {
     description,
     id
   );
-  redirectWithMsg(res, '/admin/tasks', 'Task updated.');
+  redirectWithMsg(res, '/admin/tasks', 'Task updated.', 'task-' + id);
 });
 
 // POST /admin/tasks/:id/delete  — delete a task and its photo files.
@@ -440,6 +471,7 @@ router.post('/tasks/:id/delete', (req, res) => {
   }
 
   db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+  // No anchor: the card this id pointed at no longer exists.
   redirectWithMsg(res, '/admin/tasks', 'Task deleted.');
 });
 
@@ -455,12 +487,15 @@ router.post('/tasks/:id/active', (req, res) => {
   redirectWithMsg(
     res,
     '/admin/tasks',
-    next ? 'Task is now active.' : 'Task is now hidden from guests.'
+    next ? 'Task is now active.' : 'Task is now hidden from guests.',
+    'task-' + id
   );
 });
 
 // POST /admin/tasks/reorder  — move one task up or down by swapping sort_order
-// with its neighbor. Body: id = task id, direction = "up" | "down".
+// with its neighbor, or straight to the top. Body: id = task id,
+// direction = "up" | "down" | "top". Every outcome redirects back to
+// #task-<id> so the admin lands on the card they moved, not the page top.
 router.post('/tasks/reorder', (req, res) => {
   const id = parseInt(req.body.id, 10);
   const direction = (req.body.direction || '').trim();
@@ -468,6 +503,15 @@ router.post('/tasks/reorder', (req, res) => {
   const task = db.prepare('SELECT id, sort_order FROM tasks WHERE id = ?').get(id);
   if (!task) {
     return redirectWithMsg(res, '/admin/tasks', 'Task not found.');
+  }
+
+  if (direction === 'top') {
+    // One statement, atomic: take a sort_order below the current minimum.
+    // (If the task is already the minimum it just gets min-1 — still first.)
+    db.prepare(
+      'UPDATE tasks SET sort_order = (SELECT MIN(sort_order) FROM tasks) - 1 WHERE id = ?'
+    ).run(id);
+    return redirectWithMsg(res, '/admin/tasks', 'Task moved to the top.', 'task-' + id);
   }
 
   let neighbor;
@@ -495,7 +539,7 @@ router.post('/tasks/reorder', (req, res) => {
 
   if (!neighbor) {
     // Already at the top or bottom; nothing to do.
-    return redirectWithMsg(res, '/admin/tasks', 'Task is already at the edge.');
+    return redirectWithMsg(res, '/admin/tasks', 'Task is already at the edge.', 'task-' + id);
   }
 
   // Swap the two sort_order values inside a transaction.
@@ -504,7 +548,7 @@ router.post('/tasks/reorder', (req, res) => {
     db.prepare('UPDATE tasks SET sort_order = ? WHERE id = ?').run(task.sort_order, neighbor.id);
   });
   swap();
-  redirectWithMsg(res, '/admin/tasks', 'Task moved.');
+  redirectWithMsg(res, '/admin/tasks', 'Task moved.', 'task-' + id);
 });
 
 // ---------------------------------------------------------------------------
