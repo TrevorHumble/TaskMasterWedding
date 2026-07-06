@@ -89,7 +89,8 @@ it('AC2: POST /p/:id/comments as a signed-in guest creates a row and the feed re
     .type('form')
     .send({ body: 'Nice shot' });
   expect(res.status).toBe(302);
-  expect(res.headers.location).toBe('/feed#photo-' + submissionId);
+  // Redirect returns to the bounded feed page CONTAINING this photo (#194).
+  expect(res.headers.location).toBe('/feed?from=' + submissionId + '#photo-' + submissionId);
 
   const row = db
     .prepare(`SELECT * FROM comments WHERE submission_id = ? AND guest_id = ?`)

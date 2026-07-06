@@ -25,6 +25,10 @@
         <form action="/admin/guests/<%= g.id %>/edit" method="post" class="guest-name-form">
           <input type="text" name="name" value="<%= g.name %>" placeholder="(no name)"
                  aria-label="Guest name" />
+          <label class="guest-pin-label">
+            <input type="checkbox" name="pinned" value="1" <%= g.pinned ? 'checked' : '' %> />
+            Pin first in the gallery
+          </label>
           <button type="submit" class="btn btn-sm btn-secondary">Save</button>
         </form>
 

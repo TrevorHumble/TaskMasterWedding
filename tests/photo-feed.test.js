@@ -1,9 +1,12 @@
 // tests/photo-feed.test.js
-// Covers issue #84 acceptance criteria:
-//   AC1 — feed shows full-resolution images, newest-first
+// Covers issue #84 acceptance criteria, as amended by issue #194 (the feed
+// serves thumbnails and is bounded; originals live one tap away on /p/<id>):
+//   AC1 (as amended by #194) — feed shows thumbnails newest-first, each
+//        linking to /p/<id>, where the original still renders full-resolution
 //   AC2 — each feed item is an anchor target (id="photo-<N>") + CSS scroll-margin-top
 //   AC3 — author + caption render, with a link to the guest's profile
-//   AC4 — gallery thumbnails open the feed at that photo
+//   AC4 (as amended by #194) — gallery thumbnails open the feed at that
+//        photo via the server-resolved anchor (/feed?from=<id>#photo-<id>)
 //   AC5 — taken-down photos never appear in the feed
 //   AC6 — the /p/:id permalink still resolves (200) / 404s for a missing id
 //
@@ -75,23 +78,33 @@ beforeAll(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC1 — full-resolution images, newest-first
+// AC1 (as amended by #194) — thumbnails newest-first; originals on /p/<id>
 // ---------------------------------------------------------------------------
-describe('AC1: feed shows full-resolution images newest-first', () => {
-  it('GET /feed contains /uploads/c.jpg and /uploads/a.jpg, not /thumbs/', async () => {
+describe('AC1: feed shows thumbnails newest-first, originals one tap away', () => {
+  it('GET /feed serves /thumbs/ images, never /uploads/ originals', async () => {
     const res = await agent.get('/feed');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('/uploads/c.jpg');
-    expect(res.text).toContain('/uploads/a.jpg');
-    expect(res.text).not.toContain('/thumbs/ct.jpg');
-    expect(res.text).not.toContain('/thumbs/at.jpg');
+    expect(res.text).toContain('/thumbs/ct.jpg');
+    expect(res.text).toContain('/thumbs/at.jpg');
+    expect(res.text).not.toContain('/uploads/c.jpg');
+    expect(res.text).not.toContain('/uploads/a.jpg');
+  });
+
+  it('each feed photo links to its detail page, where the original renders', async () => {
+    const res = await agent.get('/feed');
+    expect(res.text).toContain('href="/p/' + idC + '"');
+    expect(res.text).toContain('href="/p/' + idA + '"');
+
+    const detail = await agent.get('/p/' + idC);
+    expect(detail.status).toBe(200);
+    expect(detail.text).toContain('/uploads/c.jpg');
   });
 
   it('C (newest) appears before A (oldest) in the response body', async () => {
     const res = await agent.get('/feed');
     expect(res.status).toBe(200);
-    const cIdx = res.text.indexOf('/uploads/c.jpg');
-    const aIdx = res.text.indexOf('/uploads/a.jpg');
+    const cIdx = res.text.indexOf('/thumbs/ct.jpg');
+    const aIdx = res.text.indexOf('/thumbs/at.jpg');
     expect(cIdx).toBeGreaterThan(-1);
     expect(aIdx).toBeGreaterThan(-1);
     expect(cIdx).toBeLessThan(aIdx);
@@ -132,13 +145,14 @@ describe('AC3: author and caption render with each photo', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC4 — gallery thumbnails open the feed at that photo
+// AC4 (as amended by #194) — gallery thumbnails open the feed at that photo,
+// with the server-resolved ?from anchor so the bounded page contains it
 // ---------------------------------------------------------------------------
-describe('AC4: gallery thumbnails link to /feed#photo-<id>', () => {
-  it('GET /gallery contains href="/feed#photo-<idA>"', async () => {
+describe('AC4: gallery thumbnails link to /feed?from=<id>#photo-<id>', () => {
+  it('GET /gallery contains href="/feed?from=<idA>#photo-<idA>"', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('href="/feed#photo-' + idA + '"');
+    expect(res.text).toContain('href="/feed?from=' + idA + '#photo-' + idA + '"');
   });
 });
 

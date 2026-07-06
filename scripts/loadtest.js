@@ -10,7 +10,7 @@
 //      response's Set-Cookie header (see captureSignedCookie below — the
 //      cookie is signed by cookie-parser(COOKIE_SECRET); synthesizing
 //      "gsid=<token>" ourselves would be rejected by src/middleware/session.js).
-//   2. Loops over the read paths: /, /tasks, /gallery, /leaderboard.
+//   2. Loops over the read paths: /, /tasks, /gallery, /feed, /leaderboard.
 //   3. Submits a real photo via POST /tasks/:id/submit (multipart, field
 //      "photo") — the heavy path: multer + synchronous better-sqlite3 +
 //      sharp thumbnailing, where a blocked event loop would show up first.
@@ -368,6 +368,7 @@ async function runOneLap(ctx, laneIndex) {
   }
 
   await timedFetch(samples, `${baseUrl}/gallery`, { headers });
+  await timedFetch(samples, `${baseUrl}/feed`, { headers });
   await timedFetch(samples, `${baseUrl}/leaderboard`, { headers });
 
   // Only submit when we found a genuinely active task — otherwise the POST

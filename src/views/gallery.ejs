@@ -2,27 +2,33 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-  <h1 class="page-title">Gallery</h1>
-  <p class="muted">
-    <%= total %> photo<%= total === 1 ? '' : 's' %> from the weekend.
-  </p>
+  <h1 class="page-title gallery-title">
+    Gallery
+    <span class="gallery-count"><%= total %> photo<%= total === 1 ? '' : 's' %></span>
+  </h1>
 
-  <!-- View switcher -->
-  <nav class="gallery-switcher" aria-label="Gallery views">
-    <a class="gallery-switch-link<%= view === 'recent' ? ' gallery-switch-active' : '' %>"
+  <!-- View switcher — the app-wide chip pattern (same component as the Tasks
+       page filters): sage solid = active, outline = inactive. -->
+  <nav class="task-filters" aria-label="Gallery views">
+    <a class="chip-filter<%= view === 'recent' ? ' chip-filter-active' : '' %>"
        href="?view=recent">Recent</a>
-    <a class="gallery-switch-link<%= view === 'task'   ? ' gallery-switch-active' : '' %>"
+    <a class="chip-filter<%= view === 'task'   ? ' chip-filter-active' : '' %>"
        href="?view=task">By task</a>
-    <a class="gallery-switch-link<%= view === 'user'   ? ' gallery-switch-active' : '' %>"
+    <a class="chip-filter<%= view === 'user'   ? ' chip-filter-active' : '' %>"
        href="?view=user">By person</a>
   </nav>
 
   <% if (view === 'task' || view === 'user') { %>
+    <%# The GET form is the no-JS fallback (server-side substring filter).
+        In the By-person view the same input is also the LIVE filter:
+        /js/gallery.js listens on #person-search and hides non-matching
+        [data-person-section] sections as the guest types. %>
     <form class="gallery-search" method="get">
       <input type="hidden" name="view" value="<%= view %>">
       <input
-        type="text"
+        type="search"
         name="q"
+        <% if (view === 'user') { %>id="person-search" autocomplete="off"<% } %>
         value="<%= q %>"
         placeholder="<%= view === 'user' ? 'Search people' : 'Search tasks' %>"
         aria-label="<%= view === 'user' ? 'Search people' : 'Search tasks' %>"
@@ -35,57 +41,85 @@
   <% } %>
 
   <%
-    /* Render a single flat grid of photo items.
-       Used both in the recent view and inside each grouped section. */
-    function renderGrid(items) {
+    /* One photo tile: thumbnail linking into the feed at that photo, with a
+       like-count badge only when likes exist (no badge at 0). overlayCount
+       and overlayHref, when given, render the "+N" scrim on this tile
+       (grouped previews, issue #251) and repoint the tile at the full list. */
+    function renderTile(p, overlayCount, overlayHref) {
+  %>
+    <figure class="gallery-item">
+      <a
+        class="gallery-thumb-btn"
+        href="<%= overlayCount ? overlayHref : '/feed?from=' + p.submission_id + '#photo-' + p.submission_id %>"
+        aria-label="<%= overlayCount ? 'See all photos in this section' : 'View photo for ' + p.task_title %>"
+      >
+        <img
+          class="gallery-thumb"
+          src="/thumbs/<%= p.thumb_path %>"
+          alt="<%= p.task_title %>"
+          loading="lazy"
+          width="400"
+          height="400"
+        />
+        <% if (overlayCount) { %>
+          <span class="tile-more">+<%= overlayCount %></span>
+        <% } else if (p.like_count > 0) { %>
+          <span class="tile-like-badge"><span aria-hidden="true">&hearts;</span> <%= p.like_count %></span>
+        <% } %>
+      </a>
+    </figure>
+  <% } %>
+
+  <%
+    /* A flat grid of photo tiles — the recent wall and each grouped preview. */
+    function renderGrid(items, groupTotal, overlayHref) {
   %>
     <div class="gallery-grid" id="galleryGrid">
-      <% items.forEach(function (p) { %>
-        <figure class="gallery-item">
-          <a
-            class="gallery-thumb-btn"
-            href="/feed#photo-<%= p.submission_id %>"
-            aria-label="View photo for <%= p.task_title %>"
-          >
-            <img
-              class="gallery-thumb"
-              src="/thumbs/<%= p.thumb_path %>"
-              alt="<%= p.task_title %>"
-              loading="lazy"
-              width="400"
-              height="400"
-            />
-          </a>
-        </figure>
+      <% items.forEach(function (p, i) { %>
+        <% var overflow = groupTotal > items.length && i === items.length - 1; %>
+        <%- renderTile(p, overflow ? groupTotal - items.length : 0, overlayHref) %>
       <% }); %>
     </div>
   <% } %>
 
   <% if (groups.length > 0) { %>
     <% groups.forEach(function (g) { %>
-      <h2 class="gallery-group-heading"><%= g.heading %></h2>
-      <%- renderGrid(g.photos) %>
+      <%
+        var sectionHref = view === 'task'
+          ? '/gallery?view=recent&task=' + g.task_id
+          : '/u/' + g.guest_id;
+      %>
+      <section class="gallery-group"<% if (view === 'user') { %> data-person-section="<%= g.heading %>"<% } %>>
+        <a class="gallery-group-head" href="<%= sectionHref %>">
+          <% if (view === 'user') { %>
+            <span class="gallery-person-avatar">
+              <% if (g.avatar_path) { %>
+                <img src="/uploads/<%= g.avatar_path %>" alt="" width="34" height="34" />
+              <% } else { %>
+                <%= initials(g.heading) || '?' %>
+              <% } %>
+            </span>
+          <% } %>
+          <h2 class="gallery-group-heading"><%= g.heading %></h2>
+          <span class="gallery-group-count"><%= g.total %> photo<%= g.total === 1 ? '' : 's' %></span>
+          <span class="gallery-group-chevron" aria-hidden="true">&rsaquo;</span>
+        </a>
+        <%- renderGrid(g.photos, g.total, sectionHref) %>
+      </section>
     <% }); %>
   <% } else if (photos.length > 0) { %>
-    <%- renderGrid(photos) %>
+    <%- renderGrid(photos, photos.length, null) %>
 
-    <% if (totalPages > 1) { %>
-      <nav class="pagination" aria-label="Gallery pages">
-        <% if (page > 1) { %>
-          <a class="page-link" href="/gallery?page=<%= page - 1 %>">&larr; Newer</a>
-        <% } else { %>
-          <span class="page-link disabled">&larr; Newer</span>
-        <% } %>
-
-        <span class="page-status">Page <%= page %> of <%= totalPages %></span>
-
-        <% if (page < totalPages) { %>
-          <a class="page-link" href="/gallery?page=<%= page + 1 %>">Older &rarr;</a>
-        <% } else { %>
-          <span class="page-link disabled">Older &rarr;</span>
-        <% } %>
+    <% if (page < totalPages) { %>
+      <nav class="show-more" aria-label="More photos">
+        <a class="btn btn-secondary"
+           href="/gallery?view=recent<%= taskFilter ? '&task=' + taskFilter : '' %>&page=<%= page + 1 %>">Show more</a>
       </nav>
     <% } %>
   <% } %>
 
+<% if (view === 'user') { %>
+  <script src="/js/filter.js" defer></script>
+  <script src="/js/gallery.js" defer></script>
+<% } %>
 <%- include('partials/footer') %>

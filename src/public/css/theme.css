@@ -970,7 +970,10 @@ textarea {
    the grid is photos only. */
 .gallery-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* minmax(0, 1fr), not bare 1fr: the 0 floor lets tiles shrink below their
+     intrinsic size, which is what keeps three columns inside a 375px
+     viewport (issue #251 — intrinsic tile widths forced a 522px layout). */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2px;
   width: 100vw;
   margin-inline: calc(50% - 50vw);
@@ -978,10 +981,43 @@ textarea {
 .gallery-item {
   position: relative;
   display: block;
+  margin: 0;
   aspect-ratio: 1 / 1;
   background: var(--green-50);
   content-visibility: auto;
-  contain-intrinsic-size: 200px 200px;
+  /* Height-only placeholder (~one 375px-viewport tile). Never give the width
+     component a fixed px — an intrinsic tile width wider than a third of the
+     viewport re-creates the 522px overflow this rule fixed (issue #251). */
+  contain-intrinsic-size: auto 124px;
+}
+/* Like-count badge on a tile — rendered only when the photo has likes. */
+.tile-like-badge {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(20, 30, 24, 0.55);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+/* "+N" scrim on a grouped preview's last tile when the group holds more
+   photos than the six-tile preview shows. */
+.tile-more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 30, 24, 0.45);
+  color: #fff;
+  font-size: var(--fs-h3);
+  font-weight: 600;
 }
 .gallery-thumb-btn {
   display: block;
@@ -1027,38 +1063,94 @@ textarea {
   font-style: italic;
 }
 
-/* view switcher (recent / task / user) */
-.gallery-switcher {
+/* The view switcher (Recent / By task / By person) renders the app-wide
+   .chip-filter pattern (see "Task filter chips" above) — no gallery-specific
+   switcher styles. */
+
+/* Header count line: "Gallery" (serif) + "427 photos" on one baseline. */
+.gallery-title {
   display: flex;
+  align-items: baseline;
   gap: var(--space-2);
-  margin-bottom: var(--space-5);
-  border-bottom: var(--border-hairline);
-  padding-bottom: var(--space-3);
 }
-.gallery-switch-link {
-  font-size: var(--fs-small);
+.gallery-count {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
   color: var(--color-text-muted);
-  text-decoration: none;
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-}
-.gallery-switch-link:hover {
-  color: var(--color-primary);
-}
-.gallery-switch-active {
-  color: var(--color-primary);
-  font-weight: 600;
-  background: var(--color-surface);
+  white-space: nowrap;
 }
 
-/* group heading separator between task / user sections */
+/* Grouped-section header row: title (serif) grows, count + chevron sit
+   right-justified as muted metadata (actions left, metadata right). */
+.gallery-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  margin: var(--space-6) 0 var(--space-3);
+  text-decoration: none;
+  color: inherit;
+  border-bottom: var(--border-hairline);
+  padding-bottom: var(--space-2);
+}
+.gallery-group-head:hover {
+  text-decoration: none;
+}
 .gallery-group-heading {
   font-family: var(--font-display);
   font-size: var(--fs-h3);
   color: var(--color-heading);
-  margin: var(--space-6) 0 var(--space-3);
-  padding-bottom: var(--space-2);
-  border-bottom: var(--border-hairline);
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gallery-group-count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.gallery-group-chevron {
+  color: var(--color-text-muted);
+  font-size: var(--fs-h3);
+  line-height: 1;
+}
+.gallery-person-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--green-50);
+  color: var(--color-primary);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.gallery-person-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Centered "Show more" pagination button under the recent wall. */
+.show-more {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-6);
+}
+
+/* Search field above the grouped views (live person filter + no-JS ?q=). */
+.gallery-search {
+  margin-bottom: var(--space-5);
+}
+.gallery-search input[type='search'] {
+  width: 100%;
 }
 
 /* pagination */
@@ -1183,6 +1275,54 @@ textarea {
 }
 .feed-actionbar {
   margin-top: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.feed-photo-link {
+  display: block;
+}
+/* Like button: 44px minimum tap target (the old bare button measured
+   24x21px). Heart state is visible at a glance — outline sage when not yet
+   liked, solid sage once liked (aria-pressed carries the same state). */
+.like-form {
+  margin-left: auto;
+}
+.like-button {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--color-primary);
+}
+.like-button-liked {
+  color: var(--color-primary);
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* Applied by /js/feed.js on the like TOGGLE only — never to the liked
+     state itself, so hearts that arrive already-liked don't pop on load. */
+  .like-button-pop {
+    animation: heart-pop 200ms ease-out;
+  }
+  @keyframes heart-pop {
+    0% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.25);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
 }
 
 /* ----------------------- Leaderboard ----------------------- */
@@ -1720,6 +1860,7 @@ textarea {
   display: flex;
   gap: var(--space-2);
   align-items: center;
+  flex-wrap: wrap;
 }
 .guest-name-form input {
   flex: 1 1 auto;
@@ -1732,6 +1873,25 @@ textarea {
   color: var(--color-text);
   border: var(--border-hairline);
   border-radius: var(--radius-input);
+}
+/* "Pin first in the gallery" checkbox (issue #251) — its own full-width row
+   under the name input, sized to a comfortable tap target. */
+.guest-pin-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-basis: 100%;
+  min-height: 44px;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.guest-name-form input[type='checkbox'] {
+  flex: none;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
+  accent-color: var(--color-primary);
 }
 
 .guest-meta,
@@ -2146,7 +2306,7 @@ textarea {
    tiles stretch full-viewport-width like they do on mobile. */
 @media (min-width: 700px) {
   .gallery-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     width: auto;
     margin-inline: auto;
     max-width: 900px;
