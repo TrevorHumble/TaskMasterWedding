@@ -206,3 +206,18 @@ describe('chooseTaskId', () => {
     expect(chooseTaskId([])).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// #194 AC4 (structural half): /feed is among the looped read paths, so the
+// Goal-A load test exercises the app's heaviest page. (The behavioral half —
+// a live 100-concurrency run against the event seed — is a documented manual
+// step, per docs/loadtest.md.)
+// ---------------------------------------------------------------------------
+describe('read-path coverage (#194)', () => {
+  it('scripts/loadtest.js fetches /feed in the per-lap read loop', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'loadtest.js'), 'utf8');
+    expect(source).toContain('${baseUrl}/feed');
+  });
+});

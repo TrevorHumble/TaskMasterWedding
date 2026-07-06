@@ -5,7 +5,7 @@
 //   GET  /admin/guests                   guests table + add/bulk forms
 //   POST /admin/guests                   create one guest
 //   POST /admin/guests/bulk              create N guests
-//   POST /admin/guests/:id/edit          rename a guest
+//   POST /admin/guests/:id/edit          rename a guest / set gallery pin
 //   POST /admin/guests/:id/delete        delete a guest (cascades submissions/badges; deletes photo files)
 //   POST /admin/guests/:id/points        award bonus points (scoring.addBonusPoints)
 //   POST /admin/guests/:id/badge         award OR remove a special badge
@@ -130,6 +130,7 @@ router.get('/guests', (req, res) => {
       token: g.token,
       link: config.BASE_URL.replace(/\/+$/, '') + '/j/' + g.token,
       bonus_points: g.bonus_points,
+      pinned: g.pinned,
       points: scoring.getPoints(g.id),
       completed: scoring.getCompletedCount(g.id),
       heldCodes: held,
@@ -183,15 +184,20 @@ router.post('/guests/bulk', (req, res) => {
   redirectWithMsg(res, '/admin/guests', 'Created ' + n + ' guest(s).');
 });
 
-// POST /admin/guests/:id/edit  — rename a guest
+// POST /admin/guests/:id/edit  — rename a guest and set their gallery pin.
+// The pin (guests.pinned, issue #251) hoists this guest's section to the top
+// of the gallery's By-person view — meant for the couple's own rows. An
+// unchecked checkbox posts no `pinned` field at all, which is exactly the
+// "unpin" signal.
 router.post('/guests/:id/edit', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const name = (req.body.name || '').trim();
+  const pinned = req.body.pinned ? 1 : 0;
   const guest = db.prepare('SELECT id FROM guests WHERE id = ?').get(id);
   if (!guest) {
     return redirectWithMsg(res, '/admin/guests', 'Guest not found.');
   }
-  db.prepare('UPDATE guests SET name = ? WHERE id = ?').run(name, id);
+  db.prepare('UPDATE guests SET name = ?, pinned = ? WHERE id = ?').run(name, pinned, id);
   redirectWithMsg(res, '/admin/guests', 'Guest updated.');
 });
 

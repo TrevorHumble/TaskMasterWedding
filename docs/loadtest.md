@@ -1,6 +1,6 @@
 # Load Test — Peak Guest Traffic (Goal A)
 
-A local peak-load check for Goal A: "fast and standing with the whole guest list on it at once, on venue wifi." This drives a running, event-seeded instance with ~100 simulated guests hitting the real hot paths at once — sign-in, the home page, tasks, gallery, leaderboard, and photo upload — and reports latency percentiles plus the error rate against a pass bar, so you know before the wedding whether the laptop holds up under peak, and where the ceiling is.
+A local peak-load check for Goal A: "fast and standing with the whole guest list on it at once, on venue wifi." This drives a running, event-seeded instance with ~100 simulated guests hitting the real hot paths at once — sign-in, the home page, tasks, gallery, feed, leaderboard, and photo upload — and reports latency percentiles plus the error rate against a pass bar, so you know before the wedding whether the laptop holds up under peak, and where the ceiling is.
 
 It adds no new dependency and no paid service: `scripts/loadtest.js` uses Node's built-in `fetch` with a bounded concurrency pool.
 
@@ -49,7 +49,7 @@ It adds no new dependency and no paid service: `scripts/loadtest.js` uses Node's
    | `--requests <n>`   | —                       | Run until this many total requests are recorded instead |
    | `--token-prefix`   | `event-guest-token-`    | Must match the seeded guest tokens                      |
 
-   Each virtual guest signs in through `/j/<token-prefix><lane>` (capturing the real signed session cookie the same way a phone would), then repeatedly loads `/`, `/tasks`, `/gallery`, `/leaderboard`, and submits a real sample photo to `/tasks/:id/submit` — the heaviest request in the app (file upload + database write + thumbnail generation), and the one most likely to reveal the laptop struggling. The task id it submits against is discovered at runtime from the live `/tasks` page (a genuinely active task, preferring one the guest hasn't done yet), so the upload always lands on a real active task and runs the full insert-plus-thumbnail path rather than 404ing. If it can't find an active task, it prints a warning and skips the upload — that means the event isn't seeded, so run the seed step above first.
+   Each virtual guest signs in through `/j/<token-prefix><lane>` (capturing the real signed session cookie the same way a phone would), then repeatedly loads `/`, `/tasks`, `/gallery`, `/feed` (the feed is in the loop as of issue #194, since it is the page every like and comment lands back on), `/leaderboard`, and submits a real sample photo to `/tasks/:id/submit` — the heaviest request in the app (file upload + database write + thumbnail generation), and the one most likely to reveal the laptop struggling. The task id it submits against is discovered at runtime from the live `/tasks` page (a genuinely active task, preferring one the guest hasn't done yet), so the upload always lands on a real active task and runs the full insert-plus-thumbnail path rather than 404ing. If it can't find an active task, it prints a warning and skips the upload — that means the event isn't seeded, so run the seed step above first.
 
 ## Reading the output
 

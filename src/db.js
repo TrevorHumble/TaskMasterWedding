@@ -191,6 +191,30 @@ function ensureBadgeTypeCheckWidened() {
 
 ensureBadgeTypeCheckWidened();
 
+// --- Guarded migration: guests.pinned (issue #251) ---
+/**
+ * Add guests.pinned if it is not already present.
+ *
+ * pinned = 1 hoists a guest's section to the top of the gallery's By-person
+ * view regardless of recency (the hosts' own section leads). Same pattern as
+ * ensurePhotoBonusColumn above: the guests CREATE TABLE deliberately omits
+ * the column, PRAGMA table_info detects absence, and the ALTER TABLE runs at
+ * most once — so both a fresh DB and an existing pre-change app.db gain the
+ * column on first boot, and every later boot is a no-op. Exported so tests
+ * bind to this real guard rather than an inline copy of it.
+ */
+function ensurePinnedColumn() {
+  const cols = db.prepare(`PRAGMA table_info(guests)`).all();
+  if (!cols.some((col) => col.name === 'pinned')) {
+    db.exec(`ALTER TABLE guests ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
+// Run at module load, before feed.js prepares any statement that reads
+// g.pinned — db.js fully evaluates this module-load code before any other
+// module's `require('../db')` call returns.
+ensurePinnedColumn();
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -216,6 +240,7 @@ module.exports = {
   db,
   ensurePhotoBonusColumn,
   ensureBadgeTypeCheckWidened,
+  ensurePinnedColumn,
   getGuestByToken,
   getGuestById,
 };
