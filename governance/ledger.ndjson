@@ -23,3 +23,5 @@
 {"schema":"gl1","pr":277,"issue":268,"merged_sha":"5b37dcf3839da4a32eb26532342a29411f26a94b","ts":"2026-07-07T05:28:26Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":277,"merged_sha":"5b37dcf3839da4a32eb26532342a29411f26a94b","ts":"2026-07-07T05:28:26Z","files":["agents/severity-adjudicator.md","standards/adversarial-review-protocol.md","standards/design-philosophy-examples.md","standards/design-philosophy.md"]}
 {"schema":"gl1","pr":278,"issue":273,"merged_sha":"54e38e6d65c50f2f06c1a22ccc52e0ac90f3b313","ts":"2026-07-07T05:34:06Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":279,"issue":274,"merged_sha":"ae921063d51bce9edbbb783cde341d0d717f804e","ts":"2026-07-07T05:46:18Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":279,"merged_sha":"ae921063d51bce9edbbb783cde341d0d717f804e","ts":"2026-07-07T05:46:18Z","files":["CLAUDE.md","DESIGN.md","standards/adversarial-review-protocol.md"]}
