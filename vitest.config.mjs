@@ -1,8 +1,9 @@
 import { defineConfig } from 'vitest/config';
 
-// Coverage thresholds are intentionally NOT enforced yet: the real test suite
-// lands in its own PR (see the test plan), which raises lines/functions/branches
-// to 80%. Until then CI reports coverage as an artifact without gating on it.
+// Coverage floors below are a RATCHET (#198): set at the measured values on
+// main @ 485886a (2026-07-05) so the suite passes today and any regression
+// fails the required CI `test` check. Raise them toward 80/80/80/80 as tests
+// are added (tracked by #181). Never lower them.
 export default defineConfig({
   test: {
     globals: true,
@@ -17,7 +18,7 @@ export default defineConfig({
       reporter: ['text', 'lcov'],
       include: ['src/**/*.js', 'config.js', 'scripts/**/*.js'],
       exclude: ['src/views/**', 'src/public/**', 'tests/**'],
-      // thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
+      thresholds: { lines: 62, functions: 65, branches: 53, statements: 62 },
     },
   },
 });

@@ -29,7 +29,7 @@ These run automatically. You do not have to ask for them.
 
 ## The one honest limit
 
-The commit gate proves a passing review was recorded for the exact code being committed — but it cannot yet prove that the review process itself could not be shortcut. The protection rests on the reviewer panel (independent, adversarial Opus reviewers) plus the gate, not on the gate alone. Strengthening that mechanical guarantee is tracked as an open issue in the backlog.
+The commit gate proves a passing review was recorded for the exact code being committed — but it cannot yet prove that the review process itself could not be shortcut. The protection rests on independent, adversarial Opus review (one PR reviewer plus the design-philosophy reviewer for routine changes; stricter bars for security and system-level changes) plus the gate, not on the gate alone. Strengthening that mechanical guarantee is tracked as an open issue in the backlog.
 
 ---
 

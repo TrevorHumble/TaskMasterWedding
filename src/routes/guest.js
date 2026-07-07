@@ -128,11 +128,13 @@ router.get('/tasks', function (req, res) {
 
   // For each active task, join the guest's submission (if any) so we know
   // whether it is done. taken_down submissions do NOT count as done.
+  // s.created_at orders the "most recent completions" strip on the default view.
   const tasks = db
     .prepare(
       `SELECT t.id, t.title, t.description, t.sort_order,
               CASE WHEN s.id IS NOT NULL THEN 1 ELSE 0 END AS done,
-              s.thumb_path AS thumb_path
+              s.thumb_path AS thumb_path,
+              s.created_at AS done_at
          FROM tasks t
          LEFT JOIN submissions s
                 ON s.task_id = t.id
@@ -143,15 +145,29 @@ router.get('/tasks', function (req, res) {
     )
     .all(guest.id);
 
-  const doneCount = tasks.filter(function (t) {
-    return t.done === 1;
-  }).length;
+  const todoTasks = tasks.filter(function (t) {
+    return t.done !== 1;
+  });
+  // Done tasks, most recent completion first — the default view shows the top 3
+  // of this list; ?view=done shows all of it.
+  const doneTasks = tasks
+    .filter(function (t) {
+      return t.done === 1;
+    })
+    .sort(function (a, b) {
+      return String(b.done_at || '').localeCompare(String(a.done_at || ''));
+    });
 
   res.render('tasks', {
     title: 'Tasks',
-    tasks: tasks,
-    doneCount: doneCount,
+    view: req.query.view === 'done' ? 'done' : 'todo',
+    todoTasks: todoTasks,
+    doneTasks: doneTasks,
+    recentDone: doneTasks.slice(0, 3),
+    doneCount: doneTasks.length,
+    todoCount: todoTasks.length,
     totalCount: tasks.length,
+    pointsPerPhoto: scoring.POINTS_PER_PHOTO,
   });
 });
 

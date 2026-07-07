@@ -101,33 +101,36 @@ function loadGuestBadges(guestId) {
 }
 
 /**
- * Attach a `like_count` to each photo in place, in one grouped query rather
- * than one query per photo. The count is computed only over the submission ids
- * the feed already handed us — those rows are already visible because they came
- * from feed.allVisible(), which owns the taken_down = 0 rule. Visibility stays
- * owned by feed.js; this function never re-types the takedown rule. A like on a
- * taken-down photo is therefore never counted, because that photo's id is not
- * in the list.
- * Photos with zero likes get 0, not undefined, so the view never has to branch
- * on a missing field.
+ * Attach a `viewer_liked` boolean to each photo in place, in one grouped
+ * query rather than one query per photo — has THIS signed-in guest liked it?
+ * The feed view renders the like button's pressed state from it (solid heart
+ * = already liked), and the progressive-enhancement client keeps it current
+ * after a fetch toggle. An anonymous viewer (guestId null) gets false
+ * everywhere without touching the DB. Loaded only for the submission ids the
+ * feed already handed us — visibility stays owned by feed.js.
  */
-function attachLikeCounts(photos) {
+function attachViewerLikes(photos, guestId) {
   if (photos.length === 0) {
+    return photos;
+  }
+  if (!guestId) {
+    for (const p of photos) {
+      p.viewer_liked = false;
+    }
     return photos;
   }
   const placeholders = photos.map(() => '?').join(', ');
   const rows = db
     .prepare(
-      `SELECT submission_id AS submission_id, COUNT(*) AS n
+      `SELECT submission_id AS submission_id
          FROM likes
-        WHERE submission_id IN (${placeholders})
-        GROUP BY submission_id`
+        WHERE guest_id = ? AND submission_id IN (${placeholders})`
     )
-    .all(...photos.map((p) => p.submission_id));
+    .all(guestId, ...photos.map((p) => p.submission_id));
 
-  const countsById = new Map(rows.map((r) => [r.submission_id, r.n]));
+  const likedIds = new Set(rows.map((r) => r.submission_id));
   for (const p of photos) {
-    p.like_count = countsById.get(p.submission_id) || 0;
+    p.viewer_liked = likedIds.has(p.submission_id);
   }
   return photos;
 }
@@ -152,7 +155,7 @@ const COMMENT_MAX_LENGTH = 300;
  * Attach a `comments` array to each photo in place, in one grouped query
  * rather than one query per photo. Loaded only for the submission ids the
  * feed already handed us — those rows are already visible because they came
- * from feed.allVisible(), which owns the taken_down = 0 rule on submissions.
+ * from feed.feedWindow(), which owns the taken_down = 0 rule on submissions.
  * This function never re-types that rule; it only adds the comment-level
  * taken_down = 0 filter, which is a separate moderation flag on comments
  * themselves. Oldest-first within each photo, joined to the commenter's name.
@@ -195,14 +198,14 @@ function attachComments(photos) {
 /**
  * Attach a `points` field (base + photo_bonus) to each photo in place, in
  * one grouped query rather than one query per photo — mirrors
- * attachLikeCounts/attachComments above. Loaded only for the submission ids
+ * attachViewerLikes/attachComments above. Loaded only for the submission ids
  * the feed already handed us — those rows are already visible because they
- * came from feed.allVisible(), which owns the taken_down = 0 rule. This
+ * came from feed.feedWindow(), which owns the taken_down = 0 rule. This
  * function never re-types that visibility rule; it only reads photo_bonus for
  * ids already known to be visible. The per-photo point value comes from
  * scoring.photoPoints (the single authority for the base), so the "1" base is
  * never a literal here. A photo with no row found (should not happen given the
- * id came from feed.allVisible()) zero-fills its bonus to 0, so the view never
+ * id came from feed.feedWindow()) zero-fills its bonus to 0, so the view never
  * has to branch on a missing field.
  */
 function attachPhotoPoints(photos) {
@@ -281,12 +284,14 @@ router.get('/gallery', (req, res) => {
   }
 
   if (view === 'task' || view === 'user') {
-    // --- Grouped views: no pagination; all visible photos. ---
+    // --- Grouped views: capped 6-tile previews per group (issue #251). ---
     // ?q= is an optional search term (blank/absent = no filter), trimmed here
     // so feed.grouped() never has to distinguish "absent" from "whitespace".
+    // The header count sums each group's TRUE total, not the capped preview
+    // arrays — 25 photos in a task is 25 photos, even though 6 tiles show.
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const groups = feed.grouped(view, taskFilter, q);
-    const total = groups.reduce((sum, g) => sum + g.photos.length, 0);
+    const total = groups.reduce((sum, g) => sum + g.total, 0);
     return renderGallery(res, { view, groups, total, taskFilter, q });
   }
 
@@ -298,17 +303,45 @@ router.get('/gallery', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /feed  — full-screen vertical scroll of every visible photo.
+// GET /feed  — full-screen vertical scroll, one bounded window at a time.
 //
-// The gallery grid's thumbnails link here as /feed#photo-<id>: the browser's
-// native fragment anchoring scrolls straight to that photo on load (no JS).
-// That only works if every visible submission is on the page, so this route
-// renders feed.allVisible() — the flat, unpaginated, newest-first list — not
-// a paginated or grouped view.
+// The gallery grid's thumbnails link here as /feed?from=<id>#photo-<id>:
+// feed.feedWindow(from) returns a page that STARTS at that photo (issue #194
+// — anchor resolution is server-side, so the fragment always has an element
+// to land on even though the page is bounded), and the browser's native
+// fragment anchoring scrolls to it on load (no JS). A missing or stale ?from
+// falls back to the newest page. like_count arrives on each row from the
+// feed query itself; comments, per-photo points, and the viewer's own liked
+// state are attached per-window here.
 // ---------------------------------------------------------------------------
 router.get('/feed', (req, res) => {
-  const photos = attachComments(attachPhotoPoints(attachLikeCounts(feed.allVisible())));
-  return res.render('feed', { title: 'Feed', photos, commentMaxLength: COMMENT_MAX_LENGTH });
+  const fromParam = parseInt(req.query.from, 10);
+  const fromId = Number.isInteger(fromParam) && fromParam >= 1 ? fromParam : null;
+
+  const window = feed.feedWindow(fromId);
+  const photos = attachViewerLikes(
+    attachComments(attachPhotoPoints(window.photos)),
+    req.guest ? req.guest.id : null
+  );
+
+  // hasNewer with a null newerFromId means "the newer page is the first
+  // page" — fewer than a full window of newer photos exist, so /feed (no
+  // anchor) shows them all without a gap.
+  const olderHref = window.olderFromId !== null ? '/feed?from=' + window.olderFromId : null;
+  const newerHref = window.hasNewer
+    ? window.newerFromId !== null
+      ? '/feed?from=' + window.newerFromId
+      : '/feed'
+    : null;
+
+  return res.render('feed', {
+    title: 'Feed',
+    pageScript: 'feed.js',
+    photos,
+    commentMaxLength: COMMENT_MAX_LENGTH,
+    olderHref,
+    newerHref,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -320,6 +353,13 @@ router.get('/feed', (req, res) => {
 // decides which half of the toggle to run: a row already exists → remove it;
 // otherwise add it. A taken-down or missing submission 404s, mirroring the
 // GET /p/:submissionId handler below.
+//
+// Two response shapes (issue #194 AC3): the plain form POST redirects back to
+// the bounded feed page CONTAINING this photo (/feed?from=<id>#photo-<id>),
+// and a fetch() from src/public/js/feed.js — which sends Accept:
+// application/json — gets { liked, likeCount } so the page updates in place
+// without re-downloading the feed. The form path is the no-JS fallback; both
+// run the identical toggle.
 // ---------------------------------------------------------------------------
 router.post('/p/:submissionId/like', requireGuest, (req, res) => {
   const submissionId = parseInt(req.params.submissionId, 10);
@@ -332,19 +372,29 @@ router.post('/p/:submissionId/like', requireGuest, (req, res) => {
     return res.status(404).render('404', { title: 'Not found' });
   }
 
+  let liked;
   if (hasLiked(submissionId, req.guest.id)) {
     db.prepare(`DELETE FROM likes WHERE submission_id = ? AND guest_id = ?`).run(
       submissionId,
       req.guest.id
     );
+    liked = false;
   } else {
     db.prepare(`INSERT OR IGNORE INTO likes (submission_id, guest_id) VALUES (?, ?)`).run(
       submissionId,
       req.guest.id
     );
+    liked = true;
   }
 
-  return res.redirect('/feed#photo-' + submissionId);
+  if (req.accepts(['html', 'json']) === 'json') {
+    const likeCount = db
+      .prepare(`SELECT COUNT(*) AS n FROM likes WHERE submission_id = ?`)
+      .get(submissionId).n;
+    return res.json({ liked, likeCount });
+  }
+
+  return res.redirect('/feed?from=' + submissionId + '#photo-' + submissionId);
 });
 
 // ---------------------------------------------------------------------------
@@ -371,7 +421,7 @@ router.post('/p/:submissionId/comments', requireGuest, (req, res) => {
 
   const body = (req.body.body || '').trim();
   if (body.length === 0 || body.length > COMMENT_MAX_LENGTH) {
-    return res.redirect('/feed#photo-' + submissionId);
+    return res.redirect('/feed?from=' + submissionId + '#photo-' + submissionId);
   }
 
   db.prepare(`INSERT INTO comments (submission_id, guest_id, body) VALUES (?, ?, ?)`).run(
@@ -380,7 +430,7 @@ router.post('/p/:submissionId/comments', requireGuest, (req, res) => {
     body
   );
 
-  return res.redirect('/feed#photo-' + submissionId);
+  return res.redirect('/feed?from=' + submissionId + '#photo-' + submissionId);
 });
 
 // ---------------------------------------------------------------------------
@@ -478,9 +528,9 @@ router.get('/leaderboard', (req, res) => {
   // Build the podium's group structure HERE so "what is a tie" lives in exactly
   // one layer (this route), not re-derived in the view. Group the ranked rows
   // by their shared rank, keep only ranks 1-3, and return them in podium
-  // display order (2nd, 1st, 3rd — 1st centered/tallest). Each group carries
-  // its precomputed rankLabel and an isCollapsedTie flag (3+ members render as
-  // one collapsed tile instead of individual plinths). The view renders this
+  // display order (2nd, 1st, 3rd — 1st centered/tallest). A tied group renders
+  // EVERY tied guest (issue #249): the view shows up to 3 overlapping avatars
+  // plus a "+N" chip, and a names line built here. The view renders this
   // structure verbatim and never re-buckets or re-tests tie membership.
   const groupsByRank = new Map();
   for (const row of ranked) {
@@ -492,13 +542,36 @@ router.get('/leaderboard', (req, res) => {
         rank: row.rank,
         rankLabel: row.rankLabel,
         members: [],
-        isCollapsedTie: false,
       });
     }
     groupsByRank.get(row.rank).members.push(row);
   }
+  const ORDINALS = { 1: '1st', 2: '2nd', 3: '3rd' };
   for (const group of groupsByRank.values()) {
-    group.isCollapsedTie = group.members.length >= 3;
+    const members = group.members;
+    group.ordinal = ORDINALS[group.rank];
+    group.points = members[0].points;
+    group.isTie = members.length > 1;
+    // Bar label rendered on every plinth, tied or not: "2nd · 12 pts".
+    group.barLabel = `${group.ordinal} · ${group.points} pt${group.points === 1 ? '' : 's'}`;
+    // Sub-line under a tied group's names: "2nd place · 12 pts each".
+    group.subLine = `${group.ordinal} place · ${group.points} pt${group.points === 1 ? '' : 's'} each`;
+    // Names line for tied groups joins first names naturally — "Liam, Priya
+    // and Noah" for up to 3 members; "Liam, Priya and 3 more" for 4+ (matching
+    // the 3-avatar cap). The view renders each name as a /u/<id> link, so the
+    // route hands it structure (named members + a tail), not a flat string.
+    members.forEach((m) => {
+      m.firstName = (m.name || 'Guest').trim().split(/\s+/)[0];
+    });
+    if (members.length <= 3) {
+      group.namedMembers = members;
+      group.namesTail = null; // every member is named, no "and N more"
+    } else {
+      group.namedMembers = members.slice(0, 2);
+      group.namesTail = `and ${members.length - 2} more`;
+    }
+    group.shownMembers = members.slice(0, 3);
+    group.extraCount = members.length - group.shownMembers.length;
   }
   // Podium display order: 2nd, 1st, 3rd. Skip ranks with no members.
   const podiumGroups = [groupsByRank.get(2), groupsByRank.get(1), groupsByRank.get(3)].filter(

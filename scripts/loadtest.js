@@ -10,7 +10,7 @@
 //      response's Set-Cookie header (see captureSignedCookie below — the
 //      cookie is signed by cookie-parser(COOKIE_SECRET); synthesizing
 //      "gsid=<token>" ourselves would be rejected by src/middleware/session.js).
-//   2. Loops over the read paths: /, /tasks, /gallery, /leaderboard.
+//   2. Loops over the read paths: /, /tasks, /gallery, /feed, /leaderboard.
 //   3. Submits a real photo via POST /tasks/:id/submit (multipart, field
 //      "photo") — the heavy path: multer + synchronous better-sqlite3 +
 //      sharp thumbnailing, where a blocked event loop would show up first.
@@ -256,13 +256,13 @@ async function timedFetch(samples, url, fetchOpts) {
  * query filters `WHERE t.is_active = 1`), one per row:
  *   <li class="task-row task-done|task-todo">
  *     <a class="task-link" href="/tasks/<id>"> ... </a>
- *     <a class="task-gallery-link" href="/gallery?task=<id>">See photos</a>
  *   </li>
  * We match each row's class (done vs todo) together with its task-link id, so
  * a caller can prefer a task the guest has NOT completed (a to-do task, whose
  * submit truly inserts a new row + generates a thumbnail — the heavy path —
- * rather than replacing an existing one). The task-gallery-link's
- * "/gallery?task=<id>" href is a different shape and is not matched here.
+ * rather than replacing an existing one). NOTE (#250): the default view shows
+ * every to-do row but only the 3 most recent done rows — fine here, since the
+ * harness prefers a to-do task anyway.
  *
  * @param {string} html - the GET /tasks response body
  * @returns {Array<{id: number, done: boolean}>} active tasks in page order;
@@ -368,6 +368,7 @@ async function runOneLap(ctx, laneIndex) {
   }
 
   await timedFetch(samples, `${baseUrl}/gallery`, { headers });
+  await timedFetch(samples, `${baseUrl}/feed`, { headers });
   await timedFetch(samples, `${baseUrl}/leaderboard`, { headers });
 
   // Only submit when we found a genuinely active task — otherwise the POST

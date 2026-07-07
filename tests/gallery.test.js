@@ -19,8 +19,11 @@ describe('gallery page', () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
     expect(res.text).toContain('src="/thumbs/t.jpg"');
-    // Thumbnails now open the full-screen feed at that photo (issue #84).
-    expect(res.text).toContain('href="/feed#photo-' + ids.submissionId + '"');
+    // Thumbnails open the feed at that photo, with the server-resolved
+    // ?from anchor so the bounded page always contains it (issue #194).
+    expect(res.text).toContain(
+      'href="/feed?from=' + ids.submissionId + '#photo-' + ids.submissionId + '"'
+    );
     expect(res.text).toContain('Selfie with the cake');
   });
 

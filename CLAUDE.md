@@ -48,10 +48,12 @@ Reviewers run on a different model than the implementer so they do not inherit t
 - The spawner gives the goal, not the implementation. No positive framing, no planted suspicions, full scope.
 - Final verdict is a single `PASS`/`FAIL` token with a numbered defect list. A PASS with open blockers or majors is not a PASS.
 - **Issues and plans: 1 Opus reviewer** (`reviewer-issue`). Never a panel of issue-reviewers.
-- **Code review, round 1: panel up to 5, judged unanimous-PASS** (risk-scaled; routine code).
+- **Code review, round 1: exactly 1 PR reviewer plus the design-philosophy reviewer, both must PASS** (routine code; #201 retired the 2–5 panel).
 - **Code review, rounds 2+: 1 fresh reviewer** each round (except system-level changes — those need two independent PASSes on the final tree).
+- **Reviewer charters (`agents/reviewer-*.md`) take the routine bar, not the system-level bar** (#218); the rest of the governing-artifact surface stays kernel.
+- **Related governance changes sharing one stated intent may ship as one reviewed batch** (#218); a batch mixing kernel and experimental paths takes the kernel bar.
 
-Full protocol, including the risk-tier precedence order, the high-stakes 3-reviewer rule, the system-level-change bar, the bias gate, and the soft-cap severity gate: `standards/adversarial-review-protocol.md`.
+Full protocol, including the risk-tier precedence order, the high-stakes 3-reviewer rule, the system-level-change bar, the review-dispatch checklist ("Which reviews does this change need?"), the advisory-lens lifecycle, the bias gate, and the soft-cap severity gate: `standards/adversarial-review-protocol.md`.
 
 ## Documentation split
 

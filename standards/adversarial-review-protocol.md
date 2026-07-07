@@ -79,7 +79,7 @@ recorded only when at least two of the three confirm it; a verdict of fine requi
 the same threshold. With fewer than three adversaries the review is invalid — do not
 proceed with two, as there is no majority on a tie. (Exception: a `system-level change`
 uses the two-reviewer, both-must-PASS bar defined in the Self-modification bar section —
-fail-closed, no third tie-breaker needed.) This ≥3 / 2-of-3 floor applies to **high-stakes** reviews as defined in `## Reviewer count by artifact`; routine code uses the panel rule defined there and is not governed by this floor.
+fail-closed, no third tie-breaker needed.) This ≥3 / 2-of-3 floor applies to **high-stakes** reviews as defined in `## Reviewer count by artifact`; routine code uses the single-reviewer-plus-design-philosophy rule defined there and is not governed by this floor.
 
 ---
 
@@ -90,13 +90,45 @@ Reviewer count scales to risk. Every change resolves to exactly one count-rule v
 - **Issue / plan** → exactly **1** Opus reviewer (`reviewer-issue`). Never a panel of duplicate issue-reviewers. The additive architecture gate (`reviewer-architecture`) fires for system-level / new-component issues — it is a distinct gate, not a second issue-reviewer.
 - **System-level change** — touches the governing-artifact surface (see `DESIGN.md`) → see `## Self-modification bar` for the two-independent-both-PASS threshold. **If a system-level change is also security-flagged**, the resolved rule is stricter: **≥3 independent reviewers, all must PASS** — never weaker than either the self-modification bar or the high-stakes floor.
 - **High-stakes code** (non-system-level) — security-flagged, or a change the orchestrator judges safety- or correctness-critical beyond routine → the `## Independence` floor of **≥3 reviewers, 2-of-3 majority**. "High-stakes" means security-flagged or explicitly escalated by the orchestrator; the defining criterion is that it is **security-flagged**.
-- **Routine code** — none of the above → round-1 panel of **2–5 reviewers in parallel, judged unanimous-PASS** (any FAIL → fix and re-review); rounds 2+ use **1 fresh reviewer** each round. The rounds-2+-single rule does **not** apply to system-level changes: for a system-level change, the round that produces the accepted tree must carry two independent PASSes on that exact tree.
+- **Routine code** — none of the above → round 1 uses exactly **1** PR reviewer plus the design-philosophy reviewer (`agents/reviewer-design-philosophy.md`) — **both must PASS** (any FAIL → fix and re-review); rounds 2+ use **1 fresh reviewer** each round. The rounds-2+-single rule does **not** apply to system-level changes: for a system-level change, the round that produces the accepted tree must carry two independent PASSes on that exact tree.
 
-The rounds-2+-single optimization applies to non-system-level reviews only. For system-level changes, a single rounds-2+ reviewer may run to surface FAILs early, but a PASS is never recorded on fewer than two independent PASSes for the final tree (evidence is tree-bound).
+The **design-philosophy gate remains required for every implementation artifact** (code, an agent spec, a skill, or a standard) regardless of change size. There is no small-change, bug-fix, or copy-change exemption from it — the #201 round-ledger evidence showed it catching consequential defects on the smallest issues (the #88 a11y clamp bug hid in a home-page cleanup). Doc-only and typo-only changes are not implementation artifacts and skip only this gate, per `agents/orchestrator.md`.
 
-The "up to 5" figure is the round-1 panel size, not a round count. The 3-round soft cap and severity adjudicator (`## Stop condition — soft cap and severity gate`) remain unchanged.
+**Why 1 PR reviewer, not a panel (#201):** across three build sessions (~9 multi-reviewer panels reconstructed), no second or third same-charter panelist ever flipped a verdict — every panel was unanimous PASS. Every FAIL that sent work back came from the differently-chartered design-philosophy reviewer or from a fresh single reviewer on a later round. Panel width bought reassurance, not catches; a different lens bought catches. So routine round 1 pays for one PR reviewer and keeps the different lens, and the "2–5 reviewers" range is retired. The 3-round soft cap and severity adjudicator (`## Stop condition — soft cap and severity gate`) remain unchanged.
+
+**Kernel/experimental split (#218):** reviewer charters — files matching `agents/reviewer-*.md`, including new lens charters — take the **routine** bar above, not the system-level bar. Everything else on the governing-artifact surface (see `DESIGN.md` "System-level change (definition)") stays kernel, explicitly including the rest of `agents/`, all of `standards/`, `tools/`, `.githooks/`, `skills/`, `.github/`, and `.claude/`. Charter iteration is where governance experimentation happens, and the governance ledger (a separate issue in the same overhaul set; not yet landed) will make a weakened charter detectable via falling catch-rates; bar-definitions fail silently when weakened, so they stay kernel. `Get-RequiredBar` in `tools/verdict-core.ps1` enforces the split mechanically. **Fable interaction:** for Fable-authored work, an edit to any `agents/reviewer-*.md` is self-modification and takes Pattern 2 (one independent reviewer — see `## Fable review patterns`) regardless of this bar-1 carve-out; Fable never commits a charter edit on self-certification alone, because a charter reviews the very work Fable produces.
 
 Reviewers remain **Opus** — model is not a savings lever. A reviewer must run on a different, non-weaker model than the implementer; `standards/agent-standards.md` makes Opus required for a gate. Savings come from reviewer _count_ only.
+
+---
+
+## Review batching
+
+Related governance changes sharing one stated intent MAY ship as one reviewed batch: one issue-review pass and one PR review covering the entire batch. The PR description lists every change in the batch, and the reviewer's verdict covers the whole batch — a PASS on a batch is a PASS on each change in it, and a FAIL on any change is a FAIL on the batch; a batch mixing kernel and experimental paths takes the kernel bar.
+
+---
+
+## Advisory-lens lifecycle
+
+A new reviewer lens (e.g. design-language, security) enters the pipeline as **ADVISORY**: it runs on every change its dispatch row matches, its findings are recorded in the review record, and it **cannot block a merge**. Promotion to gating — or removal — is an owner decision made on the recorded evidence after a trial of roughly 10 PRs. Precedent: the #197 smoke gate's two-stage promotion (`DESIGN.md` § "Empirical smoke gate"), which ran every push as signal before becoming a required check.
+
+**Security escalation exception:** a security-lens finding of severity major or blocker immediately flags the change `security`, and the security-flagged bar in `## Reviewer count by artifact` applies to that change: ≥3 independent reviewers, 2-of-3 majority — or ≥3 all-must-PASS when the change is also system-level. A security hole must be able to block even during a lens trial — the advisory status governs the lens's routine findings, never a live vulnerability.
+
+---
+
+## Which reviews does this change need?
+
+Path-based and mechanical — no judgment calls. Every row whose paths the change touches applies; a change matching multiple rows runs every matched lens, and any kernel path takes the whole change to the kernel bar.
+
+| Change touches                                                                                                                                                                                       | Reviews that run                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Any kernel path (governing-artifact surface minus `agents/reviewer-*.md`)                                                                                                                            | Kernel bar, full stop (`## Self-modification bar`; `Get-RequiredBar` = 2)                                  |
+| Docs/copy only (`.md` files that are NOT implementation artifacts — an agent spec, including `agents/reviewer-*.md` charters, a skill, or a standard never qualifies — and EJS text-only copy edits) | CI + the existing doc-only exemptions; no specialist lens                                                  |
+| Views/CSS/badge assets/guest-or-admin-facing copy                                                                                                                                                    | Design-language lens (advisory; charter ships in #221)                                                     |
+| Upload/intake, auth, file-serving, admin routes                                                                                                                                                      | Security lens (advisory with the escalation exception above; charter: `agents/reviewer-security.md`, #222) |
+| `src/services/` scoring/feed logic                                                                                                                                                                   | The #206 duplicated-ownership self-check gets explicit reviewer attention                                  |
+
+Every row is additive to the base review for the change's risk tier (`## Reviewer count by artifact`); a lens never replaces the PR reviewer or the design-philosophy gate.
 
 ---
 
@@ -110,7 +142,15 @@ failure.
 
 ## Bias gate
 
-Before fanning out to N reviewers, spawn one independent agent to audit the briefing
+The bias-gate audit runs **once per distinct briefing template**, not once per
+fan-out round: a briefing reused verbatim across rounds (same artifact type, same
+instructions) is audited the first time it is used, and that audit covers every
+later round that reuses it. A **fresh briefing** — different artifact type,
+different instructions — **requires a fresh audit**. (This matches what all three
+observed build sessions independently did in practice; per-round re-audits of an
+unchanged template caught nothing and cost a full agent each round.)
+
+Before first use of a briefing template, spawn one independent agent to audit the briefing
 and per-reviewer charters for bias. The only permitted bias is anti-builder; remove
 everything else: implementation leaks, positive framing, planted suspicions, tool
 favoritism, scope-narrowing. That agent returns required edits with quoted evidence.
@@ -188,6 +228,20 @@ A system-level change requires two independent reviewers. The reviewers must be 
 This is the system-level specialization of the high-stakes independence rule in the Independence section: instead of ≥3 adversaries with 2-of-3 majority, a system-level change uses two independent reviewers who must both reach PASS, and disagreement is treated as FAIL (fail-closed), so no third tie-breaker is needed.
 
 This bar is additive to the soft cap and severity gate below. When a system-level change reaches the soft cap trigger, both the two-reviewer requirement and the severity adjudicator apply. See `DESIGN.md` for the definition of system-level change. For the full precedence order placing this bar within the risk-tier hierarchy — including the security-flagged-system-level combination — see `## Reviewer count by artifact`.
+
+---
+
+## Event mode (#220) — the wedding-day freeze exception
+
+A pre-declared, expiring window in which a mid-event hotfix ships on green automated checks alone, with review owed — and mechanically collected — after the event. Full design and rationale: `DESIGN.md` § "Event mode (#220)".
+
+**What it bypasses.** While `governance/event-mode.json` is a valid `em1` flag with a future expiry, a commit whose subject starts `hotfix: ` passes the local hooks with **no review evidence and no reviewed issue** (pre-commit defers the evidence gate to commit-msg, which honors the prefix; the shared gate body is `.githooks/gate-core.sh`). While the flag **file** is present, every other commit meets the full evidence gate at commit-msg (keyed on file presence, not ACTIVE state, so the flag expiring between the two hooks can never skip the gate in both — see `DESIGN.md`); with no flag file, the hooks behave exactly as always. An expired or invalid flag enables nothing.
+
+**What it never bypasses.** CI stays fully required: lint, format, tests + coverage, commit-gate integrity, the smoke job — and main's branch protection (PR + green required checks). Review is deferred, never waived.
+
+**Single writer.** `tools/set-event-mode.ps1` is the only writer of the flag (`-ExpiresUtc <date> -Reason <text>` / `-Clear`). The flag file is never hand-edited, and committing its creation or removal takes the normal gate.
+
+**Retro-review consumer.** Each freeze shipment produces a `freeze:true` ledger row (harvest marks merged PRs carrying a `hotfix: ` commit subject). `tools/set-event-mode.ps1 -Clear` **refuses** to remove the flag while any such row since the flag's creation lacks a review PASS bound to that commit's tree (recorded via `tools/persist-review.ps1`). The CI job `event-mode-expiry` goes red while an expired flag remains in the tree, forcing the cleanup — and through it, the retro reviews. A retro review applies this protocol's full stance to the shipped tree; it is a real review that happened late, not a rubber stamp.
 
 ---
 
