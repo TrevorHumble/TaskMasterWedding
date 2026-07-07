@@ -18,3 +18,5 @@
 {"schema":"gl1","pr":265,"issue":null,"merged_sha":"89317b74326e3b7fe0435844bd48b4f593df718e","ts":"2026-07-06T01:22:52Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":275,"issue":266,"merged_sha":"7f4657929eef959d56e61368da8aa6fa3f99c21a","ts":"2026-07-07T05:10:33Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":275,"merged_sha":"7f4657929eef959d56e61368da8aa6fa3f99c21a","ts":"2026-07-07T05:10:33Z","files":["skills/capture-system-defect.md","skills/github-write.md","skills/issue-create.md","skills/skill-writer.md","skills/spawn-adversarial-review.md"]}
+{"schema":"gl1","pr":276,"issue":267,"merged_sha":"0737fb76105dc7de451e8278085e0eb1826dbce5","ts":"2026-07-07T05:17:27Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":276,"merged_sha":"0737fb76105dc7de451e8278085e0eb1826dbce5","ts":"2026-07-07T05:17:27Z","files":["agents/implementation-agent.md","agents/orchestrator.md","standards/agent-standards.md","standards/decision-heuristics.md","standards/edge-case-checklist.md"]}
