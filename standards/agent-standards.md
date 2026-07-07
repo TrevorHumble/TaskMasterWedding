@@ -32,6 +32,8 @@ Use the tier appropriate to the job:
 | Implementation, transformation  | Sonnet |
 | Classification, routing, triage | Haiku  |
 
+**Tie-break for mixed jobs:** when an agent's job spans rows, tier to the **highest-judgment task** the agent performs, not its most frequent one. Example: an agent that mostly routes incoming defects (Haiku-tier work) but also judges whether each is consequential (judgment) is an Opus agent — the routing does not need Opus, but the judgment call is the part that fails silently on a weaker tier.
+
 **Reviewer independence (implementation plan step 1 — choice recorded here):**
 Choice: implementer stays Sonnet; all reviewers run on Opus. Reviewers must run on a different model from the implementer. A reviewer running on the same model as the implementer inherits the implementer's correlated blind spots — the errors the author makes are the ones the reviewer misses. A weaker different model (Haiku) is unacceptable for a gate; Opus is required. The cost tradeoff of a more expensive reviewer is noted and deferred as a separate decision.
 
