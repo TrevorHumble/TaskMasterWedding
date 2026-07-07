@@ -230,6 +230,13 @@ guarantees the loop terminates without ever self-exiting by accepting consequent
 
 ## Fable review patterns (#203, narrowed by #207)
 
+**Retired 2026-07-06 (#274).** The Fable model is no longer available to this
+project; its final session ended 2026-07-06 and no current implementer qualifies
+for these patterns. **Every implementer follows the unmodified protocol above —
+the independence rules, reviewer counts, and self-modification bar apply with no
+exception.** The text below is preserved as the historical record of the
+decision and its rationale; it is not live policy.
+
 **Decision lineage.** #203 (2026-07-04) granted Fable full self-certification at
 every risk tier. **#207 (decided by the owner the same day, 2026-07-04) narrows
 that grant to the two patterns below and caps all Fable reviews at one round.**
