@@ -6,7 +6,17 @@ const prettier = require('eslint-config-prettier');
 
 module.exports = [
   {
-    ignores: ['node_modules/**', 'data/**', 'coverage/**', 'PLAN/**', '**/*.min.js'],
+    ignores: [
+      'node_modules/**',
+      'data/**',
+      'coverage/**',
+      'PLAN/**',
+      '**/*.min.js',
+      // Mutation-testing output (#199): Stryker sandboxes hold instrumented copies
+      // of the whole tree; a leftover sandbox must never fail lint.
+      '.stryker-tmp/**',
+      'reports/**',
+    ],
   },
   js.configs.recommended,
   {

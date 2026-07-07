@@ -29,3 +29,7 @@ npm-debug.log*
 
 # Test coverage output
 coverage/
+
+# Mutation-testing output (Stryker, #199): scratch dir + generated report
+.stryker-tmp/
+reports/

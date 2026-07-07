@@ -1,12 +1,14 @@
 // tests/gallery-search.test.js
 // Covers issue #83 acceptance criteria — search box in the grouped gallery
-// views (?view=task / ?view=user), name/title filtering, and points-first
-// ordering for the by-person view.
+// views (?view=task / ?view=user) and name/title filtering — with AC4's
+// by-person ordering amended by issue #251: most-recent-photo-first
+// ("recency is a party, alphabetical is a phonebook"), replacing #83's
+// points-first order.
 //
 //   AC1 — search form + `name="q"` input present in both grouped views
 //   AC2 — by-person search filters by guest name (case-insensitive substring)
 //   AC3 — by-task search filters by task title (case-insensitive substring)
-//   AC4 — by-person default order is most-points-first
+//   AC4 (as amended by #251) — by-person order is most-recent-photo-first
 //   AC5 — blank q shows everything (same as no q)
 //   AC6 — no-match search is a clean 200 empty state
 //   AC7 — a guest with only a taken-down submission has no heading
@@ -56,20 +58,22 @@ beforeAll(async () => {
     .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
     .run('hiddentoken', 'Hidden Guest').lastInsertRowid;
 
-  // Marcus: two visible submissions across two tasks -> 2 points.
+  // Marcus: two visible submissions across two tasks — but both OLDER than
+  // Ava's single photo, so under #251's recency ordering his section sorts
+  // second even though he has more photos (and more points).
   db.prepare(
-    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
-     VALUES (?, ?, 'marcus-toast.jpg', 'marcus-toast-t.jpg', 0)`
+    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down, created_at)
+     VALUES (?, ?, 'marcus-toast.jpg', 'marcus-toast-t.jpg', 0, '2024-06-01 10:00:00')`
   ).run(guestMarcus, taskToast);
   db.prepare(
-    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
-     VALUES (?, ?, 'marcus-extra.jpg', 'marcus-extra-t.jpg', 0)`
+    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down, created_at)
+     VALUES (?, ?, 'marcus-extra.jpg', 'marcus-extra-t.jpg', 0, '2024-06-01 11:00:00')`
   ).run(guestMarcus, taskExtra);
 
-  // Ava: one visible submission -> 1 point. Strictly fewer than Marcus.
+  // Ava: one visible submission, the most recent photo in the fixture.
   db.prepare(
-    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
-     VALUES (?, ?, 'ava-sweet.jpg', 'ava-sweet-t.jpg', 0)`
+    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down, created_at)
+     VALUES (?, ?, 'ava-sweet.jpg', 'ava-sweet-t.jpg', 0, '2024-06-01 12:00:00')`
   ).run(guestAva, taskSweet);
 
   // Hidden guest: only a taken-down submission -> 0 visible photos, 0 points,
@@ -133,10 +137,10 @@ describe('AC3: by-task search filters by task title', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC4 — by-person default order is most-points-first
+// AC4 (as amended by #251) — by-person order is most-recent-photo-first
 // ---------------------------------------------------------------------------
-describe('AC4: by-person default order is most-points-first', () => {
-  it('Marcus Bell (2 points) appears before Ava Fenwick (1 point) with no q', async () => {
+describe('AC4: by-person default order is most-recent-photo-first (#251)', () => {
+  it('Ava Fenwick (newest photo) appears before Marcus Bell (more, older photos)', async () => {
     const res = await agent.get('/gallery?view=user');
     expect(res.status).toBe(200);
 
@@ -145,7 +149,9 @@ describe('AC4: by-person default order is most-points-first', () => {
 
     expect(indexMarcus).toBeGreaterThan(-1);
     expect(indexAva).toBeGreaterThan(-1);
-    expect(indexMarcus).toBeLessThan(indexAva);
+    // Recency beats volume: Marcus has two photos (and more points), but
+    // Ava's single photo is newer, so her section leads.
+    expect(indexAva).toBeLessThan(indexMarcus);
   });
 });
 

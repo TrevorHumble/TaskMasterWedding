@@ -2,7 +2,8 @@
 // Covers issue #78 acceptance criteria:
 //   AC1 — rank computed once; ties share a `T{rank}` label; standard-competition
 //         gap after a four-way tie ([5,4,3,3,3,3,1] -> labels 1,2,T3,T3,T3,T3,7)
-//   AC2 — a 3+-way tie collapses into one `podium-tie` tile ("T3 · 4 tied")
+//   AC2 — (superseded by #249) a 3+-way tie renders every tied guest as an
+//         avatar stack + names line; the collapsed "T3 · 4 tied" tile is gone
 //   AC3 — a two-way tie for 1st shows both entries labelled T1, no rank `2`
 //   AC4 — an all-guest tie suppresses the podium and shows "everyone's tied"
 //   AC5 — the last-submission tiebreaker orders tied rows without changing rank
@@ -105,6 +106,30 @@ function giveBadges(guestId, n) {
   seq++;
 }
 
+// The podium highlight block: from its opening div to the "Full standings"
+// heading that always follows it. Scopes assertions to podium markup only.
+function podiumMarkup(html) {
+  const start = html.indexOf('<div class="podium">');
+  const end = html.indexOf('lb-standings-title');
+  expect(start).toBeGreaterThan(-1);
+  return html.slice(start, end);
+}
+
+// Strip tags and collapse runs of whitespace so text split across EJS output
+// lines ("Cara</a>, <a>Dara</a> and 2 more") compares as one string. Tag
+// stripping loops until stable — this is a comparison helper on our own
+// rendered markup, but the loop also keeps CodeQL's incomplete-sanitization
+// check (js/incomplete-multi-character-sanitization) satisfied.
+function collapse(html) {
+  let out = html;
+  let prev;
+  do {
+    prev = out;
+    out = out.replace(/<[^>]*>/g, '');
+  } while (out !== prev);
+  return out.replace(/\s+/g, ' ').trim();
+}
+
 // Extract the text of every <span class="rank ...">…</span> element in order.
 function rankLabels(html) {
   const out = [];
@@ -151,25 +176,31 @@ describe('leaderboard ties (#78)', () => {
     expect(labels).toContain('2');
   });
 
-  test('AC2: four-way tie collapses into a single podium-tie tile "T3 · 4 tied"', async () => {
+  test('AC2 (as redesigned by #249): four-way tie renders an avatar stack, never a collapsed "tied" tile', async () => {
     resetField();
     makeGuest('Alpha', 5);
     makeGuest('Bravo', 4);
-    makeGuest('Cara', 3);
-    makeGuest('Dara', 3);
-    makeGuest('Elle', 3);
-    makeGuest('Finn', 3);
+    // Distinct baseMinutes pin the tiebreak order (earliest latest-submission
+    // first), so the two NAMED tied guests are deterministic: Cara, Dara.
+    makeGuest('Cara', 3, 0);
+    makeGuest('Dara', 3, 10);
+    makeGuest('Elle', 3, 20);
+    makeGuest('Finn', 3, 30);
     makeGuest('Gwen', 1);
 
     const res = await signedInBoard(lastToken);
 
-    const tile = res.text.match(/<div class="podium-tie[^"]*">([\s\S]*?)<\/div>\s*<\/div>/);
-    expect(tile).not.toBeNull();
-    expect(res.text).toContain('podium-tie');
-    // The tile text carries both the shared label and the count.
-    const tileBlock = res.text.slice(res.text.indexOf('podium-tie'));
-    expect(tileBlock).toContain('T3');
-    expect(tileBlock).toContain('4 tied');
+    // The collapsed tile and its star placeholder are gone entirely (#249).
+    expect(res.text).not.toContain('podium-tie');
+    expect(res.text).not.toContain('&#9733;');
+
+    const podium = podiumMarkup(res.text);
+    // 4 tied at rank 3 -> 3 stacked avatars plus a "+1" overflow chip.
+    expect((podium.match(/class="podium-stack-avatar"/g) || []).length).toBe(3);
+    expect(podium).toContain('+1');
+    // Names line: first two named, the rest counted.
+    expect(collapse(podium)).toContain('Cara, Dara and 2 more');
+    expect(podium).toContain('3rd place · 3 pts each');
   });
 
   test('AC3: two-way tie for 1st shows two T1 entries and no rank 2', async () => {
@@ -181,8 +212,8 @@ describe('leaderboard ties (#78)', () => {
     const res = await signedInBoard(lastToken);
     const labels = rankLabels(res.text);
 
-    // Two guests tied at rank 1: their labels are T1. Both the podium slot and
-    // the list row render a .rank span, so T1 appears at least twice.
+    // Two guests tied at rank 1: their labels are T1. Since #249 the podium
+    // renders no .rank spans, so both T1 labels come from the standings list.
     const t1Count = labels.filter((l) => l === 'T1').length;
     expect(t1Count).toBeGreaterThanOrEqual(2);
 
@@ -264,5 +295,90 @@ describe('leaderboard ties (#78)', () => {
     const smallIcons = (smallRow.match(/<img class="lb-badge-icon"/g) || []).length;
     expect(smallIcons).toBe(3);
     expect(smallRow).not.toContain('lb-badge-more');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #249 — podium ties show every tied guest: avatar stack, names line,
+// labeled bars. The anonymous star tile and "N tied" string are removed.
+// ---------------------------------------------------------------------------
+describe('podium tie redesign (#249)', () => {
+  test('AC1+AC3: 3-way tie at 2nd names all three guests; untied 1st bar reads "1st · 19 pts"', async () => {
+    resetField();
+    makeGuest('Alpha Winner', 19);
+    makeGuest('Liam Park', 12, 0);
+    makeGuest('Priya Rao', 12, 30);
+    makeGuest('Noah Bell', 12, 60);
+
+    const res = await signedInBoard(lastToken);
+    const podium = podiumMarkup(res.text);
+
+    // Rank-2 slot: display order is 2nd, 1st, 3rd, so the rank-2 group is the
+    // slice from its own marker to the rank-1 marker.
+    const rank2 = podium.slice(podium.indexOf('rank-2'), podium.indexOf('rank-1'));
+    expect(rank2).toContain('Liam');
+    expect(rank2).toContain('Priya');
+    expect(rank2).toContain('Noah');
+
+    // AC1: the shared-rank sub-line, and no "tied" anywhere in podium markup.
+    expect(podium).toContain('2nd place · 12 pts each');
+    expect(podium).not.toContain('tied');
+
+    // AC3: the untied #1 bar label is the exact string.
+    const rank1 = podium.slice(podium.indexOf('rank-1'));
+    const barLabel = rank1.match(/<span class="podium-bar-label">([^<]*)<\/span>/);
+    expect(barLabel).not.toBeNull();
+    expect(barLabel[1]).toBe('1st · 19 pts');
+
+    // The tied slot's bar carries a label too (no blank rectangles).
+    const rank2Label = rank2.match(/<span class="podium-bar-label">([^<]*)<\/span>/);
+    expect(rank2Label).not.toBeNull();
+    expect(rank2Label[1]).toBe('2nd · 12 pts');
+  });
+
+  test('AC2: 5-way tie shows exactly 3 avatars, a "+2" chip, and a names line ending "and 3 more"', async () => {
+    resetField();
+    makeGuest('Alpha Winner', 9);
+    makeGuest('Liam Park', 5, 0);
+    makeGuest('Priya Rao', 5, 10);
+    makeGuest('Noah Bell', 5, 20);
+    makeGuest('Mara Finch', 5, 30);
+    makeGuest('Quin Hale', 5, 40);
+
+    const res = await signedInBoard(lastToken);
+    const podium = podiumMarkup(res.text);
+
+    expect((podium.match(/class="podium-stack-avatar"/g) || []).length).toBe(3);
+    const moreChip = podium.match(/<span class="podium-stack-more">([^<]*)<\/span>/);
+    expect(moreChip).not.toBeNull();
+    expect(moreChip[1]).toBe('+2');
+
+    // Names line ends with "and 3 more" (tags stripped, whitespace collapsed).
+    const namesDiv = podium.match(/<div class="podium-name podium-names">([\s\S]*?)<\/div>/);
+    expect(namesDiv).not.toBeNull();
+    expect(collapse(namesDiv[1]).endsWith('and 3 more')).toBe(true);
+    expect(collapse(namesDiv[1])).toBe('Liam, Priya and 3 more');
+  });
+
+  test('AC4: every podium avatar is wrapped in a /u/<id> profile anchor', async () => {
+    resetField();
+    makeGuest('Alpha Winner', 19);
+    makeGuest('Liam Park', 12, 0);
+    makeGuest('Priya Rao', 12, 30);
+    makeGuest('Noah Bell', 12, 60);
+
+    const res = await signedInBoard(lastToken);
+    const podium = podiumMarkup(res.text);
+
+    // Stacked (tied) avatars are anchors with a /u/<id> href…
+    const stacked = podium.match(/<a class="podium-stack-avatar"[^>]*>/g) || [];
+    expect(stacked.length).toBe(3);
+    for (const tag of stacked) {
+      expect(tag).toMatch(/href="\/u\/\d+"/);
+    }
+    // …and so is the untied slot's single avatar.
+    const solo = podium.match(/<a class="podium-avatar"[^>]*>/g) || [];
+    expect(solo.length).toBe(1);
+    expect(solo[0]).toMatch(/href="\/u\/\d+"/);
   });
 });

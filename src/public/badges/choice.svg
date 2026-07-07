@@ -1,12 +1,24 @@
 <!-- src/public/badges/choice.svg -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Task Master's Choice badge">
-  <circle cx="60" cy="60" r="56" fill="#fdf8f1" stroke="#d7c9ef" stroke-width="4"/>
-  <path d="M48 70 L40 104 L54 96 L58 108 L66 80 Z" fill="#bfe0f2" stroke="#8ec5e6" stroke-width="1.5"/>
-  <path d="M72 70 L80 104 L66 96 L62 108 L54 80 Z" fill="#f7c8d6" stroke="#ef9fb6" stroke-width="1.5"/>
-  <g>
-    <circle cx="60" cy="50" r="30" fill="#fbedb0" stroke="#f3b68b" stroke-width="2"/>
-    <circle cx="60" cy="50" r="22" fill="#fdf8f1" stroke="#f3b68b" stroke-width="1.5" stroke-dasharray="2 4"/>
+  <circle cx="60" cy="60" r="56" fill="#ffffff" stroke="#467058" stroke-width="4"/>
+  <circle cx="60" cy="60" r="47" fill="none" stroke="#aebbb2" stroke-width="1.5"/>
+  <path d="M48 68 L42 96 L52 90 L58 100 L62 74 Z" fill="#6e8478"/>
+  <path d="M72 68 L78 96 L68 90 L62 100 L58 74 Z" fill="#6e8478"/>
+  <g transform="translate(60 50)" fill="#467058">
+    <circle cx="0" cy="-24" r="7.5"/>
+    <circle cx="14.1" cy="-19.4" r="7.5"/>
+    <circle cx="22.8" cy="-7.4" r="7.5"/>
+    <circle cx="22.8" cy="7.4" r="7.5"/>
+    <circle cx="14.1" cy="19.4" r="7.5"/>
+    <circle cx="0" cy="24" r="7.5"/>
+    <circle cx="-14.1" cy="19.4" r="7.5"/>
+    <circle cx="-22.8" cy="7.4" r="7.5"/>
+    <circle cx="-22.8" cy="-7.4" r="7.5"/>
+    <circle cx="-14.1" cy="-19.4" r="7.5"/>
+    <circle cx="0" cy="0" r="25"/>
   </g>
-  <path d="M60 33 L65 46 L79 46 L68 54 L72 67 L60 59 L48 67 L52 54 L41 46 L55 46 Z"
-        fill="#f3b68b" stroke="#ef9fb6" stroke-width="1.2"/>
+  <circle cx="60" cy="50" r="17" fill="#f0f4f2"/>
+  <path transform="translate(60 51) scale(1.15) translate(-12 -12.9)"
+        d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"
+        fill="#467058"/>
 </svg>

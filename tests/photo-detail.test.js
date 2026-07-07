@@ -173,24 +173,25 @@ describe('AC4: 404 for nonexistent and non-numeric ids', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC5 — gallery renders href="/feed#photo-<N>" for each visible submission
+// AC5 — gallery renders href="/feed?from=<N>#photo-<N>" for each visible
+// submission (the ?from anchor is issue #194's server-side page resolution)
 // ---------------------------------------------------------------------------
 describe('AC5: gallery thumbnails open the feed at that photo', () => {
-  it('GET /gallery contains href="/feed#photo-<idA>"', async () => {
+  it('GET /gallery contains href="/feed?from=<idA>#photo-<idA>"', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('href="/feed#photo-' + idA + '"');
+    expect(res.text).toContain('href="/feed?from=' + idA + '#photo-' + idA + '"');
   });
 
-  it('GET /gallery contains href="/feed#photo-<idC>" (newest)', async () => {
+  it('GET /gallery contains href="/feed?from=<idC>#photo-<idC>" (newest)', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('href="/feed#photo-' + idC + '"');
+    expect(res.text).toContain('href="/feed?from=' + idC + '#photo-' + idC + '"');
   });
 
   it('GET /gallery does not link to taken-down submission X', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
-    expect(res.text).not.toContain('href="/feed#photo-' + idX + '"');
+    expect(res.text).not.toContain('#photo-' + idX + '"');
   });
 });
