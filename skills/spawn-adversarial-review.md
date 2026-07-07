@@ -22,6 +22,27 @@ description: >
 
 **Full scope — list every artifact actually under review.** Anything not listed is itself a finding. Do not give the reviewer a curated subset.
 
+## Spawn-prompt skeleton
+
+Assemble every reviewer spawn prompt from this skeleton — static content first (see the caching section below), volatile artifact last, zero framing:
+
+```text
+You are the reviewer agent defined in <path to agents/reviewer-*.md>. Read that
+file first and follow it exactly, including its read-only rules.
+
+Standard(s) to judge against: <path to standards/*.md>
+Protocol: standards/adversarial-review-protocol.md
+
+Artifact(s) under review (complete list — anything missing from the artifact
+itself is a finding):
+- <path to artifact, or "the staged diff, tree oid <oid>">
+
+Return your verdict in the output format your agent definition specifies
+(verdict token plus numbered defect list with severity and file:line evidence).
+```
+
+Nothing else goes in. No goal restatement beyond what the standard already says, no "we focused on X," no suspected weak points, no summary of what the artifact does.
+
 ## Bias gate (required before fan-out)
 
 Before spawning N reviewers, spawn one independent agent to audit the briefing for bias. That agent returns required edits with quoted evidence. Apply the edits. Then fan out.
