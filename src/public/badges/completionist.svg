@@ -1,0 +1,22 @@
+<!-- src/public/badges/completionist.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Completionist badge">
+  <circle cx="60" cy="60" r="56" fill="#ffffff" stroke="#467058" stroke-width="4"/>
+  <circle cx="60" cy="60" r="47" fill="none" stroke="#aebbb2" stroke-width="1.5"/>
+  <g fill="#467058">
+    <g>
+      <path d="M40 88 Q26 70 30 44" fill="none" stroke="#467058" stroke-width="3" stroke-linecap="round"/>
+      <ellipse cx="33" cy="80" rx="3.2" ry="8.5" transform="rotate(48 33 80)"/>
+      <ellipse cx="27.5" cy="67" rx="3.2" ry="8.5" transform="rotate(28 27.5 67)"/>
+      <ellipse cx="26" cy="54" rx="3.2" ry="8.5" transform="rotate(10 26 54)"/>
+      <ellipse cx="28.5" cy="41" rx="3.2" ry="8.5" transform="rotate(-10 28.5 41)"/>
+    </g>
+    <g>
+      <path d="M80 88 Q94 70 90 44" fill="none" stroke="#467058" stroke-width="3" stroke-linecap="round"/>
+      <ellipse cx="87" cy="80" rx="3.2" ry="8.5" transform="rotate(-48 87 80)"/>
+      <ellipse cx="92.5" cy="67" rx="3.2" ry="8.5" transform="rotate(-28 92.5 67)"/>
+      <ellipse cx="94" cy="54" rx="3.2" ry="8.5" transform="rotate(-10 94 54)"/>
+      <ellipse cx="91.5" cy="41" rx="3.2" ry="8.5" transform="rotate(10 91.5 41)"/>
+    </g>
+  </g>
+  <path d="M44 62 L57 75 L78 46" fill="none" stroke="#2a4335" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

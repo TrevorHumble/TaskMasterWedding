@@ -1,6 +1,9 @@
 // src/public/js/admin.js
 // Client-side helpers for the admin pages: confirmation dialogs on destructive
-// actions. Loaded by the footer partial on admin views. Vanilla JS only.
+// actions, copy-to-clipboard for guest links, the live guest-name search, and
+// keeping each badge-award form's action in sync with its select. Loaded by
+// the admin views after filter.js. Vanilla JS only; every feature degrades —
+// no JS still leaves working forms and a selectable link input.
 (function () {
   'use strict';
 
@@ -19,7 +22,49 @@
     }
   });
 
-  // Reorder helper: the Tasks page has "up"/"down" buttons. Each button posts a
-  // hidden form. Nothing extra is needed here, but we keep a no-op hook so the
-  // file is the single place to extend admin behavior later.
+  // Copy a guest's private link. The readonly input next to the button stays
+  // selectable as the fallback when the Clipboard API is unavailable.
+  document.addEventListener('click', function (event) {
+    var target = event.target;
+    var btn = target && target.closest ? target.closest('.copy-link') : null;
+    if (!btn) {
+      return;
+    }
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      return;
+    }
+    var link = btn.getAttribute('data-link') || '';
+    navigator.clipboard.writeText(link).then(function () {
+      var row = btn.parentElement;
+      var confirmEl = row ? row.querySelector('.copy-confirm') : null;
+      if (confirmEl) {
+        confirmEl.hidden = false;
+        setTimeout(function () {
+          confirmEl.hidden = true;
+        }, 2000);
+      }
+    });
+  });
+
+  // (The badge-award select needs no JS: it posts action="toggle" and the
+  // server resolves award-vs-remove from the guest's current held state.)
+
+  // Live guest search: hide cards whose name doesn't match as the admin
+  // types. The matching rule lives in filter.js (window.HuntFilter).
+  // Delegated like every other handler in this file, so no load-order or
+  // DOM-ready coordination is needed.
+  document.addEventListener('input', function (event) {
+    var input = event.target;
+    if (!input || input.id !== 'guest-search' || !window.HuntFilter) {
+      return;
+    }
+    var q = input.value;
+    var cards = document.querySelectorAll('.guest-card');
+    cards.forEach(function (card) {
+      card.hidden = !window.HuntFilter.nameMatchesQuery(
+        card.getAttribute('data-guest-name') || '',
+        q
+      );
+    });
+  });
 })();

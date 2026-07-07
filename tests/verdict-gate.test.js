@@ -126,6 +126,45 @@ maybeDescribe('verdict-gate (evidence gate)', () => {
     expect(result.value).toBe(2);
   });
 
+  // #218 AC1: reviewer charters are the experimental governance surface -> bar 1
+  it('#218 AC1a: agents/reviewer-*.md only -> required bar is 1', () => {
+    const result = runGetRequiredBar(['agents/reviewer-design-philosophy.md']);
+    expect(result.status).toBe(0);
+    expect(result.value).toBe(1);
+  });
+
+  // #218 AC1: everything else on the system-level surface stays kernel -> bar 2
+  it('#218 AC1b: kernel paths (verdict-core, protocol, orchestrator) -> required bar is 2', () => {
+    for (const p of [
+      'tools/verdict-core.ps1',
+      'standards/adversarial-review-protocol.md',
+      'agents/orchestrator.md',
+    ]) {
+      const result = runGetRequiredBar([p]);
+      expect(result.status).toBe(0);
+      expect(result.value).toBe(2);
+    }
+  });
+
+  // #218: a tree mixing a reviewer charter with a kernel path takes the kernel bar
+  it('#218: reviewer charter + kernel path staged together -> required bar is 2', () => {
+    const result = runGetRequiredBar([
+      'agents/reviewer-pr.md',
+      'standards/adversarial-review-protocol.md',
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.value).toBe(2);
+  });
+
+  // #218: non-charter agents/ files and nested lookalikes are NOT carved out
+  it('#218: agents/severity-adjudicator.md and nested reviewer-*.md stay bar 2', () => {
+    for (const p of ['agents/severity-adjudicator.md', 'agents/sub/reviewer-x.md']) {
+      const result = runGetRequiredBar([p]);
+      expect(result.status).toBe(0);
+      expect(result.value).toBe(2);
+    }
+  });
+
   // AC4: required=2, only one distinct PASS -> blocked with correct count message
   it('AC4: required=2, only 1 distinct PASS reviewer -> blocked', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vg-s2ac4-'));
@@ -178,12 +217,17 @@ maybeDescribe('verdict-gate (evidence gate)', () => {
       });
       execFileSync('git', ['-C', tmp, 'config', 'user.name', 'Test'], { encoding: 'utf8' });
 
-      // Copy the pre-commit hook into the temp repo
+      // Copy the pre-commit hook into the temp repo, plus gate-core.sh which
+      // it sources (the evidence gate body lives there since #220)
       const hooksDir = path.join(tmp, '.githooks');
       fs.mkdirSync(hooksDir, { recursive: true });
       const hookSrc = fs.readFileSync(PRE_COMMIT, 'utf8');
       const hookDest = path.join(hooksDir, 'pre-commit');
       fs.writeFileSync(hookDest, hookSrc);
+      fs.copyFileSync(
+        path.join(path.dirname(PRE_COMMIT), 'gate-core.sh'),
+        path.join(hooksDir, 'gate-core.sh')
+      );
       // Make hook executable (needed on non-Windows; on Windows git respects the bit via Git for Windows)
       try {
         fs.chmodSync(hookDest, 0o755);

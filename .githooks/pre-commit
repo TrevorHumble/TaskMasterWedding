@@ -3,7 +3,8 @@
 # time against the real index, so it covers `git commit -a`, pathspecs, and amend
 # content that a command-text check would miss, and it cannot be regex-bypassed or
 # wrongly fire on a `grep "git commit"`. Blocks unless a review verdict bound to
-# the EXACT to-be-committed tree says PASS. Fails CLOSED.
+# the EXACT to-be-committed tree says PASS. Fails CLOSED. The gate body lives in
+# .githooks/gate-core.sh (evidence_gate), shared with commit-msg for event mode.
 #
 # Commit identity = `git write-tree` (the oid of the staged index = the commit's
 # tree). tools/review_verdict.ps1 records the same key. Pure git plumbing, so the
@@ -20,57 +21,19 @@
 set -e
 
 root="$(git rev-parse --show-toplevel)"
-vf="$root/.review_state/verdict.json"
+. "$root/.githooks/gate-core.sh"
 
-# Fail CLOSED if we cannot compute the tree (e.g. unmerged index): never let an
-# empty tree_now collide with an empty/corrupt verdict tree and fall through.
-tree_now="$(git write-tree)" || tree_now=""
-if [ -z "$tree_now" ]; then
-  echo "commit-gate (BLOCKED): git write-tree failed (unmerged index?). Failing closed." >&2
-  exit 1
+# Event mode (#220): while governance/event-mode.json is a valid em1 flag with a
+# future expiry, the evidence gate moves to commit-msg -- the hook that can read
+# the commit message and scope the bypass to 'hotfix: ' subjects. Every other
+# commit still takes the identical gate there, one hook later. An expired or
+# invalid flag enables nothing (event_mode_state collapses it to INACTIVE).
+# See DESIGN.md "Event mode (#220)".
+if [ "$(event_mode_state "$root")" = "ACTIVE" ]; then
+  echo "commit-gate: event mode ACTIVE (governance/event-mode.json) -- evidence gate defers to commit-msg; only 'hotfix: ' commits bypass it there." >&2
+  exit 0
 fi
 
-if [ ! -f "$vf" ]; then
-  echo "commit-gate (BLOCKED): no review verdict exists for this commit." >&2
-  echo "  Spawn the adversarial review; on PASS record it, then commit:" >&2
-  echo "    powershell -File tools/review_verdict.ps1 -Verdict PASS -Reviewers \"reviewer-pr,reviewer-design-philosophy\"" >&2
-  exit 1
-fi
-
-# verdict.json MUST stay single-line compressed JSON (review_verdict.ps1 writes it
-# that way); this parses it with sed, not a JSON parser. Keys are read by name, so
-# order is irrelevant; any failure to extract leaves the var empty -> fail closed.
-verdict="$(sed -n 's/.*"verdict"[ ]*:[ ]*"\([A-Z]*\)".*/\1/p' "$vf")"
-vtree="$(sed -n 's/.*"tree_oid"[ ]*:[ ]*"\([0-9a-f]*\)".*/\1/p' "$vf")"
-
-if [ -z "$vtree" ]; then
-  echo "commit-gate (BLOCKED): verdict file has no valid tree_oid (corrupt or edited?). Failing closed." >&2
-  exit 1
-fi
-
-if [ "$verdict" != "PASS" ]; then
-  echo "commit-gate (BLOCKED): recorded verdict is '${verdict:-none}', not PASS." >&2
-  echo "  A FAIL is fixed, never overridden. Fix the findings and re-review." >&2
-  exit 1
-fi
-
-if [ "$vtree" != "$tree_now" ]; then
-  echo "commit-gate (BLOCKED): the staged tree does not match what was reviewed." >&2
-  echo "  reviewed=$vtree  now=$tree_now" >&2
-  echo "  The verdict authorizes only the exact reviewed content (this also catches" >&2
-  echo "  'git commit -a' and late-staged changes). Re-review the staged tree, then re-record." >&2
-  exit 1
-fi
-
-# Evidence check: validate-verdict.ps1 must exit 0 (has review evidence files
-# bound to the exact tree). Fail CLOSED if powershell is not available.
-_ps="$(command -v powershell 2>/dev/null)" || _ps=""
-if [ -z "$_ps" ]; then
-  echo "commit-gate (BLOCKED): 'powershell' not found on PATH. Cannot verify review evidence. Failing closed." >&2
-  exit 1
-fi
-if ! powershell -ExecutionPolicy Bypass -NoProfile -File "$root/tools/validate-verdict.ps1" >&2; then
-  exit 1
-fi
+evidence_gate "$root"
 
 exit 0

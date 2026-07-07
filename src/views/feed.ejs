@@ -11,12 +11,17 @@
   <div class="feed">
     <% photos.forEach(function (p) { %>
       <article id="photo-<%= p.submission_id %>" class="feed-item">
-        <img
-          class="feed-photo"
-          src="/uploads/<%= p.photo_path %>"
-          alt="<%= p.task_title %>"
-          loading="lazy"
-        />
+        <%# The feed shows the 400px thumbnail — the original is one tap away
+            on the photo detail page (issue #194: a guest scrolling on venue
+            wifi should pull kilobytes per photo, not megabytes). %>
+        <a class="feed-photo-link" href="/p/<%= p.submission_id %>">
+          <img
+            class="feed-photo"
+            src="/thumbs/<%= p.thumb_path %>"
+            alt="<%= p.task_title %>"
+            loading="lazy"
+          />
+        </a>
         <div class="feed-body">
           <p class="feed-by">
             <a href="/u/<%= p.guest_id %>"><%= p.guest_name || 'Guest' %></a>
@@ -30,7 +35,12 @@
           <span class="like-count"><%= p.like_count %> <%= p.like_count === 1 ? 'like' : 'likes' %></span>
           <% if (guest) { %>
             <form method="post" action="/p/<%= p.submission_id %>/like" class="like-form">
-              <button type="submit" class="like-button" aria-label="Like this photo">&hearts;</button>
+              <button
+                type="submit"
+                class="like-button<%= p.viewer_liked ? ' like-button-liked' : '' %>"
+                aria-pressed="<%= p.viewer_liked ? 'true' : 'false' %>"
+                aria-label="Like this photo"
+              >&hearts;</button>
             </form>
           <% } %>
         </div>
@@ -60,5 +70,16 @@
       </article>
     <% }); %>
   </div>
+
+  <% if (newerHref || olderHref) { %>
+    <nav class="pagination" aria-label="Feed pages">
+      <% if (newerHref) { %>
+        <a class="page-link" href="<%= newerHref %>">&larr; Newer</a>
+      <% } %>
+      <% if (olderHref) { %>
+        <a class="page-link" href="<%= olderHref %>">Older &rarr;</a>
+      <% } %>
+    </nav>
+  <% } %>
 
 <%- include('partials/footer') %>

@@ -8,6 +8,14 @@ Each scenario below is written as: what to do, what you should see, and a checkb
 
 Do this once, before you start testing.
 
+0. **Make sure you are testing current code.** Build sessions merge their work on GitHub, and your local folder does not update itself. From the project root, in PowerShell:
+
+   ```powershell
+   powershell -File tools/check-freshness.ps1
+   ```
+
+   If it says you are behind, run `git pull` first — otherwise this whole walkthrough (including the wedding dress-rehearsal) is run against an old version of the app. The check is read-only and never changes your files.
+
 1. **Seed the isolated event database.** Do not run this against your real event data — it creates its own separate database. From the project root, in PowerShell:
 
    ```powershell
