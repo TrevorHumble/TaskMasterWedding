@@ -84,7 +84,8 @@ it('AC2: POST /p/:id/like as a signed-in guest creates a row and feed count is 1
 
   const res = await liker.agent.post('/p/' + submissionId + '/like');
   expect(res.status).toBe(302);
-  expect(res.headers.location).toBe('/feed#photo-' + submissionId);
+  // Redirect returns to the bounded feed page CONTAINING this photo (#194).
+  expect(res.headers.location).toBe('/feed?from=' + submissionId + '#photo-' + submissionId);
 
   const row = db
     .prepare(`SELECT * FROM likes WHERE submission_id = ? AND guest_id = ?`)
@@ -177,7 +178,7 @@ it('AC6: a taken-down submission with a like row renders no like form/count', as
 
   // The like was placed while the photo was still visible, then the photo was
   // taken down. The like row persists, but the feed never renders that photo —
-  // feed.allVisible() excludes it — so the like never surfaces.
+  // feed.feedWindow() excludes it — so the like never surfaces.
   db.prepare(`INSERT INTO likes (submission_id, guest_id) VALUES (?, ?)`).run(
     submissionId,
     liker.guestId
@@ -187,4 +188,61 @@ it('AC6: a taken-down submission with a like row renders no like form/count', as
   expect(feedRes.status).toBe(200);
   expect(feedRes.text).not.toContain('id="photo-' + submissionId + '"');
   expect(feedRes.text).not.toContain('/p/' + submissionId + '/like');
+});
+
+// ---------------------------------------------------------------------------
+// #194 AC3 (option b): the fetch() path — Accept: application/json — gets the
+// updated count in place, both halves of the toggle, without a redirect.
+// ---------------------------------------------------------------------------
+it('POST /p/:id/like with Accept: application/json returns { liked, likeCount }', async () => {
+  const author = await signedInGuest('json-author', 'JSON Author');
+  const liker = await signedInGuest('json-liker', 'JSON Liker');
+  const submissionId = seedSubmission(author.guestId, {
+    photoPath: 'json.jpg',
+    thumbPath: 'jsont.jpg',
+  });
+
+  const likeRes = await liker.agent
+    .post('/p/' + submissionId + '/like')
+    .set('Accept', 'application/json');
+  expect(likeRes.status).toBe(200);
+  expect(likeRes.body).toEqual({ liked: true, likeCount: 1 });
+
+  const unlikeRes = await liker.agent
+    .post('/p/' + submissionId + '/like')
+    .set('Accept', 'application/json');
+  expect(unlikeRes.status).toBe(200);
+  expect(unlikeRes.body).toEqual({ liked: false, likeCount: 0 });
+});
+
+// ---------------------------------------------------------------------------
+// State is visible (design rule 7): the viewer's own liked state renders as
+// the button's pressed state.
+// ---------------------------------------------------------------------------
+it('the feed renders aria-pressed="true" on a photo the viewer already liked', async () => {
+  const author = await signedInGuest('pressed-author', 'Pressed Author');
+  const liker = await signedInGuest('pressed-liker', 'Pressed Liker');
+  const submissionId = seedSubmission(author.guestId, {
+    photoPath: 'pressed.jpg',
+    thumbPath: 'pressedt.jpg',
+  });
+
+  await liker.agent.post('/p/' + submissionId + '/like');
+
+  const feedRes = await liker.agent.get('/feed?from=' + submissionId);
+  const marker = 'id="photo-' + submissionId + '"';
+  const start = feedRes.text.indexOf(marker);
+  expect(start).toBeGreaterThan(-1);
+  const nextArticle = feedRes.text.indexOf('<article', start + marker.length);
+  const chunk = feedRes.text.slice(start, nextArticle === -1 ? feedRes.text.length : nextArticle);
+  expect(chunk).toContain('aria-pressed="true"');
+  expect(chunk).toContain('like-button-liked');
+
+  // The author, who has NOT liked it, sees an unpressed button.
+  const authorView = await author.agent.get('/feed?from=' + submissionId);
+  const aStart = authorView.text.indexOf(marker);
+  const aNext = authorView.text.indexOf('<article', aStart + marker.length);
+  const aChunk = authorView.text.slice(aStart, aNext === -1 ? authorView.text.length : aNext);
+  expect(aChunk).toContain('aria-pressed="false"');
+  expect(aChunk).not.toContain('like-button-liked');
 });

@@ -78,15 +78,13 @@ describe('scoring single authority — issue #104', () => {
     const res = await adminAgent.get('/admin/guests');
     expect(res.status).toBe(200);
 
-    // Row shape from admin-guests.ejs: <td>id</td> ... <td>points</td><td>completed</td>.
-    // Anchor on this guest's id, then require points immediately followed by
-    // completed within that same row (whitespace-tolerant, so an unrelated
-    // template reformat doesn't break this test) — not just present anywhere
-    // on the page, which could match a different guest's row.
-    const rowPattern = new RegExp(
-      `<td>${guestId}</td>[\\s\\S]*?<td>${EXPECTED_POINTS}</td>\\s*<td>${EXPECTED_COMPLETED}</td>`
+    // Card shape from admin-guests.ejs (#257): the guest's card carries a
+    // meta line "<points> pts · <completed>/<total> tasks". Anchor on this
+    // guest's card id so we can't match a different guest's meta line.
+    const cardPattern = new RegExp(
+      `id="guest-${guestId}"[\\s\\S]*?${EXPECTED_POINTS} pts · ${EXPECTED_COMPLETED}/\\d+ tasks`
     );
-    expect(res.text).toMatch(rowPattern);
+    expect(res.text).toMatch(cardPattern);
   });
 
   it('AC3: export Guests sheet cells equal scoring.getCompletedCount/getPoints', async () => {

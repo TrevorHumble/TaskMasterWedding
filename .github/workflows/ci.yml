@@ -27,6 +27,19 @@ jobs:
           head -1 .githooks/commit-msg | grep -q '^#!/bin/sh' \
             || { echo "commit-msg hook shebang corrupt"; exit 1; }
 
+  # Event-mode expiry backstop (#220): an expired governance/event-mode.json
+  # enables nothing locally, but leaving it in the tree means the freeze window
+  # ended without cleanup. This job goes red — on main and every branch/PR that
+  # still carries the expired flag — until the flag is cleared via
+  # tools/set-event-mode.ps1 -Clear, which itself refuses until every freeze
+  # commit has its retro-review PASS. The cleanup PR (flag removed) is green.
+  event-mode-expiry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Fail on an expired or invalid event-mode flag
+        run: pwsh -File tools/check-event-mode-expiry.ps1
+
   # Advisory check: warn when a PR has no linked issue in its commits or title.
   # This is a soft backstop; the un-bypassable version is issue #48.
   merge-association:

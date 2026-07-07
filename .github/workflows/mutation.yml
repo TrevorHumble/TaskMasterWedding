@@ -1,0 +1,33 @@
+# Weekly mutation-testing report (#199). A quality SIGNAL, not a gate:
+# this job is never a required check — the score tells the owner whether
+# the tests would notice a bug; docs/test-quality.md explains the rationale.
+name: mutation
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Mondays 09:00 UTC, CodeQL-style cadence
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Mutation testing (Stryker)
+        run: npm run mutation
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          if-no-files-found: warn

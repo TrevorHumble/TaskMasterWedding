@@ -42,72 +42,15 @@ const AVATAR_FILES = ['avatar-01.jpg', 'avatar-02.jpg'];
 const SAMPLES_DIR = path.join(config.ROOT, 'fixtures', 'sample-photos');
 
 // ---------------------------------------------------------------------------
-// Badge catalog. Identical 7-row catalog to scripts/seed.js, inserted the
-// same idempotent way (skip any code already present) so this script never
-// duplicates rows if scripts/seed.js already ran, and works standalone if it
-// hasn't. Not required()'d from seed.js because that module runs its inserts
-// as side effects at require-time against the real `db` singleton — pulling
-// it in here would run scripts/seed.js's task-seeding logic too, which is
-// out of scope for an isolated event fixture.
+// Badge catalog. The one shared catalog module (#193 AC4) — the same array
+// scripts/seed.js inserts from, so the two seeds can never drift apart.
+// Inserted the same idempotent way (skip any code already present) so this
+// script never duplicates rows if scripts/seed.js already ran, and works
+// standalone if it hasn't. Not required()'d from seed.js because that module
+// runs its inserts as side effects at require-time against the real `db`
+// singleton — badge-catalog.js is data-only, so requiring it is safe here.
 // ---------------------------------------------------------------------------
-const BADGES = [
-  {
-    code: 'BLOOM',
-    name: 'First Bloom',
-    type: 'auto',
-    threshold: 5,
-    art_path: '/badges/bloom.svg',
-    description: 'Completed 5 tasks.',
-  },
-  {
-    code: 'BOUQUET',
-    name: 'Bouquet Builder',
-    type: 'auto',
-    threshold: 10,
-    art_path: '/badges/bouquet.svg',
-    description: 'Completed 10 tasks.',
-  },
-  {
-    code: 'GARDEN',
-    name: 'Full Garden',
-    type: 'auto',
-    threshold: 15,
-    art_path: '/badges/garden.svg',
-    description: 'Completed 15 tasks.',
-  },
-  {
-    code: 'EARLYBIRD',
-    name: 'Early Bird',
-    type: 'special',
-    threshold: null,
-    art_path: '/badges/earlybird.svg',
-    description: 'Awarded by the Task Master for early arrival.',
-  },
-  {
-    code: 'SHUTTERBUG',
-    name: 'Shutterbug',
-    type: 'special',
-    threshold: null,
-    art_path: '/badges/shutterbug.svg',
-    description: 'Awarded by the Task Master for great photography.',
-  },
-  {
-    code: 'CROWDFAV',
-    name: 'Crowd Favorite',
-    type: 'special',
-    threshold: null,
-    art_path: '/badges/crowdfav.svg',
-    description: 'Awarded by the Task Master as the crowd favorite.',
-  },
-  {
-    code: 'CHOICE',
-    name: "Task Master's Choice",
-    type: 'special',
-    threshold: null,
-    art_path: '/badges/choice.svg',
-    description: 'Awarded by the Task Master as their personal pick.',
-  },
-];
+const { BADGES } = require('./badge-catalog');
 
 /**
  * Insert the badge catalog idempotently (skip any code already present).

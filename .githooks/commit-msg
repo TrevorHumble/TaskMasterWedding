@@ -20,6 +20,51 @@ set -e
 msg_file="$1"
 root="$(git rev-parse --show-toplevel)"
 
+# Sanctioned ledger-appender exemption (#219): the governance ledger's ONLY
+# writer is the CI job in .github/workflows/ledger.yml (a ledger row is never
+# part of the tree it describes, so no reviewed-issue commit can carry it).
+# A commit is exempt ONLY when BOTH hold: the sole staged path is
+# governance/ledger.ndjson AND the message starts with "ledger: ". Any other
+# staged path alongside the ledger, or any other message, takes the full gate.
+# See DESIGN.md "Governance ledger (#219)".
+staged_paths="$(git diff --cached --name-only)"
+if [ "$staged_paths" = "governance/ledger.ndjson" ]; then
+  case "$(head -1 "$msg_file")" in
+    "ledger: "*) exit 0 ;;
+  esac
+fi
+
+# Event mode (#220): while governance/event-mode.json is a valid em1 flag with a
+# future expiry, pre-commit defers the evidence gate to THIS hook (the one that
+# can read the message). A commit whose subject starts 'hotfix: ' ships on
+# automated checks alone -- no review evidence, no reviewed issue -- and is
+# queued for retro-review by its freeze:true ledger row (consumed by
+# tools/set-event-mode.ps1 -Clear, which refuses until every freeze commit has
+# a retro-review PASS). Every other commit runs the full evidence gate right
+# here plus the issue gate below. An expired or invalid flag enables nothing.
+#
+# The guard is FLAG-FILE PRESENCE, not ACTIVE state, on purpose: the flag can
+# expire between the two hooks (pre-commit deferred on a then-ACTIVE flag;
+# commit-msg now sees EXPIRED). Gating on ACTIVE here would let that commit
+# skip the evidence gate in BOTH hooks -- a fail-open seam. Flag present ->
+# this hook runs the gate for every commit except an ACTIVE-window 'hotfix: ';
+# at worst the gate runs twice (idempotent), never zero times. This also means
+# merge commits (which git never passes through pre-commit) meet the evidence
+# gate while a flag file exists -- new coverage, strictly fail-closed.
+# See DESIGN.md "Event mode (#220)".
+. "$root/.githooks/gate-core.sh"
+if [ -f "$root/governance/event-mode.json" ]; then
+  if [ "$(event_mode_state "$root")" = "ACTIVE" ]; then
+    case "$(head -1 "$msg_file")" in
+      "hotfix: "*)
+        echo "commit-msg: event mode ACTIVE -- 'hotfix: ' commit allowed without review evidence. Retro-review is owed; tools/set-event-mode.ps1 -Clear enforces it." >&2
+        exit 0
+        ;;
+    esac
+  fi
+  evidence_gate "$root"
+fi
+
 # Require PowerShell before classification: classification itself calls into PS.
 _ps="$(command -v powershell 2>/dev/null)" || _ps=""
 if [ -z "$_ps" ]; then

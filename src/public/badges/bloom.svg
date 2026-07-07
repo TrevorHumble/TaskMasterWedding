@@ -1,15 +1,16 @@
 <!-- src/public/badges/bloom.svg -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="First Bloom badge">
-  <circle cx="60" cy="60" r="56" fill="#fdf8f1" stroke="#f7c8d6" stroke-width="4"/>
-  <circle cx="60" cy="60" r="44" fill="none" stroke="#d7c9ef" stroke-width="2" stroke-dasharray="3 5"/>
-  <g transform="translate(60 60)">
-    <g fill="#f7c8d6" stroke="#ef9fb6" stroke-width="1.5">
-      <ellipse cx="0" cy="-22" rx="11" ry="18"/>
-      <ellipse cx="0" cy="-22" rx="11" ry="18" transform="rotate(72)"/>
-      <ellipse cx="0" cy="-22" rx="11" ry="18" transform="rotate(144)"/>
-      <ellipse cx="0" cy="-22" rx="11" ry="18" transform="rotate(216)"/>
-      <ellipse cx="0" cy="-22" rx="11" ry="18" transform="rotate(288)"/>
+  <circle cx="60" cy="60" r="56" fill="#ffffff" stroke="#467058" stroke-width="4"/>
+  <circle cx="60" cy="60" r="47" fill="none" stroke="#aebbb2" stroke-width="1.5"/>
+  <g transform="translate(60 62)">
+    <g fill="#467058">
+      <ellipse cx="0" cy="-19" rx="11" ry="19"/>
+      <ellipse cx="0" cy="-19" rx="11" ry="19" transform="rotate(72)"/>
+      <ellipse cx="0" cy="-19" rx="11" ry="19" transform="rotate(144)"/>
+      <ellipse cx="0" cy="-19" rx="11" ry="19" transform="rotate(216)"/>
+      <ellipse cx="0" cy="-19" rx="11" ry="19" transform="rotate(288)"/>
     </g>
-    <circle cx="0" cy="0" r="11" fill="#fbedb0" stroke="#f3b68b" stroke-width="1.5"/>
+    <circle r="10" fill="#2a4335"/>
+    <circle r="3.5" fill="#f0f4f2"/>
   </g>
 </svg>

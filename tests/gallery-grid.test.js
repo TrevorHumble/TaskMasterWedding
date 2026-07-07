@@ -106,13 +106,16 @@ describe('AC2: recent view — no per-thumbnail caption', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC4 — each thumbnail links to /feed#photo-<submission_id> (repointed by #84)
+// AC4 — each thumbnail links into the feed at that photo (repointed by #84;
+// #194 added the server-resolved ?from anchor so the bounded page has it)
 // ---------------------------------------------------------------------------
 describe('AC4: thumbnail links to the photo', () => {
-  it('response body contains href="/feed#photo-<seeded id>"', async () => {
+  it('response body contains href="/feed?from=<id>#photo-<id>"', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
-    expect(res.text).toContain(`href="/feed#photo-${visibleSubmissionId}"`);
+    expect(res.text).toContain(
+      `href="/feed?from=${visibleSubmissionId}#photo-${visibleSubmissionId}"`
+    );
   });
 });
 
@@ -175,11 +178,19 @@ describe('AC1/AC3: theme.css gallery grid rules', () => {
     'utf8'
   );
 
-  it('base .gallery-grid has gapless multi-column square tiles', () => {
-    expect(css).toContain('grid-template-columns: repeat(2, 1fr)');
+  it('base .gallery-grid is a 3-column wall whose tiles can shrink (#251)', () => {
+    // minmax(0, 1fr) — not bare 1fr — is what lets tiles shrink below their
+    // intrinsic size so three columns fit a 375px viewport (issue #251 AC1).
+    expect(css).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
     expect(css).toContain('gap: 2px');
     expect(css).toContain('object-fit: cover');
     expect(css).toContain('aspect-ratio: 1');
+  });
+
+  it('.gallery-item reserves height only — no fixed intrinsic width (#251)', () => {
+    // A fixed px width component here re-creates the 522px overflow.
+    expect(css).toContain('contain-intrinsic-size: auto');
+    expect(css).not.toMatch(/contain-intrinsic-size:\s*\d+px\s+\d+px/);
   });
 
   it('base .gallery-grid is full-bleed on mobile', () => {
@@ -187,9 +198,9 @@ describe('AC1/AC3: theme.css gallery grid rules', () => {
     expect(css).toContain('margin-inline: calc(50% - 50vw)');
   });
 
-  it('a @media (min-width: 700px) block caps the grid to 3 columns', () => {
+  it('a @media (min-width: 700px) block caps and centres the grid', () => {
     const match = css.match(/@media \(min-width: 700px\) \{([\s\S]*?)\n\}/);
     expect(match).not.toBeNull();
-    expect(match[1]).toContain('repeat(3, 1fr)');
+    expect(match[1]).toContain('repeat(3, minmax(0, 1fr))');
   });
 });
