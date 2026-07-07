@@ -2,8 +2,16 @@
 # Dot-source this file; do not run it directly.
 # Windows PowerShell 5.1-compatible: no ternary, no ??, no &&, no ||.
 
-# System-level path regex: if any staged path matches, required = 2.
+# System-level path regex: if any staged path matches (and is not carved out by
+# $EXPERIMENTAL_PATH_REGEX below), required = 2.
 $SYSTEM_PATH_REGEX = '^(\.githooks/|tools/|standards/|agents/|skills/|\.github/|\.claude/|docs/north-star\.md|DESIGN\.md|CLAUDE\.md|AGENTS\.md)'
+
+# Experimental governance surface (#218): reviewer charters (agents/reviewer-*.md,
+# including new lens charters) take the routine bar (1). Everything else the system
+# regex matches stays kernel (2) — including the rest of agents/ (orchestrator,
+# implementation-agent, severity-adjudicator) and all bar-definitions, which fail
+# silently when weakened. See DESIGN.md "System-level change (definition)".
+$EXPERIMENTAL_PATH_REGEX = '^agents/reviewer-[^/]+\.md$'
 
 # Evidence schema labels — single declared source for the persist-*.ps1 writer
 # family (persist-issue-review.ps1, persist-review.ps1, persist-self-certification.ps1)
@@ -20,6 +28,9 @@ function Get-RequiredBar {
   )
   $paths = @($StagedPaths)
   foreach ($p in $paths) {
+    if ($p -match $EXPERIMENTAL_PATH_REGEX) {
+      continue
+    }
     if ($p -match $SYSTEM_PATH_REGEX) {
       return 2
     }

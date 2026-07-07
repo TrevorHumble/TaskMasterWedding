@@ -14,24 +14,32 @@ const {
   chooseTaskId,
 } = require('../scripts/loadtest');
 
-// A snippet matching src/views/tasks.ejs's rendered markup: one done row, one
-// to-do row. Kept faithful to the template so extractActiveTaskIds is tested
-// against the actual shape the harness will parse at runtime.
+// A snippet matching src/views/tasks.ejs's rendered markup (task list v2,
+// issue #250): one done row (photo thumb + check badge), one to-do row
+// (title/description + points). Kept faithful to the template so
+// extractActiveTaskIds is tested against the actual shape the harness will
+// parse at runtime.
 const TASKS_HTML = `
   <ul class="task-list">
     <li class="task-row task-done">
       <a class="task-link" href="/tasks/7">
-        <span class="task-title-text">Find the guestbook</span>
-        <span class="task-state"><span class="badge-done">Done</span></span>
+        <span class="task-thumb-wrap">
+          <img src="/thumbs/t7.jpg" alt="" class="task-thumb" width="40" height="40" />
+          <span class="task-thumb-check" aria-label="Completed">&#10003;</span>
+        </span>
+        <span class="task-body">
+          <span class="task-title-text">Find the guestbook</span>
+        </span>
       </a>
-      <a class="task-gallery-link" href="/gallery?task=7">See photos</a>
     </li>
     <li class="task-row task-todo">
       <a class="task-link" href="/tasks/12">
-        <span class="task-title-text">Toast the newlyweds</span>
-        <span class="task-state"><span class="badge-todo">To do</span></span>
+        <span class="task-body">
+          <span class="task-title-text">Toast the newlyweds</span>
+          <span class="task-desc">Raise a glass and catch the moment.</span>
+        </span>
+        <span class="task-points">+1 pt</span>
       </a>
-      <a class="task-gallery-link" href="/gallery?task=12">See photos</a>
     </li>
   </ul>
 `;
@@ -160,9 +168,10 @@ describe('extractActiveTaskIds', () => {
     ]);
   });
 
-  it('does not pick up the task-gallery-link (/gallery?task=<id>) hrefs', () => {
-    // Only two task-link rows exist; a leaked gallery link would add ids or
-    // duplicate them. Exactly two results proves the gallery links are ignored.
+  it('yields exactly one result per task row (no stray anchors leak in)', () => {
+    // The v2 page (#250) dropped the per-row "See photos" gallery links, so
+    // each row holds a single task-link; exactly two results proves nothing
+    // else in the row markup is mistaken for one.
     expect(extractActiveTaskIds(TASKS_HTML)).toHaveLength(2);
   });
 
@@ -195,5 +204,20 @@ describe('chooseTaskId', () => {
 
   it('returns null when there are no tasks', () => {
     expect(chooseTaskId([])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #194 AC4 (structural half): /feed is among the looped read paths, so the
+// Goal-A load test exercises the app's heaviest page. (The behavioral half —
+// a live 100-concurrency run against the event seed — is a documented manual
+// step, per docs/loadtest.md.)
+// ---------------------------------------------------------------------------
+describe('read-path coverage (#194)', () => {
+  it('scripts/loadtest.js fetches /feed in the per-lap read loop', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'loadtest.js'), 'utf8');
+    expect(source).toContain('${baseUrl}/feed');
   });
 });
