@@ -47,6 +47,12 @@ Maximum suspicion without a truth-guard produces confident garbage.
 - **Retract your own over-flags.** A false positive left standing is itself a failure.
   Unsupported praise and unsupported criticism are equally worthless.
 
+**Finding-quality bar.** Every blocker or major finding states a **concrete failure scenario**: a specific input or state, and the specific wrong outcome it produces. A blocker/major that names no failure scenario is downgraded to minor/nit until its author supplies one. **Precedence carve-out:** a finding that matches a named red flag in `standards/design-philosophy.md` (cited with the pattern name and quoted evidence, per that standard) is never downgraded below major — the pattern match is its failure scenario; that standard's never-downgrade rule governs. Symmetrically, a PASS is not a bare token: it cites evidence per checklist item (the check performed and what it showed).
+
+Worked example (a real finding): "The example plan step cites `src/routes/photos.js`, which does not exist — an issue author copying the pattern sends the implementer to a phantom file; the real `fileFilter` lives in `src/services/photos.js`." Scenario stated: who acts on it, and what goes wrong.
+
+Counter-example (unfalsifiable, does not survive the bar): "This section could be confusing to some readers." No input, no actor, no wrong outcome — downgrade until evidenced.
+
 Assume-bad stance + no-fabrication guard together → true positives.
 
 **Citations must be in range (#94).** Before citing any `file:line`, open the file and

@@ -52,6 +52,22 @@ Cite a basis for each classification: quote the acceptance criterion, the clause
 `standards/adversarial-review-protocol.md`, or the specific evidence that supports the
 classification. No defect is classified on bare assertion.
 
+## Calibration examples
+
+Calibrate against these before classifying. Each basis names which of the four consequential tests fires (or that none does).
+
+| Defect (as reported)                                                                        | Classification  | Basis                                                                                        |
+| ------------------------------------------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------- |
+| Function returns the sum where the AC's example asserts the average                         | consequential   | violates an acceptance criterion — the AC's input→output pair fails                          |
+| Upload handler crashes the process on a zero-byte file                                      | consequential   | correctness/safety defect — a guest-reachable input kills the server                         |
+| Doc's step 3 tells the agent to run a script that step 5 says must never run before commit  | consequential   | real internal contradiction — both instructions cannot be followed                           |
+| Example in a skill cites a file path that does not exist in the repo                        | consequential   | would mislead a future reader or agent — the reader is sent to a phantom location            |
+| Variable named `guestRow` where the reviewer prefers `guestRecord`                          | inconsequential | none of the four tests fires — naming preference with no comprehension impact                |
+| Section uses a bulleted list where sibling docs use a table                                 | inconsequential | none of the four tests fires — formatting inconsistency a reader parses correctly either way |
+| Reviewer writes "this section could be confusing" with no reader action that would go wrong | inconsequential | bare assertion — no evidence any of the four tests fires; unfalsifiable as stated            |
+
+The fourth row is the line that moves most: a wrong _fact_ (path, constant, command) in prose is consequential even when the prose is "just documentation," because agents act on it; a _preference_ about the same prose is not.
+
 ## Authorization rule
 
 Authorize exit only if every defect is inconsequential. If any defect is consequential, the

@@ -27,6 +27,8 @@ Follow `standards/adversarial-review-protocol.md` exactly: assume total failure,
 
 Read `standards/design-philosophy.md` before reading the artifact under review. Apply each principle and red-flag check from that standard to the artifact. Cite the principle name and a specific file:line reference for every finding — do not make abstract characterizations without evidence.
 
+Before classifying any red-flag finding, consult the matching worked example in `standards/design-philosophy-examples.md`: confirm the artifact matches the `Flag` shape rather than the `Not a finding:` guard. A finding that matches the guard pattern is an over-flag — do not emit it.
+
 A finding that matches a named red flag in `standards/design-philosophy.md` is classified at least `major` and is never downgraded to minor or nit, regardless of context or apparent scope.
 
 ## Bias check

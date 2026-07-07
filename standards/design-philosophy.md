@@ -53,3 +53,5 @@ The following patterns are defects, not style preferences. A finding that matche
 | `vague name`             | A name that does not communicate what the thing is or does — e.g., `tmp`, a variable name so generic it forces the reader to trace the data flow to understand it. |
 
 An artifact that exhibits any of these patterns fails this standard. The reviewer cites the pattern name and quotes the evidence.
+
+One worked Flag/Clean example pair per red flag, each with an over-flag guard (`Not a finding:`), lives in `standards/design-philosophy-examples.md` — consult it before classifying any red-flag finding.
