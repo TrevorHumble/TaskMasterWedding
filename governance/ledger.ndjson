@@ -25,3 +25,4 @@
 {"schema":"gl1","pr":278,"issue":273,"merged_sha":"54e38e6d65c50f2f06c1a22ccc52e0ac90f3b313","ts":"2026-07-07T05:34:06Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":279,"issue":274,"merged_sha":"ae921063d51bce9edbbb783cde341d0d717f804e","ts":"2026-07-07T05:46:18Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":279,"merged_sha":"ae921063d51bce9edbbb783cde341d0d717f804e","ts":"2026-07-07T05:46:18Z","files":["CLAUDE.md","DESIGN.md","standards/adversarial-review-protocol.md"]}
+{"schema":"gl1","pr":280,"issue":null,"merged_sha":"c710f3d0f5a5239249f4e2441e658d8fba47f0dd","ts":"2026-07-07T05:51:10Z","reviews":[],"labels":[],"freeze":false}
