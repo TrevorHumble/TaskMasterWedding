@@ -119,7 +119,9 @@ start)/60`. **Never estimate, infer, or carry-forward `elapsed` by feel** — a 
   bookkeeping hygiene: an over-estimate makes the loop hit the WRAP threshold and stop before the budget — the
   exact early-exit failure the never-stop loop exists to prevent. **At the end of every increment, emit one
   ledger line to the Live log**, form: `[HH:MM] elapsed=Xm/budget=Ym | selector→{DO <item> | CASCADE | WRAP}
-| next=<item>`. The selector result is a visible token the agent must produce before acting; a compacted
+| next=<item>`. Worked example — clock reads `14:52`, run started `13:30` with a 180-minute budget, issue
+  #142 is ready and #147 is behind it: `[14:52] elapsed=82m/budget=180m | selector→DO #142 | next=#147`.
+  The selector result is a visible token the agent must produce before acting; a compacted
   instance verifies the loop is live by reading the last ledger line.
 - **Next-action selector — never returns "stop" while time remains.** The `elapsed` driving EVERY selector
   decision — above all the WRAP decision — must come from a clock read taken at that moment, not from the last
@@ -133,7 +135,13 @@ start)/60`. **Never estimate, infer, or carry-forward `elapsed` by feel** — a 
   no-human workaround; (c) deep web research for better/standard practice; (d) raise the bar to match it;
   (e) weed stale issues and reconcile the board. **The Cascade may not exit with the queue still empty: if
   (a)+(b) add nothing, (c) MUST run and MUST return at least one concrete improvement candidate before the
-  selector is re-entered.** Research output stays within the in-license constraint (DESIGN.md governance) — a
+  selector is re-entered.** Qualifies: "the `<dependency>` docs recommend setting `<option>` for
+  `<our usage pattern>`; ours lacks it — file an issue adding the documented setting to `<file>`" (names the
+  change, the surface, and the source; verify the claim against the repo before filing — a candidate that
+  contradicts a recorded decision, e.g. a CodeQL won't-fix in `docs/security/`, does not qualify either).
+  Does not qualify: "error handling could be more consistent
+  across routes" (no file, no concrete change, no source — a theme, not a candidate). Research output stays
+  within the in-license constraint (DESIGN.md governance) — a
   "better practice" needing an external/paid API or SaaS is out of scope and is surfaced as a note, not adopted.
 - **Watch CI to green before the increment counts as done.** Each increment that pushes to `main` is not
   complete until its CI run is watched to completion and confirmed green — same guarantee as the Commit
@@ -146,12 +154,11 @@ start)/60`. **Never estimate, infer, or carry-forward `elapsed` by feel** — a 
 - **Blockers are revisited, not parked forever.** Never accept a blocker on first contact; route around it
   now, but re-verify and research a workaround in the Cascade. Pre-solved roadblocks are verified by running,
   not asserted.
-- **Decide from the goals; do not punt.** Before surfacing ANY decision, run it through the goals
-  (the North Star in `CLAUDE.md`) and constraints. If the goals, CLAUDE.md, or an explicit instruction
-  settle it — or it is a technical/implementation tradeoff — decide it and act; do NOT ask. Never ask
-  permission to continue authorized work. A question answerable by re-reading the goals is not a question for
-  the owner. When unsure whether the goals decide it, spawn a consultant to _derive_ the goal-aligned answer —
-  the consultant resolves the call; it does not hand it back to the owner.
+- **Decide from the goals; do not punt.** The governing procedure, with worked examples, is
+  `standards/decision-heuristics.md` § "Decide from the goals" — follow its numbered steps. In one line:
+  if the goals, `CLAUDE.md`, or an explicit instruction settle it — or it is a technical tradeoff — decide
+  and act (never ask permission to continue authorized work); when unsure whether the goals decide it,
+  spawn a consultant to _derive_ the goal-aligned answer rather than handing the call to the owner.
 - **Non-blocking by default, with a bounded stop-list.** The few genuinely owner-only decisions are surfaced
   as one-line non-blocking notes the owner answers in chat; they never stall the run. **The only things that MUST
   stop and surface before the budget** are: an irreversible/destructive action with no in-loop undo
