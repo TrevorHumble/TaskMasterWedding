@@ -174,6 +174,8 @@ Sessions are **grouped by file-locality**, not by theme. The epic's session grou
 
 ### Fable full self-certification exception (#203) — narrowed same-day by #207
 
+**Retired (2026-07-06, #274):** the Fable model is no longer available to this project; its final session ended 2026-07-06. The patterns below are a historical record, not live policy — every implementer uses the standard adversarial-review rules. `tools/persist-self-certification.ps1` and `tests/persist-self-certification.test.js` remain in place as the historical mechanism record (the script's `ValidateSet('fable')` locks every record it writes to the `fable` identity and the `self-cert` role, so any post-retirement use is audit-visible forgery, not sanctioned policy — the same honest bar as the other evidence writers).
+
 **Decision (2026-07-04, #203):** by explicit owner direction, Fable-authored issues and PRs could be committed on Fable's own recorded PASS at every risk tier, permanently. **Amended (2026-07-04, #207):** the owner narrowed that grant, the same day, to two review patterns plus a round cap. Where the two records disagree, #207 governs.
 
 **The decided patterns (#207):**
