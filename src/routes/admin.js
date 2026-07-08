@@ -204,12 +204,14 @@ router.post('/guests/:id/edit', (req, res) => {
 // POST /admin/guests/:id/delete  — delete a guest. The FK cascade removes their
 // submission rows and badge rows, but it does NOT touch the image files on disk.
 // To keep disk and DB in sync (and avoid orphaned originals + thumbs that no
-// export will ever pick up), we hard-delete each of the guest's photo files
+// export will ever pick up), we hard-delete each of the guest's photo files AND
+// their avatar file (issue #196 — the avatar was the one file class this pass
+// missed, leaving a deleted guest's portrait still fetchable at /uploads/<file>)
 // BEFORE deleting the guest. This is irreversible — the confirm dialog in the
 // view warns the operator.
 router.post('/guests/:id/delete', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const guest = db.prepare('SELECT id FROM guests WHERE id = ?').get(id);
+  const guest = db.prepare('SELECT id, avatar_path FROM guests WHERE id = ?').get(id);
   if (!guest) {
     return redirectWithMsg(res, '/admin/guests', 'Guest not found.');
   }
@@ -227,6 +229,15 @@ router.post('/guests/:id/delete', (req, res) => {
       // gone; log and continue so the DB row still gets removed.
       console.error('Failed to delete files for submission', sub.id, err);
     }
+  }
+
+  // Remove the guest's avatar file, if any. deleteOriginalFile no-ops on a
+  // null/empty path and already ignores ENOENT (a file already gone from disk
+  // does not abort the delete — same policy as the submission files above).
+  try {
+    photos.deleteOriginalFile(guest.avatar_path);
+  } catch (err) {
+    console.error('Failed to delete avatar for guest', id, err);
   }
 
   // Now remove the guest; FK cascade clears submissions + guest_badges rows.
