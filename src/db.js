@@ -33,6 +33,9 @@ db.exec(`
     social_links  TEXT    NOT NULL DEFAULT '{}',
     bonus_points  INTEGER NOT NULL DEFAULT 0,
     onboarded     INTEGER NOT NULL DEFAULT 0,
+    contact       TEXT,
+    contact_type  TEXT,
+    pin           TEXT,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -215,6 +218,52 @@ function ensurePinnedColumn() {
 // module's `require('../db')` call returns.
 ensurePinnedColumn();
 
+// --- Guarded migration: guests.contact / contact_type / pin (issue #239) ---
+/**
+ * Add guests.contact, guests.contact_type, and guests.pin if any is not
+ * already present, then (re)create the partial unique index on contact.
+ *
+ * Same pattern as ensurePhotoBonusColumn/ensurePinnedColumn above: the guests
+ * CREATE TABLE above already carries all three columns, so this is a no-op on
+ * a fresh DB. On an existing pre-#239 app.db none of the three columns exist
+ * yet, so PRAGMA table_info detects each absence and the ALTER TABLE runs
+ * once per column; every later boot (or repeat call) is a no-op and never
+ * throws "duplicate column" (AC1).
+ *
+ * The unique index is created here — AFTER the columns are guaranteed to
+ * exist — rather than in the top-level CREATE TABLE/INDEX block above,
+ * because on a pre-#239 DB that block runs BEFORE this migration and
+ * `guests.contact` would not exist yet for CREATE INDEX to reference. The
+ * index is partial (WHERE contact IS NOT NULL) so the many contact-less rows
+ * a legacy or seeded DB carries don't collide with each other under a
+ * plain UNIQUE constraint — only two rows that both set a real contact value
+ * can collide (AC6).
+ *
+ * Exported so tests bind to this real guard rather than an inline copy of it.
+ */
+function ensureGuestIdentityColumns() {
+  const cols = db.prepare(`PRAGMA table_info(guests)`).all();
+  const names = new Set(cols.map((col) => col.name));
+  if (!names.has('contact')) {
+    db.exec(`ALTER TABLE guests ADD COLUMN contact TEXT`);
+  }
+  if (!names.has('contact_type')) {
+    db.exec(`ALTER TABLE guests ADD COLUMN contact_type TEXT`);
+  }
+  if (!names.has('pin')) {
+    db.exec(`ALTER TABLE guests ADD COLUMN pin TEXT`);
+  }
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_guests_contact ON guests(contact) WHERE contact IS NOT NULL`
+  );
+}
+
+// Run at module load, before any signup/re-entry route (#240, #241) prepares
+// a statement that reads or writes contact/contact_type/pin — db.js fully
+// evaluates this module-load code before any other module's
+// `require('../db')` call returns.
+ensureGuestIdentityColumns();
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -236,11 +285,24 @@ function getGuestById(guestId) {
   return db.prepare(`SELECT * FROM guests WHERE id = ?`).get(guestId);
 }
 
+/**
+ * Load a single guest row by its normalized contact key (email or phone), or
+ * undefined if none. Used by the signup (#240) and re-entry (#241) routes to
+ * look up an existing account before creating a new one.
+ * @param {string} contact
+ * @returns {object|undefined}
+ */
+function getGuestByContact(contact) {
+  return db.prepare(`SELECT * FROM guests WHERE contact = ?`).get(contact);
+}
+
 module.exports = {
   db,
   ensurePhotoBonusColumn,
   ensureBadgeTypeCheckWidened,
   ensurePinnedColumn,
+  ensureGuestIdentityColumns,
   getGuestByToken,
   getGuestById,
+  getGuestByContact,
 };
