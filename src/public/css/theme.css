@@ -359,6 +359,43 @@ p {
   font-size: var(--fs-eyebrow);
 }
 
+/* Uploading state (issue #254): a small ring before the label. The label
+   text itself already changes to data-uploading-label via JS, so a
+   reduced-motion user still gets the disabled state + label change even
+   though the ring doesn't spin for them. */
+.btn-uploading {
+  position: relative;
+  padding-left: 44px;
+}
+.btn-uploading::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  border: 2px solid var(--color-on-primary);
+  border-top-color: transparent;
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .btn-uploading::before {
+    animation: btn-spin 0.7s linear infinite;
+  }
+}
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.form-error {
+  color: var(--err-ink);
+  font-size: var(--fs-small);
+  margin: -8px 0 16px;
+}
+
 /* ---- Legacy aliases so admin views keep working ---- */
 .btn-sage {
   background: var(--green-500);

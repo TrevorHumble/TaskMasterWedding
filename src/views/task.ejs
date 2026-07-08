@@ -33,7 +33,6 @@
           enctype="multipart/form-data">
 
       <div class="form-row">
-        <span class="form-label">Choose a photo</span>
         <%- include('partials/upload-field', { id: 'photo', name: 'photo', accept: 'image/*', capture: 'environment', required: true }) %>
       </div>
 
@@ -53,8 +52,10 @@
                class="text-input" />
       </div>
 
-      <button type="submit" class="btn btn-block">
-        <%= submission ? 'Replace photo' : 'Upload &amp; complete' %>
+      <p id="upload-error" class="form-error" role="alert" hidden></p>
+
+      <button type="submit" class="btn btn-block" data-uploading-label="Uploading…">
+        <%= submission ? 'Replace photo' : 'Upload & complete' %>
       </button>
     </form>
   </section>
