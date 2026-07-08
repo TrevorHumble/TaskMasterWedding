@@ -29,3 +29,5 @@
 {"schema":"gl1","pr":295,"issue":294,"merged_sha":"c3cf4eeef2bcc66abbe7e681b764832eeca7d49f","ts":"2026-07-08T08:37:54Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":295,"merged_sha":"c3cf4eeef2bcc66abbe7e681b764832eeca7d49f","ts":"2026-07-08T08:37:54Z","files":[".claude/commands/build.md","CLAUDE.md","DESIGN.md","agents/orchestrator.md","standards/adversarial-review-protocol.md"]}
 {"schema":"gl1","pr":296,"issue":192,"merged_sha":"24b96a030583c70e2c4ab8813c021a7defcd179d","ts":"2026-07-08T08:49:58Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":297,"issue":239,"merged_sha":"5a0278b0f04c6cb6583563303ff68bf06c557f5b","ts":"2026-07-08T08:59:22Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":297,"merged_sha":"5a0278b0f04c6cb6583563303ff68bf06c557f5b","ts":"2026-07-08T08:59:22Z","files":["DESIGN.md"]}
