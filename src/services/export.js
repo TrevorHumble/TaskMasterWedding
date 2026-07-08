@@ -65,7 +65,7 @@ function fmtDate(value) {
 
 /**
  * Build the summary.xlsx workbook entirely in memory and return it as a Buffer.
- * Three sheets: Guests, Submissions, Badges.
+ * Four sheets: Guests, Submissions, Badges, Comments.
  */
 async function buildSummaryBuffer() {
   const workbook = new ExcelJS.Workbook();
@@ -83,7 +83,7 @@ async function buildSummaryBuffer() {
 
   const submissions = db
     .prepare(
-      'SELECT s.id, s.guest_id, s.task_id, s.caption, s.taken_down, s.created_at ' +
+      'SELECT s.id, s.guest_id, s.task_id, s.caption, s.photo_bonus, s.taken_down, s.created_at ' +
         'FROM submissions s ORDER BY s.guest_id, s.task_id'
     )
     .all();
@@ -94,6 +94,25 @@ async function buildSummaryBuffer() {
   const badgeById = new Map(badges.map((b) => [b.id, b]));
 
   const guestBadges = db.prepare('SELECT guest_id, badge_id, awarded_by FROM guest_badges').all();
+
+  // Like counts per submission, one grouped query rather than a per-row query
+  // in the Submissions loop below.
+  const likeCounts = db
+    .prepare('SELECT submission_id, COUNT(*) AS c FROM likes GROUP BY submission_id')
+    .all();
+  const likeCountBySubmission = new Map(likeCounts.map((r) => [r.submission_id, r.c]));
+
+  // ALL comments (taken_down included, same "nothing is lost" rule as
+  // submissions), joined to guest/task/photo-owner names for display.
+  const comments = db
+    .prepare(
+      `SELECT c.id, c.body, c.taken_down, c.created_at,
+              c.guest_id AS commenterId, s.task_id AS taskId, s.guest_id AS ownerId
+         FROM comments c
+         JOIN submissions s ON s.id = c.submission_id
+        ORDER BY c.created_at, c.id`
+    )
+    .all();
 
   // ---- Pre-compute per-guest aggregates -----------------------------------
 
@@ -161,6 +180,8 @@ async function buildSummaryBuffer() {
     { header: 'Caption', key: 'caption', width: 40 },
     { header: 'Date', key: 'date', width: 22 },
     { header: 'Taken Down', key: 'takenDown', width: 12 },
+    { header: 'Likes', key: 'likes', width: 10 },
+    { header: 'Photo Bonus', key: 'photoBonus', width: 12 },
   ];
   subsSheet.getRow(1).font = { bold: true };
 
@@ -176,6 +197,8 @@ async function buildSummaryBuffer() {
       caption: neutralizeCell(s.caption || ''),
       date: fmtDate(s.created_at),
       takenDown: s.taken_down === 1 ? 'YES' : 'no',
+      likes: likeCountBySubmission.get(s.id) || 0,
+      photoBonus: s.photo_bonus || 0,
     });
   }
 
@@ -198,6 +221,36 @@ async function buildSummaryBuffer() {
       type: b.type,
       threshold: b.threshold == null ? '' : b.threshold,
       description: neutralizeCell(b.description || ''),
+    });
+  }
+
+  // ---- Sheet 4: Comments --------------------------------------------------
+  // ALL comments, including taken_down (hidden) ones — labeled the same way
+  // the Submissions sheet labels a taken-down photo, so nothing guests wrote
+  // is lost even if an admin hid it before the export ran.
+
+  const commentsSheet = workbook.addWorksheet('Comments');
+  commentsSheet.columns = [
+    { header: 'Guest', key: 'guest', width: 28 },
+    { header: 'Task', key: 'task', width: 40 },
+    { header: 'Photo Owner', key: 'photoOwner', width: 28 },
+    { header: 'Comment', key: 'comment', width: 50 },
+    { header: 'Date', key: 'date', width: 22 },
+    { header: 'Hidden', key: 'hidden', width: 10 },
+  ];
+  commentsSheet.getRow(1).font = { bold: true };
+
+  for (const c of comments) {
+    const commenter = guestById.get(c.commenterId);
+    const owner = guestById.get(c.ownerId);
+    const t = taskById.get(c.taskId);
+    commentsSheet.addRow({
+      guest: neutralizeCell(commenter ? commenter.name || '(no name yet)' : `#${c.commenterId}`),
+      task: neutralizeCell(t ? t.title : `Task #${c.taskId}`),
+      photoOwner: neutralizeCell(owner ? owner.name || '(no name yet)' : `#${c.ownerId}`),
+      comment: neutralizeCell(c.body || ''),
+      date: fmtDate(c.created_at),
+      hidden: c.taken_down === 1 ? 'YES' : 'no',
     });
   }
 
@@ -253,7 +306,7 @@ async function streamExportZip(res) {
   archive.append(summaryBuffer, { name: 'summary.xlsx' });
 
   // 2) Add every guest's original photos into a per-guest folder.
-  const guests = db.prepare('SELECT id, name FROM guests ORDER BY id').all();
+  const guests = db.prepare('SELECT id, name, avatar_path FROM guests ORDER BY id').all();
 
   const tasks = db.prepare('SELECT id, title, sort_order FROM tasks ORDER BY sort_order, id').all();
   const taskById = new Map(tasks.map((t) => [t.id, t]));
@@ -285,6 +338,19 @@ async function streamExportZip(res) {
       const entryName = `${folder}/task-${sortOrder}-${titlePart}${ext}`;
 
       archive.append(fs.createReadStream(sourcePath), { name: entryName });
+    }
+
+    // Avatar (issue #192): one file per guest, alongside their task photos.
+    if (g.avatar_path) {
+      const avatarSourcePath = path.join(config.UPLOADS_DIR, g.avatar_path);
+      if (fs.existsSync(avatarSourcePath)) {
+        const avatarExt = extOf(g.avatar_path);
+        archive.append(fs.createReadStream(avatarSourcePath), {
+          name: `${folder}/avatar${avatarExt}`,
+        });
+      } else {
+        console.warn(`[export] missing avatar on disk, skipping: ${avatarSourcePath}`);
+      }
     }
   }
 
