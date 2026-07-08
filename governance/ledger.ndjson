@@ -32,3 +32,5 @@
 {"schema":"gl1","pr":297,"issue":239,"merged_sha":"5a0278b0f04c6cb6583563303ff68bf06c557f5b","ts":"2026-07-08T08:59:22Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":297,"merged_sha":"5a0278b0f04c6cb6583563303ff68bf06c557f5b","ts":"2026-07-08T08:59:22Z","files":["DESIGN.md"]}
 {"schema":"gl1","pr":299,"issue":196,"merged_sha":"ab58b025e27c9711c16257cdb96fde2bd2af57fb","ts":"2026-07-08T09:07:25Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":300,"issue":289,"merged_sha":"cf4bbcada6d64237e0beb37720882b272edffc5c","ts":"2026-07-08T09:12:41Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":300,"merged_sha":"cf4bbcada6d64237e0beb37720882b272edffc5c","ts":"2026-07-08T09:12:41Z","files":["docs/north-star.md"]}
