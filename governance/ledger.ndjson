@@ -26,3 +26,5 @@
 {"schema":"gl1","pr":279,"issue":274,"merged_sha":"ae921063d51bce9edbbb783cde341d0d717f804e","ts":"2026-07-07T05:46:18Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":279,"merged_sha":"ae921063d51bce9edbbb783cde341d0d717f804e","ts":"2026-07-07T05:46:18Z","files":["CLAUDE.md","DESIGN.md","standards/adversarial-review-protocol.md"]}
 {"schema":"gl1","pr":280,"issue":null,"merged_sha":"c710f3d0f5a5239249f4e2441e658d8fba47f0dd","ts":"2026-07-07T05:51:10Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":295,"issue":294,"merged_sha":"c3cf4eeef2bcc66abbe7e681b764832eeca7d49f","ts":"2026-07-08T08:37:54Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":295,"merged_sha":"c3cf4eeef2bcc66abbe7e681b764832eeca7d49f","ts":"2026-07-08T08:37:54Z","files":[".claude/commands/build.md","CLAUDE.md","DESIGN.md","agents/orchestrator.md","standards/adversarial-review-protocol.md"]}
