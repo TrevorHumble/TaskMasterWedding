@@ -39,6 +39,8 @@ A machine can confirm the math is right. It cannot confirm the result **looks** 
 
 Every build that changes something a guest or admin sees produces a result you can look at — a rendered page, a flow through the app. The checks above guarantee the logic is correct. The question they cannot answer is: _is this what I wanted?_ That judgment is yours, as the owner.
 
-Every change type — bug fixes, security fixes, under-the-hood correctness work, and visual or product-direction changes alike — merges automatically once the adversarial review passes and the build is green. Visual and product-direction changes are not held open for your approval first; you review the live result after the fact and can request changes or revert if it isn't what you wanted. Your control is upstream (which work gets specced, via issues) and downstream (revert, via git history), not a pre-merge checkpoint.
+Bug fixes, security fixes, and under-the-hood correctness work merge automatically once the adversarial review passes and the build is green. Your control there is upstream (which work gets specced, via issues) and downstream (revert, via git history), not a pre-merge checkpoint — you review the live result after the fact and can request changes or revert if it isn't what you wanted.
 
-**Green means the work is correct and built to standard. Whether it is the right work is still your eye — just after it has already shipped.**
+**Visual and product-direction changes are different: they are held for your screenshot approval before merge.** Once such a change is implemented, it is rendered at three real phone sizes and sent to you; the build waits for your explicit yes, or your requested edits, before it goes on to adversarial review and merge. Nothing is left open waiting on you to click merge yourself — the pipeline drives the screenshots to you and drives your answer back into the build.
+
+**Green means the work is correct and built to standard. For visual changes, whether it looks and feels right is also checked before it ships, not just after.**

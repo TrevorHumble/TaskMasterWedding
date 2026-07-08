@@ -185,6 +185,16 @@ The product owner does not resolve findings. Translate any "owner reviews/approv
 control into a deterministic check or an independent adversary. Reserve human judgment
 for what the human can actually judge (product direction, taste).
 
+**Findings-resolution vs. the visual-approval gate (#294).** This rule governs
+findings-resolution only: the owner never adjudicates a blocker/major/minor/nit an
+adversarial reviewer raised, and that stays true with no exception. It does not forbid
+the separately-decided **visual-approval loop** (`agents/orchestrator.md` § "Visual-approval
+loop"; `DESIGN.md` § "Visual-approval loop reinstated") — a product-taste, pre-merge
+screenshot approval that runs on visual changes only, before the adversarial PR review.
+The loop carries no review finding to the owner and resolves no defect; it is exactly
+the "product direction, taste" carve-out this section already reserves for human
+judgment, made into an explicit step.
+
 ---
 
 ## Output discipline
