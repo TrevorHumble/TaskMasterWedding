@@ -36,6 +36,8 @@ Execute the steps below in order. Do not skip or reorder.
 
 **4 — Implement.** Spawn `agents/implementation-agent.md` (Sonnet) with the passing issue and all prior-art file paths.
 
+**4a — Visual-approval loop (visual changes only).** If step 4's diff is a **visual change** — touches `views/**/*.ejs`, `src/public/**`, badge art, or guest-/admin-facing rendered copy — run the visual-approval loop before step 5, per `agents/orchestrator.md` § "Visual-approval loop" (the authoritative description: the three form factors, booting the worktree's own app rather than `.claude/launch.json`'s hardcoded primary-checkout path, the approve/edit loop, the bind-to-shipped-visuals rule, and the fail-closed halt-if-no-capability rule). The loop must reach explicit owner approval before proceeding to step 5. A non-visual change skips this step entirely.
+
 **5 — Artifact review.** Spawn the appropriate `agents/reviewer-*.md` (Opus) against the artifact. Reviewer receives only the artifact and the relevant standard — no framing, no positive hints, no planted suspicions. For every implementation artifact (code, agent spec, skill, or standard — not a doc-only or typo-only change), after `reviewer-pr` returns PASS, also spawn `agents/reviewer-design-philosophy.md` (Opus). Both gates must pass before commit.
 
 **6 — Create branch, then commit through the gate.** Confirm isolation is still in effect before cutting the per-issue branch — per-issue branches are always cut inside the worktree, never in the primary checkout: `powershell -File tools/assert-worktree.ps1` (if it fails, this session did not properly complete step 0 — return to step 0 before proceeding). Then create the descriptive branch — this ensures the commit lands on the new branch, not on main:
@@ -58,7 +60,8 @@ Then `git commit -F data/commitmsg-*.txt` with `(#N)` in the message. **Two gate
 
 Then push and open the PR: `"C:\Program Files\GitHub CLI\gh.exe" pr create --body-file data/<body-file>`. Watch CI to green. Then:
 
-- **Every change type — bug fix, security fix, refactor, correctness, tests, visual, product-direction:** merge once the adversarial review has passed and CI is green. The owner does not perform merges; owner control is upstream (issue-speccing) and downstream (revert via git history).
+- **Non-visual change types — bug fix, security fix, refactor, correctness, tests:** merge once the adversarial review has passed and CI is green. The owner does not perform merges; owner control is upstream (issue-speccing) and downstream (revert via git history).
+- **Visual and product-direction changes:** merge once the step-4a visual-approval loop has reached explicit owner approval AND the adversarial review has passed and CI is green. The visual-approval loop is the owner's pre-merge control for this change type; issue-speccing and revert remain available as well.
 
 `main` is never knowingly left red. If CI goes red, fix the cause or revert the commit before proceeding. Then close the GitHub issue referencing the commit and spawn `agents/reviewer-tracker-sync.md` (Opus) to confirm the board is in sync.
 

@@ -56,13 +56,71 @@ allowed rounds.
    if needed. Do not research what prior art already answers.
 4. **Implementation** — spawn `agents/implementation-agent.md` (Sonnet) with full handoff: the
    passing issue + all prior-art file paths.
-5. **Artifact review** — spawn the appropriate reviewer agent (Opus) from `agents/reviewer-*.md` via `skills/spawn-adversarial-review.md`. Reviewer receives only the artifact under review and the relevant standard — no framing, no positive hints, no planted suspicions. **Reviewer count and cadence follow `standards/adversarial-review-protocol.md` § Reviewer count by artifact** (authoritative; not restated here to avoid drift): routine round 1 uses one PR reviewer plus the design-philosophy reviewer, both-must-PASS; rounds 2+ use one fresh reviewer each (except system-level changes, which require two independent PASSes on the final tree). See `standards/adversarial-review-protocol.md` for the full de-bias and spawning rules.
-6. **Commit** — once per run, before the first commit, **assert the gate is live**: `powershell -File tools/check-gate.ps1` (if it errors, run `tools/setup-hooks.ps1`; never proceed assuming a gate that isn't on — an unconfigured clone enforces nothing). The gate's introducing commit must also self-certify (record its own verdict first — dogfooding is expected, not a malfunction). On the reviewers' PASS, first **record the verdict**: `powershell -File tools/review_verdict.ps1 -Verdict PASS -Reviewers "<who>"` (binds it to the exact staged tree), and for **each** reviewer write its evidence file: `powershell -File tools/persist-review.ps1 -TreeOid <T> -ReviewerId <id> -Verdict <PASS|FAIL>`. The commit gate now requires those evidence files, so the verdict summary alone no longer authorizes a commit (the S3 runner will write them automatically from real reviewer returns; until it lands, the orchestrator writes one per reviewer by hand). Then `git commit` with a short message that includes `(#N)` referencing the issue. **Two gates run at commit time:** `pre-commit` checks that the staged tree has a PASS review verdict; `commit-msg` checks that the commit message names a GitHub issue whose issue-review is on file. Both must pass. If `commit-msg` blocks, the fix is to record the issue review: `powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS`. The repo's `pre-commit` gate (`.githooks/pre-commit`, active via `core.hooksPath` — run `tools/setup-hooks.ps1` once per working copy) blocks any commit whose staged tree has no matching PASS verdict, so recording the reviewers' real result is a required, mechanical step. If either gate blocks you, the fix is to run the corresponding review and record its genuine verdict — never to forge one. Append a one-line entry to `BUILDLOG.md`.
+5. **Visual-approval loop** — if the implementation is a **visual change** (see "Visual-approval loop"
+   below for the trigger and full mechanics), run the loop to explicit owner approval **before**
+   step 6. A non-visual change skips this step entirely and proceeds straight to step 6.
+6. **Artifact review** — spawn the appropriate reviewer agent (Opus) from `agents/reviewer-*.md` via `skills/spawn-adversarial-review.md`. Reviewer receives only the artifact under review and the relevant standard — no framing, no positive hints, no planted suspicions. **Reviewer count and cadence follow `standards/adversarial-review-protocol.md` § Reviewer count by artifact** (authoritative; not restated here to avoid drift): routine round 1 uses one PR reviewer plus the design-philosophy reviewer, both-must-PASS; rounds 2+ use one fresh reviewer each (except system-level changes, which require two independent PASSes on the final tree). See `standards/adversarial-review-protocol.md` for the full de-bias and spawning rules.
+7. **Commit** — once per run, before the first commit, **assert the gate is live**: `powershell -File tools/check-gate.ps1` (if it errors, run `tools/setup-hooks.ps1`; never proceed assuming a gate that isn't on — an unconfigured clone enforces nothing). The gate's introducing commit must also self-certify (record its own verdict first — dogfooding is expected, not a malfunction). On the reviewers' PASS, first **record the verdict**: `powershell -File tools/review_verdict.ps1 -Verdict PASS -Reviewers "<who>"` (binds it to the exact staged tree), and for **each** reviewer write its evidence file: `powershell -File tools/persist-review.ps1 -TreeOid <T> -ReviewerId <id> -Verdict <PASS|FAIL>`. The commit gate now requires those evidence files, so the verdict summary alone no longer authorizes a commit (the S3 runner will write them automatically from real reviewer returns; until it lands, the orchestrator writes one per reviewer by hand). Then `git commit` with a short message that includes `(#N)` referencing the issue. **Two gates run at commit time:** `pre-commit` checks that the staged tree has a PASS review verdict; `commit-msg` checks that the commit message names a GitHub issue whose issue-review is on file. Both must pass. If `commit-msg` blocks, the fix is to record the issue review: `powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS`. The repo's `pre-commit` gate (`.githooks/pre-commit`, active via `core.hooksPath` — run `tools/setup-hooks.ps1` once per working copy) blocks any commit whose staged tree has no matching PASS verdict, so recording the reviewers' real result is a required, mechanical step. If either gate blocks you, the fix is to run the corresponding review and record its genuine verdict — never to forge one. Append a one-line entry to `BUILDLOG.md`.
    Then **close the GitHub issue** for this work (`gh issue close`, referencing the commit) so the board
    matches reality. Before declaring the segment done, spawn `agents/reviewer-tracker-sync.md` — it FAILs
    if the board is out of sync with the issue files / BUILDLOG. The board is kept current at every
    transition: issue created → `gh issue` opened; committed to `main` → `gh issue` closed.
-   - **Ship flow — branch → PR → CI → merge on green.** After committing, push the branch and run `gh pr create` to open a pull request. Watch CI to green. Once the adversarial review has passed and CI is green, merge the PR — for every change type, including visual and product-direction changes. The owner does not perform merges; owner control is upstream (issue-speccing) and downstream (revert via git history). `main` is never knowingly left red. If CI goes red, fix the cause or revert the commit before proceeding — a red `main` is a stop-and-fix condition, not something to push past.
+   - **Ship flow — branch → PR → CI → merge on green.** After committing, push the branch and run `gh pr create` to open a pull request. Watch CI to green. Once the adversarial review has passed and CI is green, merge the PR — for every non-visual change type. A visual change additionally requires the step-5 "Visual-approval loop" to have reached explicit owner approval before this merge. The owner does not perform merges; owner control is upstream (issue-speccing), downstream (revert via git history), and — for visual changes only — the pre-merge visual-approval loop. `main` is never knowingly left red. If CI goes red, fix the cause or revert the commit before proceeding — a red `main` is a stop-and-fix condition, not something to push past.
+
+---
+
+## Visual-approval loop
+
+**Trigger — what counts as a visual change.** A change is **visual** when its diff touches any of:
+`views/**/*.ejs`, `src/public/**` (CSS, client JS, images/icons), badge art or other rendered
+assets, or guest- or admin-facing copy shown in a rendered page. This is the same surface as the
+"Views/CSS/badge assets/guest-or-admin-facing copy" row of `standards/adversarial-review-protocol.md`
+§ "Which reviews does this change need?". A change touching none of those paths is **not** visual —
+it is unaffected by this gate and still merges on adversarial-review PASS + green CI, exactly as
+before.
+
+**The three form factors.** Screenshots are captured at:
+
+- **iPhone SE** — `375 × 667`
+- **iPhone 14 Pro Max** — `430 × 932`
+- **Samsung Galaxy S20 Ultra** — `412 × 915`
+
+**Boot the worktree's own app, not the primary checkout.** The app under screenshot is booted from
+the current **worktree**'s own checkout — the worktree-relative `src/app.js`, run with the worktree
+as the working directory, on a local port — so the rendered pages reflect this worktree's edited
+`views/**` and `src/public/**`. This deliberately does **not** use `.claude/launch.json`'s
+`runtimeArgs`, which hardcode the absolute path of the **primary** checkout
+(`C:\wedding-scavenger-hunt\src\app.js`); booting via that config would screenshot the wrong git
+tree and silently approve visuals that were never actually changed. This mirrors how
+`scripts/smoke.js` boots the app relative to its own process rather than any hardcoded path.
+
+**Which session runs the gate.** The loop runs inside the **screenshot-capable `/build` main-loop
+session** — the same session executing this pipeline end to end — never inside a `Task`-spawned
+orchestrator subagent: that subagent's `tools:` frontmatter (top of this file) has no screenshot
+tool, so delegating the gate there would make it un-runnable. The `tools:` frontmatter is not
+edited to add one; the gate simply never runs in that delegated context.
+
+**The loop.** For each affected screen: capture the three screenshots, send them to the owner, and
+ask for approval.
+
+- The owner responds either **approve** or with **requested edits**.
+- On requested edits, send the work back to `agents/implementation-agent.md` to revise, then
+  re-boot the worktree app and re-capture and re-send — the loop repeats until the owner explicitly
+  approves.
+- **Bind to shipped visuals:** approval binds only to the screenshots the owner actually saw. If any
+  later step (an adversarial-review-driven fix, a CI fix) changes what the screen looks like, the
+  prior approval is void and the loop re-runs on the new visuals before merge.
+- Only on explicit owner approval does the visual change proceed to step 6 (Artifact review), the
+  commit gate, CI, and merge.
+
+**Fail-closed — halt, never skip.** If the executing session lacks screenshot capability, the
+orchestrator does not skip the gate or merge the visual change: it halts and surfaces to the owner.
+Absence of explicit owner approval blocks the merge; there is no silent-skip path.
+
+**Not a findings gate.** This loop never carries an adversarial-review defect to the owner — the
+owner still never resolves review findings. It is the "product direction, taste" human-judgment
+carve-out `standards/adversarial-review-protocol.md` § "No human in the loop" reserves, made into an
+explicit pre-merge step for visual changes only.
 
 ---
 
@@ -254,11 +312,13 @@ The trigger is the agent noticing. No telemetry or automated detection is requir
 - The agent that produced an artifact must not review it.
 - No human reads code in the critical path; never add an "owner reads the code" step. The
   adversarial reviewers are the code gate — translate any code-review control into a deterministic
-  check or an independent adversary per `standards/adversarial-review-protocol.md`. No owner merge
-  or pre-merge visual gate exists in the pipeline: every PR, including visual and product-direction
-  changes, merges once adversarial review passes and CI is green. Owner control is upstream (which
-  work is specced, via issues) and downstream (revert, via git history) — never a pre-merge
-  checkpoint. See `DESIGN.md` § "Merge policy" for the rationale.
+  check or an independent adversary per `standards/adversarial-review-protocol.md`. Non-visual
+  changes are unaffected by any pre-merge human checkpoint: every such PR merges once adversarial
+  review passes and CI is green, and owner control there stays upstream (which work is specced, via
+  issues) and downstream (revert, via git history). **Visual changes are the one deliberate
+  exception:** they pass the "Visual-approval loop" (below) — rendered screenshots, never code —
+  before the adversarial PR review. See `DESIGN.md` § "Merge policy" and § "Visual-approval loop
+  reinstated" for the rationale.
 - Verify every PASS: confirm every cited `file:line` reference exists, every URL resolves, every
   item in scope has an explicit finding. This check is the orchestrator's responsibility and is
   not delegated to the reviewer.
