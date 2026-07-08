@@ -29,6 +29,12 @@ A guest is identified by a random token. The token travels in the QR link (`/j/:
 
 Tradeoff: anyone with a guest's link can act as that guest. For a private wedding this is the intended convenience.
 
+### Guest identity: contact as the account key, plaintext re-entry PIN (#239)
+
+The per-guest QR/token entry above is being replaced by one shared entry link plus self-serve identity: a guest signs up with their email or phone number and a self-chosen 4-digit re-entry code. `guests.contact` (normalized via `src/services/identity.js`) is the account key — a partial unique index (`idx_guests_contact`, `WHERE contact IS NOT NULL`) enforces one contact maps to exactly one guest row, while legacy/seed rows with no contact still coexist freely.
+
+**PIN is stored in plain text** in `guests.pin`, deliberately unhashed. The threat model is guest mischief — a guest fumbling or guessing another guest's 4-digit code — not database compromise: whoever already holds `data/app.db` already holds every plaintext `guests.token` credential and every uploaded photo, so hashing a 4-digit PIN buys no real protection against that actor. What plaintext buys instead is Goal C: the admin recovery panel (#243) can read a guest's PIN back out loud on the spot at the reception, with no reset flow, for a guest locked out on the wrong device.
+
 ### Single admin password, bcrypt hash on disk
 
 The admin ("Task Master") authenticates with one password, hashed with bcryptjs into `data/admin.hash` (set by `scripts/set-admin-password.js`). Sign-in sets a signed `admin` cookie. One role, one secret, no user table for the admin side. The hash file is gitignored.
