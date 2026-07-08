@@ -29,6 +29,12 @@ A guest is identified by a random token. The token travels in the QR link (`/j/:
 
 Tradeoff: anyone with a guest's link can act as that guest. For a private wedding this is the intended convenience.
 
+### Guest identity: contact as the account key, plaintext re-entry PIN (#239)
+
+The per-guest QR/token entry above is being replaced by one shared entry link plus self-serve identity: a guest signs up with their email or phone number and a self-chosen 4-digit re-entry code. `guests.contact` (normalized via `src/services/identity.js`) is the account key — a partial unique index (`idx_guests_contact`, `WHERE contact IS NOT NULL`) enforces one contact maps to exactly one guest row, while legacy/seed rows with no contact still coexist freely.
+
+**PIN is stored in plain text** in `guests.pin`, deliberately unhashed. The threat model is guest mischief — a guest fumbling or guessing another guest's 4-digit code — not database compromise: whoever already holds `data/app.db` already holds every plaintext `guests.token` credential and every uploaded photo, so hashing a 4-digit PIN buys no real protection against that actor. What plaintext buys instead is Goal C: the admin recovery panel (#243) can read a guest's PIN back out loud on the spot at the reception, with no reset flow, for a guest locked out on the wrong device.
+
 ### Single admin password, bcrypt hash on disk
 
 The admin ("Task Master") authenticates with one password, hashed with bcryptjs into `data/admin.hash` (set by `scripts/set-admin-password.js`). Sign-in sets a signed `admin` cookie. One role, one secret, no user table for the admin side. The hash file is gitignored.
@@ -81,6 +87,18 @@ The admin runs one export: archiver streams a ZIP of all photos grouped one fold
 Two owner controls remain, and neither blocks the pipeline: **which** work gets built (upstream, by specifying issues) and **revert** (downstream, via git history) if a shipped result is wrong. This does not authorize agents to redesign — the north-star's "agents do not redesign" still stands; only the human pre-merge gate is removed.
 
 This decision **supersedes** the `agents/orchestrator.md` owner-visual-gate previously recorded in that file's Constraints section (the "owner confirms the visual result" / "sanctioned final-eye gate" clause, describing a checkpoint anticipated but not yet built). That clause no longer applies; `orchestrator.md`, `.claude/commands/build.md`, `CLAUDE.md`, `.claude/commands/resume.md`, `docs/RESUME-STATE.md`, and `WHAT-IT-CHECKS.md` are updated in the same change to state the uniform merge-on-green policy.
+
+**Superseded-for-visual-changes (2026-07-08, #294):** the decision above is kept as the historical record of why the owner-merge boundary was retired. It still governs non-visual changes unchanged. For **visual** changes specifically, it is superseded by the "Visual-approval loop reinstated" decision immediately below — see that entry for the reinstated mechanism and rationale.
+
+### Visual-approval loop reinstated (active screenshot gate) (#294)
+
+**Decision (2026-07-08):** the owner reinstates a pre-merge **visual-approval loop** for visual changes only, superseding "Merge policy: owner-merge boundary retired" (2026-07-02) **for visual changes**. A change is visual when its diff touches `views/**/*.ejs`, `src/public/**`, badge art or other rendered assets, or guest-/admin-facing copy shown in a rendered page — the same surface as the "Views/CSS/badge assets/guest-or-admin-facing copy" row of `standards/adversarial-review-protocol.md` § "Which reviews does this change need?". Non-visual changes are unaffected: they still merge on adversarial-review PASS + green CI, exactly as the 2026-07-02 decision states.
+
+**Mechanism — active, not passive.** After implementation and before the adversarial PR review, the orchestrator (running in the screenshot-capable `/build` main-loop session) boots the worktree's own app — the current worktree's `src/app.js`, worktree-relative working directory, on a local port — so it serves the worktree's edited `views/**` and `src/public/**` rather than the primary checkout. It then captures an **active screenshot** of the affected screen(s) at three form factors (iPhone SE, iPhone 14 Pro Max, Samsung Galaxy S20 Ultra) and sends them to the owner, driving an approve/edit loop to an explicit yes/no before the visual change proceeds to adversarial PR review, the commit gate, CI, and merge. Full mechanics: `agents/orchestrator.md` § "Visual-approval loop".
+
+**Rationale — answers the 2026-07-02 failure mode.** The retired gate failed because it was _passive_: a PR was left open for the owner to merge by hand, so PRs held for manual merge accumulated open and nothing shipped. The reinstated gate is _active_: the orchestrator does the running and screenshotting the owner previously had to do himself, and drives the loop to a decision rather than parking a PR. This removes the "nothing ships" failure mode while restoring the owner's ability to catch "correct but not what I meant" before it is expensive to change.
+
+**Not a redesign license.** This gate is a product-taste checkpoint, not authorization for agents to originate design changes — the north-star's "agents do not redesign" still stands.
 
 ### Cloudflare quick tunnel for public access
 
@@ -170,7 +188,7 @@ Sessions are **grouped by file-locality**, not by theme. The epic's session grou
 
 **The rule:** agents may update **status** — ticking a checklist box on an epic #126 item when its referenced issue merges is a mechanical, agent-allowed action, because it just mirrors a fact that already happened on the board. Agents do **not** reshape **intent** — reordering, rescoping, or gating a milestone is an owner decision, because it changes what gets built next, not just what already shipped. An intent change an agent proposes is **surfaced to the owner** and is **never silent**: it appears as a named finding (in a verdict, a PR description, or a BUILDLOG entry), not as a quiet edit to the epic.
 
-**This surfacing is advisory, not a gate.** The finding is a report for the owner to read, the same way `reviewer-tracker-sync`'s epic-drift checks (above) are reports: it does not block a merge and it does not block a build. Stating this explicitly matters because it would otherwise read as a reintroduction of the owner-merge boundary retired in "Merge policy: owner-merge boundary retired" (#150) above — it is not. That decision retired the human pre-merge click for code; this decision does not reinstate any pre-merge or pre-build human checkpoint. An agent that surfaces an intent-change finding keeps going; the owner reads the finding on their own time, the same way they read any other advisory output.
+**This surfacing is advisory, not a gate.** The finding is a report for the owner to read, the same way `reviewer-tracker-sync`'s epic-drift checks (above) are reports: it does not block a merge and it does not block a build. Stating this explicitly matters because it would otherwise read as a reintroduction of the owner-merge boundary retired in "Merge policy: owner-merge boundary retired" (#150) above — it is not. That decision retired the human pre-merge click for code; this decision does not reinstate any pre-merge or pre-build human checkpoint — except the visual-approval loop for visual changes (#294, see "Visual-approval loop reinstated" above), which is a deliberate, separately-decided exception and not a reintroduction by this planning-governance decision. An agent that surfaces an intent-change finding keeps going; the owner reads the finding on their own time, the same way they read any other advisory output.
 
 ### Fable full self-certification exception (#203) — narrowed same-day by #207
 
