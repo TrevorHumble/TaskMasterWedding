@@ -12,6 +12,10 @@ Three entry types, appended in reverse-chronological order:
 
 The run-time Live-log ledger (per-increment `[HH:MM] elapsed=…` lines) lives in `docs/RESUME-STATE.md`.
 
+## 2026-07-08
+
+- 65b272c — #294 — docs(pipeline): reinstate a pre-merge visual-approval loop for visual changes, reversing the 2026-07-02 owner-merge-boundary retirement for visual changes only. The orchestrator, in the screenshot-capable `/build` main-loop session, boots the worktree's own app (not `.claude/launch.json`'s hardcoded primary-checkout path), captures three phone form factors (iPhone SE 375×667, iPhone 14 Pro Max 430×932, Samsung Galaxy S20 Ultra 412×915), and drives an owner approve/edit loop to explicit approval before the adversarial PR review; fail-closed (halt, never skip) if screenshot capability is absent. Non-visual changes unchanged (merge on review PASS + green CI). Reconciled `DESIGN.md`, `agents/orchestrator.md`, `.claude/commands/build.md`, `CLAUDE.md`, `standards/adversarial-review-protocol.md`, `WHAT-IT-CHECKS.md`, `docs/RESUME-STATE.md` so no doc both asserts and forbids the gate. System-level: reviewer-pr + reviewer-agent + reviewer-design-philosophy all PASS (one round); issue-review reviewer-issue + reviewer-architecture (architecture FAIL round 1 on wrong-tree launch and un-provisioned screenshot capability → fixed → PASS). Merge-on-green (PR #294).
+
 ## 2026-07-06
 
 - ae92106 — #274 — docs(policy): Fable review patterns retired. The Fable model's access ended 2026-07-06; the #203/#207 patterns are marked Retired in `standards/adversarial-review-protocol.md` (decision text preserved below the notice), `DESIGN.md` § "Fable full self-certification exception" gains the dated addendum (persist-self-certification.ps1 + its test stay as the historical mechanism record; ValidateSet('fable') means no other actor can exercise it), and `CLAUDE.md` § Model policy is rewritten to past tense — every implementer now follows the unmodified protocol. System-level: one independent Opus reviewer + fresh-context self-cert, one round. Merge-on-green (PR #279, merge ae92106).
