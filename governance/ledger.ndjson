@@ -35,3 +35,4 @@
 {"schema":"gl1","pr":300,"issue":289,"merged_sha":"cf4bbcada6d64237e0beb37720882b272edffc5c","ts":"2026-07-08T09:12:41Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":300,"merged_sha":"cf4bbcada6d64237e0beb37720882b272edffc5c","ts":"2026-07-08T09:12:41Z","files":["docs/north-star.md"]}
 {"schema":"gl1","pr":298,"issue":254,"merged_sha":"2d403750674a67e94499fa6300311a2227d1934e","ts":"2026-07-08T09:16:44Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":301,"issue":null,"merged_sha":"e1ad2700bcfd02504aba2dd3dfc5c8b75d77ee22","ts":"2026-07-08T09:28:41Z","reviews":[],"labels":[],"freeze":false}
