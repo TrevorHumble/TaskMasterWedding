@@ -186,3 +186,55 @@ would sideline legitimate guests on shared venue Wi-Fi (Goal A) for no real gain
 
 Alert #42 dismissed in code scanning via `gh api` (reason `won't fix`), pre-merge here
 because the "new alert" check blocked PR #138.
+
+---
+
+## 2026-07 re-triage: hosted deployment
+
+Owner direction (2026-07-07): the app moves from a Windows laptop behind a
+Cloudflare quick tunnel, reachable for a few hours around the event, to a
+rented host reachable on the public internet for weeks — the deployment
+window is now weeks, not a single evening. Every disposition above that
+reasoned from "hosted for a few hours" is re-examined against that changed
+exposure. The fixes below are tracked as #283 (rate limiting + persistent
+admin-lockout storage).
+
+**`js/missing-rate-limiting` — main entry: superseded.**
+The original disposition rested on "adequate for a single-admin,
+single-event app hosted for a few hours" and on the risk that a
+misconfigured `express-rate-limit` behind an unpredictable Cloudflare
+proxy-hop count would sideline guests. Both premises changed: the app is
+public for weeks, not hours, which widens the window for credential-guessing
+and scraping; and the reverse-proxy hop count is now fixed and known
+(`TRUST_PROXY`, recorded in the `### Hosted deployment` ADR in `DESIGN.md`),
+which removes the configuration risk that justified won't-fix. This
+disposition is **superseded** by #283, which adds rate limiting with a
+`trust proxy` setting derived from the actual reverse proxy, not guessed.
+
+**2026-07-02 re-surfaced instance (`js/missing-rate-limiting` alert #42,
+`src/app.js:77`): superseded.**
+The re-surfaced instance disposition (attachGuest's indexed, cookie-gated
+lookup) held that a flood does zero DB work under the tunnel's few-hours
+exposure. The lookup shape is unchanged, but weeks of public reachability
+instead of hours materially raises the number of attempts an attacker can
+throw at the signed-cookie guess, even though each individual request stays
+cheap. This disposition is **superseded** by #283's rate limiting, which now
+covers this route too rather than relying solely on the cookie gate.
+
+**Admin login lockout adequacy note: superseded.**
+The original note called the admin login lockout (ten wrong guesses per 15
+minutes, counter cleared on success) adequate for "a single-admin,
+single-event app hosted for a few hours." In-memory lockout state does not
+survive a process restart, which was an acceptable gap for a few-hours run
+and is not for a multi-week hosted run where the process may restart
+(deploys, host maintenance) mid-event. This adequacy claim is **superseded**
+by #283, which persists the lockout counter to SQLite so a restart does not
+reset an attacker's guess budget.
+
+**Changed exposure, summarized:** every disposition above was written
+against an exposure window of hours, behind a tunnel URL that changed on
+every run. The hosted deployment is reachable at a stable, public hostname
+for weeks. None of the three findings were reclassified as exploitable — the
+data-flow reasoning in each still holds — but the exposure window each was
+scored against no longer applies, which is why each is marked superseded
+rather than reaffirmed.

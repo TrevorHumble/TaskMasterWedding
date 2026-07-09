@@ -6,22 +6,22 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
 
 ## Constraints that shaped the design
 
-- One Windows 11 laptop hosts everything for a single weekend. No cloud servers, no paid services.
-- About 100 concurrent guests, all on phones, all over a public Cloudflare quick tunnel.
-- The couple and a non-developer admin run it. Setup must be a handful of commands.
-- Everything must be exportable after the event and then thrown away.
+- One small Linux host (VPS or PaaS volume) with a persistent disk and TLS terminated at a reverse proxy, running from before the welcome dinner until the post-event export.
+- About 100 concurrent guests, all on phones, over the public internet.
+- The couple and a non-developer admin still run it; setup is the `docs/deploy.md` runbook.
+- Everything must be exportable after the event, then the host is torn down.
 
 ## Key decisions
 
 ### Single SQLite file via better-sqlite3 (synchronous)
 
-One file at `data/app.db`, opened synchronously. No separate database server to install or babysit. better-sqlite3 ships prebuilt binaries for Node 20 on Windows x64. Synchronous calls keep route handlers linear and readable; at ~100 guests the load never justifies async DB plumbing. WAL journal mode and `foreign_keys = ON` are set on every open (`src/db.js`).
+One file at `data/app.db`, opened synchronously. No separate database server to install or babysit. better-sqlite3 ships prebuilt binaries for Node 20 on Windows x64. Synchronous calls keep route handlers linear and readable; at ~100 guests the load never justifies async DB plumbing. WAL journal mode and `foreign_keys = ON` are set on every open (`src/db.js`). The single-file model makes the hosted persistence boundary exactly `data/` plus the backup schedule (`scripts/backup.js`, scheduled per `docs/deploy.md`).
 
 Tradeoff: synchronous DB calls block the event loop. Acceptable at this scale; would not be at thousands of concurrent users.
 
 ### Server-rendered EJS, vanilla client JS, no build step
 
-Pages render on the server with EJS. The client side is plain JavaScript in `src/public/js/`. No bundler, no framework, no transpile step means nothing to build on the laptop and no toolchain to break the weekend of the event.
+Pages render on the server with EJS. The client side is plain JavaScript in `src/public/js/`. No bundler, no framework, no transpile step means nothing to build on the server, no toolchain to break days before the wedding.
 
 ### Per-guest token in a signed cookie for guest auth
 
@@ -41,7 +41,7 @@ The admin ("Task Master") authenticates with one password, hashed with bcryptjs 
 
 ### COOKIE_SECRET must be fixed for the event
 
-If `COOKIE_SECRET` is unset, `config.js` generates a random secret at boot and warns. That invalidates every signed cookie on restart, signing everyone out. For the wedding the secret is fixed in `.env` so restarts do not disrupt guests. The fallback exists only so a fresh clone still boots.
+If `COOKIE_SECRET` is unset, `config.js` generates a random secret at boot and warns. That invalidates every signed cookie on restart, signing everyone out. For the deployment the secret is fixed in the host's environment (`.env` or the platform's secret store) so restarts do not disrupt guests. The fallback exists only so a fresh clone still boots.
 
 ### Photos: multer intake, sharp normalization, takedown over delete
 
@@ -76,7 +76,7 @@ An admin create/award/remove request for a `metric` or `transferable` code is re
 
 ### Export as a ZIP + xlsx, then discard
 
-The admin runs one export: archiver streams a ZIP of all photos grouped one folder per guest, plus a `summary.xlsx` (exceljs) of points, badges, and tasks. After the event the photos are uploaded elsewhere and the `data/` directory is discarded. No long-term storage strategy is needed because the app's lifetime is the weekend.
+The admin runs one export: archiver streams a ZIP of all photos grouped one folder per guest, plus a `summary.xlsx` (exceljs) of points, badges, and tasks. After the event the photos are uploaded elsewhere and the `data/` directory is discarded. Durability during the event's run comes from scheduled backups (`scripts/backup.js`, run on a schedule per `docs/deploy.md`) to a separate `./backups` volume, not from retaining `data/` after teardown.
 
 ### Merge policy: owner-merge boundary retired
 
@@ -100,9 +100,15 @@ This decision **supersedes** the `agents/orchestrator.md` owner-visual-gate prev
 
 **Not a redesign license.** This gate is a product-taste checkpoint, not authorization for agents to originate design changes — the north-star's "agents do not redesign" still stands.
 
-### Cloudflare quick tunnel for public access
+### Hosted deployment
 
-A free `cloudflared tunnel --url http://localhost:3000` gives a public HTTPS URL with no account. The URL changes each run; the app does not depend on a stable public hostname.
+**Decision (2026-07-07):** the app moves from the laptop-and-tunnel model to a rented host. SQLite and local-disk photos are deliberately retained — the host's persistent disk makes them safe at this scale, so the single-file-database decision above is not revisited. TLS terminates at the reverse proxy; the app itself still serves plain HTTP on localhost, as it always did. `TRUST_PROXY` (`config.js`) tells Express to honor the proxy's forwarded-for headers so downstream code sees the real guest IP rather than the proxy's. The public hostname is now stable and load-bearing: the QR codes printed for the event encode it, so it cannot change between print and party the way a tunnel URL could.
+
+The public gallery pages are deliberately non-indexable (`robots.txt` plus a `noindex` response header and meta tag, decided 2026-07-07) — a hosted app with a stable, guessable-shaped URL is discoverable in a way a per-run tunnel URL never was, and guest photos are not meant to surface in search.
+
+**Naming note:** `TRUST_PROXY` and the other names recorded in this ADR are the spec — #282 implements exactly these names. A forced divergence updates this ADR in the implementing PR.
+
+**Historical:** the app previously ran on a Windows laptop behind a Cloudflare quick tunnel (`cloudflared tunnel --url http://localhost:3000`), whose URL changed every run and was never depended on being stable.
 
 ### Commit gate: review evidence bound to the staged tree
 
@@ -170,7 +176,7 @@ Every GitHub issue is created carrying the `needs-issue-review` label (`gh issue
 
 **Honest bar:** tamper-evident, not tamper-proof — the same residual as every other gate in this file. An actor with repo write can still add or remove `needs-issue-review` or `unverified-issue` by hand; the guard makes an unreviewed issue conspicuous on the board, it does not make bypass impossible. It is the advisory-visibility sibling of #48 (un-bypassable server-side merge enforcement), not a replacement for it — #48 still governs whether unreviewed work can reach `main`, this guard only governs whether it can sit unnoticed on the issue board.
 
-**Execution surface:** runs on GitHub-hosted Actions (`runs-on: ubuntu-latest`), not the event laptop — consistent with the existing `commit-gate-integrity`/`merge-association` CI backstop (see "Issue-review gate" above, #46). The laptop-only constraint at the top of this file governs where the running wedding app is hosted; it says nothing about the CI/enforcement surface, so this guard adds no app runtime to the cloud.
+**Execution surface:** runs on GitHub-hosted Actions (`runs-on: ubuntu-latest`), not the rented host the wedding app runs on — consistent with the existing `commit-gate-integrity`/`merge-association` CI backstop (see "Issue-review gate" above, #46). The hosting constraint at the top of this file governs where the running wedding app lives; it says nothing about the CI/enforcement surface, so this guard adds no app runtime to the cloud.
 
 **Distinct from `merge-association`:** that CI job checks commit→issue linkage at PR/merge time; this guard fires on `issues.opened`, before any code exists. No overlap between the two.
 
@@ -242,7 +248,7 @@ Fable self-certified merges are permitted from the merge of the change that ship
 
 ### Event mode (#220): wedding-day freeze with expiring flag and mandatory retro-review
 
-**Why it exists:** during the wedding weekend a broken guest path must be fixable in minutes, and the commit gates as designed block every code commit until review evidence exists. Waiting on reviewer agents mid-reception fails the event. Event mode is the pre-declared, expiring, fully-recorded exception: a hotfix ships on green automated checks alone, and every such commit is mechanically queued for review after the event. Nothing permanently escapes review.
+**Why it exists:** during the wedding weekend a broken guest path must be fixable in minutes, and the commit gates as designed block every code commit until review evidence exists. Waiting on reviewer agents mid-reception fails the event. Event mode is the pre-declared, expiring, fully-recorded exception: a hotfix ships on green automated checks alone, and every such commit is mechanically queued for review after the event. Nothing permanently escapes review. This mechanism covers the wedding weekend itself and is unchanged by the move to a hosted deployment; an incident outside that window takes the normal pipeline.
 
 **The flag.** `governance/event-mode.json` — single-line JSON `{schema:"em1", expires:"<ISO UTC>", reason, created:"<ISO UTC>"}`. Deliberately **not** markdown: creating or removing it is a CODE commit that itself passes the normal gate, so entering and leaving event mode is a reviewed act. Its **single writer** is `tools/set-event-mode.ps1` (`-ExpiresUtc <date> -Reason <text>` to create; `-Clear` to remove); the file is never hand-edited. The shared reader is `tools/event-mode-core.ps1` (states: NONE / INVALID / ACTIVE / EXPIRED — only ACTIVE enables anything; INVALID and EXPIRED collapse to enables-nothing, fail closed).
 
