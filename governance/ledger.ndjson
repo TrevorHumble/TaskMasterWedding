@@ -47,3 +47,5 @@
 {"schema":"gl1","pr":329,"issue":321,"merged_sha":"e0c4e7d540902430f27a3b7c263f575ffc17efe0","ts":"2026-07-09T02:43:14Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":329,"merged_sha":"e0c4e7d540902430f27a3b7c263f575ffc17efe0","ts":"2026-07-09T02:43:14Z","files":["tools/apply-branch-protection.ps1"]}
 {"schema":"gl1","pr":333,"issue":null,"merged_sha":"908434d7b97bb958a3a8e35d8f0715719e8d2750","ts":"2026-07-09T02:48:59Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":328,"issue":322,"merged_sha":"8b543266a4229168485f09f01c5e1f8b203472c4","ts":"2026-07-09T02:53:15Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":328,"merged_sha":"8b543266a4229168485f09f01c5e1f8b203472c4","ts":"2026-07-09T02:53:15Z","files":["agents/implementation-agent.md","agents/orchestrator.md","agents/researcher.md","skills/research-prior-art.md","standards/design-philosophy-examples.md","standards/design-philosophy.md"]}
