@@ -18,7 +18,7 @@ flowchart TD
         mw --> auth["routes/auth.js<br/>/j/:token, /onboard, /admin/login"]
         mw --> guest["routes/guest.js<br/>/, /tasks, /tasks/:id/submit, /me/edit"]
         mw --> community["routes/community.js<br/>/gallery, /feed, GET /p/:submissionId,<br/>/p/:submissionId/like, /p/:submissionId/comments,<br/>/leaderboard, /u/:guestId"]
-        mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, awards, export"]
+        mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, awards, export,<br/>/admin/comments, /admin/badges"]
 
         auth --> svc
         guest --> svc

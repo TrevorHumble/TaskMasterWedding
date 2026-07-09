@@ -10,8 +10,9 @@ It runs on a single Windows laptop for the wedding weekend and is made publicly 
 - **Photo tasks.** One photo per task per guest marks that task done and adds +1 point.
 - **Badges.** Auto badges unlock at 5 / 10 / 15 completed tasks; special badges are hand-awarded by the admin; metric and transferable badges are computed by the badge engine from live data (e.g. a "most photos" badge that can change hands); and the admin can create further `custom` badges. Not a fixed set.
 - **Leaderboard + gallery.** A public ranking and one shared photo gallery with a lightbox.
+- **Feed, likes, comments.** A live `/feed` shows recent photos; guests can like and comment on any photo.
 - **Profiles.** Avatar, name, badges, submissions, and optional social links. Guests can view each other's profiles.
-- **Admin panel.** Create guests and QR codes, manage tasks, award bonus points and special badges, take photos down and restore them, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
+- **Admin panel.** Create guests and QR codes, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
 
 ## Quickstart
 
@@ -43,9 +44,9 @@ Then open <http://localhost:3000>.
 
 ## How it is used
 
-**Guests** scan their QR code, which opens `/j/:token` and signs them in (a signed `gsid` cookie). First sign-in goes through `/onboard` to set a name and avatar. From the home page they browse `/tasks`, open a task, upload a photo to complete it, and view `/gallery`, `/leaderboard`, and profiles at `/u/:guestId`.
+**Guests** scan their QR code, which opens `/j/:token` and signs them in (a signed `gsid` cookie). First sign-in goes through `/onboard` to set a name and avatar. From the home page they browse `/tasks`, open a task, upload a photo to complete it, and view `/gallery`, `/feed` (where they can like and comment on photos), `/leaderboard`, and profiles at `/u/:guestId`.
 
-**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to guest creation and bulk create, the printable QR sheet at `/admin/qrsheet`, task CRUD, awarding points and badges, photo takedown, and `/admin/export`.
+**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to guest creation and bulk create, the printable QR sheet at `/admin/qrsheet`, task CRUD, awarding points and badges, comment moderation at `/admin/comments`, photo takedown, and `/admin/export`.
 
 ## Going live (Cloudflare tunnel)
 
@@ -110,7 +111,7 @@ To restore a snapshot back into a fresh `data/` (e.g. after a crash or corrupted
 ## Where things live
 
 ```
-config.js                 Central config + tiny .env loader; paths, port, badge thresholds
+config.js                 Central config + tiny .env loader; paths, port
 scripts/
   set-admin-password.js   Hashes the admin password into data/admin.hash
   seed.js                 Creates schema, seeds badges + sample tasks/guests
