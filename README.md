@@ -8,7 +8,7 @@ It runs on a single Windows laptop for the wedding weekend and is made publicly 
 
 - **QR sign-in, no guest passwords.** Each guest has a unique link carrying a random token, printed as a QR code. Scanning it signs the guest in on that device.
 - **Photo tasks.** One photo per task per guest marks that task done and adds +1 point.
-- **Badges.** Three auto badges unlock at 5 / 10 / 15 completed tasks. Four special badges (EARLYBIRD, SHUTTERBUG, CROWDFAV, CHOICE) are awarded by the admin.
+- **Badges.** Auto badges unlock at 5 / 10 / 15 completed tasks; special badges are hand-awarded by the admin; metric and transferable badges are computed by the badge engine from live data (e.g. a "most photos" badge that can change hands); and the admin can create further `custom` badges. Not a fixed set.
 - **Leaderboard + gallery.** A public ranking and one shared photo gallery with a lightbox.
 - **Profiles.** Avatar, name, badges, submissions, and optional social links. Guests can view each other's profiles.
 - **Admin panel.** Create guests and QR codes, manage tasks, award bonus points and special badges, take photos down and restore them, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
@@ -121,11 +121,16 @@ src/
   routes/
     auth.js               /j/:token sign-in, /onboard, /admin/login, /admin/logout
     guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /me/edit
-    community.js          /gallery, /leaderboard, /u/:guestId
+    community.js          /gallery, /feed, GET /p/:submissionId, /p/:submissionId/like,
+                           /p/:submissionId/comments, /leaderboard, /u/:guestId
     admin.js              /admin dashboard, guests + bulk create, qrsheet, tasks, awards, takedown, export
   services/
     photos.js             multer disk storage, sharp thumbnails/avatars, takedown/delete
     scoring.js            points, auto badges (5/10/15), special badges, leaderboard
+    submissions.js        submit-or-replace sequence for a task photo
+    feed.js               gallery/feed visibility (owns the taken_down filter) + ordering
+    badges.js             metric/transferable badge engine (e.g. Completionist, Most Photos)
+    identity.js           contact normalization + PIN validation for guest sign-in/re-entry
     export.js             ZIP of photos by guest + summary.xlsx
     qr.js                 QR data URLs
   views/                  EJS templates + partials
