@@ -21,7 +21,7 @@ The moderation state on a submission. A taken-down submission is hidden from the
 _Avoid_: Deleted, removed (those apply to the separate hard-delete action).
 
 **Badge**:
-An award shown on a guest's profile. `type` is `auto` (BLOOM/BOUQUET/GARDEN, granted automatically at 5/10/15 completed tasks — thresholds in `config.js` `BADGE_THRESHOLDS`) or `special` (EARLYBIRD/SHUTTERBUG/CROWDFAV/CHOICE, granted by the Task Master). `awarded_by` records `system` or `admin`.
+An award shown on a guest's profile. `type` is `auto` (BLOOM/BOUQUET/GARDEN, granted automatically at 5/10/15 completed tasks — thresholds owned by `src/services/scoring.js`) or `special` (EARLYBIRD/SHUTTERBUG/CROWDFAV/CHOICE, granted by the Task Master). `awarded_by` records `system` or `admin`.
 
 **Points**:
 A guest's score. Derived, not stored: completed-submission count plus `bonus_points`. `src/services/scoring.js` is the single authority on this calculation; `admin.js` and `db.js` contain shadow duplicates of the completed-count piece that must not diverge from it.

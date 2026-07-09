@@ -1,6 +1,6 @@
 # Product Brief — Garden Party Pastels
 
-What the owner asked for, in his own words, captured from discovery. This is the requirements record that fed the goals session. It is **not** the North Star or goals — those are confirmed and live in [`north-star.md`](north-star.md). Architecture decisions and their rationale live in `DESIGN.md`; the build reference lives in `PLAN/`.
+What the owner asked for, in his own words, captured from discovery. This is the requirements record that fed the goals session. It is **not** the North Star or goals — those are confirmed and live in [`north-star.md`](north-star.md). Architecture decisions and their rationale live in `DESIGN.md`; the historical build reference lives in `PLAN/`, superseded by `PLAN.md`'s refactor plan for current work.
 
 - **Captured / confirmed:** 2026-06-28
 - **Source:** 25-question discovery with the owner (Trevor), re-confirmed 2026-06-28
@@ -82,5 +82,5 @@ What the owner asked for, in his own words, captured from discovery. This is the
 
 - **Goals / North Star / success measures.** Now confirmed in [`north-star.md`](north-star.md) (one-screen summary in `CLAUDE.md`). This brief is the raw "what and why"; the strategic frame lives there.
 - **Architecture decisions.** See `DESIGN.md`.
-- **The build/refactor plan.** See `PLAN/` and (once its review passes) the refactor plan linked from `PLAN.md`.
+- **The build/refactor plan.** `PLAN/` is the historical as-built plan, superseded; see `PLAN.md` for the current refactor plan once its review passes.
 - **Known defects.** See `docs/reviews/2026-06-28-adversarial-review.md`.

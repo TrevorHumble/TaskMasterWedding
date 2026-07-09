@@ -59,9 +59,9 @@ Uploads come in through multer; sharp produces a normalized full-size original p
 
 A guest's score is computed: one point per completed task (a non-taken-down submission) plus `bonus_points` the admin sets by judgment. Completion count drives auto badges. Keeping score derived avoids a denormalized total that can drift out of sync when a photo is taken down or restored.
 
-### Badge thresholds are config; custom badges reverse the earlier "fixed catalog" decision
+### Badge thresholds live in scoring.js; custom badges reverse the earlier "fixed catalog" decision
 
-Auto-badge thresholds (5 / 10 / 15) live once in `config.BADGE_THRESHOLDS` and are read by scoring and the guest routes; there is no second copy.
+Auto-badge thresholds (5 / 10 / 15) live once in `src/services/scoring.js`'s `BADGE_THRESHOLDS` and are read by scoring and the guest routes; there is no second copy.
 
 This section previously said the four special badges were a fixed catalog and the admin could not invent new badge types. **Issue #80 reverses that by owner direction**: the admin can now create host-defined `custom` badges (name + `art_path`, an image path or emoji) at runtime via `POST /admin/badges`, no re-seed or SVG-add-and-redeploy required.
 

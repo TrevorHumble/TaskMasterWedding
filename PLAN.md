@@ -20,7 +20,7 @@ The detailed, copy-paste-ready build plan for the app lives in [`PLAN/`](PLAN/),
 
 ## Refactor plan
 
-The repo was initialized from the as-built app. A refactor plan is being produced and goes through the same adversarial review as any other artifact. It will be linked here once its adversarial review passes. Until then, treat `PLAN/` as the authoritative build reference.
+The repo was initialized from the as-built app. A refactor plan is being produced and goes through the same adversarial review as any other artifact. It will be linked here once its adversarial review passes. Until then, `PLAN/` remains as a historical record of the as-built app — superseded background reading, not a live reference for current work.
 
 ## Where tasks are tracked
 
