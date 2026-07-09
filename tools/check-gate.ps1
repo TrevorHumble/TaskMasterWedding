@@ -11,7 +11,7 @@ $hookOk = Test-Path $hook
 $msgHook = Join-Path $top '.githooks/commit-msg'
 $msgHookOk = Test-Path $msgHook
 if ($hp -ne '.githooks' -or -not $hookOk -or -not $msgHookOk) {
-  Write-Error "check-gate: commit gates NOT active (core.hooksPath='$hp', pre-commit present=$hookOk, commit-msg present=$msgHookOk). Reopen the folder in Claude Code, or run: powershell -File setup.ps1"
+  Write-Error "check-gate: commit gates NOT active (core.hooksPath='$hp', pre-commit present=$hookOk, commit-msg present=$msgHookOk). Reopen the folder in Claude Code, or run: powershell -File tools/setup-hooks.ps1"
   exit 1
 }
 Write-Output 'commit gates ACTIVE (core.hooksPath=.githooks, .githooks/pre-commit and .githooks/commit-msg present)'
