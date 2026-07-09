@@ -57,3 +57,4 @@
 {"schema":"gl1-governance","pr":336,"merged_sha":"4f13a62b31d4e0916b23e1516505e7f3548bb8d1","ts":"2026-07-09T03:24:30Z","files":["CLAUDE.md","DESIGN.md","agents/orchestrator.md","standards/adversarial-review-protocol.md"]}
 {"schema":"gl1","pr":341,"issue":248,"merged_sha":"9a0a81c18e910a663060c5da2f42a40b8cfd7b91","ts":"2026-07-09T04:16:30Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":342,"issue":null,"merged_sha":"025cbf2cdf897095e596863581b8766d89ee4ec6","ts":"2026-07-09T04:27:57Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":343,"issue":240,"merged_sha":"01dd15fa3c919aa04f45dae0b2377fdef6ee44fb","ts":"2026-07-09T04:38:55Z","reviews":[],"labels":[],"freeze":false}
