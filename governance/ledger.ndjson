@@ -40,3 +40,5 @@
 {"schema":"gl1","pr":312,"issue":null,"merged_sha":"78d83552b83b6fb4aa44c6caf858ca337179dfcb","ts":"2026-07-08T10:21:41Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":324,"issue":145,"merged_sha":"aba0fcd861fd91c569d3ede0bccf1c1141f9054e","ts":"2026-07-09T02:18:50Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":324,"merged_sha":"aba0fcd861fd91c569d3ede0bccf1c1141f9054e","ts":"2026-07-09T02:18:50Z","files":["tools/check-enforcement.ps1","tools/check-gate.ps1"]}
+{"schema":"gl1","pr":326,"issue":290,"merged_sha":"28ae079e29c544bf9a75e7b593a0f3318d0d4c53","ts":"2026-07-09T02:29:49Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":326,"merged_sha":"28ae079e29c544bf9a75e7b593a0f3318d0d4c53","ts":"2026-07-09T02:29:49Z","files":["DESIGN.md"]}
