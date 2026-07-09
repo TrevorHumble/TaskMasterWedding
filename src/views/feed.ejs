@@ -9,8 +9,20 @@
   <% } %>
 
   <div class="feed">
-    <% photos.forEach(function (p) { %>
+    <% photos.forEach(function (p) {
+         // Card v2 (#248): the card shows only the 4 MOST RECENT comments as
+         // one-line rows ("4 lines, not 4 comments" — owner amendment). The
+         // comments dialog below renders the full thread. attachComments()
+         // already loads every visible comment for this photo, oldest-first,
+         // so slicing the tail here needs no extra query.
+         var commentTotal = p.comments.length;
+         var commentPreview = p.comments.slice(-4);
+    %>
       <article id="photo-<%= p.submission_id %>" class="feed-item">
+        <p class="feed-by">
+          <a href="/u/<%= p.guest_id %>"><%= p.guest_name || 'Guest' %></a>
+        </p>
+
         <%# The feed shows the 400px thumbnail — the original is one tap away
             on the photo detail page (issue #194: a guest scrolling on venue
             wifi should pull kilobytes per photo, not megabytes). %>
@@ -22,51 +34,138 @@
             loading="lazy"
           />
         </a>
-        <div class="feed-body">
-          <p class="feed-by">
-            <a href="/u/<%= p.guest_id %>"><%= p.guest_name || 'Guest' %></a>
-          </p>
-          <% if (p.caption) { %>
-            <p class="feed-caption"><%= p.caption %></p>
-          <% } %>
-        </div>
+
+        <% if (p.caption) { %>
+          <p class="feed-caption"><%= p.caption %></p>
+        <% } %>
+
         <div class="feed-actionbar">
+          <div class="feed-actions-left">
+            <% if (guest) { %>
+              <form method="post" action="/p/<%= p.submission_id %>/like" class="like-form">
+                <button
+                  type="submit"
+                  class="like-button<%= p.viewer_liked ? ' like-button-liked' : '' %>"
+                  aria-pressed="<%= p.viewer_liked ? 'true' : 'false' %>"
+                  aria-label="Like this photo"
+                >
+                  <svg class="like-heart" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/>
+                  </svg>
+                  <span class="like-count"><%= p.like_count %></span>
+                </button>
+              </form>
+            <% } else { %>
+              <%# No session, no toggle — the same glyph/count rendered read-only
+                  so an anonymous viewer still sees how many guests liked it. %>
+              <span class="like-button like-button-static">
+                <svg class="like-heart" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/>
+                </svg>
+                <span class="like-count"><%= p.like_count %></span>
+              </span>
+            <% } %>
+
+            <button
+              type="button"
+              class="comment-button"
+              data-open-comments="<%= p.submission_id %>"
+              aria-label="View and add comments"
+            >
+              <svg class="comment-bubble" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3C6.48 3 2 6.58 2 11c0 2.36 1.28 4.48 3.3 5.94-.11.9-.42 2.24-1.2 3.56a.5.5 0 0 0 .62.72c1.77-.64 3.13-1.5 3.99-2.13.99.24 2.05.37 3.29.37 5.52 0 10-3.58 10-8s-4.48-8-10-8z"/>
+              </svg>
+              <span class="comment-count"><%= commentTotal %></span>
+            </button>
+          </div>
+
           <span class="points-count"><%= p.points %> <%= p.points === 1 ? 'point' : 'points' %></span>
-          <span class="like-count"><%= p.like_count %> <%= p.like_count === 1 ? 'like' : 'likes' %></span>
-          <% if (guest) { %>
-            <form method="post" action="/p/<%= p.submission_id %>/like" class="like-form">
-              <button
-                type="submit"
-                class="like-button<%= p.viewer_liked ? ' like-button-liked' : '' %>"
-                aria-pressed="<%= p.viewer_liked ? 'true' : 'false' %>"
-                aria-label="Like this photo"
-              >&hearts;</button>
-            </form>
-          <% } %>
         </div>
 
-        <!-- Flat comment list — no nested replies. -->
-        <div class="feed-comments">
-          <% p.comments.forEach(function (c) { %>
-            <p class="feed-comment">
-              <a href="/u/<%= c.guest_id %>"><%= c.guest_name || 'Guest' %></a>
-              <%= c.body %>
-            </p>
-          <% }); %>
+        <% if (commentTotal > 0) { %>
+          <div class="feed-comments">
+            <% commentPreview.forEach(function (c) { %>
+              <p class="feed-comment feed-comment-row">
+                <a href="/u/<%= c.guest_id %>"><%= c.guest_name || 'Guest' %></a>
+                <%= c.body %>
+              </p>
+            <% }); %>
+            <button
+              type="button"
+              class="see-all-comments"
+              data-open-comments="<%= p.submission_id %>"
+            >See all <%= commentTotal %> comment<%= commentTotal === 1 ? '' : 's' %></button>
+          </div>
+        <% } %>
+
+        <% if (p.task_title) { %>
+          <p class="feed-task-line">
+            for &ldquo;<a href="/gallery?task=<%= p.task_id %>"><%= p.task_title %></a>&rdquo;
+          </p>
+        <% } %>
+
+        <%# Comments dialog (#248 amendment 2026-07-08): a native <dialog>
+            opened via showModal() from src/public/js/feed.js. Top-layer
+            rendering escapes .feed-item's paint containment (the round-1
+            "fixed" scrim pinned itself to the card, not the viewport),
+            centers the panel, makes the background inert (one dialog at a
+            time), and closes on Escape natively. The header thumbnail — not
+            custom title text — carries the photo context; the title stays
+            the generic "<Name>'s photo" (owner note 2026-07-05). %>
+        <dialog
+          class="comments-dialog"
+          id="comments-dialog-<%= p.submission_id %>"
+          aria-labelledby="comments-dialog-title-<%= p.submission_id %>"
+        >
+          <div class="comments-dialog-header">
+            <img class="comments-dialog-thumb" src="/thumbs/<%= p.thumb_path %>" alt="" />
+            <h2 class="comments-dialog-title" id="comments-dialog-title-<%= p.submission_id %>">
+              <%= p.guest_name || 'Guest' %>&rsquo;s photo
+            </h2>
+            <button
+              type="button"
+              class="comments-dialog-close"
+              data-close-comments
+              aria-label="Close comments"
+            >&times;</button>
+          </div>
+          <div class="comments-dialog-thread">
+            <% if (commentTotal === 0) { %>
+              <p class="muted comments-dialog-empty">No comments yet.</p>
+            <% } %>
+            <% p.comments.forEach(function (c) { %>
+              <p class="feed-comment">
+                <a href="/u/<%= c.guest_id %>"><%= c.guest_name || 'Guest' %></a>
+                <%= c.body %>
+              </p>
+            <% }); %>
+          </div>
           <% if (guest) { %>
-            <form method="post" action="/p/<%= p.submission_id %>/comments" class="comment-form">
-              <input
-                type="text"
+            <%# Composer, Instagram pattern: viewer avatar, borderless
+                auto-growing textarea (src/public/js/feed.js), Post as a
+                plain text control muted while the field is empty. %>
+            <form
+              method="post"
+              action="/p/<%= p.submission_id %>/comments"
+              class="comment-form comments-dialog-form"
+            >
+              <% if (guest.avatar_path) { %>
+                <img class="comments-dialog-avatar" src="/uploads/<%= guest.avatar_path %>" alt="" />
+              <% } else { %>
+                <span class="comments-dialog-avatar comments-dialog-avatar-initials" aria-hidden="true"><%= initials(guest.name) || '?' %></span>
+              <% } %>
+              <textarea
                 name="body"
+                rows="1"
                 maxlength="<%= commentMaxLength %>"
                 placeholder="Add a comment"
                 aria-label="Add a comment"
                 required
-              />
-              <button type="submit" class="btn btn-sm">Post</button>
+              ></textarea>
+              <button type="submit" class="comment-post">Post</button>
             </form>
           <% } %>
-        </div>
+        </dialog>
       </article>
     <% }); %>
   </div>

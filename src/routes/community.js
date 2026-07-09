@@ -151,14 +151,26 @@ function hasLiked(submissionId, guestId) {
 // hand-copied literal that can drift from this server rule.
 const COMMENT_MAX_LENGTH = 300;
 
+// The ONE statement of "a comment is visible" — mirrors feed.js's VISIBLE_WHERE
+// for submissions. A comment is visible when its own moderation flag is clear;
+// this is a separate flag from the submission-level taken_down that
+// feed.feedWindow() owns. Every query that must agree with the rendered thread
+// (attachComments below, and the badge/See-all count in the comments POST
+// route) composes this constant, so the rule appears exactly once — if comment
+// moderation ever grows a second condition, the count and the list cannot
+// drift apart. The `c.` alias qualifier matches attachComments' JOIN alias and
+// is harmless in the unaliased count query (SQLite resolves it to the one
+// comments table).
+const COMMENT_VISIBLE_WHERE = 'c.taken_down = 0';
+
 /**
  * Attach a `comments` array to each photo in place, in one grouped query
  * rather than one query per photo. Loaded only for the submission ids the
  * feed already handed us — those rows are already visible because they came
  * from feed.feedWindow(), which owns the taken_down = 0 rule on submissions.
- * This function never re-types that rule; it only adds the comment-level
- * taken_down = 0 filter, which is a separate moderation flag on comments
- * themselves. Oldest-first within each photo, joined to the commenter's name.
+ * This function never re-types that submission rule; it composes
+ * COMMENT_VISIBLE_WHERE for the separate comment-level moderation flag.
+ * Oldest-first within each photo, joined to the commenter's name.
  * Photos with zero comments get [], not undefined, so the view never has to
  * branch on a missing field.
  */
@@ -177,7 +189,7 @@ function attachComments(photos) {
          FROM comments c
          JOIN guests g ON g.id = c.guest_id
         WHERE c.submission_id IN (${placeholders})
-          AND c.taken_down = 0
+          AND ${COMMENT_VISIBLE_WHERE}
         ORDER BY c.created_at ASC, c.id ASC`
     )
     .all(...photos.map((p) => p.submission_id));
@@ -193,6 +205,21 @@ function attachComments(photos) {
     p.comments = commentsById.get(p.submission_id) || [];
   }
   return photos;
+}
+
+/**
+ * How many visible comments a submission has — the count the feed's badge and
+ * the "See all <N> comments" line render. Composes COMMENT_VISIBLE_WHERE so it
+ * can never disagree with the thread attachComments builds from the same rule.
+ * @param {number} submissionId
+ * @returns {number}
+ */
+function visibleCommentCount(submissionId) {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM comments c WHERE c.submission_id = ? AND ${COMMENT_VISIBLE_WHERE}`
+    )
+    .get(submissionId).n;
 }
 
 /**
@@ -403,10 +430,19 @@ router.post('/p/:submissionId/like', requireGuest, (req, res) => {
 // Guest-only (requireGuest 403s anonymous requests before this handler runs,
 // so no comments row is ever created for AC8). A taken-down or missing
 // submission 404s, mirroring the like route above. The body is trimmed and
-// rejected (no insert) if empty or over COMMENT_MAX_LENGTH — that rejection
-// is silent (redirect, no row), matching the issue's server-side-cap AC4;
-// there is no separate error page because "your comment didn't post" needs
-// no more ceremony than the redirect back to the same photo.
+// rejected (no insert) if empty or over COMMENT_MAX_LENGTH — for a plain
+// form post that rejection is silent (redirect, no row), matching the
+// issue's server-side-cap AC4; there is no separate error page because
+// "your comment didn't post" needs no more ceremony than the redirect back
+// to the same photo.
+//
+// Two response shapes (#248 amendment AC8, mirroring the like route): the
+// plain form POST redirects back to the bounded feed page CONTAINING this
+// photo, and a fetch() from the comments dialog — which sends Accept:
+// application/json — gets { comment, commentCount } so the client appends
+// the new comment in place without re-downloading the feed. The form path
+// is the no-JS fallback; both run the identical insert. On the JSON path an
+// invalid body answers 400 JSON (a fetch cannot see a "silent" redirect).
 // ---------------------------------------------------------------------------
 router.post('/p/:submissionId/comments', requireGuest, (req, res) => {
   const submissionId = parseInt(req.params.submissionId, 10);
@@ -419,16 +455,36 @@ router.post('/p/:submissionId/comments', requireGuest, (req, res) => {
     return res.status(404).render('404', { title: 'Not found' });
   }
 
+  const jsonWanted = req.accepts(['html', 'json']) === 'json';
+
   const body = (req.body.body || '').trim();
   if (body.length === 0 || body.length > COMMENT_MAX_LENGTH) {
+    if (jsonWanted) {
+      return res.status(400).json({ error: `Comment must be 1-${COMMENT_MAX_LENGTH} characters.` });
+    }
     return res.redirect('/feed?from=' + submissionId + '#photo-' + submissionId);
   }
 
-  db.prepare(`INSERT INTO comments (submission_id, guest_id, body) VALUES (?, ?, ?)`).run(
-    submissionId,
-    req.guest.id,
-    body
-  );
+  const info = db
+    .prepare(`INSERT INTO comments (submission_id, guest_id, body) VALUES (?, ?, ?)`)
+    .run(submissionId, req.guest.id, body);
+
+  if (jsonWanted) {
+    // Count only what the feed itself renders — visibleCommentCount composes
+    // the same COMMENT_VISIBLE_WHERE rule attachComments builds the thread
+    // from, so the badge/see-all numbers the client writes from this response
+    // always match the next full page load.
+    const commentCount = visibleCommentCount(submissionId);
+    return res.json({
+      comment: {
+        id: info.lastInsertRowid,
+        body,
+        guest_id: req.guest.id,
+        guest_name: req.guest.name,
+      },
+      commentCount,
+    });
+  }
 
   return res.redirect('/feed?from=' + submissionId + '#photo-' + submissionId);
 });
