@@ -49,6 +49,11 @@ Read the real clock at start: PowerShell — `[DateTimeOffset]::UtcNow.ToUnixTim
 
 Each search front must show at least one concrete action (a Glob, Grep, doc lookup, or WebSearch). A front with no tool call is not coverage — do not report it as searched.
 
+When the topic names a formula, a visibility filter, a status label, or an identity check, grep for
+its existing owner (the module that currently computes, checks, or asserts it) and record the
+`file:line`. This is a required part of the local-repo front, not an optional extra — such a topic
+with no owner search reported is not coverage.
+
 ## Findings doc format
 
 ```markdown
@@ -72,6 +77,12 @@ Elapsed: <N> seconds
 
 | URL | Description | Verdict |
 | --- | ----------- | ------- |
+
+## Existing owner of a named rule
+
+| Rule | Existing owner (file:line) | Verdict                          |
+| ---- | -------------------------- | -------------------------------- |
+| ...  | ...                        | has an owner / no existing owner |
 
 ## Standard / pattern learned
 
