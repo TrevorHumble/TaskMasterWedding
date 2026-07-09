@@ -55,3 +55,4 @@
 {"schema":"gl1","pr":334,"issue":null,"merged_sha":"6d4723bd25d8c8a68a2eca265f9d9ace42dcc0a1","ts":"2026-07-09T03:10:49Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":336,"issue":310,"merged_sha":"4f13a62b31d4e0916b23e1516505e7f3548bb8d1","ts":"2026-07-09T03:24:30Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":336,"merged_sha":"4f13a62b31d4e0916b23e1516505e7f3548bb8d1","ts":"2026-07-09T03:24:30Z","files":["CLAUDE.md","DESIGN.md","agents/orchestrator.md","standards/adversarial-review-protocol.md"]}
+{"schema":"gl1","pr":341,"issue":248,"merged_sha":"9a0a81c18e910a663060c5da2f42a40b8cfd7b91","ts":"2026-07-09T04:16:30Z","reviews":[],"labels":[],"freeze":false}
