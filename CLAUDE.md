@@ -25,6 +25,8 @@ All changes go through an enforced pipeline. Do not commit code straight to the 
 4. **Adversarial review of the PR** — independent reviewers attack the implementation against the issue and the standards.
 5. **Commit / PR** — only after review passes. Push the branch, open a pull request (`gh pr create`), watch CI to green, then merge. Non-visual changes merge once adversarial review has passed and CI is green. **Visual / product-direction changes** additionally pass the owner's pre-merge visual-approval loop (rendered screenshots at three phone form factors, approve/edit to a yes/no) before merging — see `agents/orchestrator.md` § "Visual-approval loop" and `DESIGN.md` § "Visual-approval loop reinstated". The `.githooks/pre-commit` hook and the scripts in `tools/` enforce the gates locally.
 
+**Wave boundary — owner-invoked review, not a gate.** After a wave's planned batch of issues merges, the owner may run `/post-wave-review` (#302) — a cross-PR regression, seam, and docs-vs-code drift check plus a lived-data drill. This is **owner-invoked**: it never runs automatically and is never a precondition for starting the next wave. Full mechanics: `standards/adversarial-review-protocol.md` § "Wave governance (#310)"; orchestrator-side nudge: `agents/orchestrator.md` § "Wave boundary".
+
 Standards live in `standards/`. Agent definitions live in `agents/`. Both are ported in separately; treat them as the source of truth and point to them rather than restating them.
 
 ## Model policy
