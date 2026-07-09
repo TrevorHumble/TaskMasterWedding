@@ -43,3 +43,4 @@
 {"schema":"gl1","pr":326,"issue":290,"merged_sha":"28ae079e29c544bf9a75e7b593a0f3318d0d4c53","ts":"2026-07-09T02:29:49Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":326,"merged_sha":"28ae079e29c544bf9a75e7b593a0f3318d0d4c53","ts":"2026-07-09T02:29:49Z","files":["DESIGN.md"]}
 {"schema":"gl1","pr":330,"issue":null,"merged_sha":"9f4900985a5a2ad3dd81bf688061cae900d81fff","ts":"2026-07-09T02:34:30Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":325,"issue":306,"merged_sha":"ba381706b1da2f7c424c8d64470d14b7c6d4f714","ts":"2026-07-09T02:39:48Z","reviews":[],"labels":[],"freeze":false}
