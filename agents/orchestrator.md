@@ -36,6 +36,18 @@ allowed rounds.
    documented on 2026-07-02. This is enforced by `.claude/commands/build.md` Step 0, not opt-in
    prose; a session invoked directly (not via `/build`) must still satisfy it before proceeding.
 
+   **Fresh base, not just isolation (#357).** `tools/new-agent-worktree.ps1` now fetches
+   `origin/main` first and cuts a new branch from it — never from local HEAD — so the worktree
+   starts 0 commits behind regardless of how stale the primary checkout's local `main` is. Once
+   inside the worktree, run `powershell -File tools/check-freshness.ps1` against it before any
+   further step — expect `0 commits behind origin/main` for a freshly-cut one. **The primary
+   checkout's own behind-count is not this gate and does not abort the build** — it is bypassed
+   entirely by cutting straight from `origin/main`. If the check reports drift, its output names
+   the count with the literal phrase `commits behind`; resync per its instructions before
+   continuing. This closed the hole #357 documented: a worktree cut from a local `main` 76 commits
+   behind `origin/main` passed a full adversarial review certifying work against a base
+   `origin/main` had already abandoned.
+
 ---
 
 ## Pipeline (ordered)
@@ -168,6 +180,14 @@ seam, docs-vs-code drift, and lived-data-drill check.
 **Nudge, not a gate.** This is advisory only: it never blocks the next wave from starting, never runs
 `/post-wave-review` automatically, and is never a precondition for picking up the next issue. Full
 rationale: `standards/adversarial-review-protocol.md` § "Wave governance (#310)".
+
+**One wave in flight at a time (#357).** Between this wave's merge and the next wave's launch, run
+`.claude/commands/realign.md` (`/realign <next-batch-issue-numbers>`) — the mechanical complement to
+`/post-wave-review`'s judgment: it resyncs local `main` and reports any file overlap between the next
+batch's declared `Touches` and what the just-finished wave merged. It is distinct from
+`/post-wave-review` (mechanical alignment vs. post-merge judgment, per `/realign`'s own file) and does
+not replace it. If waves overlap in time there is no "between" seat for either check to occupy, and a
+session can drift mid-run the way #357's incident did.
 
 ---
 
