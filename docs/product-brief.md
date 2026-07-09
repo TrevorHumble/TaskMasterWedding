@@ -49,6 +49,8 @@ What the owner asked for, in his own words, captured from discovery. This is the
 
 - **Auto badges are earned by completing a number of tasks:** about **3 badges**, one every **5 tasks** (so at 5, 10, and 15 completed).
 - **Special badges** exist that **the task master awards** by hand (not earned automatically).
+- **Metric and transferable badges** are computed from live standings (e.g. a "most photos" badge that can change hands as the leaderboard moves), built out in the implementation beyond the original discovery scope.
+- **The task master can also create `custom` badges** — the catalog is not a fixed list.
 - **Placeholder badge art is fine** — the owner is OK with designed placeholders.
 - **Badges are visible to everyone**, not private.
 

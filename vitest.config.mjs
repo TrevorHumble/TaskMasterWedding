@@ -11,6 +11,10 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.js'],
+    // Mechanical guard (#313): fails the run if any test touches the live
+    // data/app.db* files instead of an isolated temp DATA_DIR. No-ops
+    // cleanly when those files don't exist yet (fresh checkout / CI).
+    globalSetup: ['./tests/helpers/global-setup.js'],
     // Bounded retry absorbs transient pwsh-spawn flakes on CI (cold-start
     // contention can push a launcher past the default timeout) without
     // masking a genuine regression, which still fails every attempt. See #68.
