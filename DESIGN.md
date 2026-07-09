@@ -6,22 +6,22 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
 
 ## Constraints that shaped the design
 
-- One Windows 11 laptop hosts everything for a single weekend. No cloud servers, no paid services.
-- About 100 concurrent guests, all on phones, all over a public Cloudflare quick tunnel.
-- The couple and a non-developer admin run it. Setup must be a handful of commands.
-- Everything must be exportable after the event and then thrown away.
+- One small Linux host (VPS or PaaS volume) with a persistent disk and TLS terminated at a reverse proxy, running from before the welcome dinner until the post-event export.
+- About 100 concurrent guests, all on phones, over the public internet.
+- The couple and a non-developer admin still run it; setup is the `docs/deploy.md` runbook.
+- Everything must be exportable after the event, then the host is torn down.
 
 ## Key decisions
 
 ### Single SQLite file via better-sqlite3 (synchronous)
 
-One file at `data/app.db`, opened synchronously. No separate database server to install or babysit. better-sqlite3 ships prebuilt binaries for Node 20 on Windows x64. Synchronous calls keep route handlers linear and readable; at ~100 guests the load never justifies async DB plumbing. WAL journal mode and `foreign_keys = ON` are set on every open (`src/db.js`).
+One file at `data/app.db`, opened synchronously. No separate database server to install or babysit. better-sqlite3 ships prebuilt binaries for Node 20 on Windows x64. Synchronous calls keep route handlers linear and readable; at ~100 guests the load never justifies async DB plumbing. WAL journal mode and `foreign_keys = ON` are set on every open (`src/db.js`). The single-file model makes the hosted persistence boundary exactly `data/` plus the backup schedule (`scripts/backup.js`, scheduled per `docs/deploy.md`).
 
 Tradeoff: synchronous DB calls block the event loop. Acceptable at this scale; would not be at thousands of concurrent users.
 
 ### Server-rendered EJS, vanilla client JS, no build step
 
-Pages render on the server with EJS. The client side is plain JavaScript in `src/public/js/`. No bundler, no framework, no transpile step means nothing to build on the laptop and no toolchain to break the weekend of the event.
+Pages render on the server with EJS. The client side is plain JavaScript in `src/public/js/`. No bundler, no framework, no transpile step means nothing to build on the server, no toolchain to break days before the wedding.
 
 ### Per-guest token in a signed cookie for guest auth
 
@@ -41,11 +41,19 @@ The admin ("Task Master") authenticates with one password, hashed with bcryptjs 
 
 ### COOKIE_SECRET must be fixed for the event
 
-If `COOKIE_SECRET` is unset, `config.js` generates a random secret at boot and warns. That invalidates every signed cookie on restart, signing everyone out. For the wedding the secret is fixed in `.env` so restarts do not disrupt guests. The fallback exists only so a fresh clone still boots.
+If `COOKIE_SECRET` is unset, `config.js` generates a random secret at boot and warns. That invalidates every signed cookie on restart, signing everyone out. For the deployment the secret is fixed in the host's environment (`.env` or the platform's secret store) so restarts do not disrupt guests. The fallback exists only so a fresh clone still boots.
 
 ### Photos: multer intake, sharp normalization, takedown over delete
 
 Uploads come in through multer; sharp produces a normalized full-size original plus a small thumbnail (`THUMB_WIDTH = 400`). Originals live in `data/uploads/`, thumbnails in `data/thumbs/`, served at `/uploads` and `/thumbs`. The admin "takes down" a photo by setting `taken_down = 1` rather than deleting the row, so a moderation action is reversible and the submission's history is preserved. A taken-down photo is hidden from the gallery, profiles, and scoring but can be restored.
+
+### sharp 0.35.2 SAC block was a reputation-lag, now cleared (#304)
+
+**Finding (2026-07-08):** the `ERR_DLOPEN_FAILED` block on `sharp-win32-x64-0.35.2.node` that cost the #239 and #254 builds a junction workaround was **Smart App Control reputation-lag**, not a permanent signing gap. Smart App Control blocks a new/unknown unsigned binary by cloud reputation until the file's hash accrues it, then allows it once it clears — it is not a static policy against unsigned code. Re-tested on the host with SAC still in **Enforce** mode (`HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy\VerifiedAndReputablePolicyState = 1`): a fresh `npm ci` installs sharp 0.35.2, `node -e "require('sharp')"` exits 0, and `npm test` is green (69 files / 546 tests, no sharp-dependent suite failing to import). The `.node` binary is still `NotSigned` with no mark-of-the-web — the exact conditions the original block was attributed to — yet it loads; the install is a genuine npm download, not a junction.
+
+**Decision:** keep sharp at 0.35.2; no pin-back. Pinning back would downgrade a wedding-critical, security-relevant image library to fix a failure that no longer reproduces, and Dependabot would immediately re-open the same bump.
+
+**PR #14's tracked-decision status:** the 0.33.5→0.35.2 bump (PR #14) was triaged `review` tier ("sharp is a wedding-critical prod dep; image processing. HELD for a tested decision.", 2026-07-01) and merged 2026-07-02 — with **no recorded on-host smoke test**. That gap is what armed the landmine: the tier logic correctly held the PR for a decision, but the decision that shipped was a merge with no evidence a native binary swap would still load under SAC on the actual event laptop. See the "Native-binary members need an on-host smoke test before merge (#304)" rule in `CLAUDE.md` § Dependency updates, added by this issue to close that gap going forward.
 
 ### Scoring derived, not stored
 
@@ -76,7 +84,7 @@ An admin create/award/remove request for a `metric` or `transferable` code is re
 
 ### Export as a ZIP + xlsx, then discard
 
-The admin runs one export: archiver streams a ZIP of all photos grouped one folder per guest, plus a `summary.xlsx` (exceljs) of points, badges, and tasks. After the event the photos are uploaded elsewhere and the `data/` directory is discarded. No long-term storage strategy is needed because the app's lifetime is the weekend.
+The admin runs one export: archiver streams a ZIP of all photos grouped one folder per guest, plus a `summary.xlsx` (exceljs) of points, badges, and tasks. After the event the photos are uploaded elsewhere and the `data/` directory is discarded. Durability during the event's run comes from scheduled backups (`scripts/backup.js`, run on a schedule per `docs/deploy.md`) to a separate `./backups` volume, not from retaining `data/` after teardown.
 
 ### Merge policy: owner-merge boundary retired
 
@@ -100,9 +108,15 @@ This decision **supersedes** the `agents/orchestrator.md` owner-visual-gate prev
 
 **Not a redesign license.** This gate is a product-taste checkpoint, not authorization for agents to originate design changes — the north-star's "agents do not redesign" still stands.
 
-### Cloudflare quick tunnel for public access
+### Hosted deployment
 
-A free `cloudflared tunnel --url http://localhost:3000` gives a public HTTPS URL with no account. The URL changes each run; the app does not depend on a stable public hostname.
+**Decision (2026-07-07):** the app moves from the laptop-and-tunnel model to a rented host. SQLite and local-disk photos are deliberately retained — the host's persistent disk makes them safe at this scale, so the single-file-database decision above is not revisited. TLS terminates at the reverse proxy; the app itself still serves plain HTTP on localhost, as it always did. `TRUST_PROXY` (`config.js`) tells Express to honor the proxy's forwarded-for headers so downstream code sees the real guest IP rather than the proxy's. The public hostname is now stable and load-bearing: the QR codes printed for the event encode it, so it cannot change between print and party the way a tunnel URL could.
+
+The public gallery pages are deliberately non-indexable (`robots.txt` plus a `noindex` response header and meta tag, decided 2026-07-07) — a hosted app with a stable, guessable-shaped URL is discoverable in a way a per-run tunnel URL never was, and guest photos are not meant to surface in search.
+
+**Naming note:** `TRUST_PROXY` and the other names recorded in this ADR are the spec — #282 implements exactly these names. A forced divergence updates this ADR in the implementing PR.
+
+**Historical:** the app previously ran on a Windows laptop behind a Cloudflare quick tunnel (`cloudflared tunnel --url http://localhost:3000`), whose URL changed every run and was never depended on being stable.
 
 ### Commit gate: review evidence bound to the staged tree
 
@@ -170,7 +184,7 @@ Every GitHub issue is created carrying the `needs-issue-review` label (`gh issue
 
 **Honest bar:** tamper-evident, not tamper-proof — the same residual as every other gate in this file. An actor with repo write can still add or remove `needs-issue-review` or `unverified-issue` by hand; the guard makes an unreviewed issue conspicuous on the board, it does not make bypass impossible. It is the advisory-visibility sibling of #48 (un-bypassable server-side merge enforcement), not a replacement for it — #48 still governs whether unreviewed work can reach `main`, this guard only governs whether it can sit unnoticed on the issue board.
 
-**Execution surface:** runs on GitHub-hosted Actions (`runs-on: ubuntu-latest`), not the event laptop — consistent with the existing `commit-gate-integrity`/`merge-association` CI backstop (see "Issue-review gate" above, #46). The laptop-only constraint at the top of this file governs where the running wedding app is hosted; it says nothing about the CI/enforcement surface, so this guard adds no app runtime to the cloud.
+**Execution surface:** runs on GitHub-hosted Actions (`runs-on: ubuntu-latest`), not the rented host the wedding app runs on — consistent with the existing `commit-gate-integrity`/`merge-association` CI backstop (see "Issue-review gate" above, #46). The hosting constraint at the top of this file governs where the running wedding app lives; it says nothing about the CI/enforcement surface, so this guard adds no app runtime to the cloud.
 
 **Distinct from `merge-association`:** that CI job checks commit→issue linkage at PR/merge time; this guard fires on `issues.opened`, before any code exists. No overlap between the two.
 
@@ -242,7 +256,7 @@ Fable self-certified merges are permitted from the merge of the change that ship
 
 ### Event mode (#220): wedding-day freeze with expiring flag and mandatory retro-review
 
-**Why it exists:** during the wedding weekend a broken guest path must be fixable in minutes, and the commit gates as designed block every code commit until review evidence exists. Waiting on reviewer agents mid-reception fails the event. Event mode is the pre-declared, expiring, fully-recorded exception: a hotfix ships on green automated checks alone, and every such commit is mechanically queued for review after the event. Nothing permanently escapes review.
+**Why it exists:** during the wedding weekend a broken guest path must be fixable in minutes, and the commit gates as designed block every code commit until review evidence exists. Waiting on reviewer agents mid-reception fails the event. Event mode is the pre-declared, expiring, fully-recorded exception: a hotfix ships on green automated checks alone, and every such commit is mechanically queued for review after the event. Nothing permanently escapes review. This mechanism covers the wedding weekend itself and is unchanged by the move to a hosted deployment; an incident outside that window takes the normal pipeline.
 
 **The flag.** `governance/event-mode.json` — single-line JSON `{schema:"em1", expires:"<ISO UTC>", reason, created:"<ISO UTC>"}`. Deliberately **not** markdown: creating or removing it is a CODE commit that itself passes the normal gate, so entering and leaving event mode is a reviewed act. Its **single writer** is `tools/set-event-mode.ps1` (`-ExpiresUtc <date> -Reason <text>` to create; `-Clear` to remove); the file is never hand-edited. The shared reader is `tools/event-mode-core.ps1` (states: NONE / INVALID / ACTIVE / EXPIRED — only ACTIVE enables anything; INVALID and EXPIRED collapse to enables-nothing, fail closed).
 
@@ -265,6 +279,16 @@ Fable self-certified merges are permitted from the merge of the change that ship
 **Coverage gate (#198).** The thresholds in `vitest.config.mjs` were commented out from the start — the 80% rule the owner believed was enforced never gated anything. Rather than wait for a suite that clears 80 (the "enable later" posture that had already held for months), the gate is ON at the floors measured on `main` @ 485886a (2026-07-05): statements 62, branches 53, functions 65, lines 62. The floors are a **ratchet**: raise them toward 80/80/80/80 as tests land (tracked by #181), never lower them. A change that drops coverage below any floor fails the required `test` check — that is the failure mode the gate exists to catch, and it works today, not after some future test-writing push.
 
 **Mutation testing (#199).** Coverage says a line _ran_ under tests; it cannot say a test would _fail_ if the line were wrong. Stryker (`npm run mutation`, config in `stryker.conf.json`) measures exactly that by planting small bugs and counting how many the suite catches. It is a **signal, not a gate**: too slow and too noisy to block PRs, so it runs on demand and on a weekly schedule (`.github/workflows/mutation.yml`, never a required check). The baseline score, the plain-English list of what the tests currently miss, and the ratchet intent live in `docs/test-quality.md`.
+
+### Wave governance (#310): grandfathering, owner-invoked wave review, doc-currency step
+
+**Decision (2026-07-08, owner):** three governance mechanisms recorded during the Wave-1 post-wave review session, resolving three findings the session surfaced (evidence: issue `#310`).
+
+**Grandfathering.** A governance or gate change merged mid-wave governs from the next issue picked up onward; an open sibling PR already in flight merges under the bar in force when its implementation began, with one exception — a `severity:blocker` security gate change reaches open PRs immediately. Recorded because a real mid-wave case surfaced in Wave-1 (PR #295/#294 and PR #298/#254) and is **correct** behavior under this rule, not a defect a reviewer should flag — worked example with timestamps: `standards/adversarial-review-protocol.md` § "Wave governance (#310)".
+
+**Owner-invoked whole-of-wave review.** `/post-wave-review` (#302) stays a manual, **owner-invoked** check — never automatic, never a precondition for the next wave — because the Wave-1 session showed it catches cross-PR defects (#313, #314, #317, #318) no per-PR review can see, but automating a full-wave review inside every PR would be pure cost on every routine change. Orchestrator-side nudge: `agents/orchestrator.md` § "Wave boundary".
+
+**Doc-currency step.** A `doc-currency` implementer-side pipeline step (Sonnet) fires on the source surface defined in `agents/orchestrator.md` § "Doc-currency step". Chosen over a doc-currency _reviewer_ (which could only flag drift, never fix it) because the #318 evidence showed the drift going unfixed for the life of four schema-changing commits despite an unwired reviewer charter (`agents/reviewer-doc-currency.md`) already on disk — an implementer-side auto-fix closes the gap a flag-only reviewer left open. That charter's eventual retirement is out of scope here — tracked separately (#323). Mechanics (trigger, staging order, the `docs-only` rule): `agents/orchestrator.md` § "Doc-currency step"; classification: `standards/adversarial-review-protocol.md` § "Wave governance (#310)".
 
 ## System-level change (definition)
 

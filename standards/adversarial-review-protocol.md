@@ -255,6 +255,22 @@ A pre-declared, expiring window in which a mid-event hotfix ships on green autom
 
 ---
 
+## Wave governance (#310) — grandfathering, owner-invoked wave review, doc-currency step
+
+Three governance mechanisms recorded 2026-07-08 by owner decision, during the Wave-1 post-wave review session. Evidence and rationale: issue `#310`. Architecture-rationale entry: `DESIGN.md` § "Wave governance (#310)".
+
+**Grandfathering — a mid-wave governance change does not reach back.** A governance or gate change (an edit to this protocol, an agent charter, a standard, or the commit-gate mechanism) that merges mid-wave governs from the **next issue picked up onward**. An open sibling PR already in flight — its implementation began before the governance change merged — merges under the bar that was in force when its implementation began; it is not required to re-satisfy a bar that landed after it started, and a reviewer must not flag it as a defect for that reason alone. This is a deliberate **grandfather** clause. Worked example: PR #295 (the visual-approval loop, #294) merged 2026-07-08 01:37:53; PR #298 (#254) merged 39 minutes later touching the exact `views/**`/`src/public/**` surface the new loop governs, with no screenshot-approval step and no reference to #294 — that is correct behavior under this clause, not a defect.
+
+One exception: a **`severity:blocker`** security gate change applies to every open sibling PR immediately, with no grandfathering. This is a **narrower, distinct** rule from the "Security escalation exception" in `## Advisory-lens lifecycle` above, and the two thresholds are not in tension: the escalation exception governs a security-lens finding (major **or** blocker) raised **on the current change under review**, escalating that change's own reviewer count. This clause instead governs a **new gate merging mid-wave and reaching backward** into already-in-flight sibling PRs that are not themselves under review — a materially riskier reach-back, so its bar is narrower (blocker-only, not major-or-blocker): a mid-wave gate change does not retroactively fail every open PR over a major finding, only over a blocker-severity security gap.
+
+**Owner-invoked whole-of-wave review — not a gate.** The whole-of-wave review (mechanism: `/post-wave-review`, #302) is **owner-invoked**: the owner runs it by hand when a wave completes; it never runs automatically, and this protocol adds no rule making it required, automatic, or a precondition for starting the next wave. Scope: cross-PR regressions, seams between PRs that individually passed review, docs-vs-code drift, and a lived-data drill (boot the previous wave's played-in DB on the new tree, restore a backup, verify the badge-catalog count). Orchestrator-side nudge: `agents/orchestrator.md` § "Wave boundary".
+
+**Doc-currency — implementer-side step, not a reviewer.** The `doc-currency` pipeline step defined in `agents/orchestrator.md` § "Doc-currency step" (spawned with an explicit `model: sonnet` pin) is an **implementer-side** step: it adds no reviewer, no entry to the Opus reviewer-model table in `## Reviewer count by artifact`, and no `doc-currency` row to the `## Which reviews does this change need?` dispatch table. It is **separate from any documentation-currency review** — distinct in mechanism and scope from the pre-existing `agents/reviewer-doc-currency.md` charter, which blocks on front-door/index-doc staleness against `standards/documentation-standards.md` as an (unwired) reviewer. Neither mechanism substitutes for the other, and neither is retired by this section — the orphan reviewer's retirement is tracked separately (#323).
+
+**`docs-only` rule.** The doc-currency agent's output is restricted to `.md` files; a non-`.md` need halts-and-reports instead of being committed (owner decision 2026-07-08: build speed over serialization). A `.md`-only (`docs-only`) contribution is covered by the single combined-tree PR-review PASS and forces no separate re-confirm round. Operational staging mechanics — why and how the correction must land before the verdict binds: `agents/orchestrator.md` § "Doc-currency step".
+
+---
+
 ## Stop condition — soft cap and severity gate
 
 the 3-round mark is a trigger, not a hard cap.

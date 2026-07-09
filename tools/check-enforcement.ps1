@@ -7,12 +7,12 @@ if (-not $top) { Write-Host "Not inside a git repo." -ForegroundColor Red; exit 
 Set-Location $top
 $ok = $true
 
-# 1. Commit gates — active right now (needs core.hooksPath set by setup.ps1).
+# 1. Commit gates — active right now (needs core.hooksPath set by tools/setup-hooks.ps1).
 $hp = "$(& git config --get core.hooksPath)".Trim()
 if (($hp -eq '.githooks') -and (Test-Path '.githooks/pre-commit') -and (Test-Path '.githooks/commit-msg')) {
   Write-Host "[ON]  Commit gates - pre-commit (tree review) and commit-msg (issue review) active." -ForegroundColor Green
 } else {
-  Write-Host "[OFF] Commit gates - not fully active (need pre-commit + commit-msg + core.hooksPath=.githooks). Reopen in Claude Code, or run setup.ps1." -ForegroundColor Red; $ok = $false
+  Write-Host "[OFF] Commit gates - not fully active (need pre-commit + commit-msg + core.hooksPath=.githooks). Reopen in Claude Code, or run tools/setup-hooks.ps1." -ForegroundColor Red; $ok = $false
 }
 
 # 2 & 3. Goal + loop gates — wired in settings; load when Claude Code opens the folder.
@@ -34,6 +34,6 @@ if ($ok) {
   Write-Host "You're protected. The goal & loop gates go live once you open this folder in Claude Code and accept its trust prompt." -ForegroundColor Green
   exit 0
 } else {
-  Write-Host "Something above is OFF - reopen this folder in Claude Code (arms the commit gate), or run:  powershell -ExecutionPolicy Bypass -File setup.ps1" -ForegroundColor Yellow
+  Write-Host "Something above is OFF - reopen this folder in Claude Code (arms the commit gate), or run:  powershell -ExecutionPolicy Bypass -File tools/setup-hooks.ps1" -ForegroundColor Yellow
   exit 1
 }
