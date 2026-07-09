@@ -64,3 +64,5 @@
 {"schema":"gl1","pr":346,"issue":302,"merged_sha":"48ff6a962c2b3e98dcb0787c79cfdc980fcf476d","ts":"2026-07-09T05:40:17Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":346,"merged_sha":"48ff6a962c2b3e98dcb0787c79cfdc980fcf476d","ts":"2026-07-09T05:40:17Z","files":[".claude/commands/post-wave-review.md"]}
 {"schema":"gl1","pr":349,"issue":null,"merged_sha":"cb66d64aa7c7dd5f5bcdd8afcd0cf618289bcd29","ts":"2026-07-09T05:45:16Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":348,"issue":282,"merged_sha":"f236b56f6e360c5a25543cfff08f13d5714de8c9","ts":"2026-07-09T06:02:24Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":348,"merged_sha":"f236b56f6e360c5a25543cfff08f13d5714de8c9","ts":"2026-07-09T06:02:24Z","files":["DESIGN.md"]}
