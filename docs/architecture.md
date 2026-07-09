@@ -4,15 +4,15 @@ How a request travels through Garden Party Pastels, and how the data is shaped. 
 
 ## Request path
 
-A guest's phone and the admin's browser both reach the laptop through a Cloudflare quick tunnel, which forwards to Express. `src/app.js` runs the request through middleware, into a router, which calls services that read and write SQLite and the file store under `data/`.
+A guest's phone and the admin's browser both reach the app server through a reverse proxy that terminates HTTPS, which forwards to Express. `src/app.js` runs the request through middleware, into a router, which calls services that read and write SQLite and the file store under `data/`.
 
 ```mermaid
 flowchart TD
-    phone["Guest phone (browser)"] --> tunnel
-    admin["Admin browser"] --> tunnel
-    tunnel["Cloudflare quick tunnel<br/>https://&lt;random&gt;.trycloudflare.com"] --> express
+    phone["Guest phone (browser)"] --> proxy
+    admin["Admin browser"] --> proxy
+    proxy["HTTPS reverse proxy (host)"] --> express
 
-    subgraph laptop["Windows laptop"]
+    subgraph server["app server"]
         express["Express app (src/app.js)<br/>localhost:3000"]
         express --> mw["Middleware<br/>signed cookies, body parsing,<br/>attachGuest"]
         mw --> auth["routes/auth.js<br/>/j/:token, /onboard, /admin/login"]

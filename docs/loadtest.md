@@ -1,6 +1,6 @@
 # Load Test — Peak Guest Traffic (Goal A)
 
-A local peak-load check for Goal A: "fast and standing with the whole guest list on it at once, on venue wifi." This drives a running, event-seeded instance with ~100 simulated guests hitting the real hot paths at once — sign-in, the home page, tasks, gallery, feed, leaderboard, and photo upload — and reports latency percentiles plus the error rate against a pass bar, so you know before the wedding whether the laptop holds up under peak, and where the ceiling is.
+A local peak-load check for Goal A: "fast and standing with the whole guest list on it at once, on venue wifi or their own connection." This drives a running, event-seeded instance with ~100 simulated guests hitting the real hot paths at once — sign-in, the home page, tasks, gallery, feed, leaderboard, and photo upload — and reports latency percentiles plus the error rate against a pass bar, so you know before the wedding whether the hosted app holds up under peak, and where the ceiling is.
 
 It adds no new dependency and no paid service: `scripts/loadtest.js` uses Node's built-in `fetch` with a bounded concurrency pool.
 
@@ -78,6 +78,6 @@ A `FAIL` line lists exactly which bar was missed (error rate, p95, or both) so y
 
 If it fails, the tunable to reach for first is `--concurrency` — vary it to find the actual ceiling (e.g. does 100 pass but 150 doesn't? what about 60?), so you know the real headroom above your expected peak guest count, not just a pass/fail at one number.
 
-## Caveat: this is not venue wifi
+## Caveat: this is not the deployed URL
 
-This test measures the laptop and the app — nothing about the network the guests' phones actually use on the day. Running it on `localhost` skips the wifi entirely: no radio contention, no distance-from-router weak signal, no other devices competing for bandwidth, none of the failure modes real **venue wifi** introduces. A clean local `PASS` tells you the laptop and the code can carry the load; it does **not** tell you the venue's wifi can. Treat the venue's actual network as a separate real-world dry-run — ideally on-site, with several phones at once — before trusting this pass bar on the wedding day itself.
+This test measures the app process itself — nothing about the real network path a guest's phone takes to the deployed URL. Running it on `localhost` skips real-network latency, the TLS handshake, and the reverse proxy hop entirely, along with venue-wifi effects like radio contention and distance-from-router weak signal. A clean local `PASS` tells you the app and the code can carry the load; it does **not** tell you the deployed URL, reached over real network and TLS/proxy overhead, can. Confirm the pass bar once against the deployed URL — ideally with several phones at once — before trusting it on the wedding day itself; that confirmation run is issue #292's job.
