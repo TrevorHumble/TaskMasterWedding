@@ -1,0 +1,42 @@
+<!-- src/views/join.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+  <h1 class="display-title">Join the Fun</h1>
+  <div class="heart-divider" style="color:var(--color-primary);"><%- include('partials/heart', { size: 20 }) %></div>
+
+  <form action="/join" method="POST" enctype="multipart/form-data">
+    <div class="form-row">
+      <label class="form-label" for="name">Your name <span class="req">*</span></label>
+      <input class="form-input" type="text" id="name" name="name" maxlength="60"
+             required autocomplete="name" placeholder="e.g. Casey Rivera">
+    </div>
+
+    <div class="form-row">
+      <label class="form-label" for="contact">Email or phone <span class="req">*</span></label>
+      <input class="form-input" type="text" id="contact" name="contact" maxlength="120"
+             required autocomplete="email" placeholder="you@example.com or (208) 555-0142">
+    </div>
+
+    <div class="form-row">
+      <label class="form-label" for="pin">Choose a 4-digit PIN <span class="req">*</span></label>
+      <input class="form-input" type="text" id="pin" name="pin" inputmode="numeric"
+             pattern="\d{4}" maxlength="4" required placeholder="0000">
+      <p class="form-help">Any 4 digits, not your bank PIN.</p>
+    </div>
+
+    <div class="form-row">
+      <span class="form-label">Add a photo (optional)</span>
+      <div class="join-photo">
+        <%- include('partials/upload-field', { id: 'avatar', name: 'avatar', accept: 'image/jpeg,image/png,image/webp' }) %>
+      </div>
+    </div>
+
+    <button class="btn btn--primary" type="submit">Start playing</button>
+  </form>
+
+  <p class="center">Already signed up? <a class="join-login-link" href="/login">Enter your code</a></p>
+
+  <script src="/js/upload-filename.js" defer></script>
+
+<%- include('partials/footer') %>

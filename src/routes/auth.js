@@ -6,9 +6,10 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 
 const config = require('../../config');
-const { db } = require('../db');
-const { requireGuest } = require('../middleware/session');
+const { db, getGuestByContact } = require('../db');
+const { requireGuest, setFlash } = require('../middleware/session');
 const photos = require('../services/photos');
+const { normalizeContact, isValidPin, makeUniqueToken } = require('../services/identity');
 
 const router = express.Router();
 
@@ -84,6 +85,102 @@ router.get('/j/:token', (req, res) => {
   } else {
     res.redirect('/');
   }
+});
+
+// --- Self-serve signup (shared entry link, issue #240) ----------------------
+//
+// Every guest gets the SAME link (QR poster / email / place card) pointing at
+// GET /join, instead of a private per-guest /j/:token link. Signup IS
+// onboarding here — there is no separate "create the account" step followed
+// by a name/avatar form; one POST does both, matching #241's re-entry
+// counterpart (log back in with contact + PIN on any device).
+
+// GET /join — show the signup form. A visitor who already has a valid guest
+// session (attachGuest ran before this router and set req.guest) is bounced
+// home so re-scanning the shared poster never dead-ends them on a form they
+// do not need.
+router.get('/join', (req, res) => {
+  if (req.guest) {
+    res.redirect('/');
+    return;
+  }
+  res.render('join', { title: 'Join the Fun' });
+});
+
+// POST /join — create a playing guest from name + contact + self-chosen PIN,
+// with an optional avatar, and sign them in immediately.
+//
+// photos.uploadAvatar is invoked with an explicit callback (same pattern as
+// POST /onboard above) so a fileFilter/size rejection or a sharp-undecodable
+// image never falls through to the global 500 handler or crashes the process
+// (Express 4 does not catch async-handler rejections; issue #187).
+router.post('/join', (req, res, next) => {
+  photos.uploadAvatar(req, res, async (err) => {
+    try {
+      const name = ((req.body && req.body.name) || '').trim();
+
+      // A rejected avatar (bad type / too large) is not itself a reason to
+      // block signup — the guest is not mid-onboarding here, they are trying
+      // to get in the door for the first time. Drop the avatar and continue;
+      // they can add one later from their profile.
+      const avatarRejected = Boolean(err);
+
+      if (!name) {
+        setFlash(res, 'error', 'Please enter your name.');
+        res.redirect('/join');
+        return;
+      }
+
+      const contact = normalizeContact(req.body && req.body.contact);
+      if (!contact) {
+        setFlash(res, 'error', 'Please enter a valid email or phone number.');
+        res.redirect('/join');
+        return;
+      }
+
+      if (!isValidPin(req.body && req.body.pin)) {
+        setFlash(res, 'error', 'Please choose a 4-digit PIN (numbers only).');
+        res.redirect('/join');
+        return;
+      }
+
+      // Duplicate check: one guest per normalized contact. Route them to
+      // re-entry instead of silently creating a second account.
+      const existing = getGuestByContact(contact.value);
+      if (existing) {
+        setFlash(res, 'error', 'Looks like you already signed up — enter your PIN to get back in.');
+        res.redirect('/login');
+        return;
+      }
+
+      const token = makeUniqueToken();
+      const info = db
+        .prepare(
+          `INSERT INTO guests (token, name, onboarded, contact, contact_type, pin)
+           VALUES (?, ?, 1, ?, ?, ?)`
+        )
+        .run(token, name, contact.value, contact.type, req.body.pin);
+      const guestId = info.lastInsertRowid;
+
+      if (!avatarRejected) {
+        try {
+          await trySaveAvatar(req.file, guestId);
+        } catch {
+          // sharp could not decode the bytes (corrupt or mislabelled image).
+          // The guest account is already created — do not block signup on a
+          // bad photo; they can add one later from their profile.
+        }
+      }
+
+      res.cookie('gsid', token, cookieOpts());
+      res.redirect('/');
+    } catch (e) {
+      // Anything unexpected in this async callback (e.g. a DB write failure)
+      // must not become an unhandled rejection that kills the process —
+      // route it to the global error handler (500 page, server stays up).
+      next(e);
+    }
+  });
 });
 
 // --- Onboarding -------------------------------------------------------------
