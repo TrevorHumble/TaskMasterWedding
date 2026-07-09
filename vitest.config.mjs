@@ -2,8 +2,10 @@ import { defineConfig } from 'vitest/config';
 
 // Coverage floors below are a RATCHET (#198): set at the measured values on
 // main @ 485886a (2026-07-05) so the suite passes today and any regression
-// fails the required CI `test` check. Raise them toward 80/80/80/80 as tests
-// are added (tracked by #181). Never lower them.
+// fails the required CI `test` check. The 80/80 lines/statements target of
+// #181 is reached (measured 2026-07-08: statements 83.06%, lines 84%,
+// branches 71.55%, functions 84.79%); branches/functions are set to that
+// measurement rounded down. Floors only move up from here.
 export default defineConfig({
   test: {
     globals: true,
@@ -17,8 +19,22 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.js', 'config.js', 'scripts/**/*.js'],
-      exclude: ['src/views/**', 'src/public/**', 'tests/**'],
-      thresholds: { lines: 62, functions: 65, branches: 53, statements: 62 },
+      // The four scripts below are process-level one-shot entrypoints: they
+      // spawn/supervise a server, push to a git remote, or drive HTTP load
+      // against a running instance. Unit tests would mock away everything
+      // they actually do, so they are excluded from the coverage denominator
+      // instead of padded with fake tests (#181). scripts/smoke.js still runs
+      // in CI as its own gate — this only removes it from unit-coverage math.
+      exclude: [
+        'src/views/**',
+        'src/public/**',
+        'tests/**',
+        'scripts/serve-resilient.js',
+        'scripts/ledger-push.js',
+        'scripts/loadtest.js',
+        'scripts/smoke.js',
+      ],
+      thresholds: { lines: 80, functions: 84, branches: 71, statements: 80 },
     },
   },
 });
