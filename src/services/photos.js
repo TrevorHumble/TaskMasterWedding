@@ -187,6 +187,43 @@ const multerInstance = multer({
 const upload = multerInstance.single('photo');
 
 // ---------------------------------------------------------------------------
+// multer configuration: multi-file DISK storage for "memory" batches (issue
+// #247 — a guest sharing photos straight to the gallery with no task). Reuses
+// the SAME disk `storage` and `fileFilter` as the single task-submission
+// `upload` above, so a memory photo goes through identical type/size
+// validation, filename randomization, and HEIC rejection copy.
+//
+// API NOTE (confirmed against node_modules/multer@2.2.0): this deliberately
+// calls `.array('photos')` with NO maxCount argument, relying on the
+// multer-INSTANCE-level `limits.files` cap instead of the per-field maxCount
+// `.array(name, maxCount)` normally takes. Those are two different guards
+// with two different error codes:
+//   - `.array(name, maxCount)` installs a per-field counter
+//     (lib/index.js `wrappedFileFilter`) that trips on the (maxCount+1)th
+//     file with MulterError code LIMIT_UNEXPECTED_FILE ("Unexpected field").
+//   - The multer-instance `limits.files` cap is enforced by busboy itself and
+//     trips on the (limits.files+1)th file with MulterError code
+//     LIMIT_FILE_COUNT ("Too many files") — see lib/make-middleware.js
+//     `busboy.on('filesLimit', () => abortWithCode('LIMIT_FILE_COUNT'))`.
+// The route (src/routes/guest.js POST /memories) catches LIMIT_FILE_COUNT
+// specifically (the issue's designed AC2 behavior), so the count MUST come
+// from limits.files, not from a maxCount argument to .array().
+const MEMORY_BATCH_MAX_FILES = 10;
+
+const multerMemoryBatchInstance = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: MAX_UPLOAD_BYTES,
+    files: MEMORY_BATCH_MAX_FILES,
+  },
+});
+
+// The middleware POST /memories uses: up to MEMORY_BATCH_MAX_FILES files
+// under the form field name "photos". e.g. <input type="file" name="photos" multiple>.
+const uploadMemoryBatch = multerMemoryBatchInstance.array('photos');
+
+// ---------------------------------------------------------------------------
 // multer configuration: MEMORY storage for avatar intake (issue #122).
 // Shared by onboarding (auth.js POST /onboard) and profile-edit (guest.js
 // POST /me/edit) so avatar bytes always arrive as req.file.buffer through the
@@ -551,7 +588,9 @@ module.exports = {
   // multer middleware + the limit/type constants (handy for views + error text)
   upload,
   uploadAvatar,
+  uploadMemoryBatch,
   MAX_UPLOAD_BYTES,
+  MEMORY_BATCH_MAX_FILES,
   THUMB_WIDTH,
   ALLOWED_LABEL,
 

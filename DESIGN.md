@@ -57,7 +57,9 @@ Uploads come in through multer; sharp produces a normalized full-size original p
 
 ### Scoring derived, not stored
 
-A guest's score is computed: one point per completed task (a non-taken-down submission) plus `bonus_points` the admin sets by judgment. Completion count drives auto badges. Keeping score derived avoids a denormalized total that can drift out of sync when a photo is taken down or restored.
+A guest's score is computed: one point per completed task (a non-taken-down submission whose `task_id` is set) plus `bonus_points` the admin sets by judgment. Completion count drives auto badges. Keeping score derived avoids a denormalized total that can drift out of sync when a photo is taken down or restored.
+
+**Amended (issue #247):** `submissions.task_id` is nullable — a "memory" is a non-taken-down submission with `task_id IS NULL` (a guest photo shared straight to the gallery, not tied to any task). A memory is **not** a task completion and earns no automatic base point; "every non-taken-down submission is worth a point" stopped being true the moment `task_id` could be absent. A memory remains eligible for an admin-awarded per-photo bonus (`submissions.photo_bonus`, issue #89) exactly like a task photo — only the automatic base point is withheld.
 
 ### Badge thresholds live in scoring.js; custom badges reverse the earlier "fixed catalog" decision
 
@@ -70,7 +72,7 @@ Badge identity stays the single existing `badges.code` column (`NOT NULL UNIQUE`
 - **System-computed** (`awarded_by = 'system'`, only ever written by `scoring.recomputeBadges`/`recomputeTransferableBadges`, never by an admin route):
   - `auto` — the three completed-task threshold badges (BLOOM/BOUQUET/GARDEN), unchanged.
   - `metric` — one-time badges computed per guest from live data, keyed by `code` to a compute function in `src/services/badges.js` (e.g. `COMPLETIONIST`: holds a visible submission for every active task; auto-revokes the moment that stops being true, such as a newly added active task).
-  - `transferable` — "steal-able" badges computed globally and reassigned on every recompute (e.g. `MOSTPHOTOS`: the guest(s) with the strict-most visible submissions; ties are held by everyone tied).
+  - `transferable` — "steal-able" badges computed globally and reassigned on every recompute (e.g. `MOSTPHOTOS`: the guest(s) with the strict-most visible **task** submissions; ties are held by everyone tied). **Amended (issue #247):** a "memory" (a submission with `task_id IS NULL`, not tied to any task) does not count toward `MOSTPHOTOS` — otherwise a guest could steal the badge by uploading many memories instead of completing tasks, the same flooding the no-automatic-points rule (above) prevents.
 - **Admin-awarded** (`awarded_by = 'admin'`, written only via `scoring.awardSpecialBadge`/`removeSpecialBadge`/`createCustomBadge`):
   - `special` — the original fixed four (EARLYBIRD, SHUTTERBUG, CROWDFAV, CHOICE).
   - `custom` — new: any badge the admin invents at runtime.
@@ -79,7 +81,7 @@ An admin create/award/remove request for a `metric` or `transferable` code is re
 
 ### Two UNIQUE constraints enforce the core rules in the schema
 
-- `submissions UNIQUE(guest_id, task_id)` — one submission per guest per task, so a task cannot be completed twice for double points. This defines the duplicate error out of existence at the database layer rather than checking for it in application code.
+- `submissions UNIQUE(guest_id, task_id)` — one submission per guest per **task**, so a task cannot be completed twice for double points. This defines the duplicate error out of existence at the database layer rather than checking for it in application code. **Amended (issue #247):** `task_id` may be `NULL` for a "memory" (a submission not tied to any task). SQLite treats every `NULL` as distinct from every other value under a `UNIQUE` constraint, so this same constraint lets a guest hold any number of `(guest_id, NULL)` memory rows alongside their at-most-one-row-per-real-task submissions — no separate constraint or table was needed.
 - `guest_badges UNIQUE(guest_id, badge_id)` — a guest holds each badge at most once, so re-running scoring or re-awarding is idempotent.
 
 ### Export as a ZIP + xlsx, then discard

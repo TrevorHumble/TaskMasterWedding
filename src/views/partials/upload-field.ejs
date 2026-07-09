@@ -9,6 +9,9 @@
       accept   (optional) - input accept attribute
       capture  (optional) - input capture attribute (e.g. "environment")
       required (optional) - boolean; adds the required attribute
+      multiple (optional) - boolean; adds the multiple attribute (issue #247's
+                 memory-batch upload; every other caller omits this and is
+                 unaffected)
 %>
 <div class="upload-field">
   <%# No-JS baseline: this visible text intentionally mirrors PLACEHOLDER /
@@ -23,6 +26,7 @@
          <% if (typeof accept !== 'undefined' && accept) { %>accept="<%= accept %>"<% } %>
          <% if (typeof capture !== 'undefined' && capture) { %>capture="<%= capture %>"<% } %>
          <% if (typeof required !== 'undefined' && required) { %>required<% } %>
+         <% if (typeof multiple !== 'undefined' && multiple) { %>multiple<% } %>
          class="visually-hidden" />
   <span class="upload-filename"></span>
 </div>

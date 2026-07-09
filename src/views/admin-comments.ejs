@@ -20,7 +20,7 @@
       <div class="comment-admin-row <%= c.taken_down ? 'is-down' : '' %>">
         <p class="comment-meta">
           <strong><%= c.guest_name || ('Guest #' + c.guest_id) %></strong>
-          on <a href="/p/<%= c.submission_id %>"><%= c.task_title %></a>
+          on <a href="/p/<%= c.submission_id %>"><%= c.task_title || 'a shared memory' %></a>
         </p>
         <p class="comment-body"><%= c.body %></p>
         <% if (c.taken_down) { %>

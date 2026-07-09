@@ -20,11 +20,11 @@
     <% photos.forEach(function (p) { %>
       <div class="photo-admin-card <%= p.taken_down ? 'is-down' : '' %>">
         <img src="/thumbs/<%= p.thumb_path %>"
-             alt="Photo by <%= p.guest_name || ('guest #' + p.guest_id) %> for <%= p.task_title %>"
+             alt="Photo by <%= p.guest_name || ('guest #' + p.guest_id) %> for <%= p.task_title || 'Memory' %>"
              loading="lazy" />
         <p class="photo-meta">
           <strong><%= p.guest_name || ('Guest #' + p.guest_id) %></strong><br />
-          <span class="muted"><%= p.task_title %></span>
+          <span class="muted"><%= p.task_title || 'Memory' %></span>
         </p>
         <% if (p.caption) { %>
           <p class="photo-caption"><%= p.caption %></p>

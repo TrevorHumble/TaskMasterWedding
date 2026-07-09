@@ -61,17 +61,21 @@ function isCompletionist(guestId) {
 }
 
 // ---------------------------------------------------------------------------
-// MOSTPHOTOS (transferable): the guest(s) with the strict-most visible
-// submissions. Ties are ALL held simultaneously (AC2). The SQL below only
-// counts visible rows and groups per guest; the "a guest with zero visible
-// submissions never holds it" rule is enforced in JS by the `if (max === 0)
-// return new Set()` guard below — without it, a fresh DB (max count 0) would
-// make every guest a co-"winner".
+// MOSTPHOTOS (transferable): the guest(s) with the strict-most visible TASK
+// submissions. Ties are ALL held simultaneously (AC2). The SQL below counts
+// only visible, task-linked rows (task_id IS NOT NULL) and groups per guest —
+// issue #247 excludes memory rows (task_id IS NULL) from this count, so a
+// guest cannot steal the badge by uploading many memories instead of
+// completing tasks. The "a guest with zero visible submissions never holds
+// it" rule is enforced in JS by the `if (max === 0) return new Set()` guard
+// below — without it, a fresh DB (max count 0) would make every guest a
+// co-"winner".
 // ---------------------------------------------------------------------------
 const stmtVisibleCountsByGuest = db.prepare(`
   SELECT guest_id, COUNT(*) AS n
     FROM submissions
    WHERE taken_down = 0
+     AND task_id IS NOT NULL
    GROUP BY guest_id
 `);
 

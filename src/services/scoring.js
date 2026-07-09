@@ -55,31 +55,45 @@ const AUTO_THRESHOLDS = BADGE_THRESHOLDS.map((b) => b.n);
 const POINTS_PER_PHOTO = 1;
 
 /**
- * Points a single photo is worth: the shared-photo base plus its admin bonus.
- * The /feed per-photo display calls this so the base lives only here, not as a
- * literal in the route.
+ * Points a single photo is worth. The /feed per-photo display calls this so
+ * the base lives only here, not as a literal in the route.
+ *
+ * A TASK photo earns the shared-photo base plus its admin bonus. A MEMORY
+ * (issue #247, task_id IS NULL) earns NO automatic base point — only its
+ * admin bonus — matching the aggregate rule in getPoints/leaderboard, which
+ * exclude a memory's base point while still counting its photo_bonus. The
+ * `hasTask` flag (default true, so every existing caller is unchanged) is
+ * what withholds the base for a memory; the base constant still appears in
+ * exactly one place (here).
+ *
  * @param {number} photoBonus - the photo's submissions.photo_bonus value
+ * @param {boolean} [hasTask=true] - true for a task photo, false for a memory
  * @returns {number}
  */
-function photoPoints(photoBonus) {
-  return POINTS_PER_PHOTO + photoBonus;
+function photoPoints(photoBonus, hasTask = true) {
+  return (hasTask ? POINTS_PER_PHOTO : 0) + photoBonus;
 }
 
 // ---------------------------------------------------------------------------
 // Prepared statements (compiled once, reused on every call for speed).
 // ---------------------------------------------------------------------------
 
-// Count a guest's completed tasks = visible submissions (taken_down = 0).
-// UNIQUE(guest_id, task_id) guarantees at most one row per task, so this is
-// both "submissions that count" and "distinct tasks completed".
+// Count a guest's completed tasks = visible, task-linked submissions
+// (taken_down = 0 AND task_id IS NOT NULL). UNIQUE(guest_id, task_id)
+// guarantees at most one row per task, so among task-linked rows this is both
+// "submissions that count" and "distinct tasks completed" — but since #247
+// made task_id nullable, "visible submission" and "task completion" are no
+// longer the same set: a memory (task_id IS NULL) is a visible submission
+// that completes no task and must NOT add a base point, so the
+// task_id IS NOT NULL filter below is load-bearing, not decorative.
 //
 // CANONICAL completed-count rule (see section 1a, Decision A): we count
-// visible submissions regardless of whether the task is still active. There
-// is intentionally NO join to `tasks` and NO is_active filter here, so a guest
-// keeps points/badges even if the admin later deactivates a task. The guest
-// home page must use this same rule for its "X of N complete" numerator.
+// visible TASK submissions regardless of whether the task is still active.
+// There is intentionally NO join to `tasks` and NO is_active filter here, so
+// a guest keeps points/badges even if the admin later deactivates a task. The
+// guest home page must use this same rule for its "X of N complete" numerator.
 const stmtCompletedCount = db.prepare(
-  'SELECT COUNT(*) AS c FROM submissions WHERE guest_id = ? AND taken_down = 0'
+  'SELECT COUNT(*) AS c FROM submissions WHERE guest_id = ? AND taken_down = 0 AND task_id IS NOT NULL'
 );
 
 // Read a guest's admin-set bonus points.
@@ -132,8 +146,10 @@ const stmtAddBonus = db.prepare(
 // ---------------------------------------------------------------------------
 
 /**
- * Number of tasks this guest has completed (visible submissions only).
- * Uses the canonical rule: taken_down = 0, ignoring task active state.
+ * Number of tasks this guest has completed (visible, task-linked submissions
+ * only — memories excluded, issue #247).
+ * Uses the canonical rule: taken_down = 0 AND task_id IS NOT NULL, ignoring
+ * task active state.
  * @param {number} guestId
  * @returns {number}
  */
@@ -143,8 +159,10 @@ function getCompletedCount(guestId) {
 }
 
 /**
- * Total points for a guest = completed tasks (1 each)
- *   + per-photo bonus (SUM of submissions.photo_bonus over visible submissions, issue #89)
+ * Total points for a guest = completed tasks (1 each; memories earn no base
+ * point, issue #247)
+ *   + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
+ *     submissions, task or memory — issue #89, preserved by #247)
  *   + admin guests.bonus_points.
  * bonus_points is stored clamped at >= 0, and photo_bonus is a non-negative
  * admin-set absolute value, so total points are always >= 0.
@@ -390,16 +408,19 @@ function addBonusPoints(guestId, delta) {
 
 /**
  * Public leaderboard: every guest ordered by total points (desc), then by
- * name, then id (stable tiebreak). Total points = visible submissions
- * + per-photo bonus (SUM of submissions.photo_bonus over visible submissions,
- * issue #89) + guests.bonus_points. Each row carries the guest's earned badge
- * codes (auto + special).
+ * name, then id (stable tiebreak). Total points = visible TASK submissions
+ * (issue #247: a memory contributes no base point)
+ * + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
+ * submissions, task or memory — issue #89, preserved by #247's design)
+ * + guests.bonus_points. Each row carries the guest's earned badge codes
+ * (auto + special).
  *
  * The completed-count here uses the SAME canonical rule as getCompletedCount
- * (section 1a, Decision A): visible submissions only (taken_down = 0), with no
- * is_active filter, so leaderboard points always match a guest's own
- * "X complete" home-page count. bonus_points is clamped >= 0 and photo_bonus
- * is a non-negative admin-set value, so points >= 0.
+ * (section 1a, Decision A; amended by #247): visible TASK submissions only
+ * (taken_down = 0 AND task_id IS NOT NULL), with no is_active filter, so
+ * leaderboard points always match a guest's own "X complete" home-page count.
+ * bonus_points is clamped >= 0 and photo_bonus is a non-negative admin-set
+ * value, so points >= 0.
  *
  * @returns {Array<{
  *   id: number,
@@ -420,6 +441,12 @@ function leaderboard() {
   // contribute SQL NULL to the points expression. POINTS_PER_PHOTO is a
   // trusted internal integer constant (not user input), interpolated so the
   // per-photo base lives in exactly one place shared with getPoints/photoPoints.
+  //
+  // "completed" (the base count) counts only TASK-linked visible rows
+  // (s.task_id IS NOT NULL) — issue #247: a memory row is visible but not a
+  // task completion, so it must not add a base point. photo_bonus stays
+  // summed over EVERY visible row (task or memory), unchanged from #89 — a
+  // memory's admin-awarded bonus still counts (AC10).
   const rows = db
     .prepare(
       `SELECT
@@ -427,8 +454,8 @@ function leaderboard() {
          g.name          AS name,
          g.avatar_path   AS avatar_path,
          g.bonus_points  AS bonus_points,
-         COUNT(s.id)                                          AS completed,
-         COUNT(s.id) * ${POINTS_PER_PHOTO} + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points AS points,
+         COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END)                                          AS completed,
+         COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END) * ${POINTS_PER_PHOTO} + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points AS points,
          MAX(s.created_at)                                    AS last_submission_at
        FROM guests g
        LEFT JOIN submissions s
