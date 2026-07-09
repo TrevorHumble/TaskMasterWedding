@@ -27,6 +27,9 @@ An award shown on a guest's profile. `type` is `auto` (BLOOM/BOUQUET/GARDEN, gra
 A guest's score. Derived, not stored: completed-submission count plus `bonus_points`. `src/services/scoring.js` is the single authority on this calculation; `admin.js` and `db.js` contain shadow duplicates of the completed-count piece that must not diverge from it.
 _Avoid_: Score (in code comments; `points` is the term used consistently elsewhere).
 
+**Likes / Comments / Per-photo points**:
+Three community features, all shipped and live. A guest reacts to a submission via `POST /p/:submissionId/like`; guest-to-guest text runs through `POST /p/:submissionId/comments` — both defined in `src/routes/community.js`, backed by the `likes` and `comments` tables in `src/db.js`. And per-photo points is the Task Master setting a submission's `photo_bonus` directly (an absolute set, not additive — distinct from a guest's overall `bonus_points`), via the admin route in `src/routes/admin.js`.
+
 **Leaderboard**:
 The public ranking of guests by points, at `/leaderboard` (`scoring.leaderboard()`).
 
@@ -56,9 +59,6 @@ Named in `docs/north-star.md` (and drafted in `data/wip-issues/0050`–`0055`) b
 - **Prize** — a physical/tangible reward tied to standings, displayed to guests.
 - **Slideshow** — an end-of-event playback of favorited submissions.
 - **Favorites** (host-curated) — a Task Master pick distinct from a guest's own submissions.
-- **Likes** — guest-to-guest reactions on a submission.
-- **Comments** — guest-to-guest text on a submission.
-- **Per-photo points** — awarding points at the submission level rather than the task level.
 
 ## Conventions for the design skills
 
