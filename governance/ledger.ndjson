@@ -38,3 +38,5 @@
 {"schema":"gl1","pr":301,"issue":null,"merged_sha":"e1ad2700bcfd02504aba2dd3dfc5c8b75d77ee22","ts":"2026-07-08T09:28:41Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":303,"issue":181,"merged_sha":"bd74f01b7c3b29eb7bd52640c86561deb839f44e","ts":"2026-07-08T10:13:59Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":312,"issue":null,"merged_sha":"78d83552b83b6fb4aa44c6caf858ca337179dfcb","ts":"2026-07-08T10:21:41Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":324,"issue":145,"merged_sha":"aba0fcd861fd91c569d3ede0bccf1c1141f9054e","ts":"2026-07-09T02:18:50Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":324,"merged_sha":"aba0fcd861fd91c569d3ede0bccf1c1141f9054e","ts":"2026-07-09T02:18:50Z","files":["tools/check-enforcement.ps1","tools/check-gate.ps1"]}
