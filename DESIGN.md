@@ -47,6 +47,14 @@ If `COOKIE_SECRET` is unset, `config.js` generates a random secret at boot and w
 
 Uploads come in through multer; sharp produces a normalized full-size original plus a small thumbnail (`THUMB_WIDTH = 400`). Originals live in `data/uploads/`, thumbnails in `data/thumbs/`, served at `/uploads` and `/thumbs`. The admin "takes down" a photo by setting `taken_down = 1` rather than deleting the row, so a moderation action is reversible and the submission's history is preserved. A taken-down photo is hidden from the gallery, profiles, and scoring but can be restored.
 
+### sharp 0.35.2 SAC block was a reputation-lag, now cleared (#304)
+
+**Finding (2026-07-08):** the `ERR_DLOPEN_FAILED` block on `sharp-win32-x64-0.35.2.node` that cost the #239 and #254 builds a junction workaround was **Smart App Control reputation-lag**, not a permanent signing gap. Smart App Control blocks a new/unknown unsigned binary by cloud reputation until the file's hash accrues it, then allows it once it clears — it is not a static policy against unsigned code. Re-tested on the host with SAC still in **Enforce** mode (`HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy\VerifiedAndReputablePolicyState = 1`): a fresh `npm ci` installs sharp 0.35.2, `node -e "require('sharp')"` exits 0, and `npm test` is green (69 files / 546 tests, no sharp-dependent suite failing to import). The `.node` binary is still `NotSigned` with no mark-of-the-web — the exact conditions the original block was attributed to — yet it loads; the install is a genuine npm download, not a junction.
+
+**Decision:** keep sharp at 0.35.2; no pin-back. Pinning back would downgrade a wedding-critical, security-relevant image library to fix a failure that no longer reproduces, and Dependabot would immediately re-open the same bump.
+
+**PR #14's tracked-decision status:** the 0.33.5→0.35.2 bump (PR #14) was triaged `review` tier ("sharp is a wedding-critical prod dep; image processing. HELD for a tested decision.", 2026-07-01) and merged 2026-07-02 — with **no recorded on-host smoke test**. That gap is what armed the landmine: the tier logic correctly held the PR for a decision, but the decision that shipped was a merge with no evidence a native binary swap would still load under SAC on the actual event laptop. See the "Native-binary members need an on-host smoke test before merge (#304)" rule in `CLAUDE.md` § Dependency updates, added by this issue to close that gap going forward.
+
 ### Scoring derived, not stored
 
 A guest's score is computed: one point per completed task (a non-taken-down submission) plus `bonus_points` the admin sets by judgment. Completion count drives auto badges. Keeping score derived avoids a denormalized total that can drift out of sync when a photo is taken down or restored.

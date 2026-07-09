@@ -89,6 +89,8 @@ Dependabot PRs are classified into two tiers by `tools/classify-dep-pr.ps1`:
 
 The authoritative tier logic lives in `tools/classify-dep-pr.ps1`; the summary here is a human-readable restatement, and the wedding-critical list is drift-guarded by `tests/classify-dep-pr.test.js`.
 
+**Native-binary members need an on-host smoke test before merge (#304).** Of the wedding-critical list, `sharp` and `better-sqlite3` ship a prebuilt native binary (a `.node` file) per platform. A `review`-tier bump to either must pass an on-host `npm ci` followed by `node -e "require('<dep>')"` (exit 0) on the Windows event laptop before merge — not just green CI. Why: Windows Smart App Control can block a new/unknown unsigned native binary by cloud reputation until its hash accrues one (see `DESIGN.md` § "sharp 0.35.2 SAC block was a reputation-lag, now cleared"), and CI runs on Linux, which cannot reproduce or catch this Windows-only failure mode.
+
 Run the classifier against a PR's metadata to determine its tier:
 
 ```powershell
