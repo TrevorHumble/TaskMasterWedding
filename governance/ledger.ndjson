@@ -73,3 +73,4 @@
 {"schema":"gl1","pr":355,"issue":291,"merged_sha":"f743d7813a5094c8b4bd67936b2c29dd1746986b","ts":"2026-07-09T07:00:35Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":365,"issue":247,"merged_sha":"f905855ccea474193aeac0be2722f590d76b5557","ts":"2026-07-09T19:06:52Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":365,"merged_sha":"f905855ccea474193aeac0be2722f590d76b5557","ts":"2026-07-09T19:06:52Z","files":["DESIGN.md"]}
+{"schema":"gl1","pr":366,"issue":null,"merged_sha":"29bf900a4cb2c79eab885431cc1ec76274e5c8da","ts":"2026-07-09T19:27:03Z","reviews":[],"labels":[],"freeze":false}
