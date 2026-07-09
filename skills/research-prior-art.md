@@ -15,6 +15,7 @@ Delegate to `agents/researcher.md`. Do not improvise the research inline.
 
 - The topic or question (one sentence; do not pad).
 - Any known local paths to check (skills, agents, standards, issues directories).
+- Any formula/filter/rule the plan names — so the researcher can search for its existing owner.
 - Whether a domain-specific reference (project docs, dependency/framework docs) is relevant.
 - The output path for the findings doc.
 
@@ -38,4 +39,4 @@ The researcher returns a findings doc at the specified path containing:
 
 ## After receiving findings
 
-Read the findings doc. Do not build anything the findings show already exists and is adaptable. If the researcher found nothing, proceed with authoring using the appropriate writer skill.
+Read the findings doc. Do not build anything the findings show already exists and is adaptable. If the researcher found nothing, proceed with authoring using the appropriate writer skill. If the findings doc's "Existing owner of a named rule" section surfaces an existing owner, hand that owner (the `file:line`) to the implementer before implementation starts — the change must extend or call that owner, not duplicate it.

@@ -277,6 +277,8 @@ These gates are additive to the existing `reviewer-issue` / `reviewer-pr` pipeli
 
 **Design-philosophy gate (PR-review time):** An implementation artifact is code, an agent spec, a skill, or a standard. A doc-only or typo-only change is NOT an implementation artifact and skips this gate. Spawn `agents/reviewer-design-philosophy.md` (Opus) for every implementation artifact at PR-review time, after `reviewer-pr` returns PASS. A FAIL is fixed and re-reviewed; it is never overridden.
 
+**Duplicated-ownership reconciliation (after the design-philosophy reviewer returns).** The reviewer runs blind: the implementer's `Duplicated-ownership self-check` handoff answer is never placed in the reviewer's briefing (that would plant a suspicion and violate the bias gate). Once the reviewer's verdict is back, the orchestrator — not the reviewer — reconciles the two independently: compare the reviewer's information-leakage findings against the implementer's self-check answer. A `none`/`no` self-check contradicted by a reviewer information-leakage finding is a self-check miss, and is itself treated as a FAIL signal on top of whatever verdict the reviewer returned.
+
 **Periodic full-system architectural audit:** Starting from the first committed BUILDLOG entry in this repo, count each committed-issue entry appended to `BUILDLOG.md` (one entry is appended per merge; audit entries, which are prefixed `[AUDIT]`, are not counted). On every 5th counted entry, run a `full-system architectural audit` over `DESIGN.md` and the `agents/`, `skills/`, and `standards/` inventory, and append the outcome as an `[AUDIT]`-prefixed BUILDLOG line (excluded from the count).
 
 ---
