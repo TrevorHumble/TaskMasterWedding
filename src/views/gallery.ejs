@@ -51,12 +51,12 @@
       <a
         class="gallery-thumb-btn"
         href="<%= overlayCount ? overlayHref : '/feed?from=' + p.submission_id + '#photo-' + p.submission_id %>"
-        aria-label="<%= overlayCount ? 'See all photos in this section' : 'View photo for ' + p.task_title %>"
+        aria-label="<%= overlayCount ? 'See all photos in this section' : 'View photo for ' + (p.task_title || 'a shared memory') %>"
       >
         <img
           class="gallery-thumb"
           src="/thumbs/<%= p.thumb_path %>"
-          alt="<%= p.task_title %>"
+          alt="<%= p.task_title || 'a shared memory' %>"
           loading="lazy"
           width="400"
           height="400"
@@ -85,8 +85,12 @@
   <% if (groups.length > 0) { %>
     <% groups.forEach(function (g) { %>
       <%
+        /* g.task_id is null for the Memories group (issue #247, task-free
+           rows partition together) — there is no single-task filter to link
+           to, so the heading falls back to the unfiltered recent view rather
+           than building a broken "?task=" link. */
         var sectionHref = view === 'task'
-          ? '/gallery?view=recent&task=' + g.task_id
+          ? (g.task_id ? '/gallery?view=recent&task=' + g.task_id : '/gallery?view=recent')
           : '/u/' + g.guest_id;
       %>
       <section class="gallery-group"<% if (view === 'user') { %> data-person-section="<%= g.heading %>"<% } %>>

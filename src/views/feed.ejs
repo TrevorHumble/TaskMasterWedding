@@ -30,7 +30,7 @@
           <img
             class="feed-photo"
             src="/thumbs/<%= p.thumb_path %>"
-            alt="<%= p.task_title %>"
+            alt="<%= p.task_title || 'a shared memory' %>"
             loading="lazy"
           />
         </a>
@@ -102,6 +102,10 @@
           <p class="feed-task-line">
             for &ldquo;<a href="/gallery?task=<%= p.task_id %>"><%= p.task_title %></a>&rdquo;
           </p>
+        <% } else { %>
+          <%# A memory (issue #247, task_id IS NULL) has no task — the card's
+              task line reads "a shared memory" and links nowhere (AC4). %>
+          <p class="feed-task-line">a shared memory</p>
         <% } %>
 
         <%# Comments dialog (#248 amendment 2026-07-08): a native <dialog>

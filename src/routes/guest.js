@@ -38,6 +38,19 @@ const scoring = require('../services/scoring');
 // maps the returned status to a response; see the handler below.
 const submissions = require('../services/submissions');
 
+// Memory-upload abuse guardrails (issue #247). config (required above) owns
+// MEMORY_RATE_MAX / MEMORY_RATE_WINDOW_MS / MIN_FREE_DISK_BYTES; the rate-limit
+// service owns the per-guest limiter and the injectable free-space reader.
+// Applied only to POST /memories below.
+const rateLimit = require('../services/rate-limit');
+
+// Copy shown when a guest is over the memory rate limit (AC11) or the data
+// volume is below MIN_FREE_DISK_BYTES (AC12). Kept as named constants so the
+// route and the tests reference the same literal in one place.
+const MEMORY_RATE_LIMIT_MESSAGE =
+  "Whoa — that's a lot of memories at once. Give it a minute and try again.";
+const MEMORY_DISK_FULL_MESSAGE = 'The gallery is full right now — please tell the hosts.';
+
 // Every route in this router requires a signed-in guest.
 router.use(requireGuest);
 
@@ -63,13 +76,16 @@ router.get('/', function (req, res) {
   const badges = scoring.getGuestBadges(guest.id); // each: {code,name,art_path,...}
 
   // The guest's own (non-taken-down) submissions, newest first, joined to
-  // task title so we can label each thumbnail on the home page.
+  // task title so we can label each thumbnail on the home page. LEFT JOIN
+  // (not JOIN): a memory (issue #247, task_id IS NULL) has no task row to
+  // join, and must still appear in My Photos with task_title coming back
+  // NULL — the view falls back to the memory's own caption instead (AC8).
   const submissions = db
     .prepare(
       `SELECT s.id, s.task_id, s.photo_path, s.thumb_path, s.caption,
               s.created_at, t.title AS task_title
          FROM submissions s
-         JOIN tasks t ON t.id = s.task_id
+         LEFT JOIN tasks t ON t.id = s.task_id
         WHERE s.guest_id = ?
           AND s.taken_down = 0
         ORDER BY s.created_at DESC, s.id DESC`
@@ -247,6 +263,135 @@ router.post('/tasks/:id/submit', function (req, res) {
       result.status === 'replaced' ? 'Photo replaced!' : 'Task complete! +1 point.'
     );
     return res.redirect('/tasks/' + taskId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /memories/new  — the "share a memory" form (issue #247). Guest-gated by
+// the router.use(requireGuest) above, same as every other route in this file
+// (AC6: a signed-out visitor gets the "Private Link Needed" screen instead).
+// ---------------------------------------------------------------------------
+router.get('/memories/new', function (req, res) {
+  res.render('memory-new', { title: 'Share a memory' });
+});
+
+// ---------------------------------------------------------------------------
+// POST /memories  — handle the multi-photo "memory" batch upload.
+// Field name is "photos" (multiple, up to photos.MEMORY_BATCH_MAX_FILES).
+// photos.uploadMemoryBatch is multer DISK storage bound to .array('photos');
+// after it runs, req.files is an array of { filename, path, ... } descriptors
+// (empty array if none were attached — multer's `files` limit is a maximum,
+// not a minimum, so zero files is not itself a multer error).
+//
+// The 11th file trips multer's own files-limit guard with MulterError code
+// LIMIT_FILE_COUNT (see photos.js's uploadMemoryBatch doc comment for why —
+// NOT the LIMIT_UNEXPECTED_FILE a naive `.array('photos', 10)` would throw
+// instead). That case re-renders the form directly (no redirect) with the
+// literal copy AC2 requires, and inserts no rows — submissions.submitMemoryBatch
+// is never called in that branch.
+//
+// Abuse guardrails (issue #247), applied AFTER multer parses the batch but
+// BEFORE any row or thumbnail is written:
+//   - Rate limit (AC11): at most MEMORY_RATE_MAX batches per guest per
+//     MEMORY_RATE_WINDOW_MS. Over the limit, the batch is rejected.
+//   - Disk-space guard (AC12): if free space on the data volume is below
+//     MIN_FREE_DISK_BYTES, the batch is rejected.
+// Multer's disk storage has already written the originals to UPLOADS_DIR by
+// the time this callback runs, so a rejecting guard deletes those originals
+// (cleanupBatchOriginals) and never calls submitMemoryBatch — so a rejected
+// batch leaves zero rows AND zero files behind (no residue), and no
+// thumbnails are ever generated for it.
+// ---------------------------------------------------------------------------
+
+// Delete the originals multer already wrote for a batch we are about to
+// reject, so a rejected batch leaves no file residue on disk. No thumbnails
+// exist yet at any rejection point (submitMemoryBatch has not run), so only
+// the originals need removing.
+function cleanupBatchOriginals(files) {
+  for (const file of files) {
+    photos.deleteOriginalFile(file.filename);
+  }
+}
+
+router.post('/memories', function (req, res, next) {
+  photos.uploadMemoryBatch(req, res, async function (err) {
+    const guest = res.locals.guest;
+
+    if (err) {
+      if (err.code === 'LIMIT_FILE_COUNT') {
+        return res.render('memory-new', {
+          title: 'Share a memory',
+          error: 'Ten photos at a time — send the rest in a second batch.',
+        });
+      }
+      // Any other multer/file-filter error (size limit or disallowed type,
+      // including the shared HEIC-rejection copy — issue #188).
+      setFlash(res, 'error', 'That batch could not be uploaded: ' + err.message);
+      return res.redirect('/memories/new');
+    }
+
+    const files = req.files || [];
+    if (files.length === 0) {
+      setFlash(res, 'error', 'Please choose at least one photo to share.');
+      return res.redirect('/memories/new');
+    }
+
+    // Rate-limit guard (AC11). recordMemoryAttempt only consumes the guest's
+    // budget when it ALLOWS the attempt, so a rejected batch does not extend
+    // the penalty past the real window. Reject before persisting; clean up the
+    // originals multer wrote so nothing is left behind.
+    const rl = rateLimit.recordMemoryAttempt(guest.id);
+    if (!rl.allowed) {
+      cleanupBatchOriginals(files);
+      return res.render('memory-new', {
+        title: 'Share a memory',
+        error: MEMORY_RATE_LIMIT_MESSAGE,
+      });
+    }
+
+    // Disk-space guard (AC12). Read free space via the injectable reader; a
+    // reader failure is a real server error, so route it to next(err) rather
+    // than silently letting the batch through. Reject before submitMemoryBatch
+    // writes any thumbnail; clean up the originals so no files remain.
+    let spaceOk;
+    try {
+      spaceOk = await rateLimit.hasFreeSpace();
+    } catch (spaceErr) {
+      cleanupBatchOriginals(files);
+      return next(spaceErr);
+    }
+    if (!spaceOk) {
+      cleanupBatchOriginals(files);
+      return res.render('memory-new', {
+        title: 'Share a memory',
+        error: MEMORY_DISK_FULL_MESSAGE,
+      });
+    }
+
+    // Persist the batch. Wrapped so a thrown error routes to the Express error
+    // handler (next(err)) rather than becoming an unhandled promise rejection
+    // that hangs the request (plan step 9b).
+    let result;
+    try {
+      result = await submissions.submitMemoryBatch({
+        guestId: guest.id,
+        files: files,
+        caption: req.body.caption,
+      });
+    } catch (batchErr) {
+      return next(batchErr);
+    }
+
+    // If every file failed to thumbnail, submitMemoryBatch inserts zero rows —
+    // do NOT tell the guest the batch was shared when nothing was (plan step
+    // 9a). Surface an error instead.
+    if (!result.submissionIds || result.submissionIds.length === 0) {
+      setFlash(res, 'error', "Sorry, we couldn't save those photos. Please try again.");
+      return res.redirect('/memories/new');
+    }
+
+    setFlash(res, 'success', "Shared! They're in the gallery.");
+    return res.redirect('/gallery');
   });
 });
 

@@ -656,6 +656,20 @@ p {
   background: var(--color-primary);
   color: var(--color-on-primary);
 }
+/* All-done nudge on the task board (issue #247): once every task is complete,
+   the memory invitation is promoted to the top as a sage card. */
+.tasks-memory-cta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4);
+  background: var(--green-50);
+  border-radius: var(--radius-input);
+  text-align: center;
+}
+.tasks-memory-cta-title {
+  margin-bottom: var(--space-3);
+  font-weight: 600;
+  color: var(--color-primary);
+}
 .task-progress-meta {
   margin-left: auto;
   font-size: var(--fs-small);

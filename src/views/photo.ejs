@@ -10,11 +10,16 @@
     <img
       class="photo-detail-img"
       src="/uploads/<%= photo.photo_path %>"
-      alt="<%= photo.task_title %>"
+      alt="<%= photo.task_title || 'a shared memory' %>"
     />
     <figcaption class="photo-detail-caption">
       <p class="photo-detail-task">
-        <a href="/gallery?task=<%= photo.task_id %>"><%= photo.task_title %></a>
+        <%# A memory (issue #247, task_id IS NULL) has no task to link. %>
+        <% if (photo.task_id) { %>
+          <a href="/gallery?task=<%= photo.task_id %>"><%= photo.task_title %></a>
+        <% } else { %>
+          a shared memory
+        <% } %>
       </p>
       <% if (photo.caption) { %>
         <p class="photo-detail-text"><%= photo.caption %></p>

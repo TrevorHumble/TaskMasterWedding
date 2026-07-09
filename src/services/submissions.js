@@ -48,6 +48,14 @@ const stmtInsertSubmission = db.prepare(
    VALUES (?, ?, ?, ?, ?, 0)`
 );
 
+// A "memory" row (issue #247): task_id is explicitly NULL, marking it as not
+// tied to any task. UNIQUE(guest_id, task_id) does not block multiple memory
+// rows per guest — SQLite treats every NULL as distinct under UNIQUE.
+const stmtInsertMemory = db.prepare(
+  `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, caption, taken_down)
+   VALUES (?, NULL, ?, ?, ?, 0)`
+);
+
 /**
  * Trim and cap a caption to the stored column's limit. A missing or non-string
  * caption (the field is optional in the upload form) becomes '' rather than
@@ -155,6 +163,66 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
   return { status, submissionId };
 }
 
+/**
+ * Record a batch of "memory" photos for a guest — visible submissions with
+ * task_id = NULL (issue #247): photos that don't correspond to any task, so a
+ * guest's camera roll can still end up in the shared gallery.
+ *
+ * Unlike submitPhoto(), this:
+ *   - never replaces an existing row (a guest may share any number of
+ *     memories; there is no (guestId, NULL) row to collide with — SQLite's
+ *     UNIQUE(guest_id, task_id) treats every NULL as distinct);
+ *   - never calls scoring.recomputeAfterSubmissionChange — memories are
+ *     deliberately excluded from points and system-computed badges (the
+ *     "40 memory uploads shouldn't flood the leaderboard/MOSTPHOTOS" rule),
+ *     so there is nothing here for a recompute to change.
+ *
+ * Each file gets the same photos.makeThumb() step submitPhoto uses. Thumbnail
+ * generation is async (sharp) and must complete before the row insert, so it
+ * runs first, file by file; only the (synchronous) inserts run inside one
+ * db.transaction. A file whose thumbnail fails (e.g. a corrupt upload that
+ * slipped past fileFilter — same failure mode submitPhoto's 'thumb_failed'
+ * status covers) is skipped: its original is deleted from disk and it
+ * contributes no row, but the rest of the batch still proceeds — one bad file
+ * among ten should not cost the guest the other nine.
+ *
+ * @param {object} params
+ * @param {number} params.guestId
+ * @param {{filename: string, path: string}[]} params.files - multer disk-storage
+ *        descriptors (photos.uploadMemoryBatch's req.files).
+ * @param {*} params.caption - raw caption input; normalized and applied to
+ *        every photo in the batch (the form has one caption field, not
+ *        per-photo captions).
+ * @returns {Promise<{status: 'created', submissionIds: number[]}>}
+ */
+async function submitMemoryBatch({ guestId, files, caption }) {
+  const cap = normalizeCaption(caption);
+
+  const prepared = [];
+  for (const file of files) {
+    let thumbPath;
+    try {
+      thumbPath = await photos.makeThumb(file.path);
+    } catch (_err) {
+      photos.deleteOriginalFile(file.filename);
+      continue; // skip this one file; the rest of the batch still proceeds
+    }
+    prepared.push({ photoPath: file.filename, thumbPath });
+  }
+
+  const submissionIds = [];
+  const insertMany = db.transaction((rows) => {
+    for (const row of rows) {
+      const info = stmtInsertMemory.run(guestId, row.photoPath, row.thumbPath, cap);
+      submissionIds.push(info.lastInsertRowid);
+    }
+  });
+  insertMany(prepared);
+
+  return { status: 'created', submissionIds };
+}
+
 module.exports = {
   submitPhoto,
+  submitMemoryBatch,
 };

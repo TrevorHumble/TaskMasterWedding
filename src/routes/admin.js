@@ -561,9 +561,14 @@ router.post('/tasks/reorder', (req, res) => {
 // GET /admin/photos  — ALL submissions, including taken-down ones
 // ---------------------------------------------------------------------------
 router.get('/photos', (req, res) => {
+  // LEFT JOIN tasks (not JOIN): a memory (issue #247, s.task_id IS NULL) has
+  // no task row to join — it must still appear here (so admins can award its
+  // per-photo bonus, AC5) with task_title coming back NULL; the view falls
+  // back to the literal "Memory" label.
   const photoRows = db
     .prepare(
       `SELECT s.id          AS id,
+              s.task_id      AS task_id,
               s.photo_path   AS photo_path,
               s.thumb_path   AS thumb_path,
               s.caption      AS caption,
@@ -575,7 +580,7 @@ router.get('/photos', (req, res) => {
               t.title        AS task_title
          FROM submissions s
          JOIN guests g ON g.id = s.guest_id
-         JOIN tasks  t ON t.id = s.task_id
+         LEFT JOIN tasks  t ON t.id = s.task_id
         ORDER BY s.created_at DESC, s.id DESC`
     )
     .all();
@@ -649,6 +654,11 @@ router.post('/photos/:id/points', (req, res) => {
 // the commenter's name and the photo/task they were left on.
 // ---------------------------------------------------------------------------
 router.get('/comments', (req, res) => {
+  // LEFT JOIN tasks (not JOIN): a comment can be left on a memory (issue
+  // #247, s.task_id IS NULL) via the same feed comment form task photos use.
+  // An inner join here would silently drop that comment from this moderation
+  // list — LEFT JOIN keeps it, with task_title coming back NULL; the view
+  // falls back to "a shared memory".
   const commentRows = db
     .prepare(
       `SELECT c.id            AS id,
@@ -662,7 +672,7 @@ router.get('/comments', (req, res) => {
          FROM comments c
          JOIN guests g      ON g.id = c.guest_id
          JOIN submissions s ON s.id = c.submission_id
-         JOIN tasks t       ON t.id = s.task_id
+         LEFT JOIN tasks t  ON t.id = s.task_id
         ORDER BY c.created_at DESC, c.id DESC`
     )
     .all();

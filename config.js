@@ -134,6 +134,22 @@ const config = {
   // "+K" overflow chip, so a guest with a large collection never overflows the
   // fixed-height row. Display-only; does not affect how many badges a guest holds.
   LEADERBOARD_BADGE_CAP: parseInt(process.env.LEADERBOARD_BADGE_CAP, 10) || 8,
+
+  // Memory upload abuse guardrails (issue #247). Memories are the first upload
+  // path with no per-guest count bound, so without these a single guest could
+  // loop POST /memories and fill the host's disk mid-event. Neither guard caps
+  // a guest's lifetime memory total (unlimited count is intentional — Goal D);
+  // they bound the RATE and protect the shared disk.
+  //
+  // MEMORY_RATE_MAX: most memory batches one guest may submit within
+  //   MEMORY_RATE_WINDOW_MS. Default 30 batches per 10 minutes.
+  MEMORY_RATE_MAX: parseInt(process.env.MEMORY_RATE_MAX, 10) || 30,
+  // MEMORY_RATE_WINDOW_MS: the sliding window, in milliseconds. Default 600000
+  //   (10 minutes).
+  MEMORY_RATE_WINDOW_MS: parseInt(process.env.MEMORY_RATE_WINDOW_MS, 10) || 600000,
+  // MIN_FREE_DISK_BYTES: reject a memory batch if free space on the data volume
+  //   is below this. Default 524288000 (500 MB).
+  MIN_FREE_DISK_BYTES: parseInt(process.env.MIN_FREE_DISK_BYTES, 10) || 524288000,
 };
 
 // ---- Lowercase aliases (backwards compatibility ONLY) ----------------------

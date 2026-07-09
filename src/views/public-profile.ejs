@@ -84,19 +84,19 @@
             <a
               class="gallery-thumb-btn"
               href="/p/<%= p.submission_id %>"
-              aria-label="View photo for <%= p.task_title %>"
+              aria-label="View photo for <%= p.task_title || 'a shared memory' %>"
             >
               <img
                 class="gallery-thumb"
                 src="/thumbs/<%= p.thumb_path %>"
-                alt="<%= p.task_title %>"
+                alt="<%= p.task_title || 'a shared memory' %>"
                 loading="lazy"
                 width="400"
                 height="400"
               />
             </a>
             <figcaption class="gallery-caption">
-              <span class="gallery-task"><%= p.task_title %></span>
+              <span class="gallery-task"><%= p.task_title || 'a shared memory' %></span>
               <% if (p.caption) { %>
                 <span class="gallery-text"><%= p.caption %></span>
               <% } %>

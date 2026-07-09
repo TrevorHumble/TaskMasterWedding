@@ -231,9 +231,14 @@ function visibleCommentCount(submissionId) {
  * function never re-types that visibility rule; it only reads photo_bonus for
  * ids already known to be visible. The per-photo point value comes from
  * scoring.photoPoints (the single authority for the base), so the "1" base is
- * never a literal here. A photo with no row found (should not happen given the
- * id came from feed.feedWindow()) zero-fills its bonus to 0, so the view never
- * has to branch on a missing field.
+ * never a literal here. A MEMORY (issue #247, task_id IS NULL) earns no
+ * automatic base point — only its admin bonus — so its task_id is read here
+ * and passed as scoring.photoPoints's hasTask flag, keeping the feed
+ * per-photo display consistent with the aggregate getPoints/leaderboard rule
+ * that already withholds a memory's base point. A photo with no row found
+ * (should not happen given the id came from feed.feedWindow()) zero-fills its
+ * bonus to 0 and is treated as a task photo, so the view never has to branch
+ * on a missing field.
  */
 function attachPhotoPoints(photos) {
   if (photos.length === 0) {
@@ -242,15 +247,19 @@ function attachPhotoPoints(photos) {
   const placeholders = photos.map(() => '?').join(', ');
   const rows = db
     .prepare(
-      `SELECT id AS submission_id, photo_bonus AS photo_bonus
+      `SELECT id AS submission_id, photo_bonus AS photo_bonus, task_id AS task_id
          FROM submissions
         WHERE id IN (${placeholders})`
     )
     .all(...photos.map((p) => p.submission_id));
 
-  const bonusById = new Map(rows.map((r) => [r.submission_id, r.photo_bonus]));
+  const rowById = new Map(rows.map((r) => [r.submission_id, r]));
   for (const p of photos) {
-    p.points = scoring.photoPoints(bonusById.get(p.submission_id) || 0);
+    const row = rowById.get(p.submission_id);
+    const bonus = row ? row.photo_bonus : 0;
+    // hasTask false for a memory (task_id IS NULL) so photoPoints omits the base.
+    const hasTask = row ? row.task_id !== null : true;
+    p.points = scoring.photoPoints(bonus, hasTask);
   }
   return photos;
 }

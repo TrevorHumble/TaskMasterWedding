@@ -4,6 +4,14 @@
 
   <h1 class="page-title">Tasks</h1>
 
+  <% var allDone = totalCount > 0 && todoCount === 0; %>
+  <% if (allDone) { %>
+    <section class="tasks-memory-cta">
+      <p class="tasks-memory-cta-title">You&rsquo;ve finished every task! Have more photos, more memories to share?</p>
+      <a class="btn btn-block" href="/memories/new">Share a memory</a>
+    </section>
+  <% } %>
+
   <% if (totalCount === 0) { %>
     <p class="muted">No tasks have been posted yet. Check back soon!</p>
   <% } else { %>
@@ -88,6 +96,10 @@
         <% } %>
       <% } %>
     <% } %>
+  <% } %>
+
+  <% if (!allDone) { %>
+    <a class="btn btn-secondary btn-block task-share-memory" href="/memories/new">Share a memory</a>
   <% } %>
 
   <p class="back-link"><a href="/">&#8592; Back to my profile</a></p>

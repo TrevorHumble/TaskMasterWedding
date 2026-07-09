@@ -54,10 +54,18 @@
       <ul class="photo-grid">
         <% submissions.forEach(function (s) { %>
           <li class="photo-item">
-            <a href="/tasks/<%= s.task_id %>">
-              <img src="/thumbs/<%= s.thumb_path %>" alt="Photo for <%= s.task_title %>" class="photo-thumb" />
-            </a>
-            <span class="photo-caption"><%= s.task_title %></span>
+            <%# A memory (issue #247, s.task_id IS NULL) has no task to link
+                to — no /tasks/<task_id> anchor, and the caption stands in for
+                the task title (AC8). %>
+            <% if (s.task_id) { %>
+              <a href="/tasks/<%= s.task_id %>">
+                <img src="/thumbs/<%= s.thumb_path %>" alt="Photo for <%= s.task_title %>" class="photo-thumb" />
+              </a>
+              <span class="photo-caption"><%= s.task_title %></span>
+            <% } else { %>
+              <img src="/thumbs/<%= s.thumb_path %>" alt="<%= s.caption || 'a shared memory' %>" class="photo-thumb" />
+              <span class="photo-caption"><%= s.caption %></span>
+            <% } %>
           </li>
         <% }); %>
       </ul>
@@ -68,6 +76,7 @@
     <a class="btn btn-block" href="/tasks">View all tasks</a>
     <a class="btn btn-secondary btn-block" href="/gallery">Shared gallery</a>
     <a class="btn btn-secondary btn-block" href="/leaderboard">Leaderboard</a>
+    <a class="btn btn-secondary btn-block" href="/memories/new">Share a memory</a>
   </section>
 
 <%- include('partials/footer') %>

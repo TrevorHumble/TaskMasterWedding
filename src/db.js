@@ -51,12 +51,21 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS submissions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     guest_id    INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
-    task_id     INTEGER NOT NULL REFERENCES tasks(id)  ON DELETE CASCADE,
+    -- task_id is nullable (issue #247): a NULL task_id marks a "memory" — a
+    -- guest photo shared straight to the gallery with no matching task. A
+    -- fresh DB gets the nullable column directly here; ensureTaskIdNullable()
+    -- below is the guarded rebuild that widens an existing pre-#247 app.db
+    -- (which has task_id NOT NULL) to match.
+    task_id     INTEGER REFERENCES tasks(id)  ON DELETE CASCADE,
     photo_path  TEXT    NOT NULL,
     thumb_path  TEXT    NOT NULL,
     caption     TEXT    NOT NULL DEFAULT '',
     taken_down  INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    -- UNIQUE(guest_id, task_id) still holds: SQLite treats every NULL as
+    -- distinct from every other value (including other NULLs) under a UNIQUE
+    -- constraint, so a guest may have any number of task_id=NULL memory rows
+    -- alongside at most one row per real task — do not "fix" this constraint.
     CONSTRAINT uq_sub UNIQUE (guest_id, task_id)
   );
 
@@ -264,6 +273,80 @@ function ensureGuestIdentityColumns() {
 // `require('../db')` call returns.
 ensureGuestIdentityColumns();
 
+// --- Guarded migration: submissions.task_id nullable (issue #247) ---
+/**
+ * Widen submissions.task_id from NOT NULL to nullable, if it is not already,
+ * so a "memory" (a guest photo with no matching task) can be stored as a
+ * submissions row with task_id = NULL instead of needing a second table.
+ *
+ * SQLite cannot ALTER a column's NOT NULL constraint in place, so on an
+ * old-shape table (pre-#247) we rebuild it — same recipe as
+ * ensureBadgeTypeCheckWidened above: create a new table with the widened
+ * column, copy every row across (explicit column list, preserving id so
+ * likes/comments foreign keys on submission_id stay valid), drop the old
+ * table, rename the new one into place, all inside one transaction so a
+ * mid-migration crash cannot leave the database half-migrated. Runs AFTER
+ * ensurePhotoBonusColumn() above so photo_bonus already exists on the source
+ * table and is carried across by the copy.
+ *
+ * Detection: PRAGMA table_info's `notnull` flag for the task_id column. A
+ * fresh DB's CREATE TABLE IF NOT EXISTS above already declares task_id
+ * nullable, so this is a no-op there (and a no-op on every later boot once an
+ * existing DB has been migrated once). Exported so tests can bind to this
+ * real guard rather than an inline copy of it.
+ */
+function ensureTaskIdNullable() {
+  const cols = db.prepare(`PRAGMA table_info(submissions)`).all();
+  const taskCol = cols.find((col) => col.name === 'task_id');
+  if (!taskCol || taskCol.notnull === 0) {
+    // No submissions table yet, or task_id is already nullable — nothing to do.
+    return;
+  }
+
+  // likes/comments both REFERENCE submissions(id) ON DELETE CASCADE: dropping
+  // `submissions` mid-rebuild trips FK enforcement even though the
+  // replacement table restores the same ids, so foreign_keys is turned off
+  // for the duration of the rebuild only (SQLite's documented 12-step
+  // ALTER-TABLE recipe), and turned back on immediately after.
+  db.pragma('foreign_keys = OFF');
+  try {
+    const migrate = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE submissions_new (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          guest_id    INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+          task_id     INTEGER REFERENCES tasks(id)  ON DELETE CASCADE,
+          photo_path  TEXT    NOT NULL,
+          thumb_path  TEXT    NOT NULL,
+          caption     TEXT    NOT NULL DEFAULT '',
+          taken_down  INTEGER NOT NULL DEFAULT 0,
+          photo_bonus INTEGER NOT NULL DEFAULT 0,
+          created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+          CONSTRAINT uq_sub UNIQUE (guest_id, task_id)
+        );
+
+        INSERT INTO submissions_new
+          (id, guest_id, task_id, photo_path, thumb_path, caption, taken_down, photo_bonus, created_at)
+          SELECT id, guest_id, task_id, photo_path, thumb_path, caption, taken_down, photo_bonus, created_at
+            FROM submissions;
+
+        DROP TABLE submissions;
+        ALTER TABLE submissions_new RENAME TO submissions;
+
+        CREATE INDEX IF NOT EXISTS idx_submissions_photo_path
+          ON submissions(photo_path COLLATE NOCASE);
+        CREATE INDEX IF NOT EXISTS idx_submissions_thumb_path
+          ON submissions(thumb_path COLLATE NOCASE);
+      `);
+    });
+    migrate();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+ensureTaskIdNullable();
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -302,6 +385,7 @@ module.exports = {
   ensureBadgeTypeCheckWidened,
   ensurePinnedColumn,
   ensureGuestIdentityColumns,
+  ensureTaskIdNullable,
   getGuestByToken,
   getGuestById,
   getGuestByContact,

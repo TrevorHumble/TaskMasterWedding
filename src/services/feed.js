@@ -76,10 +76,17 @@ const GALLERY_COLUMNS = `
          t.title         AS task_title,
          (SELECT COUNT(*) FROM likes l WHERE l.submission_id = s.id) AS like_count`;
 
+// LEFT JOIN tasks (not JOIN): issue #247 made submissions.task_id nullable so
+// a "memory" row (task_id IS NULL) can exist. An inner JOIN would silently
+// drop every memory from the gallery/feed/detail queries below; LEFT JOIN
+// keeps them, with t.id/t.title coming back NULL for a memory row. The
+// s.taken_down = 0 predicate (VISIBLE_WHERE) is untouched by this change, so
+// moderation still hides a taken-down memory exactly like a taken-down task
+// photo.
 const GALLERY_FROM = `
     FROM submissions s
     JOIN guests g ON g.id = s.guest_id
-    JOIN tasks  t ON t.id = s.task_id`;
+    LEFT JOIN tasks  t ON t.id = s.task_id`;
 
 const GALLERY_SELECT_BODY = `
   SELECT ${GALLERY_COLUMNS}${GALLERY_FROM}`;
@@ -288,12 +295,15 @@ function grouped(kind, taskFilter, q) {
     let group = byKey.get(key);
     if (!group) {
       group = {
-        heading: kind === 'task' ? row.task_title : row.guest_name || 'Guest',
+        // A memory row's task_title is NULL (LEFT JOIN, no task) — every
+        // memory shares task_id NULL, so they partition into one group here,
+        // headed "Memories" (issue #247, AC3) instead of a blank heading.
+        heading: kind === 'task' ? row.task_title || 'Memories' : row.guest_name || 'Guest',
         photos: [],
         total: row.group_total,
       };
       if (kind === 'task') {
-        group.task_id = row.task_id;
+        group.task_id = row.task_id; // null for the Memories group (issue #247)
       } else {
         group.guest_id = row.guest_id;
         group.avatar_path = row.guest_avatar_path;
@@ -314,16 +324,19 @@ function grouped(kind, taskFilter, q) {
 
 // One guest's visible submissions, newest first, with the task title.
 // Column list matches the public-profile template's needs (no guest_id/name —
-// the caller already has the guest).
+// the caller already has the guest). LEFT JOIN (not JOIN): a memory row
+// (task_id IS NULL, issue #247) has no task to join, and must still appear on
+// the guest's public profile with task_title coming back NULL.
 const stmtGuestPhotos = db.prepare(`
   SELECT s.id         AS submission_id,
+         s.task_id    AS task_id,
          s.thumb_path AS thumb_path,
          s.photo_path AS photo_path,
          s.caption    AS caption,
          s.created_at AS created_at,
          t.title      AS task_title
     FROM submissions s
-    JOIN tasks t ON t.id = s.task_id
+    LEFT JOIN tasks t ON t.id = s.task_id
    WHERE s.guest_id = ? AND ${VISIBLE_WHERE}
    ${ORDER_NEWEST_FIRST}
 `);
