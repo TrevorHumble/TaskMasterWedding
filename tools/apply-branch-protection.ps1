@@ -35,15 +35,16 @@
 # Windows PowerShell 5.1-compatible: no ternary, no ??, no &&, no ||.
 param(
   [string]$Branch = 'main',
-  [switch]$RequireSmoke
+  [switch]$RequireSmoke,
+  [switch]$EmitPayload
 )
 
 $gh = 'C:\Program Files\GitHub CLI\gh.exe'
 
-# `gh repo view` fails clearly when run outside a resolvable repo, so this empty
-# -slug guard is also the "not in a repo" guard -- no separate git-repo check needed.
-$slug = "$(& $gh repo view --json nameWithOwner -q .nameWithOwner 2>$null)".Trim()
-if (-not $slug) { [Console]::Error.WriteLine('apply-branch-protection: could not resolve repo slug via gh repo view'); exit 1 }
+# Slug resolution is deferred to the network path (just before the PUT) so that
+# -EmitPayload never needs a resolvable repo or an authenticated `gh` -- the
+# slug is only used to build the PUT/read-back URLs below, never to build the
+# emitted $json itself.
 
 # The five confirmed-real check-run names observed on main. Not derived from
 # workflow job names -- CodeQL's produced check-run name differs from its
@@ -63,10 +64,17 @@ if ($RequireSmoke) {
 # branch protection PUT replaces the whole object, and omitting a key is not
 # the same as sending it as null. [ordered] preserves key order for readability;
 # it has no effect on the JSON GitHub receives.
+#
+# checks (not contexts): GitHub's "Update branch protection" API marks
+# required_status_checks.contexts as closing down in favor of `checks`, an
+# array of {context, app_id} objects. app_id = -1 means "allow any app to set
+# the status" -- the behavior-preserving equivalent of the old name-only
+# contexts matching (omitting app_id would instead auto-select one specific
+# app and could narrow which run satisfies the check).
 $payload = [ordered]@{
   required_status_checks = [ordered]@{
-    strict   = $true
-    contexts = $requiredChecks
+    strict = $true
+    checks = @($requiredChecks | ForEach-Object { [ordered]@{ context = $_; app_id = -1 } })
   }
   enforce_admins          = $true
   required_pull_request_reviews = [ordered]@{
@@ -75,7 +83,7 @@ $payload = [ordered]@{
   restrictions            = $null
 }
 
-$json = $payload | ConvertTo-Json -Depth 6
+$json = $payload | ConvertTo-Json -Depth 8
 # ConvertTo-Json emits a null-valued key as `"restrictions": null` (it does not
 # drop it), which is what the PUT needs -- confirmed by inspecting $json below
 # rather than assumed.
@@ -84,14 +92,29 @@ if ($json -notmatch '"restrictions"\s*:\s*null') {
   exit 1
 }
 
+# -EmitPayload is the offline-testable seam: print the exact PUT body and exit
+# before any network call, so CI can regression-guard the payload shape
+# without live GitHub credentials.
+if ($EmitPayload) {
+  Write-Output $json
+  exit 0
+}
+
+# `gh repo view` fails clearly when run outside a resolvable repo, so this empty
+# -slug guard is also the "not in a repo" guard -- no separate git-repo check needed.
+# Resolved only here, on the network path, so -EmitPayload above never needs it.
+$slug = "$(& $gh repo view --json nameWithOwner -q .nameWithOwner 2>$null)".Trim()
+if (-not $slug) { [Console]::Error.WriteLine('apply-branch-protection: could not resolve repo slug via gh repo view'); exit 1 }
+
 $json | & $gh api --method PUT "repos/$slug/branches/$Branch/protection" --input - | Out-Null
 if ($LASTEXITCODE -ne 0) {
   [Console]::Error.WriteLine("apply-branch-protection: PUT failed (exit $LASTEXITCODE). See gh's message above.")
   exit 1
 }
 
-# Field-name asymmetry is expected, not a bug: GitHub accepts the required checks
-# written under the `contexts` key but returns them on read as `.checks[].context`.
+# The tool now both sends and reads required checks under `checks`: the PUT
+# body above writes required_status_checks.checks, and GitHub echoes that
+# same key back on read, so this --jq expression needs no field-name mapping.
 $readBack = & $gh api "repos/$slug/branches/$Branch/protection" --jq '{strict: .required_status_checks.strict, contexts: (.required_status_checks.checks | map(.context) | sort), approving_reviews: .required_pull_request_reviews.required_approving_review_count, enforce_admins: .enforce_admins.enabled}' 2>$null
 if ($LASTEXITCODE -ne 0) {
   [Console]::Error.WriteLine("apply-branch-protection: applied protection but read-back failed (exit $LASTEXITCODE)")
