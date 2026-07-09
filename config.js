@@ -66,11 +66,35 @@ const cookieSecure =
 const ROOT = __dirname;
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 
+// ---- Resolve the trust-proxy hop count -------------------------------------
+// Hosted deployment (DESIGN.md § Hosted deployment) puts a reverse proxy in
+// front of the app. Express must be told how many proxy hops to trust so it
+// reads the real guest IP from X-Forwarded-For instead of the proxy's own
+// address. Unset/empty -> false (Express default: trust nothing). The literal
+// string 'true' -> 1 (trust exactly one hop -- never pass boolean `true` to
+// Express, which would trust an arbitrary, spoofable forwarded-for chain).
+// A parseable non-negative integer -> that many hops (TRUST_PROXY='0' parses
+// to 0, which is falsy-equivalent to "no proxy" and is intentionally treated
+// as `false` below). Anything else -> false.
+function resolveTrustProxy() {
+  const raw = process.env.TRUST_PROXY;
+  if (raw === undefined || raw.trim() === '') return false;
+  if (raw === 'true') return 1;
+  const n = parseInt(raw, 10);
+  if (Number.isInteger(n) && n > 0) return n;
+  return false;
+}
+const TRUST_PROXY = resolveTrustProxy();
+
 // ---- The exported config object (UPPER_SNAKE_CASE = canonical) -------------
 const config = {
   // Server
   PORT: parseInt(process.env.PORT, 10) || 3000,
   BASE_URL: process.env.BASE_URL || 'http://localhost:3000',
+  // Express `trust proxy` setting. false = Express default (trust nothing);
+  // a positive integer = number of proxy hops to trust. See resolveTrustProxy
+  // above for the parsing rule.
+  TRUST_PROXY: TRUST_PROXY,
   COOKIE_SECRET: cookieSecret,
   // True when cookies must carry the Secure flag. On by default in production
   // and when COOKIE_SECURE=true; off in test/dev so plain-HTTP supertest works.
@@ -117,6 +141,7 @@ const config = {
 // any stray lowercase reference still resolves to the same value.
 config.port = config.PORT;
 config.baseUrl = config.BASE_URL;
+config.trustProxy = config.TRUST_PROXY;
 config.cookieSecret = config.COOKIE_SECRET;
 config.root = config.ROOT;
 config.dataDir = config.DATA_DIR;

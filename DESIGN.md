@@ -116,6 +116,8 @@ The public gallery pages are deliberately non-indexable (`robots.txt` plus a `no
 
 **Naming note:** `TRUST_PROXY` and the other names recorded in this ADR are the spec — #282 implements exactly these names. A forced divergence updates this ADR in the implementing PR.
 
+**Process lifecycle (#282):** a hosting platform's process supervisor probes liveness and restarts the process on every deploy, so the app must answer both. `GET /healthz` is a DB-touching readiness probe — it runs `SELECT 1` against the live SQLite handle and returns `200 {"ok":true}` normally or `503 {"ok":false}` if that query throws (a wedged or corrupt DB fails the platform's check rather than reporting healthy). It is mounted ahead of maintenance mode, so it stays up during a maintenance window, and ahead of `attachGuest` and the routers, so it never pays session-lookup cost and — once #283's rate limiter lands — is never rate-limited by placement alone. On `SIGTERM` (platform restart/redeploy) or `SIGINT` (local Ctrl+C), `src/utils/shutdown.js` drains in flight requests (`server.close`), closes the database, and exits 0; a `timeoutMs` (default 10s) force-exit backstop guards against a connection that never drains. Both handlers are registered only inside the `require.main === module` guard, so requiring `src/app.js` under test never attaches real process signal listeners.
+
 **Historical:** the app previously ran on a Windows laptop behind a Cloudflare quick tunnel (`cloudflared tunnel --url http://localhost:3000`), whose URL changed every run and was never depended on being stable.
 
 ### Commit gate: review evidence bound to the staged tree

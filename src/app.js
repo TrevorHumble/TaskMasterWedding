@@ -10,8 +10,18 @@ const cookieParser = require('cookie-parser');
 const config = require('../config');
 const photos = require('./services/photos');
 const initials = require('./utils/initials');
+const { db } = require('./db');
 
 const app = express();
+
+// ---------------------------------------------------------------------------
+// 0. Trust proxy. Hosted deployment (DESIGN.md § Hosted deployment) sits
+//    behind a reverse proxy that terminates TLS and forwards the real client
+//    address in X-Forwarded-For. config.TRUST_PROXY is the hop count to
+//    trust (see config.js for the parsing rule); false (the unset/local-dev
+//    case) is left as Express's own default rather than explicitly disabled.
+// ---------------------------------------------------------------------------
+if (config.TRUST_PROXY !== false) app.set('trust proxy', config.TRUST_PROXY);
 
 // Make the initials helper available to every EJS template as a callable local,
 // so avatar fallbacks across guest-home, public-profile, and leaderboard all
@@ -57,6 +67,24 @@ app.use(cookieParser(config.COOKIE_SECRET));
 app.use(express.static(config.PUBLIC_DIR));
 app.use('/uploads', photos.blockTakenDownOriginal, express.static(config.UPLOADS_DIR));
 app.use('/thumbs', photos.blockTakenDownThumb, express.static(config.THUMBS_DIR));
+
+// ---------------------------------------------------------------------------
+// 4a. Liveness probe. Placed before maintenance mode (4b) and attachGuest (5)
+//     so the hosting platform's health checks never see the 503 maintenance
+//     page and never pay the cost of guest-session lookup. Also placed ahead
+//     of the rate limiter #283 introduces (routers below), so /healthz is
+//     never rate-limited -- that falls out of this placement, not extra code.
+//     A live SELECT against the DB makes this a readiness probe, not just a
+//     process-alive probe: a wedged/corrupt DB fails the platform's check.
+// ---------------------------------------------------------------------------
+app.get('/healthz', (req, res) => {
+  try {
+    db.prepare('SELECT 1').get();
+    res.json({ ok: true });
+  } catch {
+    res.status(503).json({ ok: false });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // 4b. Maintenance mode.
@@ -119,13 +147,26 @@ app.use((err, req, res, next) => {
 // 9. Start listening.
 // ---------------------------------------------------------------------------
 if (require.main === module) {
-  app.listen(config.PORT, () => {
+  const server = app.listen(config.PORT, () => {
     console.log('');
     console.log('  Garden Party Pastels is running.');
     console.log('  Local:   http://localhost:' + config.PORT);
+    if (config.BASE_URL) {
+      console.log('  Public:  ' + config.BASE_URL);
+    }
     console.log('  Press Ctrl+C to stop.');
     console.log('');
   });
+
+  // Drain in-flight requests and close the DB cleanly on a platform restart
+  // or deploy (SIGTERM) or a local Ctrl+C (SIGINT). See src/utils/shutdown.js.
+  // SIGTERM is a no-op on Windows dev machines but is exactly what Linux
+  // hosts send on every deploy, so registering it here is harmless locally
+  // and load-bearing in production.
+  const { installShutdownHandlers } = require('./utils/shutdown');
+  const shutdown = installShutdownHandlers(server, { db });
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 module.exports = app;
