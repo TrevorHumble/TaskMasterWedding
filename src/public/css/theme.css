@@ -1271,8 +1271,10 @@ textarea {
 }
 
 /* ----------------------- Photo feed ----------------------- */
-/* Full-screen vertical scroll (issue #84). Each .feed-item is a fragment
-   target (#photo-<id>) that the gallery grid links to directly, so
+/* Full-screen vertical scroll (issue #84). Card v2 (#248): guest name,
+   photo, caption, one action row, up to 4 clamped comment rows, task line —
+   in that order, top to bottom. Each .feed-item is a fragment target
+   (#photo-<id>) that the gallery grid links to directly, so
    scroll-margin-top has to clear the sticky .site-header — sized for the
    tallest header state (mobile, where brand + nav stack to two rows) so the
    landed-on photo is never hidden underneath it. content-visibility keeps a
@@ -1283,32 +1285,68 @@ textarea {
   flex-direction: column;
   gap: var(--space-6);
 }
+/* Kill the mobile tap-flash box (#248 owner visual gate): without this the
+   card's controls inherit the browser default -webkit-tap-highlight-color
+   (rgba(51,181,229,.4)), so every tap flashes a light-blue rectangle. */
+.feed-by a,
+.feed-photo-link,
+.feed-comment a,
+.feed-task-line a,
+.like-button,
+.comment-button,
+.see-all-comments,
+.comment-post,
+.comments-dialog-close,
+.comments-dialog-thread .feed-comment a {
+  -webkit-tap-highlight-color: transparent;
+}
+/* Keyboard users still need a visible focus ring — :focus-visible (not
+   :focus) shows it on Tab but stays invisible on mouse/touch activation, so
+   no box returns on plain click/tap. */
+.feed-by a:focus-visible,
+.feed-photo-link:focus-visible,
+.feed-comment a:focus-visible,
+.feed-task-line a:focus-visible,
+.like-button:focus-visible,
+.comment-button:focus-visible,
+.see-all-comments:focus-visible,
+.comment-post:focus-visible,
+.comments-dialog-close:focus-visible,
+.comments-dialog-thread .feed-comment a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
 .feed-item {
   margin: 0;
   scroll-margin-top: 140px;
   content-visibility: auto;
-  contain-intrinsic-size: 600px;
+  /* `auto 600px`, not bare `600px` (#248 amendment AC9): the auto keyword
+     makes the browser remember a card's real rendered height once painted,
+     so scrolling back up never re-estimates and jumps. */
+  contain-intrinsic-size: auto 600px;
 }
+.feed-by {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  margin: 0 0 var(--space-3);
+}
+.feed-photo-link {
+  display: block;
+}
+/* No grey placeholder box (owner directive, #248) — the thumbnail's own
+   pixels are the only fill; a background here would show through as a flash
+   of grey before the image decodes. */
 .feed-photo {
   display: block;
   width: 100%;
   height: auto;
   border-radius: var(--radius-card);
   border: var(--border-hairline);
-  background: var(--green-50);
-}
-.feed-body {
-  margin-top: var(--space-3);
-}
-.feed-by {
-  font-size: var(--fs-small);
-  font-weight: 600;
-  margin: 0 0 var(--space-1);
 }
 .feed-caption {
   font-style: italic;
   color: var(--color-text-muted);
-  margin: 0;
+  margin: var(--space-3) 0 0;
 }
 .feed-actionbar {
   margin-top: var(--space-2);
@@ -1316,37 +1354,73 @@ textarea {
   align-items: center;
   gap: var(--space-3);
 }
-.feed-photo-link {
-  display: block;
+.feed-actions-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
 }
-/* Like button: 44px minimum tap target (the old bare button measured
-   24x21px). Heart state is visible at a glance — outline sage when not yet
-   liked, solid sage once liked (aria-pressed carries the same state). */
-.like-form {
+/* Points is metadata, not an action — right-justified, alone, as the last
+   flex child of the action row (design-language rule: actions left,
+   metadata right). */
+.points-count {
   margin-left: auto;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
-.like-button {
+
+/* Like + comment buttons: 44px minimum tap target (the old bare like button
+   measured 24x21px). The heart is a rounder inline SVG (#248 — the shipped
+   &hearts; text glyph read as too pointy): outline sage when not yet liked,
+   solid sage once liked (aria-pressed carries the same state). The count
+   sits beside its glyph, inside the button, not as separate sentence text. */
+.like-button,
+.comment-button {
   min-width: 44px;
   min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 5px;
   border: none;
   background: none;
-  padding: 0;
+  padding: 0 var(--space-1);
   cursor: pointer;
-  font-size: 22px;
-  line-height: 1;
-  color: transparent;
-  -webkit-text-stroke: 1.5px var(--color-primary);
-}
-.like-button-liked {
   color: var(--color-primary);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+}
+.like-button-static {
+  cursor: default;
+}
+.like-heart {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 1.6;
+}
+.like-button-liked .like-heart {
+  fill: var(--color-primary);
+  stroke: var(--color-primary);
+}
+.comment-bubble {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  fill: var(--color-primary);
+}
+.like-count,
+.comment-count {
+  font-weight: 600;
 }
 @media (prefers-reduced-motion: no-preference) {
   /* Applied by /js/feed.js on the like TOGGLE only — never to the liked
-     state itself, so hearts that arrive already-liked don't pop on load. */
-  .like-button-pop {
+     state itself, so hearts that arrive already-liked don't pop on load.
+     Scoped to the heart glyph, not the whole button, so the count beside it
+     never scales along with the pop (#248). */
+  .like-button-pop .like-heart {
     animation: heart-pop 200ms ease-out;
   }
   @keyframes heart-pop {
@@ -1360,6 +1434,191 @@ textarea {
       transform: scale(1);
     }
   }
+}
+
+/* Up to 4 most-recent comments as single-line clamped rows (#248 — "4
+   lines, not 4 comments": the block's height never varies regardless of
+   thread length). The full, unclamped thread lives in the dialog below. */
+.feed-comments {
+  margin-top: var(--space-2);
+}
+.feed-comment {
+  margin: 0 0 2px;
+  font-size: var(--fs-small);
+}
+.feed-comment a {
+  font-weight: 600;
+}
+.feed-comment-row {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.see-all-comments {
+  display: block;
+  margin-top: 2px;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+.see-all-comments:hover {
+  color: var(--color-primary);
+}
+
+.feed-task-line {
+  margin-top: var(--space-2);
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+}
+.feed-task-line a {
+  color: var(--color-text-muted);
+}
+.feed-task-line a:hover {
+  color: var(--color-primary);
+}
+
+/* Comments dialog (#248 amendment 2026-07-08): a native <dialog> opened via
+   showModal() — top-layer rendering escapes .feed-item's paint containment
+   (content-visibility made each card the containing block for position:
+   fixed, so the old "fixed" scrim/panel pinned to the card, not the
+   viewport), centers the panel in the viewport, and keeps the background
+   inert so exactly one dialog is open at a time. Closed by Escape (native),
+   the close button, or a backdrop click (src/public/js/feed.js). */
+.comments-dialog {
+  width: min(430px, 100vw - 32px);
+  max-height: 72vh; /* dvh fallback for older engines */
+  max-height: 72dvh;
+  margin: auto;
+  padding: 0;
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-raise);
+  background: var(--white);
+  color: var(--color-text);
+}
+/* Scoped to [open] so the UA's dialog:not([open]) { display: none } keeps
+   winning while the dialog is closed. */
+.comments-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.comments-dialog::backdrop {
+  background: rgba(20, 30, 24, 0.55);
+}
+/* Lock the page scroll while a dialog is open — the top layer scrolls its
+   own thread, the feed behind it stays put. */
+body:has(dialog[open]) {
+  overflow: hidden;
+}
+/* Header: the photo's own thumbnail carries the context; the title stays
+   the generic "<Name>'s photo". */
+.comments-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-hairline);
+}
+.comments-dialog-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.comments-dialog-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-h3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comments-dialog-close {
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.comments-dialog-thread {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+.comments-dialog-empty {
+  margin: 0;
+}
+/* Composer, Instagram pattern: viewer avatar left, borderless auto-growing
+   textarea (grown by feed.js from scrollHeight; the max-height caps it at
+   ~5 lines, after which it scrolls internally), Post as a plain text
+   control — no box, no border, no background — muted while empty. */
+.comments-dialog-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--border-hairline);
+}
+.comments-dialog-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--green-50);
+}
+.comments-dialog-avatar-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: var(--fs-small);
+  color: var(--color-primary);
+}
+.comments-dialog-form textarea {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: var(--space-2) 0;
+  min-height: 24px;
+  max-height: 120px;
+  overflow-y: auto;
+  resize: none;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  line-height: var(--lh-snug);
+}
+.comments-dialog-form textarea:focus {
+  outline: none;
+}
+.comment-post {
+  border: none;
+  background: none;
+  padding: 0 var(--space-1);
+  min-height: 44px;
+  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+.comment-post:disabled {
+  color: var(--color-hairline);
+  cursor: default;
 }
 
 /* ----------------------- Leaderboard ----------------------- */
@@ -2413,4 +2672,20 @@ textarea {
 .message-card-hint {
   font-size: var(--fs-small);
   color: var(--color-hairline);
+}
+
+/* /join signup page (issue #240) */
+.join-photo .upload-field {
+  justify-content: flex-start;
+}
+.join-photo .btn {
+  background: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+.join-photo .btn:hover {
+  background: var(--color-surface);
+}
+.join-login-link {
+  text-decoration: underline;
 }

@@ -52,6 +52,19 @@ The following patterns are defects, not style preferences. A finding that matche
 | `pass-through`           | A module that does nothing but forward arguments to the layer below — no abstraction added.                                                                        |
 | `vague name`             | A name that does not communicate what the thing is or does — e.g., `tmp`, a variable name so generic it forces the reader to trace the data flow to understand it. |
 
+### Information leakage — duplicated ownership of a formula, filter, or status rule
+
+The recurring shape of `information leakage` in this repo: one fact — a formula, a visibility
+filter, a status label, an identity check — computed or asserted in two modules instead of owned
+by one. Six real instances drove repeated review rounds before this pattern was named:
+
+- `#89` — the point formula duplicated instead of being owned by a single module.
+- `#87` — the comment-visibility rule re-derived in a second place instead of asked of its owner.
+- `#80` — the badge-recompute obligation left unowned across two call sites.
+- `#78` — the tie rule restated in a second location instead of shared from one owner.
+- `#86` — visibility logic duplicated across two modules instead of owned by one.
+- `#88` — a clamp dropped in one of two places asserting the same value rule.
+
 An artifact that exhibits any of these patterns fails this standard. The reviewer cites the pattern name and quotes the evidence.
 
 One worked Flag/Clean example pair per red flag, each with an over-flag guard (`Not a finding:`), lives in `standards/design-philosophy-examples.md` — consult it before classifying any red-flag finding.

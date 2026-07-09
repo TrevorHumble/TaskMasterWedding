@@ -7,12 +7,13 @@ const router = express.Router();
 // db.js exports an OBJECT { db, getGuestByToken, getGuestById }. Destructure the
 // better-sqlite3 connection itself, or db.prepare(...) is undefined.
 const { db } = require('../db');
-const config = require('../../config');
 
 // requireGuest comes from section 03. It loads the current guest into
 // res.locals.guest (and req.guest) from the signed gsid cookie, or
-// redirects visitors who have no valid guest link.
-const { requireGuest } = require('../middleware/session');
+// redirects visitors who have no valid guest link. setFlash is the shared
+// one-shot flash writer (also in section 03), the single owner of the signed
+// `flash` cookie's shape.
+const { requireGuest, setFlash } = require('../middleware/session');
 
 // Photos service (section 05) — REAL exports only.
 // `upload` is the multer DISK-storage middleware ALREADY BOUND to single('photo')
@@ -36,25 +37,6 @@ const scoring = require('../services/scoring');
 // caption normalization, and scoring recompute. This route calls it once and
 // maps the returned status to a response; see the handler below.
 const submissions = require('../services/submissions');
-
-// ---------------------------------------------------------------------------
-// Small local helper: set a one-shot flash message.
-// Section 03's attachGuest reads the signed `flash` cookie into
-// res.locals.flash on the NEXT request, then clears it. We write it here.
-// kind is 'success' or 'error'; text is the message. We normalize to the
-// shape header.ejs (section 10) reads: { type: 'ok' | 'err', msg: '...' }.
-// ---------------------------------------------------------------------------
-function setFlash(res, kind, text) {
-  const type = kind === 'success' ? 'ok' : 'err';
-  res.cookie('flash', JSON.stringify({ type: type, msg: text }), {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.COOKIE_SECURE,
-    signed: true,
-    path: '/',
-    maxAge: 30 * 1000, // 30 seconds is plenty to survive one redirect
-  });
-}
 
 // Every route in this router requires a signed-in guest.
 router.use(requireGuest);

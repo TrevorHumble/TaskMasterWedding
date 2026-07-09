@@ -17,7 +17,7 @@ flowchart TD
         express --> mw["Middleware<br/>signed cookies, body parsing,<br/>attachGuest"]
         mw --> auth["routes/auth.js<br/>/j/:token, /onboard, /admin/login"]
         mw --> guest["routes/guest.js<br/>/, /tasks, /tasks/:id/submit, /me/edit"]
-        mw --> community["routes/community.js<br/>/gallery, /leaderboard, /u/:guestId"]
+        mw --> community["routes/community.js<br/>/gallery, /feed, GET /p/:submissionId,<br/>/p/:submissionId/like, /p/:submissionId/comments,<br/>/leaderboard, /u/:guestId"]
         mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, awards, export"]
 
         auth --> svc
@@ -28,6 +28,10 @@ flowchart TD
         subgraph svc["services/"]
             photos["photos.js<br/>multer + sharp thumbs/avatars, takedown"]
             scoring["scoring.js<br/>points, badges, leaderboard"]
+            submissions["submissions.js<br/>submit-or-replace sequence"]
+            feed["feed.js<br/>gallery/feed visibility + ordering"]
+            badges["badges.js<br/>metric/transferable badge engine"]
+            identity["identity.js<br/>contact normalize, PIN"]
             export["export.js<br/>ZIP + summary.xlsx"]
             qr["qr.js<br/>QR data URLs"]
         end
@@ -44,7 +48,7 @@ flowchart TD
 
 ## Data model
 
-Five tables. Two UNIQUE constraints carry the core game rules.
+Seven tables. Several UNIQUE constraints carry the core game rules.
 
 ```mermaid
 erDiagram
@@ -52,6 +56,10 @@ erDiagram
     tasks ||--o{ submissions : "completed by"
     guests ||--o{ guest_badges : "earns"
     badges ||--o{ guest_badges : "awarded as"
+    guests ||--o{ likes : "likes"
+    submissions ||--o{ likes : "liked by"
+    guests ||--o{ comments : "comments"
+    submissions ||--o{ comments : "commented on"
 
     guests {
         int id PK
@@ -61,6 +69,10 @@ erDiagram
         text social_links "JSON"
         int bonus_points
         int onboarded
+        text contact "normalized email or phone"
+        text contact_type "email | phone"
+        text pin "4-digit re-entry PIN, plaintext"
+        int pinned "hoists guest's gallery section"
         text created_at
     }
     tasks {
@@ -79,13 +91,14 @@ erDiagram
         text thumb_path
         text caption
         int taken_down
+        int photo_bonus
         text created_at
     }
     badges {
         int id PK
         text code UK
         text name
-        text type "auto | special"
+        text type "auto | special | metric | transferable | custom"
         int threshold
         text art_path
         text description
@@ -97,14 +110,30 @@ erDiagram
         text awarded_by "system | admin"
         text created_at
     }
+    likes {
+        int id PK
+        int submission_id FK
+        int guest_id FK
+        text created_at
+    }
+    comments {
+        int id PK
+        int submission_id FK
+        int guest_id FK
+        text body
+        int taken_down
+        text created_at
+    }
 ```
 
 UNIQUE constraints:
 
 - `submissions UNIQUE(guest_id, task_id)` — one submission per guest per task. A task cannot be completed twice, so it cannot be double-scored.
 - `guest_badges UNIQUE(guest_id, badge_id)` — a guest holds each badge at most once, making re-scoring and re-awarding idempotent.
+- `likes UNIQUE(submission_id, guest_id)` — a guest can like a given photo at most once; the like route toggles this row.
+- `guests` partial unique index on `contact` (`WHERE contact IS NOT NULL`) — two guests cannot share a normalized contact.
 
-Both `submissions` and `guest_badges` reference `guests(id)` and their parent (`tasks`/`badges`) with `ON DELETE CASCADE`, and foreign keys are enforced (`PRAGMA foreign_keys = ON` in `src/db.js`).
+`submissions` and `guest_badges` reference `guests(id)` and their parent (`tasks`/`badges`) with `ON DELETE CASCADE`; `likes` and `comments` reference `submissions(id)` and `guests(id)` the same way. Foreign keys are enforced (`PRAGMA foreign_keys = ON` in `src/db.js`).
 
 ## Walkthrough: a photo upload
 
@@ -124,3 +153,7 @@ If the admin later takes the photo down, the row's `taken_down` flips to 1: the 
 4. On every later request, `attachGuest` reads and verifies the signed `gsid` cookie, loads the guest, and exposes it to routes and views. The cookie signature (via `cookie-parser` and `COOKIE_SECRET`) is what makes the token tamper-evident.
 
 The admin sign-in is parallel: `POST /admin/login` checks the submitted password against the bcrypt hash in `data/admin.hash`, and on success sets the signed `admin` cookie that `requireAdmin` checks for every `/admin` route.
+
+### Shared entry link: self-serve signup at /join
+
+Issue #240 adds a second, guest-facing way in that does not depend on a private per-guest token at all. Every guest gets the SAME link (QR poster, email, or place card) pointing at `GET /join`. The form collects a name, an email-or-phone contact, and a self-chosen 4-digit re-entry PIN, plus an optional avatar — signup IS onboarding here, so there is no separate `/onboard` step afterward. `POST /join` normalizes the contact and validates the PIN shape (`services/identity.js`), checks `getGuestByContact` for an existing account under that contact so the same person cannot create a second guest row, and otherwise inserts a new `guests` row with `onboarded = 1` and a fresh token from `makeUniqueToken()` (also in `services/identity.js`, shared with the admin guest-creation forms), sets the signed `gsid` cookie, and sends the guest straight to `/`. A contact that already has an account is redirected to `/login` (issue #241) to re-enter with their PIN instead.

@@ -25,6 +25,8 @@ All changes go through an enforced pipeline. Do not commit code straight to the 
 4. **Adversarial review of the PR** — independent reviewers attack the implementation against the issue and the standards.
 5. **Commit / PR** — only after review passes. Push the branch, open a pull request (`gh pr create`), watch CI to green, then merge. Non-visual changes merge once adversarial review has passed and CI is green. **Visual / product-direction changes** additionally pass the owner's pre-merge visual-approval loop (rendered screenshots at three phone form factors, approve/edit to a yes/no) before merging — see `agents/orchestrator.md` § "Visual-approval loop" and `DESIGN.md` § "Visual-approval loop reinstated". The `.githooks/pre-commit` hook and the scripts in `tools/` enforce the gates locally.
 
+**Wave boundary — owner-invoked review, not a gate.** After a wave's planned batch of issues merges, the owner may run `/post-wave-review` (#302) — a cross-PR regression, seam, and docs-vs-code drift check plus a lived-data drill. This is **owner-invoked**: it never runs automatically and is never a precondition for starting the next wave. Full mechanics: `standards/adversarial-review-protocol.md` § "Wave governance (#310)"; orchestrator-side nudge: `agents/orchestrator.md` § "Wave boundary".
+
 Standards live in `standards/`. Agent definitions live in `agents/`. Both are ported in separately; treat them as the source of truth and point to them rather than restating them.
 
 ## Model policy
@@ -88,6 +90,8 @@ Dependabot PRs are classified into two tiers by `tools/classify-dep-pr.ps1`:
 `multer`, `sharp`, `ejs`, `better-sqlite3`, `bcryptjs`, `archiver`
 
 The authoritative tier logic lives in `tools/classify-dep-pr.ps1`; the summary here is a human-readable restatement, and the wedding-critical list is drift-guarded by `tests/classify-dep-pr.test.js`.
+
+**Native-binary members need an on-host smoke test before merge (#304).** Of the wedding-critical list, `sharp` and `better-sqlite3` ship a prebuilt native binary (a `.node` file) per platform. A `review`-tier bump to either must pass an on-host `npm ci` followed by `node -e "require('<dep>')"` (exit 0) on the Windows event laptop before merge — not just green CI. Why: Windows Smart App Control can block a new/unknown unsigned native binary by cloud reputation until its hash accrues one (see `DESIGN.md` § "sharp 0.35.2 SAC block was a reputation-lag, now cleared"), and CI runs on Linux, which cannot reproduce or catch this Windows-only failure mode.
 
 Run the classifier against a PR's metadata to determine its tier:
 

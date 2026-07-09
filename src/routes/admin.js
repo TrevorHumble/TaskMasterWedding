@@ -29,7 +29,6 @@
 //       Do NOT define them here.
 
 const express = require('express');
-const crypto = require('crypto');
 
 const config = require('../../config');
 const { db } = require('../db');
@@ -38,6 +37,7 @@ const qr = require('../services/qr');
 const scoring = require('../services/scoring');
 const photos = require('../services/photos');
 const { streamExportZip } = require('../services/export');
+const { makeUniqueToken } = require('../services/identity');
 
 const router = express.Router();
 
@@ -67,19 +67,8 @@ function redirectWithMsg(res, path, msg, anchor) {
   res.redirect(303, path + sep + 'msg=' + encodeURIComponent(msg) + hash);
 }
 
-// Generate a unique 32-hex-char token (crypto.randomBytes(16) -> 32 hex chars).
-// Loops on the extremely unlikely chance of a collision with an existing token.
-function makeUniqueToken() {
-  const exists = db.prepare('SELECT 1 FROM guests WHERE token = ?');
-  for (let i = 0; i < 10; i++) {
-    const token = crypto.randomBytes(16).toString('hex');
-    if (!exists.get(token)) {
-      return token;
-    }
-  }
-  // Practically unreachable.
-  throw new Error('Could not generate a unique guest token.');
-}
+// makeUniqueToken moved to src/services/identity.js (issue #240) so both this
+// admin router and the self-serve /join signup route share one generator.
 
 // ---------------------------------------------------------------------------
 // GET /admin  — dashboard
