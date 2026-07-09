@@ -1,5 +1,7 @@
 # 01 — Project Setup, Config, Server Bootstrap, Running & Hosting
 
+> **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
+
 This is the first build section. By the end of it you will have a working Express server that boots, creates its data folders, serves static files, shows friendly 404 and error pages, and can be reached from the public internet through a free Cloudflare tunnel. Later sections add the database, auth, photos, etc. This section deliberately does NOT create those files — it only creates the files marked `[01-setup]` in the plan, plus the two placeholder view files (`404.ejs`, `error.ejs`) that the error handlers need.
 
 **Read this whole document once before typing anything.** Then follow the numbered steps in order. Every command is PowerShell (Trevor's machine is Windows 11). Do not chain commands with `&&` — PowerShell does not support it. Run each line on its own.

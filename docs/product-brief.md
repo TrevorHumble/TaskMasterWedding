@@ -1,5 +1,7 @@
 # Product Brief — Garden Party Pastels
 
+> **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
+
 What the owner asked for, in his own words, captured from discovery. This is the requirements record that fed the goals session. It is **not** the North Star or goals — those are confirmed and live in [`north-star.md`](north-star.md). Architecture decisions and their rationale live in `DESIGN.md`; the historical build reference lives in `PLAN/`, superseded by `PLAN.md`'s refactor plan for current work.
 
 - **Captured / confirmed:** 2026-06-28

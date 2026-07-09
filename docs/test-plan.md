@@ -1,6 +1,6 @@
 # Manual Walkthrough Test Plan
 
-A step-by-step checklist for a human — not a developer — to confirm the app works end to end before the wedding. Run it against a seeded ~100-guest event, not the real event data, so nothing here touches a real guest.
+A step-by-step checklist for a human — not a developer — to confirm the app works end to end, run before the wedding and after any significant deploy. Run it against a seeded ~100-guest event, not the real event data, so nothing here touches a real guest.
 
 Each scenario below is written as: what to do, what you should see, and a checkbox to mark the result. Work through every box. If a box fails, write down what you saw next to it (or in a separate notes doc) and file it as a defect — do not just re-check it and move on.
 
@@ -355,4 +355,4 @@ Expected: Both show a friendly "not found" page — not a raw error, not a blank
 
 - [ ] Every box above is checked.
 - [ ] Any failed box has a written note describing what actually happened, filed as a defect before the event.
-- [ ] The `data-demo` database and admin password used for this walkthrough are discarded — they are test data only and are never used for the real wedding event.
+- [ ] The `data-demo` database and admin password used for this walkthrough are discarded — they are test data only and are never used for the live event data.

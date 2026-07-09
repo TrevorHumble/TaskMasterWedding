@@ -1,5 +1,7 @@
 # Adversarial Code Review — Garden Party Pastels (as-built baseline)
 
+> **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
+
 **Date:** 2026-06-28  
 **Method:** bias-gated multi-adversary review per `standards/adversarial-review-protocol.md`. Architecture had 3 independent reviewers (2-of-3 majority for `confirmed`); security, testability, and UX-usability had 2 each. A separate bias-gate agent audited the briefing.
 

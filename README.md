@@ -2,7 +2,7 @@
 
 A photo scavenger-hunt web app for the wedding of **Axel Fenwick & Lily Sckeiky**. Around 100 guests, each on their own phone, scan a per-guest QR code on their place-card, sign in with no password, and complete tasks by uploading photos. Each completed task earns a point, badges unlock automatically, and there is a public leaderboard and a shared photo gallery. A password-protected admin (the "Task Master") manages tasks, awards bonus points and special badges, hides photos, and exports everything at the end.
 
-It runs on a single Windows laptop for the wedding weekend and is made publicly reachable by a free Cloudflare quick tunnel. No paid services, nothing to install in the cloud.
+It runs on a small rented Linux host with a persistent disk, reachable over HTTPS through the host's reverse proxy at a stable domain the QR codes point to; see [`docs/deploy.md`](docs/deploy.md) for the full deploy runbook. It originally ran on a laptop behind a temporary Cloudflare tunnel.
 
 ## What it does
 
@@ -24,7 +24,7 @@ powershell -File tools/check-freshness.ps1
 
 Build sessions merge their work on GitHub from separate worktrees, so this folder never updates itself — if the check says you are N commits behind, run `git pull` before looking at the app, or you will be reviewing a version that no longer exists. The check is read-only; it never changes your files.
 
-Requires **Node.js 20+** on Windows (PowerShell). From the project root:
+Requires **Node.js 20+** on Windows (PowerShell) for local development. Production runs on Linux — see [`docs/deploy.md`](docs/deploy.md) for the hosted deploy. From the project root:
 
 ```powershell
 npm install
@@ -48,15 +48,9 @@ Then open <http://localhost:3000>.
 
 **Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to guest creation and bulk create, the printable QR sheet at `/admin/qrsheet`, task CRUD, awarding points and badges, comment moderation at `/admin/comments`, photo takedown, and `/admin/export`.
 
-## Going live (Cloudflare tunnel)
+## Going live
 
-Start the app, then point a free Cloudflare quick tunnel at it (no account needed):
-
-```powershell
-cloudflared tunnel --url http://localhost:3000
-```
-
-Cloudflare prints a public `https://<random>.trycloudflare.com` URL that forwards to the laptop. Share that URL (or print QR codes against it) so guests can reach the app from anywhere. The URL changes on each run.
+Production runs on a rented Linux host, not the dev laptop: a host with a persistent disk, environment variables set per the table in `docs/deploy.md` (including `BASE_URL` and `TRUST_PROXY`), then `docker compose up -d` or the systemd unit described there. The host's reverse proxy terminates HTTPS at the stable domain the QR codes encode. See [`docs/deploy.md`](docs/deploy.md) for the full procedure — provisioning, TLS, environment variables, and the process supervisor.
 
 ### Working in a worktree
 
@@ -70,9 +64,15 @@ This creates a sibling folder checked out on `<name>`, sharing this repo's histo
 
 ## Backups
 
-`data/` is the only copy of the event on the laptop: the SQLite database plus every uploaded photo and thumbnail. Back it up during the event, to a **second location** — a copy sitting next to `data/` on the same disk does not survive a disk failure or an accidental `rm -rf data/`.
+`data/` is the only copy of the event: the SQLite database plus every uploaded photo and thumbnail. Back it up to a **second location** — a copy sitting next to `data/` on the same disk does not survive a disk failure or an accidental `rm -rf data/`.
 
-Run a backup any time the app is up (safe to run against a live, in-use database):
+### Scheduled backups
+
+In production the host runs backups on a schedule and keeps the last `BACKUP_RETENTION_COUNT` snapshots, copying each one off-host (not just to another folder on the same disk) so a lost host does not also mean a lost event. Setup and the retention/off-host settings are covered in the backups section of [`docs/deploy.md`](docs/deploy.md).
+
+### Manual run (dev)
+
+Run a backup any time the app is up (safe to run against a live, in-use database) — the right way to take a one-off local snapshot:
 
 ```powershell
 node scripts/backup.js
@@ -88,15 +88,23 @@ The backup folder location is controlled by the `BACKUP_DIR` config key. Its def
 
 ### Restoring
 
-To restore a snapshot back into a fresh `data/` (e.g. after a crash or corrupted database):
+The hosted restore procedure is canonical — see the restore section of [`docs/deploy.md`](docs/deploy.md). To restore a snapshot back into a fresh `data/` locally (e.g. after a crash or corrupted database):
 
 1. Stop the app.
 2. Make sure `data/` is empty (or doesn't exist yet) — restoring on top of an existing `data/` overwrites it.
-3. Create an empty `data/` directory (needed before the `app.db` copy below, since `Copy-Item` will not create a missing parent):
+3. Create an empty `data/` directory (needed before the `app.db` copy below):
+   ```bash
+   mkdir -p data
+   ```
    ```powershell
    New-Item -ItemType Directory -Force data | Out-Null
    ```
 4. Copy the snapshot's database and photo folders back:
+   ```bash
+   cp backups/<timestamp>/app.db data/app.db
+   cp -r backups/<timestamp>/uploads data/uploads
+   cp -r backups/<timestamp>/thumbs data/thumbs
+   ```
    ```powershell
    Copy-Item backups\<timestamp>\app.db data\app.db
    Copy-Item backups\<timestamp>\uploads data\uploads -Recurse
@@ -150,7 +158,7 @@ standards/                Checkable standards the orchestrator pipeline enforces
 
 - Manual pre-wedding walkthrough (step-by-step test plan): [`docs/test-plan.md`](docs/test-plan.md).
 - Peak-load test harness and how to read a run: [`docs/loadtest.md`](docs/loadtest.md).
-- Detailed build plan: [`PLAN/00-README.md`](PLAN/00-README.md) and the numbered files through `10-theme-and-art.md`.
+- Detailed build plan: [`PLAN/00-README.md`](PLAN/00-README.md) and the numbered files through `10-theme-and-art.md` (historical; for current hosting see docs/deploy.md).
 - Architecture diagrams and walkthroughs: [`docs/architecture.md`](docs/architecture.md).
 - Design rationale and tradeoffs: [`DESIGN.md`](DESIGN.md).
 - Refactor roadmap: [`PLAN.md`](PLAN.md).

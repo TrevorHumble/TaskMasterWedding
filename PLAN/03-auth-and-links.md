@@ -1,5 +1,7 @@
 # 03 — Auth and Links: Guest Sign-In, Sessions, QR Codes, Admin Login
 
+> **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
+
 This section builds the entire sign-in system. There are no passwords for guests. Each guest has a secret link printed as a QR code on their place-card; scanning it signs them in on their phone and keeps them signed in. The admin (the couple) uses one password to get into the control panel.
 
 When you finish this section the app will be able to: turn a guest link into a QR code image, recognize a returning guest from a cookie, send first-time guests through an onboarding form (name, avatar, social links), and let the admin log in and out.

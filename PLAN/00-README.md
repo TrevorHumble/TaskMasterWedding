@@ -1,5 +1,7 @@
 # Garden Party Pastels — Wedding Scavenger Hunt
 
+> **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
+
 A self-contained web app for **Axel Fenwick & Lily Sckeiky's** wedding. About 100 guests, each on their own phone, play a photo scavenger hunt: they scan a QR code on their table place-card, sign in, and complete tasks by uploading photos. Each completed task earns a point, badges unlock automatically, and there's a public leaderboard and a shared photo gallery. A password-protected admin (the "Task Master") manages tasks, awards bonus points and special badges, hides any photo, and runs a one-click export (a ZIP of all photos + an Excel summary) after the wedding. The whole thing runs on the couple's Windows 11 laptop for the weekend and is made publicly reachable by a free Cloudflare tunnel — no paid signups, nothing to install in the cloud.
 
 > **Who this plan is for:** a junior developer who has never seen this project. Read this file top to bottom first, then open each numbered plan file in order and do exactly what it says. Every file gives you complete, copy-paste-ready code. Do not improvise or swap libraries.
