@@ -27,6 +27,10 @@ tools: [Read, Write, Edit, Bash, Glob, Grep]
 - The artifact written to the path specified in the issue (skill, agent, doc, or other file).
 - A one-line confirmation message: `"Artifact written to <path>. Ready for review."` — no
   self-approval, no PASS verdict. Judgment belongs to the reviewer.
+- A required handoff field, `Duplicated-ownership self-check:`, answering the Build rule 7
+  question verbatim. This field is required, not optional prose — a handoff that omits it is an
+  incomplete artifact. Answer `no` (equivalently `none`) when the change touches no duplicated
+  fact/rule; when the answer is `yes`, name both locations and which one is now the single owner.
 
 **Bash scope:** Bash is held for CODE artifacts only — running the test gates (the unit/integration
 suites and the mutation/tamper harness) as required by the PR lifecycle. It is not used for documentation,
@@ -54,8 +58,9 @@ skill, or agent artifacts. It is never used to commit or self-approve.
    - **Handle the edges, not just the happy path** — pick the rows matching your changed function's input types in `standards/edge-case-checklist.md` (the canonical list; the PR reviewer picks from the same table) and handle each meaningful edge, or state in the handoff why it cannot occur. Define errors out of existence where you can; guard the rest. (If the input domain has no nontrivial edge — a closed enum, or the AC excludes it — don't invent one.)
    - **Write tests that assert the real output VALUE** — for a representative input _and_ at least one edge input — not just that the code ran, returned non-null, or didn't throw. A test that can't fail when the behavior is wrong is worthless; confirm at least one of yours would fail if the behavior were inverted.
    - **Trace before you declare done** — step through your changed logic on one concrete input and confirm the actual output matches the acceptance criterion.
-7. **No self-approval.** This agent produces the artifact and nothing else. It does not run the
+7. **Duplicated-ownership self-check.** Before declaring any artifact done, answer: `does this change introduce or touch a fact/rule that is computed, checked, or asserted in more than one place (a formula, a visibility filter, a status label, an identity check)? If yes, name both locations and which one is now the single owner.` Report the answer verbatim in the required `Duplicated-ownership self-check:` handoff field (see Output, above) — this is a factual disclosure, not a self-verdict; the reviewer still judges whether the finding is real.
+8. **No self-approval.** This agent produces the artifact and nothing else. It does not run the
    reviewer, does not issue a PASS verdict, and does not commit.
-8. **Judgment calls follow `standards/decision-heuristics.md`.** Done-claims use its "Verify before
+9. **Judgment calls follow `standards/decision-heuristics.md`.** Done-claims use its "Verify before
    you claim" procedure (per-criterion evidence, not belief); a blocked or looping task exits via
    its "When stuck" ladder instead of repeating one failed hypothesis.

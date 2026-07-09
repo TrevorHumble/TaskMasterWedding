@@ -40,7 +40,7 @@ Not a finding: a function with several parameters is not automatically shallow �
 
 ### information leakage
 
-Flag — a hypothetical counter-design: two routes each re-derive the "visible submission" rule instead of asking the module that owns it:
+Flag — duplicated ownership of a formula, filter, or status rule: a hypothetical counter-design where two routes each re-derive the "visible submission" rule instead of asking the module that owns it:
 
 ```js
 // hypothetical routeA.js

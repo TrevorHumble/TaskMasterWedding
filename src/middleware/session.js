@@ -2,6 +2,25 @@
 'use strict';
 
 const { db } = require('../db');
+const config = require('../../config');
+
+/**
+ * Write a one-shot flash message. This is the single canonical writer of the
+ * signed `flash` cookie, whose shape ({ type: 'ok' | 'err', msg }) is read back
+ * and cleared by attachGuest below and rendered by partials/header.ejs. kind is
+ * 'success' (→ type 'ok') or 'error' (→ type 'err'); text is the message.
+ */
+function setFlash(res, kind, text) {
+  const type = kind === 'success' ? 'ok' : 'err';
+  res.cookie('flash', JSON.stringify({ type: type, msg: text }), {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.COOKIE_SECURE,
+    signed: true,
+    path: '/',
+    maxAge: 30 * 1000, // 30 seconds is plenty to survive one redirect
+  });
+}
 
 /**
  * Runs on every request. Reads the signed `gsid` cookie (the guest's token),
@@ -21,8 +40,8 @@ function attachGuest(req, res, next) {
   res.locals.guest = guest;
 
   // One-shot flash: read the signed `flash` cookie into res.locals.flash and
-  // clear it so the message shows exactly once. Shape is { type, msg } — the
-  // canonical flash shape written by guest.js (section 04) and read by
+  // clear it so the message shows exactly once. Shape is { type, msg } —
+  // written by setFlash above (the single canonical writer) and read by
   // header.ejs (section 10).
   let flash = null;
   const rawFlash = req.signedCookies && req.signedCookies.flash;
@@ -77,4 +96,4 @@ function requireAdmin(req, res, next) {
   return undefined;
 }
 
-module.exports = { attachGuest, requireGuest, requireAdmin };
+module.exports = { attachGuest, requireGuest, requireAdmin, setFlash };

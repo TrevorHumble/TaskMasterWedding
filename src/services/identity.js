@@ -15,6 +15,8 @@
 // guest at the reception, on the spot, with no reset flow.
 'use strict';
 
+const crypto = require('crypto');
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PIN_PATTERN = /^\d{4}$/;
 
@@ -60,4 +62,31 @@ function isValidPin(raw) {
   return typeof raw === 'string' && PIN_PATTERN.test(raw);
 }
 
-module.exports = { normalizeContact, isValidPin };
+// Generate a unique 32-hex-char token (crypto.randomBytes(16) -> 32 hex chars).
+// Loops on the extremely unlikely chance of a collision with an existing token.
+// Moved here from src/routes/admin.js (issue #240) so both the admin
+// guest-creation forms and the self-serve /join signup share one generator.
+//
+// db is required LAZILY, inside the function body, rather than at module
+// load time. tests/guest-identity.test.js requires this module before it
+// points DATA_DIR/DB_PATH at its own fixture database and requires src/db.js
+// fresh; a top-level `require('../db')` here would load src/db.js (and run
+// its migrations) against whatever database was active at THAT moment,
+// caching it under Node's module cache — so the fixture test's later,
+// same-path require of src/db.js would silently return that same stale
+// connection instead of a fresh one bound to its temp file. Deferring the
+// require until the function actually runs avoids that ordering hazard.
+function makeUniqueToken() {
+  const { db } = require('../db');
+  const exists = db.prepare('SELECT 1 FROM guests WHERE token = ?');
+  for (let i = 0; i < 10; i++) {
+    const token = crypto.randomBytes(16).toString('hex');
+    if (!exists.get(token)) {
+      return token;
+    }
+  }
+  // Practically unreachable.
+  throw new Error('Could not generate a unique guest token.');
+}
+
+module.exports = { normalizeContact, isValidPin, makeUniqueToken };
