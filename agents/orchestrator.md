@@ -59,7 +59,7 @@ allowed rounds.
 5. **Visual-approval loop** — if the implementation is a **visual change** (see "Visual-approval loop"
    below for the trigger and full mechanics), run the loop to explicit owner approval **before**
    step 6. A non-visual change skips this step entirely and proceeds straight to step 6.
-6. **Artifact review** — spawn the appropriate reviewer agent (Opus) from `agents/reviewer-*.md` via `skills/spawn-adversarial-review.md`. Reviewer receives only the artifact under review and the relevant standard — no framing, no positive hints, no planted suspicions. **Reviewer count and cadence follow `standards/adversarial-review-protocol.md` § Reviewer count by artifact** (authoritative; not restated here to avoid drift): routine round 1 uses one PR reviewer plus the design-philosophy reviewer, both-must-PASS; rounds 2+ use one fresh reviewer each (except system-level changes, which require two independent PASSes on the final tree). See `standards/adversarial-review-protocol.md` for the full de-bias and spawning rules.
+6. **Artifact review** — spawn the appropriate reviewer agent (Opus) from `agents/reviewer-*.md` via `skills/spawn-adversarial-review.md`. Reviewer receives only the artifact under review and the relevant standard — no framing, no positive hints, no planted suspicions. **Reviewer count and cadence follow `standards/adversarial-review-protocol.md` § Reviewer count by artifact** (authoritative; not restated here to avoid drift): routine round 1 uses one PR reviewer plus the design-philosophy reviewer, both-must-PASS; rounds 2+ use one fresh reviewer each (except system-level changes, which require two independent PASSes on the final tree). See `standards/adversarial-review-protocol.md` for the full de-bias and spawning rules. **If the diff touches the source surface defined in § "Doc-currency step", dispatch the `doc-currency` step concurrently with this review** — see § "Doc-currency step" below.
 7. **Commit** — once per run, before the first commit, **assert the gate is live**: `powershell -File tools/check-gate.ps1` (if it errors, run `tools/setup-hooks.ps1`; never proceed assuming a gate that isn't on — an unconfigured clone enforces nothing). The gate's introducing commit must also self-certify (record its own verdict first — dogfooding is expected, not a malfunction). On the reviewers' PASS, first **record the verdict**: `powershell -File tools/review_verdict.ps1 -Verdict PASS -Reviewers "<who>"` (binds it to the exact staged tree), and for **each** reviewer write its evidence file: `powershell -File tools/persist-review.ps1 -TreeOid <T> -ReviewerId <id> -Verdict <PASS|FAIL>`. The commit gate now requires those evidence files, so the verdict summary alone no longer authorizes a commit (the S3 runner will write them automatically from real reviewer returns; until it lands, the orchestrator writes one per reviewer by hand). Then `git commit` with a short message that includes `(#N)` referencing the issue. **Two gates run at commit time:** `pre-commit` checks that the staged tree has a PASS review verdict; `commit-msg` checks that the commit message names a GitHub issue whose issue-review is on file. Both must pass. If `commit-msg` blocks, the fix is to record the issue review: `powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS`. The repo's `pre-commit` gate (`.githooks/pre-commit`, active via `core.hooksPath` — run `tools/setup-hooks.ps1` once per working copy) blocks any commit whose staged tree has no matching PASS verdict, so recording the reviewers' real result is a required, mechanical step. If either gate blocks you, the fix is to run the corresponding review and record its genuine verdict — never to forge one. Append a one-line entry to `BUILDLOG.md`.
    Then **close the GitHub issue** for this work (`gh issue close`, referencing the commit) so the board
    matches reality. Before declaring the segment done, spawn `agents/reviewer-tracker-sync.md` — it FAILs
@@ -121,6 +121,53 @@ Absence of explicit owner approval blocks the merge; there is no silent-skip pat
 owner still never resolves review findings. It is the "product direction, taste" human-judgment
 carve-out `standards/adversarial-review-protocol.md` § "No human in the loop" reserves, made into an
 explicit pre-merge step for visual changes only.
+
+---
+
+## Doc-currency step (concurrent with PR review)
+
+**Trigger.** When an implementation's diff touches `src/db.js`, `src/routes/`, or `src/services/`,
+the orchestrator spawns a `doc-currency` step — an **inline pipeline step defined here**, not a new
+agent file — alongside step 6 (Artifact review).
+
+**Dispatched concurrently, not serially.** The `doc-currency` step is spawned **concurrently** with
+the adversarial PR review, not before or after it, so it adds no wall-clock time to the build:
+doc-currency runs on Sonnet and typically finishes well within the longer Opus PR-review window.
+
+**Model and instruction.** Spawned with an explicit `model: sonnet` pin (never inherits a default).
+Instruction: compare the touched surface (`src/db.js`, `src/routes/`, `src/services/`) against
+`docs/architecture.md` and `README.md`'s feature claims, and fix any drift by committing the
+correction into the same PR.
+
+**`.md`-only; halt-and-report on anything wider.** The doc-currency agent's commit is `.md`-only.
+If it concludes a non-`.md` file needs changing to fix the drift, it stops and
+reports the need instead of committing it (owner decision 2026-07-08: build speed over
+serialization) — the orchestrator routes that non-`.md` fix through the normal
+`agents/implementation-agent.md` path instead.
+
+**Staged before the verdict binds — a required ordering, not a suggestion.** The doc-currency
+agent's `.md` corrections are staged into the working tree **before** the PR-review verdict is
+recorded (`tools/review_verdict.ps1`'s `git write-tree`). This ordering is required because the
+commit gate binds a PASS to the exact staged-tree oid (`DESIGN.md` § "Commit gate: review evidence
+bound to the staged tree"; `.githooks/gate-core.sh` `evidence_gate`). Staging the `.md`-only
+corrections first means the single combined-tree PASS covers them too, so no separate re-confirm
+round runs. A `.md` fix committed after the verdict is bound would leave the reviewed tree and the
+shipped tree diverging — exactly what the exact-tree gate exists to catch. Classification and
+rationale: `standards/adversarial-review-protocol.md` § "Wave governance (#310)".
+
+---
+
+## Wave boundary
+
+**Not part of step 6's per-issue ship flow.** This section fires once at the boundary between waves
+— not after every PR merge. After a wave's planned batch of issues merges, append a line to
+`BUILDLOG.md` (or the run's Live-log ledger, during a timed run) noting the wave is complete, closing
+with the literal closing line: **owner may run /post-wave-review** (#302) — a cross-PR regression,
+seam, docs-vs-code drift, and lived-data-drill check.
+
+**Nudge, not a gate.** This is advisory only: it never blocks the next wave from starting, never runs
+`/post-wave-review` automatically, and is never a precondition for picking up the next issue. Full
+rationale: `standards/adversarial-review-protocol.md` § "Wave governance (#310)".
 
 ---
 
