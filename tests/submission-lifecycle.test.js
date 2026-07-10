@@ -41,22 +41,12 @@ beforeAll(async () => {
   const loaded = loadApp();
   db = loaded.db;
 
-  // Minimal badge catalog rows this test needs (scripts/seed.js is not run in
-  // tests — see scoring.js's own "Badge catalog not seeded yet — skip rather
-  // than crash" guard, so recomputeAutoBadges is a no-op without these rows).
-  bloomBadgeId = db
-    .prepare(
-      `INSERT INTO badges (code, name, type, threshold, art_path, description)
-       VALUES ('BLOOM', 'First Bloom', 'auto', 5, '/badges/bloom.svg', 'Completed 5 tasks.')`
-    )
-    .run().lastInsertRowid;
-
-  earlybirdBadgeId = db
-    .prepare(
-      `INSERT INTO badges (code, name, type, threshold, art_path, description)
-       VALUES ('EARLYBIRD', 'Early Bird', 'special', NULL, '/badges/earlybird.svg', 'Awarded for early arrival.')`
-    )
-    .run().lastInsertRowid;
+  // BLOOM and EARLYBIRD already exist here (#314): src/db.js's boot-heal runs
+  // ensureBadgeCatalog() at module load, so loadApp() above already seeded
+  // the canonical catalog this test needs (scoring.js's own "Badge catalog
+  // not seeded yet — skip rather than crash" guard no longer applies).
+  bloomBadgeId = db.prepare(`SELECT id FROM badges WHERE code = 'BLOOM'`).get().id;
+  earlybirdBadgeId = db.prepare(`SELECT id FROM badges WHERE code = 'EARLYBIRD'`).get().id;
 
   guestId = db
     .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)

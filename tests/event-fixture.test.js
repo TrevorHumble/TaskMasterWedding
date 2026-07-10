@@ -52,73 +52,9 @@ beforeAll(() => {
 
   // Badge catalog must exist before seedEvent calls recomputeAutoBadges /
   // awardSpecialBadge (scoring.js skips silently if a badge code is missing —
-  // see scoring.js:139-142), exactly like scripts/seed-event.js's
-  // ensureBadgeCatalog step. Insert the same 7-row catalog directly here so
-  // this test file does not depend on scripts/seed.js's require-time side
-  // effects against a different db handle.
-  const BADGES = [
-    {
-      code: 'BLOOM',
-      name: 'First Bloom',
-      type: 'auto',
-      threshold: 5,
-      art_path: '/badges/bloom.svg',
-      description: '',
-    },
-    {
-      code: 'BOUQUET',
-      name: 'Bouquet Builder',
-      type: 'auto',
-      threshold: 10,
-      art_path: '/badges/bouquet.svg',
-      description: '',
-    },
-    {
-      code: 'GARDEN',
-      name: 'Full Garden',
-      type: 'auto',
-      threshold: 15,
-      art_path: '/badges/garden.svg',
-      description: '',
-    },
-    {
-      code: 'EARLYBIRD',
-      name: 'Early Bird',
-      type: 'special',
-      threshold: null,
-      art_path: '/badges/earlybird.svg',
-      description: '',
-    },
-    {
-      code: 'SHUTTERBUG',
-      name: 'Shutterbug',
-      type: 'special',
-      threshold: null,
-      art_path: '/badges/shutterbug.svg',
-      description: '',
-    },
-    {
-      code: 'CROWDFAV',
-      name: 'Crowd Favorite',
-      type: 'special',
-      threshold: null,
-      art_path: '/badges/crowdfav.svg',
-      description: '',
-    },
-    {
-      code: 'CHOICE',
-      name: "Task Master's Choice",
-      type: 'special',
-      threshold: null,
-      art_path: '/badges/choice.svg',
-      description: '',
-    },
-  ];
-  const insertBadge = db.prepare(`
-    INSERT INTO badges (code, name, type, threshold, art_path, description)
-    VALUES (@code, @name, @type, @threshold, @art_path, @description)
-  `);
-  for (const b of BADGES) insertBadge.run(b);
+  // see scoring.js:139-142). No manual insert needed here (#314): src/db.js's
+  // boot-heal now runs ensureBadgeCatalog() at module load, so loadApp()
+  // above already left the full canonical catalog in place on this db handle.
 });
 
 describe('AC1: guest count', () => {
@@ -239,10 +175,11 @@ describe('AC5: determinism across two seeded runs', () => {
   function seedInFreshDir(seed) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gpp-event-ac5-'));
     const env = { ...process.env, DATA_DIR: tmp, DB_PATH: path.join(tmp, 'test.db') };
+    // No manual badge insert needed (#314): requiring ./src/db in the child
+    // process below runs its boot-heal (ensureBadgeCatalog at module load),
+    // seeding the full canonical catalog into this fresh empty data dir.
     const script =
       "const { db } = require('./src/db');" +
-      "const insertBadge = db.prepare('INSERT INTO badges (code, name, type, threshold, art_path, description) VALUES (?, ?, ?, ?, ?, ?)');" +
-      "[['BLOOM','a','auto',5,'/b.svg',''],['BOUQUET','b','auto',10,'/b.svg',''],['GARDEN','c','auto',15,'/b.svg',''],['EARLYBIRD','d','special',null,'/b.svg',''],['SHUTTERBUG','e','special',null,'/b.svg',''],['CROWDFAV','f','special',null,'/b.svg',''],['CHOICE','g','special',null,'/b.svg','']].forEach(r => insertBadge.run(...r));" +
       "const { seedEvent } = require('./tests/helpers/event-fixture');" +
       "const scoring = require('./src/services/scoring');" +
       `seedEvent(db, { guests: 100, seed: ${seed} });` +
