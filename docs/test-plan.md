@@ -325,11 +325,11 @@ Expected: Both attempts are rejected with a clear, human-readable error message 
 
 - [ ] Pass/fail
 
-### X2b. Real-phone uploads: HEIC is either transcoded or rejected with instructions (issue #188)
+### X2b. Real-phone uploads: HEIC is accepted and converted (issue #281, supersedes #188)
 
-Steps: From a **real iPhone**, upload a camera-roll photo to a task twice — once picking from the Photos app, once picking the same photo via the Files app. Then repeat from a **real Android phone** (Samsung if available) using its default picker. Use photos taken with the phone's default camera settings (iPhones produce HEIC by default).
+Steps: From a **real iPhone**, upload a camera-roll photo (taken with the phone's default camera settings — iPhones produce HEIC by default) to a task twice — once picking from the Photos app, once picking the same photo via the Files app. Then repeat from a **real Android phone** (Samsung if available) using its default picker.
 
-Expected: Every attempt ends in one of exactly two outcomes — the photo uploads and its thumbnail appears (the picker transcoded it to JPEG), or it is rejected with the actionable message telling you to take a screenshot or switch the camera to "Most Compatible". **Never** the dead-end "could not save that photo. Please try again."
+Expected: Every attempt succeeds — the photo uploads, its thumbnail appears, and the full photo opens normally from the gallery/feed — whether the picker already transcoded the file to JPEG itself or handed over a real HEIC/HEIF file for the server to convert. **Never** a rejection, and never the dead-end "could not save that photo. Please try again."
 
 - [ ] Pass/fail
 

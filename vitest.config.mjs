@@ -45,6 +45,13 @@ export default defineConfig({
         'scripts/ledger-push.js',
         'scripts/loadtest.js',
         'scripts/smoke.js',
+        // heic-worker.js runs in a worker_threads thread (#281). The main-process
+        // v8 coverage provider cannot instrument another thread's execution, so
+        // it always reports 0% here even though the HEIC conversion tests drive
+        // real decodes through it end-to-end. Same rationale as the process-level
+        // scripts above — exclude from the coverage denominator rather than pad
+        // with fake tests; the worker's behavior is gated by the integration tests.
+        'src/services/heic-worker.js',
       ],
       thresholds: { lines: 80, functions: 84, branches: 79, statements: 80 },
     },
