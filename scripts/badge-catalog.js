@@ -1,10 +1,10 @@
 // scripts/badge-catalog.js
 //
-// Single source of truth for the seeded badge catalog (#193 AC4).
-// Deliberately data-only: scripts/seed.js runs its inserts at require-time
-// against the real db singleton, so any module that wants the catalog without
-// those side effects (scripts/seed-event.js, tests) must get it from here.
-// Keep it that way — no require of src/db, no file I/O, no inserts.
+// Single source of truth for the seeded badge catalog (#193 AC4), plus the
+// one shared ensureBadgeCatalog(db) that inserts it (#314). Callers — the
+// seed scripts and src/db.js's boot path — pass their own `db` in; this
+// module never touches a database on its own. No require of src/db, no file
+// I/O, no require-time side effects. Keep it that way.
 //
 // 'auto' badges are granted automatically at a completed-task threshold.
 // 'special' badges have threshold = null and are hand-awarded by the admin.
@@ -87,4 +87,34 @@ const BADGES = [
   },
 ];
 
-module.exports = { BADGES };
+/**
+ * Insert the catalog insert-only: `INSERT OR IGNORE` keyed on the badges.code
+ * UNIQUE constraint (see src/db.js's CREATE TABLE), so a row already present
+ * — whether seeded earlier or admin-edited — is never overwritten (#314 AC3).
+ * better-sqlite3's RunResult.changes is 0 when a row is ignored on conflict
+ * and 1 when it inserts, so the per-row change count doubles as the
+ * inserted/skipped tally with no separate SELECT needed.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @returns {{ inserted: number, skipped: number }}
+ */
+function ensureBadgeCatalog(db) {
+  const insertBadge = db.prepare(`
+    INSERT OR IGNORE INTO badges (code, name, type, threshold, art_path, description)
+    VALUES (@code, @name, @type, @threshold, @art_path, @description)
+  `);
+
+  let inserted = 0;
+  let skipped = 0;
+  for (const b of BADGES) {
+    const { changes } = insertBadge.run(b);
+    if (changes > 0) {
+      inserted += 1;
+    } else {
+      skipped += 1;
+    }
+  }
+  return { inserted, skipped };
+}
+
+module.exports = { BADGES, ensureBadgeCatalog };
