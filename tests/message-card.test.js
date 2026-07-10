@@ -2,8 +2,9 @@
 // Issue #120: one shared "message card" partial replaces five hand-duplicated
 // brand-card pages.
 // AC1: GET /j/<unknown-token> -> 404, body renders the shared card.
-// AC2: signed-out GET /tasks (guest-gated) -> 403, body renders the shared
-//      "private link needed" card.
+// AC2: signed-out GET /tasks (guest-gated) -> 302 to /join (issue #241
+//      retired the "private link needed" card in favor of a redirect to the
+//      shared entry point).
 // Also confirms the maintenance (503) and 404 (unmatched route) paths still
 // render through the shared partial with their original copy intact.
 'use strict';
@@ -46,19 +47,10 @@ describe('AC1: unknown guest token', () => {
 });
 
 describe('AC2: signed-out visitor on a guest-gated page', () => {
-  it('GET /tasks with no guest cookie returns 403', async () => {
+  it('GET /tasks with no guest cookie redirects to /join (issue #241)', async () => {
     const res = await request(app).get('/tasks');
-    expect(res.status).toBe(403);
-  });
-
-  it('GET /tasks body renders the shared card with the "Private Link Needed" copy', async () => {
-    const res = await request(app).get('/tasks');
-    expect(res.text).toContain('message-card');
-    expect(res.text).toContain('Private Link Needed');
-    expect(res.text).toContain(
-      'This page is for guests who have signed in with their own private link.'
-    );
-    expect(res.text).toContain('Once you scan it, you will stay signed in on this phone.');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/join');
   });
 });
 
@@ -80,9 +72,9 @@ describe('regression: maintenance (503) still renders through the shared partial
 
 // Every path under '/' is guest-gated (guest.js runs `router.use(requireGuest)`
 // for the whole router), so a signed-out request never reaches the app-level
-// 404 handler — it hits the 403 card first. To exercise the true 404 handler
-// (app.js section 7) we sign in as a real guest first, same as a returning
-// guest hitting a stale/mistyped URL would.
+// 404 handler — it redirects to /join first (issue #241). To exercise the
+// true 404 handler (app.js section 7) we sign in as a real guest first, same
+// as a returning guest hitting a stale/mistyped URL would.
 describe('regression: unmatched route (404) still renders through the shared partial', () => {
   async function signedInAgent() {
     const { db } = require('../src/db');
@@ -142,12 +134,14 @@ describe('AC5: the shared partial never reads res.locals.guest', () => {
     expect(withoutLeadingComments).not.toMatch(/\bguest\b/);
   });
 
-  it('renders correctly for a signed-in guest without ever surfacing their data (session.js call site: no guest is signed in when this gate fires)', async () => {
-    // requireGuest only reaches res.render('partials/message-card', ...) when
-    // req.guest is falsy, so this path structurally cannot leak a guest's
-    // name/avatar/etc — proven by AC2's assertions above showing only the
-    // static "Private Link Needed" copy, never a guest name.
+  it("a signed-out request to a guest-gated page redirects without ever surfacing another guest's data", async () => {
+    // requireGuest now redirects to /join when req.guest is falsy (issue
+    // #241) instead of rendering a card — a redirect response carries no
+    // page body at all, so this guarantee holds even more directly than
+    // before: there is no rendered content to leak a guest's name/avatar/etc.
     const res = await request(app).get('/tasks');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/join');
     expect(res.text).not.toContain('Signed In Guest');
     expect(res.text).not.toContain('Seed Guest');
   });

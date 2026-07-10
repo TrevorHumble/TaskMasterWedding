@@ -46,6 +46,23 @@ function buildSocialLinks(body) {
 }
 
 /**
+ * Stash the just-typed contact for 30 seconds (same lifetime as setFlash's
+ * one-shot cookie) so GET /login can prefill its contact field right after
+ * POST /join's duplicate-signup redirect. Signed + httpOnly, same as every
+ * other cookie this app writes.
+ */
+function stashLoginContact(res, contactValue) {
+  res.cookie('loginContact', contactValue, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.COOKIE_SECURE,
+    signed: true,
+    path: '/',
+    maxAge: 30 * 1000,
+  });
+}
+
+/**
  * Save the avatar buffer via the photos service. Returns the relative
  * filename to store in guests.avatar_path, or null if no file was uploaded.
  */
@@ -149,6 +166,11 @@ router.post('/join', (req, res, next) => {
       const existing = getGuestByContact(contact.value);
       if (existing) {
         setFlash(res, 'error', 'Looks like you already signed up — enter your PIN to get back in.');
+        // Stash the contact they just typed so GET /login (below) can
+        // prefill the field — they should not have to retype it. A one-shot
+        // signed cookie, not a query parameter: a query parameter would
+        // leave the contact sitting in the URL/browser history.
+        stashLoginContact(res, contact.value);
         res.redirect('/login');
         return;
       }
@@ -180,6 +202,120 @@ router.post('/join', (req, res, next) => {
       // route it to the global error handler (500 page, server stays up).
       next(e);
     }
+  });
+});
+
+// --- Re-entry / login (issue #241) -------------------------------------------
+//
+// The signup counterpart at GET/POST /join: a guest who already has an
+// account gets back in on ANY device with the same contact + 4-digit PIN
+// they chose at signup, instead of needing their original private link.
+
+const LOGIN_TITLE = 'Log In';
+const LOGIN_FAIL_MESSAGE = "That contact and code don't match.";
+
+// Per-normalized-contact lockout state — module-scoped Maps, the same shape
+// as the admin lockout's two scalars above but keyed by contact.value
+// because there are many guests, not one admin. Unlike the admin flow (where
+// a correct password always wins, even mid-lockout, since only wrong
+// passwords are throttled — issue #49), a guest's credential is a 4-digit PIN
+// with only 10,000 possible values, so if the correct PIN always bypassed an
+// active lockout the throttle would not actually slow a brute-force script —
+// it would just wait out whatever counter and try again. AC4 requires the
+// lockout to block EVEN the correct PIN until the window elapses, so here the
+// lockout check runs before the credential check (the opposite order from
+// admin/login).
+const guestFailedAttempts = new Map(); // contact.value -> consecutive fail count
+const guestLockedUntil = new Map(); // contact.value -> timestamp lockout ends
+
+// GET /login — show the re-entry form. A visitor who already has a valid
+// guest session is bounced home, same as GET /join. Prefills the contact
+// field from the one-shot `loginContact` cookie stashed by POST /join's
+// duplicate-signup redirect above, if present.
+router.get('/login', (req, res) => {
+  if (req.guest) {
+    res.redirect('/');
+    return;
+  }
+  const rawContact = req.signedCookies && req.signedCookies.loginContact;
+  const contact = typeof rawContact === 'string' ? rawContact : '';
+  if (contact) {
+    res.clearCookie('loginContact', { path: '/' });
+  }
+  res.render('login', { title: LOGIN_TITLE, contact: contact, error: null });
+});
+
+// POST /login — contact + 4-digit PIN re-entry.
+//
+// One shared failure message for both an unknown contact and a wrong PIN
+// (AC2/AC3) — anything else would let a visitor learn whether a given
+// contact is registered just from the response, an account-existence oracle.
+// For the same reason, the per-contact throttle below counts an
+// unknown-contact attempt too: if only real accounts were throttled, hitting
+// the lockout message would itself reveal the contact exists.
+router.post('/login', (req, res) => {
+  const contact = normalizeContact(req.body && req.body.contact);
+  const rawContact = (req.body && req.body.contact) || '';
+  const submittedPin = req.body && req.body.pin;
+
+  // A contact that does not even parse to a normalized key has nothing to
+  // throttle against — fail closed with the same shared message, no counter
+  // touched (AC: missing/invalid contact -> shared "don't match" failure).
+  if (!contact) {
+    res.status(401).render('login', {
+      title: LOGIN_TITLE,
+      contact: rawContact,
+      error: LOGIN_FAIL_MESSAGE,
+    });
+    return;
+  }
+
+  const key = contact.value;
+  const now = Date.now();
+  const lockedUntil = guestLockedUntil.get(key) || 0;
+
+  if (now < lockedUntil) {
+    res.status(429).render('login', {
+      title: LOGIN_TITLE,
+      contact: rawContact,
+      error: 'Too many attempts. Try again in a few minutes.',
+    });
+    return;
+  }
+
+  const guest = getGuestByContact(key);
+  // guest.pin can be null/empty for an older admin-created guest that never
+  // set one (issue #239) — that must never match a submitted PIN, hence the
+  // explicit non-empty-string check before the equality compare.
+  const pinOk =
+    Boolean(guest) &&
+    typeof guest.pin === 'string' &&
+    guest.pin.length > 0 &&
+    typeof submittedPin === 'string' &&
+    guest.pin === submittedPin;
+
+  if (pinOk) {
+    guestFailedAttempts.delete(key);
+    guestLockedUntil.delete(key);
+    res.cookie('gsid', guest.token, cookieOpts());
+    res.redirect('/');
+    return;
+  }
+
+  // Wrong PIN, or no guest at all for this contact — count toward the
+  // per-contact throttle either way (see the existence-oracle note above).
+  const attempts = (guestFailedAttempts.get(key) || 0) + 1;
+  if (attempts >= config.GUEST_LOGIN_MAX_ATTEMPTS) {
+    guestLockedUntil.set(key, now + config.GUEST_LOGIN_LOCKOUT_MS);
+    guestFailedAttempts.delete(key);
+  } else {
+    guestFailedAttempts.set(key, attempts);
+  }
+
+  res.status(401).render('login', {
+    title: LOGIN_TITLE,
+    contact: rawContact,
+    error: LOGIN_FAIL_MESSAGE,
   });
 });
 

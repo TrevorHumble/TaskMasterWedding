@@ -73,7 +73,7 @@ Expected: You're redirected to the guest home page (`/`), and the name you enter
 
 Steps: In a fresh private window, go to `/j/not-a-real-token-xyz`.
 
-Expected: A "Link Not Recognized" message page, not a crash or a blank page. No sign-in cookie is set — confirm by then visiting `/tasks` in that same window; it should show the "Private Link Needed" message, not the tasks list.
+Expected: A "Link Not Recognized" message page, not a crash or a blank page. No sign-in cookie is set — confirm by then visiting `/tasks` in that same window; it should redirect you to `/join`, not show the tasks list.
 
 - [ ] Pass/fail
 

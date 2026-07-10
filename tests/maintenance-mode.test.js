@@ -25,10 +25,11 @@ afterAll(() => {
 });
 
 describe('AC1: maintenance off (default)', () => {
-  it('GET / returns 403 (guest auth required) when MAINTENANCE is false', async () => {
+  it('GET / redirects to /join (guest auth required) when MAINTENANCE is false', async () => {
     config.MAINTENANCE = false;
     const res = await request(app).get('/');
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/join');
   });
 });
 
