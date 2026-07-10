@@ -84,3 +84,5 @@
 {"schema":"gl1","pr":377,"issue":null,"merged_sha":"1de3922cc5121f86d698a4c48333d3647874d594","ts":"2026-07-10T21:25:34Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":375,"issue":314,"merged_sha":"46467ffd0c9af875f3e1b2a45d2ab19b6639c32d","ts":"2026-07-10T21:47:41Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":379,"issue":null,"merged_sha":"3df743c2303166bf8e77951232199f4dd9cd41a2","ts":"2026-07-10T21:53:28Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":380,"issue":323,"merged_sha":"7341b7df84547f3b220ab3fbdff8742a120ad841","ts":"2026-07-10T22:08:29Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":380,"merged_sha":"7341b7df84547f3b220ab3fbdff8742a120ad841","ts":"2026-07-10T22:08:29Z","files":["DESIGN.md","standards/adversarial-review-protocol.md"]}
