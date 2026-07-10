@@ -5,12 +5,13 @@
 # be silently off while the loop assumes it is on. Exit 1 = not active.
 $top = (& git rev-parse --show-toplevel 2>$null)
 if (-not $top) { Write-Error 'check-gate: not inside a git repo'; exit 1 }
+. (Join-Path $PSScriptRoot 'commit-gate-status.ps1')
 $hp = "$(& git config --get core.hooksPath)".Trim()
 $hook = Join-Path $top '.githooks/pre-commit'
 $hookOk = Test-Path $hook
 $msgHook = Join-Path $top '.githooks/commit-msg'
 $msgHookOk = Test-Path $msgHook
-if ($hp -ne '.githooks' -or -not $hookOk -or -not $msgHookOk) {
+if (-not (Test-CommitGateActive $top)) {
   Write-Error "check-gate: commit gates NOT active (core.hooksPath='$hp', pre-commit present=$hookOk, commit-msg present=$msgHookOk). Reopen the folder in Claude Code, or run: powershell -File tools/setup-hooks.ps1"
   exit 1
 }
