@@ -53,17 +53,28 @@ It adds no new dependency and no paid service: `scripts/loadtest.js` uses Node's
 
 ## Reading the output
 
-The script prints one summary line, for example:
+The script prints a summary line, followed by a per-path breakdown line for every path that had at least one failure. For example, a clean run:
 
 ```
-Summary: count=4213 errors=0 errorRate=0.00% p50=42ms p95=310ms p99=880ms rps=140.4
+Summary: count=4213 server5xx=0 networkFailures=0 p50=42ms p95=310ms p99=880ms rps=140.4
+```
+
+And a run with failures:
+
+```
+Summary: count=4213 server5xx=1 networkFailures=6 p50=42ms p95=310ms p99=880ms rps=140.4
+  /gallery: networkFailures=6
+  /tasks/1/submit: server5xx=1
 ```
 
 - **count** — total requests sent across all virtual guests.
-- **errors** — how many of those requests came back with a `5xx` (server error) status.
-- **errorRate** — errors ÷ count, as a percentage. This must be `0` — any server error under load is a real problem, not noise.
-- **p50 / p95 / p99** — response time in milliseconds that 50% / 95% / 99% of requests finished within. p95 is the headline number: it says "19 out of 20 guests saw a response at least this fast."
+- **server5xx** — how many requests came back with a real HTTP `5xx` status from the app. This is the app breaking under load, and must be `0`.
+- **networkFailures** — how many requests never got an HTTP response at all (connection refused, timeout, reset — the harness's `fetch` call threw). This is a **distinct** count from `server5xx`: it is not proof the app broke, and is reported for diagnosis, not as a pass/fail signal by itself.
+- **p50 / p95 / p99** — response time in milliseconds that 50% / 95% / 99% of requests finished within (network failures' latencies are included). p95 is the headline number: it says "19 out of 20 guests saw a response at least this fast."
 - **rps** — requests per second the app sustained during the run.
+- **per-path breakdown** — for each path that had any failure, the path and its `server5xx`/`networkFailures` counts, so a `FAIL` (or an interesting `networkFailures` spike) tells you not just how much broke but where.
+
+> Before issue #309, a client-side network drop and a real server 5xx were folded into one `errors` bucket via a `NETWORK_FAILURE_STATUS = 599` sentinel, and no path was recorded. That made the gate flaky: a run with only client-side connection drops (0 server errors) reported the same `FAIL` as a run where the app actually broke, with no way to tell which had happened or where. `server5xx` and `networkFailures` are now always distinct fields, never merged.
 
 The script then prints `PASS` or `FAIL` and exits with status `0` (pass) or `1` (fail), so it can be dropped into a script or CI step that needs a clear signal.
 
@@ -71,13 +82,27 @@ The script then prints `PASS` or `FAIL` and exits with status `0` (pass) or `1` 
 
 The run passes when **both** of these hold:
 
-- **`0` requests return a `5xx` status** — the app never breaks under peak load, even once.
+- **`server5xx === 0`** — zero requests return a real `5xx` status from the app, even once.
 - **p95 stays under the target** (2000ms by default) — the slowest-but-one guest in twenty still gets a response inside two seconds, not a spinner.
 
-A `FAIL` line lists exactly which bar was missed (error rate, p95, or both) so you know whether the problem is stability or raw speed.
+`networkFailures` is **not** part of the pass bar. A client-side connection drop under load is harness/network noise (a saturated local loopback, a laptop NIC hitting its own connection ceiling) unless it correlates with `server5xx` on the same path — read a nonzero `networkFailures` as a prompt to look closer, not as an automatic FAIL.
+
+A `FAIL` line lists exactly which bar was missed (`server5xx`, `p95`, or both), and the per-path breakdown says where.
 
 If it fails, the tunable to reach for first is `--concurrency` — vary it to find the actual ceiling (e.g. does 100 pass but 150 doesn't? what about 60?), so you know the real headroom above your expected peak guest count, not just a pass/fail at one number.
 
 ## Caveat: this is not the deployed URL
 
 This test measures the app process itself — nothing about the real network path a guest's phone takes to the deployed URL. Running it on `localhost` skips real-network latency, the TLS handshake, and the reverse proxy hop entirely, along with venue-wifi effects like radio contention and distance-from-router weak signal. A clean local `PASS` tells you the app and the code can carry the load; it does **not** tell you the deployed URL, reached over real network and TLS/proxy overhead, can. Confirm the pass bar once against the deployed URL — ideally with several phones at once — before trusting it on the wedding day itself; that confirmation run is issue #292's job.
+
+## Recorded baselines
+
+**2026-07-10** — captured on the event laptop after the #309 attribution rewrite, against a throwaway `data-demo` event seed (`node scripts/seed-event.js --guests 100`) and a bounded request count (rather than the default 100-concurrency/30s run, to keep the recorded run short):
+
+```
+node scripts/loadtest.js --requests 400 --concurrency 40
+Summary: count=520 server5xx=0 networkFailures=0 p50=73ms p95=184ms p99=226ms rps=410.4
+PASS: within Goal A thresholds.
+```
+
+Zero `server5xx` and zero `networkFailures` — the app and this local harness both held up clean at this concurrency/request count. This is a **local** baseline only (see the caveat above); it does not stand in for a documented 100-concurrency run, which remains the harness's default and issue #292's hosted-URL job.
