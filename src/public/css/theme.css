@@ -961,6 +961,12 @@ textarea {
   color: var(--color-text-muted);
   margin-top: var(--space-2);
 }
+/* Batch-caption note (issue #364 AC7): hidden by default via the [hidden]
+   attribute set server-side; memory-caption.js toggles it against the
+   caption input on the 1-vs-2+ file boundary. */
+.caption-batch-note {
+  font-style: italic;
+}
 
 /* ---- Form well (green-50 background) ---- */
 .form-well {
