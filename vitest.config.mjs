@@ -6,6 +6,14 @@ import { defineConfig } from 'vitest/config';
 // #181 is reached (measured 2026-07-08: statements 83.06%, lines 84%,
 // branches 71.55%, functions 84.79%); branches/functions are set to that
 // measurement rounded down. Floors only move up from here.
+//
+// #305 (2026-07-10): branch-coverage pass on guest-facing fallback arms
+// (config.js, src/services/photos.js, src/routes/community.js,
+// src/routes/guest.js) raised summary branches to 79.24% (802/1012),
+// measured in this branch's own worktree before rebasing onto the other
+// concurrently-landing coverage lanes. Floor set to floor(79.24) = 79 per
+// AC3 — safe because the merged (post-rebase) summary can only be >= this
+// branch's own measurement, never lower.
 export default defineConfig({
   test: {
     globals: true,
@@ -38,7 +46,7 @@ export default defineConfig({
         'scripts/loadtest.js',
         'scripts/smoke.js',
       ],
-      thresholds: { lines: 80, functions: 84, branches: 71, statements: 80 },
+      thresholds: { lines: 80, functions: 84, branches: 79, statements: 80 },
     },
   },
 });
