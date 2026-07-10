@@ -42,40 +42,17 @@ const AVATAR_FILES = ['avatar-01.jpg', 'avatar-02.jpg'];
 const SAMPLES_DIR = path.join(config.ROOT, 'fixtures', 'sample-photos');
 
 // ---------------------------------------------------------------------------
-// Badge catalog. The one shared catalog module (#193 AC4) — the same array
-// scripts/seed.js inserts from, so the two seeds can never drift apart.
-// Inserted the same idempotent way (skip any code already present) so this
-// script never duplicates rows if scripts/seed.js already ran, and works
-// standalone if it hasn't. Not required()'d from seed.js because that module
-// runs its inserts as side effects at require-time against the real `db`
-// singleton — badge-catalog.js is data-only, so requiring it is safe here.
+// Badge catalog. ensureBadgeCatalog is the one shared insert function (#193
+// AC4, consolidated #314) — the same function scripts/seed.js and src/db.js's
+// boot path call, so all three can never drift into separate catalogs.
+// Insert-only (INSERT OR IGNORE keyed on code), so this script never
+// duplicates or overwrites a row scripts/seed.js or an earlier boot already
+// inserted, and works standalone if neither has run yet. Not a problem to
+// require() here even though this module also gets require()'d for its
+// side-effect-free exports (parseArgs, installSamplePhotos) — badge-catalog.js
+// itself is data-only and takes no action until called with a `db`.
 // ---------------------------------------------------------------------------
-const { BADGES } = require('./badge-catalog');
-
-/**
- * Insert the badge catalog idempotently (skip any code already present).
- * @param {import('better-sqlite3').Database} db
- * @returns {{ inserted: number, skipped: number }}
- */
-function ensureBadgeCatalog(db) {
-  const findBadge = db.prepare(`SELECT id FROM badges WHERE code = ?`);
-  const insertBadge = db.prepare(`
-    INSERT INTO badges (code, name, type, threshold, art_path, description)
-    VALUES (@code, @name, @type, @threshold, @art_path, @description)
-  `);
-
-  let inserted = 0;
-  let skipped = 0;
-  for (const b of BADGES) {
-    if (findBadge.get(b.code)) {
-      skipped += 1;
-    } else {
-      insertBadge.run(b);
-      inserted += 1;
-    }
-  }
-  return { inserted, skipped };
-}
+const { ensureBadgeCatalog } = require('./badge-catalog');
 
 /**
  * Parse a `--flag <value>` numeric argument, rejecting anything that is not a

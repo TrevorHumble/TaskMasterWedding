@@ -95,7 +95,9 @@ describe('AC3: onboarding still completes without an avatar', () => {
     // …then the retry with only a name succeeds.
     const retry = await agent.post('/onboard').field('name', 'Retry Guest');
     expect([301, 302, 303]).toContain(retry.status);
-    expect(retry.headers.location).toBe('/');
+    // Issue #246: onboarding success now lands on the how-to-play rules card
+    // (with the first-time Skip link) instead of straight home.
+    expect(retry.headers.location).toBe('/how-to-play?first=1');
 
     const row = db.prepare('SELECT name, onboarded FROM guests WHERE id = ?').get(guest.id);
     expect(row.onboarded).toBe(1);

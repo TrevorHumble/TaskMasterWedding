@@ -57,6 +57,14 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 // Signed cookies. The same secret signs the guest (gsid) and admin cookies.
 app.use(cookieParser(config.COOKIE_SECRET));
+// Response header: keep every page and file out of search-engine indexes
+// (DESIGN.md § Hosted deployment). Runs ahead of the static mounts (section 4)
+// on purpose so it also covers /uploads and /thumbs — photo files have no
+// HTML to carry a meta tag, so the header is their only indexing signal.
+app.use((req, res, next) => {
+  res.set('X-Robots-Tag', 'noindex, nofollow');
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // 4. Static file mounts.

@@ -170,6 +170,120 @@ router.get('/tasks', function (req, res) {
 });
 
 // ---------------------------------------------------------------------------
+// GET /how-to-play  — the one-screen rules card (issue #246). Shown once
+// automatically right after onboarding (POST /onboard redirects here with
+// ?first=1) and reachable forever after from the profile menu (a plain GET,
+// no query string).
+//
+// taskCount is the LIVE count of active tasks (owner directive: never a
+// hard-coded number, so the copy tracks admin changes to the task list).
+// firstTaskHref points at this guest's own lowest-sort_order undone task —
+// the same "todo, ordered by sort_order" shape /tasks already computes above,
+// just narrowed to id-only and LIMIT 1 here since this route only needs the
+// first row, not the whole list.
+// ---------------------------------------------------------------------------
+router.get('/how-to-play', function (req, res) {
+  const guest = res.locals.guest;
+
+  const taskCountRow = db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get();
+  const taskCount = taskCountRow.n;
+
+  // Lowest sort_order active task this guest has not (visibly) submitted for.
+  // taken_down submissions do not count as done, matching /tasks above.
+  const firstUndone = db
+    .prepare(
+      `SELECT t.id
+         FROM tasks t
+         LEFT JOIN submissions s
+                ON s.task_id = t.id
+               AND s.guest_id = ?
+               AND s.taken_down = 0
+        WHERE t.is_active = 1
+          AND s.id IS NULL
+        ORDER BY t.sort_order ASC, t.id ASC
+        LIMIT 1`
+    )
+    .get(guest.id);
+
+  res.render('how-to-play', {
+    title: 'How to play',
+    taskCount: taskCount,
+    firstTaskHref: firstUndone ? '/tasks/' + firstUndone.id : '/tasks',
+    showSkip: req.query.first === '1',
+  });
+});
+
+// Copy shown to the guest after a bug report is stored (AC1) and when the
+// body field is left empty (AC5). Named constants so the route and the tests
+// reference the same literal in one place.
+const BUG_REPORT_THANKS = 'Thanks — the Wedding Masters have been told.';
+const BUG_REPORT_EMPTY_ERROR = 'Tell us what went wrong first.';
+// A stored bug body is capped at this many characters (issue #245 AC6) — long
+// enough for a real description. This bounds only the per-request body
+// length, not the number of reports a guest can file; an unbounded report
+// count is a known, accepted minor under the guest-comments threat model.
+const BUG_REPORT_BODY_MAX = 1000;
+
+// Pull just the path (no scheme/host) out of a Referer header, so
+// bug_reports.page never stores a full origin a guest's phone happened to be
+// on. Real browsers send an absolute URL; some test/tooling clients send a
+// bare path directly, so a same-origin-only relative string is accepted too.
+// Returns null when the header is absent or unusable.
+function refererPath(rawReferer) {
+  if (typeof rawReferer !== 'string' || rawReferer.length === 0) {
+    return null;
+  }
+  try {
+    return new URL(rawReferer).pathname;
+  } catch (e) {
+    return rawReferer.startsWith('/') ? rawReferer : null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /bug-report  — the "Report a bug" form (issue #245). Guest-gated by the
+// router.use(requireGuest) above, same as every other route in this file
+// (AC2: a signed-out visitor gets the "Private Link Needed" screen instead).
+// ---------------------------------------------------------------------------
+router.get('/bug-report', function (req, res) {
+  res.render('bug-report', { title: 'Report a bug', error: '' });
+});
+
+// ---------------------------------------------------------------------------
+// POST /bug-report  — store a guest's bug report (issue #245).
+// The app auto-attaches guest id, the referring path (Referer header, origin
+// stripped), and the User-Agent — the guest form itself carries only the
+// message body, per the design ("no email field, no screenshot upload").
+// ---------------------------------------------------------------------------
+router.post('/bug-report', function (req, res) {
+  const guest = res.locals.guest;
+
+  const raw = typeof req.body.body === 'string' ? req.body.body : '';
+  const trimmed = raw.trim();
+
+  // AC5: an empty (or whitespace-only) body inserts no row and re-renders the
+  // form with the required error copy.
+  if (trimmed.length === 0) {
+    return res.render('bug-report', { title: 'Report a bug', error: BUG_REPORT_EMPTY_ERROR });
+  }
+
+  // AC6: truncate to BUG_REPORT_BODY_MAX chars — 1001 'a' characters store as
+  // exactly 1000.
+  const body = trimmed.slice(0, BUG_REPORT_BODY_MAX);
+
+  const page = refererPath(req.get('referer'));
+  const userAgent = req.get('user-agent') || null;
+
+  db.prepare(
+    `INSERT INTO bug_reports (guest_id, body, page, user_agent, resolved)
+     VALUES (?, ?, ?, ?, 0)`
+  ).run(guest.id, body, page, userAgent);
+
+  setFlash(res, 'success', BUG_REPORT_THANKS);
+  return res.redirect('/');
+});
+
+// ---------------------------------------------------------------------------
 // GET /tasks/:id  — one task's detail + the upload form. If the guest has
 // already submitted (and it's not taken down), show their photo and allow
 // replacing it.

@@ -37,10 +37,13 @@ describe('admin design system — AC4: admin pages render with a session', () =>
   const routes = ['/admin', '/admin/tasks', '/admin/guests', '/admin/photos', '/admin/qrsheet'];
 
   routes.forEach((route) => {
-    it(`GET ${route} returns 200 and contains EB+Garamond font link`, async () => {
+    // Issue #252 self-hosted every font (no more per-page Google Fonts link);
+    // EB Garamond's @font-face now lives in theme.css, so "renders on-brand"
+    // is now verified by the theme.css stylesheet link being present.
+    it(`GET ${route} returns 200 and links theme.css`, async () => {
       const res = await adminAgent.get(route);
       expect(res.status).toBe(200);
-      expect(res.text).toContain('EB+Garamond');
+      expect(res.text).toContain('<link rel="stylesheet" href="/css/theme.css">');
     });
   });
 });

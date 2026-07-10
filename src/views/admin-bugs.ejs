@@ -1,0 +1,50 @@
+<!-- src/views/admin-bugs.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+  <h1 class="display-title">Bugs</h1>
+
+  <% if (msg) { %>
+    <p class="flash"><%= msg %></p>
+  <% } %>
+
+  <p><a class="btn" href="/admin">&larr; Dashboard</a></p>
+
+  <%
+    var unresolved = reports.filter(function (r) { return !r.resolved; });
+    var resolved = reports.filter(function (r) { return !!r.resolved; });
+  %>
+
+  <div class="bug-admin-list">
+    <% unresolved.forEach(function (r) { %>
+      <div class="bug-admin-row">
+        <p class="comment-meta">
+          <strong><a href="/admin/guests"><%= r.guest_name || ('Guest #' + r.guest_id) %></a></strong>
+          &middot; <%= r.page || 'unknown page' %>
+          &middot; <%= r.created_at %>
+        </p>
+        <p class="comment-body"><%= r.body %></p>
+        <form action="/admin/bugs/<%= r.id %>/resolve" method="post">
+          <button type="submit" class="btn btn-sm">Resolved</button>
+        </form>
+      </div>
+    <% }); %>
+    <% if (unresolved.length === 0) { %>
+      <p class="muted">No open bug reports.</p>
+    <% } %>
+  </div>
+
+  <% if (resolved.length > 0) { %>
+    <h2 class="section-title">Resolved</h2>
+    <div class="bug-admin-resolved-list">
+      <% resolved.forEach(function (r) { %>
+        <p class="muted">
+          <strong><%= r.guest_name || ('Guest #' + r.guest_id) %></strong>
+          &middot; <%= r.page || 'unknown page' %>
+          &middot; <%= r.body %>
+        </p>
+      <% }); %>
+    </div>
+  <% } %>
+
+<%- include('partials/footer') %>

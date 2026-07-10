@@ -12,7 +12,7 @@ It runs on a small rented Linux host with a persistent disk, reachable over HTTP
 - **Leaderboard + gallery.** A public ranking and one shared photo gallery with a lightbox.
 - **Feed, likes, comments.** A live `/feed` shows recent photos; guests can like and comment on any photo.
 - **Profiles.** Avatar, name, badges, submissions, and optional social links. Guests can view each other's profiles.
-- **Admin panel.** Create guests and QR codes, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
+- **Admin panel.** Create guests and QR codes, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, work a bug-report queue, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
 
 ## Quickstart
 
@@ -38,15 +38,15 @@ Then open <http://localhost:3000>.
 - `npm run serve` runs the app under `scripts/serve-resilient.js`, which restarts the server about a second after any crash — one bad request cannot end the event. (`npm start` runs the bare server with no restart safety net; use it only when you want a crash to stay down, e.g. while debugging.)
 
 - `node scripts/set-admin-password.js <password>` writes a bcrypt hash to `data/admin.hash`. Run it again any time to change the password; the old one stops working immediately.
-- `node scripts/seed.js` creates the SQLite schema and seeds badges plus sample tasks/guests.
+- `node scripts/seed.js` creates the SQLite schema and seeds badges plus sample tasks/guests. The badge catalog itself is also healed on every app boot (`src/db.js`, issue #314) — INSERT-OR-IGNORE, so it backfills any badge added since a database was first seeded, even on an already-played `app.db`, without touching sample tasks/guests or anything an admin has edited.
 - `npm run seed-event -- --guests 100 --seed 1` generatively seeds a realistic ~100-guest event (dense leaderboard, earned and special badges, moderated photos, real image files on disk) for pre-wedding testing at true scale. It must be pointed at a non-live `DATA_DIR` (e.g. `data-demo`) — set the `DATA_DIR` environment variable first, since it deletes and replaces its own fixture data on every run and refuses to touch a directory holding real guests.
 - Copy `.env.example` to `.env` and set a fixed `COOKIE_SECRET` before the event. Without it the app generates a random secret on each boot and signs everyone out on every restart.
 
 ## How it is used
 
-**Guests** scan their QR code, which opens `/j/:token` and signs them in (a signed `gsid` cookie). First sign-in goes through `/onboard` to set a name and avatar. From the home page they browse `/tasks`, open a task, upload a photo to complete it, and view `/gallery`, `/feed` (where they can like and comment on photos), `/leaderboard`, and profiles at `/u/:guestId`.
+**Guests** scan their QR code, which opens `/j/:token` and signs them in (a signed `gsid` cookie). First sign-in goes through `/onboard` to set a name and avatar, then a one-time `/how-to-play` rules card before landing on the home page. From the home page they browse `/tasks`, open a task, upload a photo to complete it, view `/gallery`, `/feed` (where they can like and comment on photos), `/leaderboard`, and profiles at `/u/:guestId`, and can revisit `/how-to-play` or send in `/bug-report` from the profile menu.
 
-**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to guest creation and bulk create, the printable QR sheet at `/admin/qrsheet`, task CRUD, awarding points and badges, comment moderation at `/admin/comments`, photo takedown, and `/admin/export`.
+**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to guest creation and bulk create, the printable QR sheet at `/admin/qrsheet`, task CRUD, awarding points and badges, comment moderation at `/admin/comments`, the bug-report queue at `/admin/bugs`, photo takedown, and `/admin/export`.
 
 ## Going live
 
@@ -83,6 +83,7 @@ This writes a timestamped snapshot to `backups/<YYYYMMDD-HHMMSS>/`, containing:
 - `app.db` — a consistent copy of the database, taken with SQLite's own online backup API (not a plain file copy, which can read a torn/partial file while the app is writing in WAL mode)
 - `uploads/` — a copy of every uploaded photo and avatar
 - `thumbs/` — a copy of every generated thumbnail
+- `admin.hash` — the hashed admin password, if one has been set (a fresh event with no admin password configured yet has none to copy)
 
 The backup folder location is controlled by the `BACKUP_DIR` config key. Its default resolves to `<ROOT>/backups` — a sibling of `<ROOT>/data`, i.e. outside `data/`, not a subfolder of it (see `config.js`). Set the `BACKUP_DIR` environment variable to point backups at a second drive or a mounted external location.
 
@@ -110,7 +111,14 @@ The hosted restore procedure is canonical — see the restore section of [`docs/
    Copy-Item backups\<timestamp>\uploads data\uploads -Recurse
    Copy-Item backups\<timestamp>\thumbs data\thumbs -Recurse
    ```
-5. Start the app again.
+5. Copy the admin password hash back, if the snapshot has one (skip this step if `admin.hash` isn't in the snapshot folder — that just means no admin password had been set yet). Without this step the restored app has no admin password configured, and the host cannot log into `/admin` until one is set again:
+   ```bash
+   cp backups/<timestamp>/admin.hash data/admin.hash
+   ```
+   ```powershell
+   Copy-Item backups\<timestamp>\admin.hash data\admin.hash
+   ```
+6. Start the app again.
 
 ### Gitignored, and cleared at teardown
 
@@ -129,10 +137,12 @@ src/
   middleware/session.js   attachGuest, requireGuest, requireAdmin, one-shot flash
   routes/
     auth.js               /j/:token sign-in, /onboard, /admin/login, /admin/logout
-    guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /me/edit
+    guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /me/edit,
+                           /how-to-play, /bug-report
     community.js          /gallery, /feed, GET /p/:submissionId, /p/:submissionId/like,
                            /p/:submissionId/comments, /leaderboard, /u/:guestId
-    admin.js              /admin dashboard, guests + bulk create, qrsheet, tasks, awards, takedown, export
+    admin.js              /admin dashboard, guests + bulk create, qrsheet, tasks, awards, takedown,
+                           export, /admin/bugs
   services/
     photos.js             multer disk storage, sharp thumbnails/avatars, takedown/delete
     scoring.js            points, auto badges (5/10/15), special badges, leaderboard

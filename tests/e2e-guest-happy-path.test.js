@@ -109,7 +109,9 @@ describe('AC1: guest happy path (scan link -> onboard -> submit -> see points)',
     // through untouched.
     const onboardRes = await agent.post('/onboard').type('form').send({ name: 'Priya Shah' });
     expect(onboardRes.status).toBe(302);
-    expect(onboardRes.headers.location).toBe('/');
+    // Issue #246: onboarding success now lands on the how-to-play rules card
+    // (with the first-time Skip link) instead of straight home.
+    expect(onboardRes.headers.location).toBe('/how-to-play?first=1');
 
     // 3. Submit a photo for the seeded active task.
     const submitRes = await submitPhoto(agent, taskId, 'ac1-photo.jpg');

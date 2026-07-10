@@ -1,0 +1,33 @@
+<!-- src/views/bug-report.ejs -->
+<%- include('partials/head', { title: title }) %>
+<%- include('partials/header') %>
+
+  <p class="back-link"><a href="/">&#8592; My Garden</a></p>
+  <h1 class="page-title">Report a bug</h1>
+
+  <p class="muted">
+    Something not working right? Tell the Wedding Masters what happened and
+    where — no need to track anyone down on the dance floor.
+  </p>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <p class="form-error" role="alert"><%= error %></p>
+  <% } %>
+
+  <form action="/bug-report" method="POST">
+    <div class="form-row">
+      <label for="body" class="form-label">What went wrong?</label>
+      <textarea
+        id="body"
+        name="body"
+        rows="5"
+        maxlength="1000"
+        required
+      ></textarea>
+      <p class="field-hint">The Wedding Masters will see this right away.</p>
+    </div>
+
+    <button type="submit" class="btn btn-block">Send report</button>
+  </form>
+
+<%- include('partials/footer') %>

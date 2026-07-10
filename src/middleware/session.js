@@ -56,6 +56,14 @@ function attachGuest(req, res, next) {
   }
   res.locals.flash = flash;
 
+  // The guest masthead (issue #252) highlights the current section (Tasks /
+  // Gallery / Leaderboard / My Profile) from the request path. attachGuest
+  // already runs on every request and is the single writer of per-request
+  // res.locals, so currentPath lives here rather than as a second middleware
+  // — one place computes "what page is this", partials/header.ejs is the
+  // only place that reads it.
+  res.locals.currentPath = req.path;
+
   next();
 }
 

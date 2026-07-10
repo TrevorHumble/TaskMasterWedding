@@ -1,7 +1,7 @@
 /* src/public/css/theme.css */
 
 /* ===========================================================
-   Lilly & Axel — Wedding Scavenger Hunt
+   Lilly & Axel · Wedding Master
    Design tokens, typography, and all shared components.
    Mobile-first: base rules target phones; centered column
    on wider screens.
@@ -36,6 +36,7 @@
   /* ---- Type ---- */
   --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
   --font-body: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  --font-script: 'Wedding Script', cursive;
 
   --fs-display: 56px;
   --fs-h1: 34px;
@@ -83,6 +84,50 @@
   --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
   --dur-fast: 140ms;
   --dur-base: 240ms;
+}
+
+/* ----------------------- Self-hosted fonts (issue #252) -----------------------
+   Every font this app uses — display, body, and the masthead script face —
+   is self-hosted here as a latin-subset woff2 under src/public/fonts/. No
+   view or stylesheet makes an external font-CDN request at the venue (AC3).
+   --font-display and --font-body (defined above) each resolve to a variable
+   font covering their whole requested weight range in one file. */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  src: url('/fonts/cormorant-garamond.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cormorant Garamond';
+  src: url('/fonts/cormorant-garamond-italic.woff2') format('woff2');
+  font-weight: 400 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/eb-garamond.woff2') format('woff2');
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/eb-garamond-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+/* The masthead script face — used ONLY for the words "Wedding Master"
+   (.brand-script is its sole consumer). */
+@font-face {
+  font-family: 'Wedding Script';
+  src: url('/fonts/wedding-script.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
 
 /* ----------------------- Reset-ish ----------------------- */
@@ -174,12 +219,11 @@ p {
 }
 
 /* ----------------------- Header / nav ----------------------- */
+/* Opaque, non-sticky (issue #252 — the old translucent sticky treatment let
+   photos ghost through the nav text). The header simply scrolls away with
+   the page like the footer already does. */
 .site-header {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
+  background: var(--white);
   border-bottom: var(--border-hairline);
 }
 .site-header-inner {
@@ -191,14 +235,16 @@ p {
   align-items: center;
   gap: var(--space-2);
 }
-.brand {
+/* ---- Admin brand line (unchanged appearance; renamed off the old brand
+   wrapper/label pair so that pair is fully retired — see issue #252 AC1) ---- */
+.admin-brand {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   text-decoration: none;
   color: var(--color-primary);
 }
-.brand:hover {
+.admin-brand:hover {
   text-decoration: none;
 }
 .brand-heart {
@@ -207,7 +253,7 @@ p {
   color: var(--color-primary);
   flex-shrink: 0;
 }
-.brand-text {
+.admin-brand-text {
   font-family: var(--font-display);
   font-size: var(--fs-h2);
   font-weight: 600;
@@ -215,11 +261,46 @@ p {
   letter-spacing: var(--tracking-display);
   text-transform: uppercase;
 }
+/* ---- Guest masthead (issue #252) ----
+   Script wordmark over a letter-spaced names line, hearts both sides. */
+.masthead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+}
+.masthead:hover {
+  text-decoration: none;
+}
+.brand-script {
+  font-family: var(--font-script);
+  font-size: 40px;
+  line-height: 1.15;
+  color: var(--color-primary);
+}
+.masthead-names {
+  font-size: 16px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
 .site-nav {
   display: flex;
   align-items: center;
   gap: var(--space-1) var(--space-3);
   flex-wrap: wrap;
+  justify-content: center;
+}
+/* Two centered rows of two links each (Tasks/Gallery, Leaderboard/My Profile). */
+.site-nav-guest {
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+.site-nav-row {
+  display: flex;
+  gap: var(--space-6);
   justify-content: center;
 }
 .nav-link {
@@ -239,6 +320,12 @@ p {
   color: var(--color-primary);
   text-decoration: none;
   border-bottom-color: var(--color-primary);
+}
+/* Active section (issue #252 AC2) — the only place this underline is drawn. */
+.nav-link[aria-current='page'] {
+  color: var(--color-primary);
+  border-bottom: 2px solid var(--color-primary);
+  border-radius: 0;
 }
 .nav-logout {
   margin: 0;
@@ -402,6 +489,56 @@ p {
 }
 .btn-sage:hover {
   background: var(--green-700);
+}
+
+/* ----------------------- How to play (#246) -----------------------
+   Three rule rows, each an icon circle + title + one line, stacked above the
+   full-width CTA. .rule-icon carries the 44px tap-target floor even though it
+   is not interactive itself, matching every other circular glyph in the app. */
+.rule-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.rule-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--white);
+}
+.rule-icon-1 {
+  background: #47664f;
+}
+.rule-icon-2 {
+  background: #6b8e7b;
+}
+.rule-icon-3 {
+  background: #8fa99a;
+}
+.rule-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rule-title {
+  font-weight: 600;
+  color: var(--color-heading);
+}
+.rule-desc {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
 }
 
 /* ----------------------- Cards ----------------------- */
@@ -1289,11 +1426,11 @@ textarea {
    photo, caption, one action row, up to 4 clamped comment rows, task line —
    in that order, top to bottom. Each .feed-item is a fragment target
    (#photo-<id>) that the gallery grid links to directly, so
-   scroll-margin-top has to clear the sticky .site-header — sized for the
-   tallest header state (mobile, where brand + nav stack to two rows) so the
-   landed-on photo is never hidden underneath it. content-visibility keeps a
-   long, fully-unpaginated feed (every visible photo, per AC1/AC2) cheap to
-   render off-screen. */
+   scroll-margin-top gives breathing room above a scrolled-to target — sized
+   for the tallest header state (mobile, where brand + nav stack to two rows)
+   so the landed-on photo isn't flush against the viewport edge.
+   content-visibility keeps a long, fully-unpaginated feed (every visible
+   photo, per AC1/AC2) cheap to render off-screen. */
 .feed {
   display: flex;
   flex-direction: column;
@@ -2068,10 +2205,57 @@ body:has(dialog[open]) {
   border-bottom: var(--border-hairline);
   padding-bottom: var(--space-3);
 }
-.home-nav {
+/* ---- Profile bottom menu (issue #252) ----
+   Replaces the old stacked home-nav buttons: a bordered list, hairline
+   separators, icon + label + chevron. Last row (Report a bug) is muted. */
+.menu-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  border-top: var(--border-hairline);
+}
+.menu-row {
+  border-bottom: var(--border-hairline);
+}
+.menu-link {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+  align-items: center;
+  gap: var(--space-4);
+  padding: 13px var(--space-1);
+  text-decoration: none;
+  color: var(--color-text);
+}
+.menu-link:hover {
+  background: var(--green-50);
+  text-decoration: none;
+}
+/* Chevron affordance, same pattern as .task-link::after. */
+.menu-link::after {
+  content: '\203A';
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: var(--fs-h3);
+  color: var(--color-text-muted);
+}
+.menu-icon {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+}
+.menu-label {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+.menu-link-muted .menu-icon {
+  color: var(--color-text-muted);
+}
+.menu-link-muted .menu-label {
+  color: var(--color-text-muted);
+  font-weight: 400;
 }
 .photo-grid {
   display: grid;

@@ -4,11 +4,11 @@
 const { db } = require('../src/db');
 
 // ---------------------------------------------------------------------------
-// 1) Canonical badge catalog — one shared module (#193 AC4). scripts/seed.js
-//    and scripts/seed-event.js both insert from this same array so the two
-//    catalogs can never drift apart again.
+// 1) Canonical badge catalog — one shared module (#193 AC4, consolidated
+//    #314). scripts/seed.js, scripts/seed-event.js, and src/db.js's boot path
+//    all insert via this same function so the catalogs can never drift apart.
 // ---------------------------------------------------------------------------
-const { BADGES } = require('./badge-catalog');
+const { ensureBadgeCatalog } = require('./badge-catalog');
 
 // ---------------------------------------------------------------------------
 // 2) Sample scavenger-hunt tasks for a garden-party wedding.
@@ -45,22 +45,7 @@ const TASKS = [
 // ---------------------------------------------------------------------------
 // 3) Insert badges idempotently (only if the code is not already present).
 // ---------------------------------------------------------------------------
-const findBadge = db.prepare(`SELECT id FROM badges WHERE code = ?`);
-const insertBadge = db.prepare(`
-  INSERT INTO badges (code, name, type, threshold, art_path, description)
-  VALUES (@code, @name, @type, @threshold, @art_path, @description)
-`);
-
-let badgesInserted = 0;
-let badgesSkipped = 0;
-for (const b of BADGES) {
-  if (findBadge.get(b.code)) {
-    badgesSkipped += 1;
-  } else {
-    insertBadge.run(b);
-    badgesInserted += 1;
-  }
-}
+const { inserted: badgesInserted, skipped: badgesSkipped } = ensureBadgeCatalog(db);
 
 // ---------------------------------------------------------------------------
 // 4) Insert sample tasks ONLY if the tasks table is currently empty,

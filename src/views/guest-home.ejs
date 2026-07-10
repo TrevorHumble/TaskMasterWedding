@@ -72,11 +72,44 @@
     <% } %>
   </section>
 
-  <section class="home-nav">
-    <a class="btn btn-block" href="/tasks">View all tasks</a>
-    <a class="btn btn-secondary btn-block" href="/gallery">Shared gallery</a>
-    <a class="btn btn-secondary btn-block" href="/leaderboard">Leaderboard</a>
-    <a class="btn btn-secondary btn-block" href="/memories/new">Share a memory</a>
-  </section>
+  <%# Profile bottom menu (issue #252, revised 2026-07-09 visual review) —
+      replaces the old stacked button hierarchy with a single bordered list:
+      icon + label + chevron, "Report a bug" always last and muted. The
+      original five rows opened with View all tasks / Shared gallery /
+      Leaderboard, which duplicated the masthead nav directly above this
+      menu; those three are cut and Share a memory is pinned first. Row
+      order is AC4's exact literal order. %>
+  <ul class="menu-list">
+    <li class="menu-row">
+      <a class="menu-link" href="/memories/new">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">
+            <path d="M3 9a2 2 0 0 1 2-2h2.5l1-1.5h7l1 1.5H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9z M11 10H13V13H16V15H13V18H11V15H8V13H11V10Z"/>
+          </svg>
+        </span>
+        <span class="menu-label">Share a memory</span>
+      </a>
+    </li>
+    <li class="menu-row">
+      <a class="menu-link" href="/how-to-play">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">
+            <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2v2zm1.6-6.1c-.7.7-1.1 1.15-1.1 2.1h-2c0-1.55.7-2.2 1.4-2.9.55-.55.9-.9.9-1.6 0-.85-.65-1.5-1.8-1.5-.85 0-1.45.35-1.8.95l-1.65-1c.65-1.1 1.8-1.85 3.45-1.85 2.05 0 3.6 1.25 3.6 3.15 0 1.1-.5 1.75-1 2.65z"/>
+          </svg>
+        </span>
+        <span class="menu-label">How to play</span>
+      </a>
+    </li>
+    <li class="menu-row">
+      <a class="menu-link menu-link-muted" href="/bug-report">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">
+            <path d="M14 5.5l1.6-1.6-1.1-1.1L12.7 4.6a4.9 4.9 0 0 0-1.4 0L9.5 2.8 8.4 3.9 10 5.5A5 5 0 0 0 8.1 8H5v2h2.06A5.9 5.9 0 0 0 7 11v1H5v2h2v1a5.9 5.9 0 0 0 .06 1H5v2h3.1A5 5 0 0 0 12 20a5 5 0 0 0 3.9-2H19v-2h-2.06c.04-.33.06-.66.06-1v-1h2v-2h-2v-1c0-.34-.02-.67-.06-1H19V8h-3.1A5 5 0 0 0 14 5.5zM14 16h-4v-2h4v2zm0-4h-4v-2h4v2z"/>
+          </svg>
+        </span>
+        <span class="menu-label">Report a bug</span>
+      </a>
+    </li>
+  </ul>
 
 <%- include('partials/footer') %>
