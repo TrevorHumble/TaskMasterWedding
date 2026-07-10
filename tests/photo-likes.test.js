@@ -134,7 +134,10 @@ it('AC4: POST /p/:id/like with no guest cookie creates no likes row', async () =
   });
 
   const res = await request(app).post('/p/' + submissionId + '/like');
-  expect(res.status).toBe(403);
+  // requireGuest redirects an unauthenticated request to /join (issue #241)
+  // rather than 403ing it; either way the route handler never runs.
+  expect(res.status).toBe(302);
+  expect(res.headers.location).toBe('/join');
 
   const row = db.prepare(`SELECT * FROM likes WHERE submission_id = ?`).get(submissionId);
   expect(row).toBeUndefined();

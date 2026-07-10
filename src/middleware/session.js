@@ -68,26 +68,18 @@ function attachGuest(req, res, next) {
 }
 
 /**
- * Gate for guest-only pages. If no guest is attached, show a friendly
- * "ask the couple for your link" page instead of the requested page.
- * Assumes attachGuest already ran earlier in the chain.
+ * Gate for guest-only pages. If no guest is attached, send the visitor to
+ * the shared entry point (GET /join) instead of walling them off with a
+ * message card (issue #241, AC5) — /join itself links to /login for anyone
+ * who already has an account, so a signed-out visitor is always one tap from
+ * getting back in, on any device. Assumes attachGuest already ran earlier in
+ * the chain.
  */
 function requireGuest(req, res, next) {
   if (req.guest) {
     return next();
   }
-  res.status(403).render('partials/message-card', {
-    title: 'Your private link is needed',
-    heading: 'Private Link Needed',
-    paragraphs: [
-      'This page is for guests who have signed in with their own private link.',
-      {
-        html: true,
-        text: "Find your <strong>place-card QR code</strong> and scan it with your phone's camera, or ask Lilly &amp; Axel for your link.",
-      },
-    ],
-    hint: 'Once you scan it, you will stay signed in on this phone.',
-  });
+  res.redirect('/join');
   return undefined;
 }
 

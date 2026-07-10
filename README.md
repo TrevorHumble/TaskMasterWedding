@@ -128,7 +128,7 @@ src/
   db.js                   better-sqlite3 connection, schema, shared helpers
   middleware/session.js   attachGuest, requireGuest, requireAdmin, one-shot flash
   routes/
-    auth.js               /j/:token sign-in, /onboard, /admin/login, /admin/logout
+    auth.js               /j/:token sign-in, /onboard, /login (re-entry), /admin/login, /admin/logout
     guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /me/edit,
                            /how-to-play, /bug-report
     community.js          /gallery, /feed, GET /p/:submissionId, /p/:submissionId/like,
