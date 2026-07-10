@@ -25,11 +25,12 @@
           name: 'photos',
           accept: 'image/jpeg,image/png,image/webp',
           required: true,
-          multiple: true
+          multiple: true,
+          label: 'Choose photos…'
         }) %>
       </div>
 
-      <div class="form-row">
+      <div class="form-row" id="caption-field">
         <label for="caption" class="form-label">Caption (optional)</label>
         <input type="text"
                id="caption"
@@ -38,6 +39,9 @@
                placeholder="Say something about these photos"
                class="text-input" />
       </div>
+      <p class="form-help caption-batch-note" id="caption-batch-note" hidden>
+        To add a caption, please choose one photo at a time.
+      </p>
 
       <button type="submit" class="btn btn-block">Share</button>
     </form>
@@ -45,5 +49,9 @@
 
   <!-- Direct include of the filename-label script (see task.ejs's note). -->
   <script src="/js/upload-filename.js" defer></script>
+  <!-- Memory-scoped caption toggle (issue #364 AC7/AC8) — not part of the
+       shared upload-filename control since no other upload caller has a
+       caption box to toggle. -->
+  <script src="/js/memory-caption.js" defer></script>
 
 <%- include('partials/footer') %>
