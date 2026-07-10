@@ -78,3 +78,4 @@
 {"schema":"gl1-governance","pr":367,"merged_sha":"2c0dfc543dc7b4b15d8843146a3a9cd333f1e239","ts":"2026-07-09T20:21:34Z","files":[".claude/commands/build.md",".claude/commands/realign.md","DESIGN.md","agents/orchestrator.md","tools/check-freshness.ps1","tools/check-wave-alignment.ps1","tools/new-agent-worktree.ps1"]}
 {"schema":"gl1","pr":370,"issue":245,"merged_sha":"0339865698293f682b68a4080437271aed106ed9","ts":"2026-07-10T03:43:55Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":371,"issue":285,"merged_sha":"0948865307ba5740df23a0a2358295eece6f9861","ts":"2026-07-10T20:42:42Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":372,"issue":null,"merged_sha":"7d360823e077bccfc93355fb90741162bfa0f338","ts":"2026-07-10T20:47:37Z","reviews":[],"labels":[],"freeze":false}
