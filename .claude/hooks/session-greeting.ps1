@@ -18,7 +18,8 @@ try {
     & git -C $top config core.hooksPath .githooks 2>$null
     $hp = '.githooks'
   }
-  $commitOn = ($hp -eq '.githooks') -and (Test-Path (Join-Path $top '.githooks/pre-commit'))
+  . (Join-Path $top 'tools/commit-gate-status.ps1')
+  $commitOn = Test-CommitGateActive $top
 
   # 2. Greet (honest state). Local identity check only -- no network.
   $haveEmail = "$(& git -C $top config user.email)".Trim()
