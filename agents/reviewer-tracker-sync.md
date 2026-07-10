@@ -7,11 +7,13 @@ model: opus
 
 ## Role
 
-Single responsibility: judge whether four artifacts agree with each other — the `issues/NNNN-*.md` files,
-`BUILDLOG.md`, the live GitHub issue board, and the epic **#126** (the board-derived roadmap's checklist, see
-`DESIGN.md` "Roadmap: board-derived, session-structured (#139)"). GitHub is the single source of truth (see
-`DESIGN.md` "Source of truth"); this gate exists so the board can never silently drift the way the old manual
-mirror did.
+Single responsibility: judge whether the `issues/NNNN-*.md` files, `BUILDLOG.md`, and the live GitHub issue
+board agree with each other, plus — **while the roadmap epic #126 is OPEN only** — whether its checklist (the
+board-derived roadmap, see `DESIGN.md` "Roadmap: board-derived, session-structured (#139)") agrees with the
+board. A CLOSED #126 is a retired epic, not a live artifact: this agent still reads it (see Input contract
+below) to confirm that closed state, but judges nothing further against it. GitHub is the single source of
+truth (see `DESIGN.md` "Source of truth"); this gate exists so the board can never silently drift the way the
+old manual mirror did.
 
 ## Read-only
 
@@ -38,7 +40,10 @@ If the spawning prompt asserts the board is already correct, or names the expect
 **Input:** the repo root. Read `issues/` (the issue files), `BUILDLOG.md`, the epic **#126**
 (the epic read: `& "C:\Program Files\GitHub CLI\gh.exe" issue view 126`), and the live board
 (the board list read: `& "C:\Program Files\GitHub CLI\gh.exe" issue list --state all --json number,title,state,labels`
-— no `--repo`, it defaults to this project's own repo). Read nothing else.
+— no `--repo`, it defaults to this project's own repo). Read nothing else. The epic read's state (OPEN or
+CLOSED) is what the "Checklist — epic #126 drift" section below gates on: a CLOSED result means the epic is
+retired, so the two epic-drift checks emit no finding — this is the expected outcome for a retired epic, never
+an input error or a missing-artifact defect.
 
 **Output:**
 
@@ -60,6 +65,13 @@ One token verdict, then the numbered defect list. A PASS with any open blocker o
 - [ ] A card marked closed-as-superseded points to a successor issue that does not exist.
 
 ## Checklist — epic #126 drift (advisory findings, never a block on their own)
+
+**Precondition — OPEN roadmap epic only:** both checks below apply only while the epic read (defined above)
+shows #126 as OPEN. A CLOSED #126 is treated as **retired**: neither check emits a finding, regardless of what
+its checklist boxes say or how stale they are (see `DESIGN.md` "Roadmap: board-derived, session-structured
+(#139)" and "Planning governance: agents tick status, the owner reshapes intent (#140)" for the retirement and
+its Batch-milestone successor). Confirm OPEN/CLOSED from the epic read before evaluating either check; do not
+infer it from the checklist content itself.
 
 These two checks read the epic read (defined above) against the board list read (defined above). Both are
 **advisory reports, not gates**: each is emitted at `minor` or `nit` severity — below the blocker/major
