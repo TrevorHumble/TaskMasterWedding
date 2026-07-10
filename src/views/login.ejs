@@ -1,0 +1,36 @@
+<!-- src/views/login.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+  <h1 class="display-title">Log In</h1>
+  <div class="heart-divider" style="color:var(--color-primary);"><%- include('partials/heart', { size: 20 }) %></div>
+
+  <%# error is always one of this route's own fixed strings, never guest
+      input, so it is rendered unescaped below — needed so the apostrophe in
+      "don't match" reaches the page as a literal character rather than an
+      HTML entity. %>
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert--error"><%- error %></div>
+  <% } %>
+
+  <form action="/login" method="POST">
+    <div class="form-row">
+      <label class="form-label" for="contact">Email or phone <span class="req">*</span></label>
+      <input class="form-input" type="text" id="contact" name="contact" maxlength="120"
+             required autocomplete="email" placeholder="you@example.com or (208) 555-0142"
+             value="<%= (typeof contact !== 'undefined' && contact) ? contact : '' %>">
+    </div>
+
+    <div class="form-row">
+      <label class="form-label" for="pin">Your 4-digit PIN <span class="req">*</span></label>
+      <input class="form-input" type="text" id="pin" name="pin" inputmode="numeric"
+             pattern="\d{4}" maxlength="4" required placeholder="0000">
+      <p class="form-help">Lost your PIN? Find someone in the wedding party — they can retrieve it for you.</p>
+    </div>
+
+    <button class="btn btn--primary" type="submit">Log in</button>
+  </form>
+
+  <p class="center">New here? <a href="/join">Sign up</a></p>
+
+<%- include('partials/footer') %>

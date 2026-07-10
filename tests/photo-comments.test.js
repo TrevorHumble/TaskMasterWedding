@@ -270,7 +270,10 @@ it('AC8: POST /p/:id/comments with no guest cookie creates no comments row', asy
     .post('/p/' + submissionId + '/comments')
     .type('form')
     .send({ body: 'anonymous comment' });
-  expect(res.status).toBe(403);
+  // requireGuest redirects an unauthenticated request to /join (issue #241)
+  // rather than 403ing it; either way the route handler never runs.
+  expect(res.status).toBe(302);
+  expect(res.headers.location).toBe('/join');
 
   const row = db.prepare(`SELECT * FROM comments WHERE submission_id = ?`).get(submissionId);
   expect(row).toBeUndefined();

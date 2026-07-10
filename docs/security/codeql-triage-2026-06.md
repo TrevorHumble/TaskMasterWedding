@@ -240,3 +240,49 @@ for weeks. None of the three findings were reclassified as exploitable — the
 data-flow reasoning in each still holds — but the exposure window each was
 scored against no longer applies, which is why each is marked superseded
 rather than reaffirmed.
+
+---
+
+## 2026-07-10 — alert #70 (PR #391 / issue #241)
+
+## js/user-controlled-bypass
+
+**Verdict: false positive**
+
+**Alerts:** 1 — `src/routes/auth.js:145`.
+
+**Data flow.**
+The flagged line is the required-field guard at the top of `POST /join`
+(issue #240):
+
+```js
+if (!name) {
+  setFlash(res, 'error', 'Please enter your name.');
+  res.redirect('/join');
+  return;
+}
+```
+
+`js/user-controlled-bypass` looks for a user-controlled condition that
+short-circuits a security-sensitive check — e.g. a client-supplied flag that
+skips authentication or an authorization decision. `name` is exactly that: a
+value the client controls. But the check it guards is not a security or
+trust-boundary decision. It rejects an empty signup name before continuing
+on to the fields that actually matter for identity — `normalizeContact`
+(line 151) and `isValidPin` (line 158) both still run, and only after all
+three pass does the handler reach the guest `INSERT`. There is no privileged
+path, no authentication bypass, and no alternate branch this check unlocks;
+it is ordinary required-field validation on a public signup form, gating
+nothing more sensitive than "did the guest type a name."
+
+**Provenance.** This alert did not originate in issue #241's diff — `POST
+/join` and its `if (!name)` guard were introduced by issue #240, before
+#241 existed. It surfaced against PR #391 (issue #241, guest login) via
+CodeQL's touched-file re-attribution: #241 touches other lines in
+`src/routes/auth.js`, and CodeQL attributes pre-existing alerts on that file
+to whichever PR most recently modified it, not to the PR that introduced
+the flagged line.
+
+**Disposition.** Alert #70 dismissed in code scanning via `gh api` (reason
+`false positive`). This entry is the durable written record; the GitHub
+alert itself was already dismissed at the time of writing.

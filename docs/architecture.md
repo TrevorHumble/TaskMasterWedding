@@ -15,7 +15,7 @@ flowchart TD
     subgraph server["app server"]
         express["Express app (src/app.js)<br/>localhost:3000"]
         express --> mw["Middleware<br/>signed cookies, body parsing,<br/>attachGuest"]
-        mw --> auth["routes/auth.js<br/>/j/:token, /onboard, /admin/login"]
+        mw --> auth["routes/auth.js<br/>/j/:token, /onboard, /login, /admin/login"]
         mw --> guest["routes/guest.js<br/>/, /tasks, /tasks/:id/submit, /me/edit,<br/>/how-to-play, /bug-report"]
         mw --> community["routes/community.js<br/>/gallery, /feed, GET /p/:submissionId,<br/>/p/:submissionId/like, /p/:submissionId/comments,<br/>/leaderboard, /u/:guestId"]
         mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, awards, export,<br/>/admin/comments, /admin/badges, /admin/bugs"]
@@ -44,7 +44,7 @@ flowchart TD
     express -. "static mounts" .-> static["/ → src/public<br/>/uploads → data/uploads<br/>/thumbs → data/thumbs"]
 ```
 
-`app.js` mounts the routers in a deliberate order: `auth.js` and `admin.js` (at `/admin`) before `guest.js`, because `guest.js` applies `requireGuest` to everything under `/` and would otherwise intercept `/admin` and bounce the admin to the "private link needed" page. It also creates the `data/` directories on boot and registers the 404 and error handlers last.
+`app.js` mounts the routers in a deliberate order: `auth.js` and `admin.js` (at `/admin`) before `guest.js`, because `guest.js` applies `requireGuest` to everything under `/` and would otherwise intercept `/admin` and redirect the admin to `/join` instead of serving the admin dashboard (issue #241 changed `requireGuest` from a 403 message card to a `/join` redirect). It also creates the `data/` directories on boot and registers the 404 and error handlers last.
 
 ## Data model
 
