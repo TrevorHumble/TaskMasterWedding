@@ -1,5 +1,7 @@
 # 08 — Admin dashboard: guests, tasks, points, badges, takedown, QR sheet
 
+> **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
+
 This section builds the entire password-protected admin area. Everything here lives behind the `requireAdmin` middleware (built in section 03). When you finish, the Task Master will be able to: see a dashboard, create and bulk-create guests, print a QR place-card sheet, manage tasks, award bonus points, award/remove special badges, take photos down and restore them, and click through to the export.
 
 ## What you are building in this section
