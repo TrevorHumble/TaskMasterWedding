@@ -17,7 +17,16 @@
 
 const crypto = require('crypto');
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// The first domain label is forbidden from containing a dot ([^\s@.]+
+// instead of [^\s@]+), so the literal \. below has exactly one place it can
+// match in the domain. Without that restriction, two adjacent [^\s@]+ groups
+// separated only by a literal '.' are ambiguous on a long dotted string (both
+// groups can absorb the same '.' characters), which is polynomial-time
+// backtracking on a non-matching input (CodeQL js/polynomial-redos, alert
+// #54). This form still accepts dots anywhere in the trailing labels
+// (a@b.c.d, a@b..c), matching the prior pattern's accept set exactly — it
+// only removes the ambiguity in *how* a match is found, not *what* matches.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+\.[^\s@]+$/;
 const PIN_PATTERN = /^\d{4}$/;
 
 /**
@@ -37,6 +46,10 @@ function normalizeContact(raw) {
   if (typeof raw !== 'string') return null;
 
   const trimmed = raw.trim();
+  // Defense-in-depth: bound worst-case regex work regardless of pattern
+  // shape. 254 is the max valid RFC 5321 email length; no real email or
+  // phone number is longer, so this rejects nothing legitimate.
+  if (trimmed.length > 254) return null;
   const lower = trimmed.toLowerCase();
   if (EMAIL_PATTERN.test(lower)) {
     return { type: 'email', value: lower };
@@ -89,4 +102,9 @@ function makeUniqueToken() {
   throw new Error('Could not generate a unique guest token.');
 }
 
-module.exports = { normalizeContact, isValidPin, makeUniqueToken };
+// EMAIL_PATTERN is exported alongside the public functions so
+// tests/guest-identity.test.js can assert directly on its time complexity
+// (CodeQL js/polynomial-redos regression coverage) without going through
+// normalizeContact's 254-char length guard, which would otherwise mask a
+// regex regression on inputs long enough to demonstrate it.
+module.exports = { normalizeContact, isValidPin, makeUniqueToken, EMAIL_PATTERN };

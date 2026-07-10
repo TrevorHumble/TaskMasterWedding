@@ -33,7 +33,7 @@ const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const { normalizeContact, isValidPin } = require('../src/services/identity');
+const { normalizeContact, isValidPin, EMAIL_PATTERN } = require('../src/services/identity');
 
 let dbModule;
 
@@ -111,6 +111,31 @@ describe('AC2-AC4: normalizeContact', () => {
     ['123', null],
   ])('normalizeContact(%j) === %j', (input, expected) => {
     expect(normalizeContact(input)).toEqual(expected);
+  });
+
+  it('rejects an absurdly long input (> 254 chars) without matching it as a contact', () => {
+    expect(normalizeContact('a'.repeat(300))).toBeNull();
+  });
+
+  it('EMAIL_PATTERN rejects a pathological non-matching domain in linear time (CodeQL js/polynomial-redos, alert #54)', () => {
+    // Tests EMAIL_PATTERN directly (not through normalizeContact) so this
+    // assertion isn't short-circuited by the 254-char length guard above —
+    // the point is to prove the regex itself is linear-time, independent
+    // of that separate defense-in-depth measure.
+    //
+    // A long run of '!.' segments, followed by an embedded space that can
+    // never be consumed by either [^\s@]+ group, guarantees the overall
+    // match fails. On the old, pre-fix EMAIL_PATTERN, two adjacent
+    // [^\s@]+ groups separated only by a literal '.' are ambiguous on that
+    // run — a backtracking engine tries splitting it at every '.' before
+    // giving up (confirmed locally: ~1s at n=40000 on the old pattern vs
+    // ~0ms on the fixed one). If EMAIL_PATTERN regressed to the old,
+    // ambiguous shape, this assertion would take orders of magnitude
+    // longer rather than complete quickly.
+    const pathological = '!@' + '!.'.repeat(20000) + ' z';
+    const start = Date.now();
+    expect(EMAIL_PATTERN.test(pathological)).toBe(false);
+    expect(Date.now() - start).toBeLessThan(100);
   });
 });
 

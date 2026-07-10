@@ -243,7 +243,7 @@ function refererPath(rawReferer) {
 // ---------------------------------------------------------------------------
 // GET /bug-report  — the "Report a bug" form (issue #245). Guest-gated by the
 // router.use(requireGuest) above, same as every other route in this file
-// (AC2: a signed-out visitor gets the "Private Link Needed" screen instead).
+// (AC2: a signed-out visitor is redirected to /join instead — issue #241).
 // ---------------------------------------------------------------------------
 router.get('/bug-report', function (req, res) {
   res.render('bug-report', { title: 'Report a bug', error: '' });
@@ -383,7 +383,7 @@ router.post('/tasks/:id/submit', function (req, res) {
 // ---------------------------------------------------------------------------
 // GET /memories/new  — the "share a memory" form (issue #247). Guest-gated by
 // the router.use(requireGuest) above, same as every other route in this file
-// (AC6: a signed-out visitor gets the "Private Link Needed" screen instead).
+// (AC6: a signed-out visitor is redirected to /join instead — issue #241).
 // ---------------------------------------------------------------------------
 router.get('/memories/new', function (req, res) {
   res.render('memory-new', { title: 'Share a memory' });
