@@ -181,13 +181,12 @@ describe('AC4: required literal copy', () => {
 });
 
 describe('AC5: signed-out visitor is gated', () => {
-  test('GET /how-to-play shows "Private Link Needed", not the rules card', async () => {
+  test('GET /how-to-play with no guest cookie redirects to /join (issue #241)', async () => {
     resetTables();
 
     const res = await request(app).get('/how-to-play');
 
-    expect(res.status).toBe(403);
-    expect(res.text).toContain('Private Link Needed');
-    expect(res.text).not.toContain('How to play');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/join');
   });
 });

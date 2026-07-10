@@ -338,10 +338,10 @@ describe('AC5: admin photos card labels a memory "Memory"', () => {
 // screen, not the upload form.
 // ---------------------------------------------------------------------------
 describe('AC6: signed-out visitor is gated', () => {
-  it('GET /memories/new shows "Private Link Needed" and no upload form', async () => {
+  it('GET /memories/new redirects to /join instead of showing the upload form (issue #241)', async () => {
     const res = await request(app).get('/memories/new');
-    expect(res.status).toBe(403);
-    expect(res.text).toContain('Private Link Needed');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/join');
     expect(res.text).not.toContain('enctype="multipart/form-data"');
   });
 });

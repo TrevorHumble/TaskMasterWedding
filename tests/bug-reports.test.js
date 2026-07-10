@@ -90,14 +90,13 @@ describe('AC1: a valid submission inserts a row and thanks the guest', () => {
 });
 
 describe('AC2: a signed-out visitor is gated', () => {
-  test('GET /bug-report shows "Private Link Needed", not the form', async () => {
+  test('GET /bug-report with no guest cookie redirects to /join (issue #241)', async () => {
     resetTables();
 
     const res = await request(app).get('/bug-report');
 
-    expect(res.status).toBe(403);
-    expect(res.text).toContain('Private Link Needed');
-    expect(res.text).not.toContain('Report a bug');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/join');
   });
 });
 

@@ -129,6 +129,12 @@ const config = {
   ADMIN_LOGIN_MAX_ATTEMPTS: parseInt(process.env.ADMIN_LOGIN_MAX_ATTEMPTS, 10) || 10,
   ADMIN_LOGIN_LOCKOUT_MS: parseInt(process.env.ADMIN_LOGIN_LOCKOUT_MS, 10) || 15 * 60 * 1000,
 
+  // Guest re-entry (login) throttling (issue #241). Keyed per-normalized-contact
+  // in src/routes/auth.js, not globally like the admin counters above — one
+  // guest guessing wrong should never lock out a different guest's contact.
+  GUEST_LOGIN_MAX_ATTEMPTS: parseInt(process.env.GUEST_LOGIN_MAX_ATTEMPTS, 10) || 5,
+  GUEST_LOGIN_LOCKOUT_MS: parseInt(process.env.GUEST_LOGIN_LOCKOUT_MS, 10) || 5 * 60 * 1000,
+
   // Leaderboard display — the maximum number of badge icons rendered on a
   // single leaderboard row. Beyond this the row shows the first N icons plus a
   // "+K" overflow chip, so a guest with a large collection never overflows the

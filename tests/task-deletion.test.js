@@ -98,12 +98,15 @@ it('AC-1: task delete removes task row, submission row, original and thumb', asy
 // AC-2: deleted task's photo is no longer served at its direct URL.
 // Before the delete this URL served the image (200). After it, the file is
 // gone from disk; express.static finds nothing and calls next(), so the
-// request falls through to the guest router's requireGuest, which 403s an
-// unauthenticated request. 403 is the precise proof the photo is not served.
+// request falls through to the guest router's requireGuest, which redirects
+// an unauthenticated request to /join (issue #241) instead of serving it.
+// The redirect (never a 200 with image bytes) is the proof the photo is not
+// served.
 // ---------------------------------------------------------------------------
-it('AC-2: GET /uploads/<photo_path> after delete → 403 (file not served)', async () => {
+it('AC-2: GET /uploads/<photo_path> after delete → redirected, not served', async () => {
   const res = await request(app).get('/uploads/' + PHOTO_NAME);
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(302);
+  expect(res.headers.location).toBe('/join');
 });
 
 // ---------------------------------------------------------------------------
