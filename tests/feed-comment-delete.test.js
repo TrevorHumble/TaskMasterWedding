@@ -264,7 +264,9 @@ it("AC5: the ⋯ menu and Delete control appear only on the viewing guest's own 
   const thread = article.querySelector('.comments-dialog-thread');
   expect(thread).not.toBeNull();
 
-  const ownRow = thread.querySelector('[data-delete-comment="' + viewerCommentId + '"]').closest('.feed-comment-item');
+  const ownRow = thread
+    .querySelector('[data-delete-comment="' + viewerCommentId + '"]')
+    .closest('.feed-comment-item');
   const ownTrigger = ownRow.querySelector('.comment-menu-trigger');
   expect(ownTrigger).not.toBeNull();
   expect(ownTrigger.getAttribute('aria-label')).toMatch(/^(Comment actions|More)$/);
