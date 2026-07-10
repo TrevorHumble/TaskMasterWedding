@@ -140,7 +140,8 @@ src/
     guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /me/edit,
                            /how-to-play, /bug-report
     community.js          /gallery, /feed, GET /p/:submissionId, /p/:submissionId/like,
-                           /p/:submissionId/comments, /leaderboard, /u/:guestId
+                           /p/:submissionId/comments, /p/:submissionId/comments/:commentId/delete,
+                           /leaderboard, /u/:guestId
     admin.js              /admin dashboard, guests + bulk create, qrsheet, tasks, awards, takedown,
                            export, /admin/bugs
   services/

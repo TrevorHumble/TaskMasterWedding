@@ -17,7 +17,7 @@ flowchart TD
         express --> mw["Middleware<br/>signed cookies, body parsing,<br/>attachGuest"]
         mw --> auth["routes/auth.js<br/>/j/:token, /onboard, /admin/login"]
         mw --> guest["routes/guest.js<br/>/, /tasks, /tasks/:id/submit, /me/edit,<br/>/how-to-play, /bug-report"]
-        mw --> community["routes/community.js<br/>/gallery, /feed, GET /p/:submissionId,<br/>/p/:submissionId/like, /p/:submissionId/comments,<br/>/leaderboard, /u/:guestId"]
+        mw --> community["routes/community.js<br/>/gallery, /feed, GET /p/:submissionId,<br/>/p/:submissionId/like, /p/:submissionId/comments,<br/>/p/:submissionId/comments/:commentId/delete,<br/>/leaderboard, /u/:guestId"]
         mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, awards, export,<br/>/admin/comments, /admin/badges, /admin/bugs"]
 
         auth --> svc

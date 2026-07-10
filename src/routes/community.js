@@ -499,6 +499,84 @@ router.post('/p/:submissionId/comments', requireGuest, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /p/:submissionId/comments/:commentId/delete  — a guest deletes their
+// own comment (issue #338).
+//
+// Guest-only (requireGuest 403s anonymous requests before this handler runs).
+// A taken-down or missing submission 404s, mirroring the routes above. An
+// unknown commentId, or one that does not belong to this submission (covers
+// "already deleted" too — a second delete attempt finds no row the second
+// time), also 404s. Authorization is absolute and server-side: a comment
+// whose guest_id is not the caller's is refused with 403 and the row is left
+// untouched — the Delete control never renders for another guest's comment
+// (src/views/feed.ejs), but this check is what actually stops a forged
+// request, not the hidden control.
+//
+// This is a HARD delete (issue design: "no edited/removed tombstone, the row
+// is gone") — unlike admin moderation's taken_down flag (owned by
+// src/routes/admin.js), which hides without removing. The two never overlap:
+// a guest can delete their own row in any moderation state; only the row's
+// existence and its guest_id are checked here.
+//
+// Two response shapes, mirroring the like/comments routes above: the plain
+// form POST (no-JS fallback) redirects back to the bounded feed page
+// CONTAINING this photo, and a fetch() from src/public/js/feed.js — which
+// sends Accept: application/json — gets { deleted, commentCount } so the
+// client removes the row and updates the badge/See-all line in place.
+// ---------------------------------------------------------------------------
+router.post('/p/:submissionId/comments/:commentId/delete', requireGuest, (req, res) => {
+  const submissionId = parseInt(req.params.submissionId, 10);
+  const commentId = parseInt(req.params.commentId, 10);
+  if (
+    !Number.isInteger(submissionId) ||
+    submissionId < 1 ||
+    !Number.isInteger(commentId) ||
+    commentId < 1
+  ) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  const photo = feed.detail(submissionId);
+  if (!photo) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  const comment = db
+    .prepare(`SELECT id, guest_id FROM comments WHERE id = ? AND submission_id = ?`)
+    .get(commentId, submissionId);
+  if (!comment) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  const jsonWanted = req.accepts(['html', 'json']) === 'json';
+
+  if (comment.guest_id !== req.guest.id) {
+    if (jsonWanted) {
+      return res.status(403).json({ error: 'You can only delete your own comments.' });
+    }
+    return res.status(403).render('partials/message-card', {
+      title: "That's not your comment",
+      heading: 'Not Your Comment',
+      paragraphs: ['You can only delete comments you posted yourself.'],
+      links: [
+        { href: '/feed?from=' + submissionId + '#photo-' + submissionId, text: 'Back to the feed' },
+      ],
+    });
+  }
+
+  db.prepare(`DELETE FROM comments WHERE id = ? AND guest_id = ?`).run(commentId, req.guest.id);
+
+  if (jsonWanted) {
+    // Same COMMENT_VISIBLE_WHERE-composed count the badge/See-all line render
+    // elsewhere — see visibleCommentCount's own comment for why that matters.
+    const commentCount = visibleCommentCount(submissionId);
+    return res.json({ deleted: true, commentCount });
+  }
+
+  return res.redirect('/feed?from=' + submissionId + '#photo-' + submissionId);
+});
+
+// ---------------------------------------------------------------------------
 // GET /p/:submissionId  — full-resolution photo detail view
 //
 // Shows the original-resolution image, caption, task title, and uploader link.
