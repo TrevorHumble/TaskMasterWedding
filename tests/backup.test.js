@@ -31,6 +31,7 @@ function makeTempLayout() {
     dbPath: path.join(root, 'data', 'app.db'),
     uploadsDir: path.join(root, 'data', 'uploads'),
     thumbsDir: path.join(root, 'data', 'thumbs'),
+    adminHashPath: path.join(root, 'data', 'admin.hash'),
   };
 }
 
@@ -152,8 +153,20 @@ function seedThumbFiles(thumbsDir) {
 }
 
 /**
+ * Write a fake admin.hash fixture at adminHashPath (parent dir created if
+ * needed). Content is a fixed string standing in for a real bcrypt hash --
+ * the test only cares that the bytes survive the round trip unchanged.
+ * @param {string} adminHashPath
+ */
+function seedAdminHashFile(adminHashPath) {
+  fs.mkdirSync(path.dirname(adminHashPath), { recursive: true });
+  fs.writeFileSync(adminHashPath, 'fake-bcrypt-hash-$2b$10$abcdefghijklmnopqrstuv');
+}
+
+/**
  * Mirror the restore steps documented in README.md: create a fresh data/,
- * then copy the snapshot's app.db, uploads/, and thumbs/ back into it.
+ * then copy the snapshot's app.db, uploads/, thumbs/, and (if present)
+ * admin.hash back into it.
  * @param {string} snapshotDir
  * @param {string} restoredDataDir
  */
@@ -166,6 +179,10 @@ function restoreFromSnapshot(snapshotDir, restoredDataDir) {
   fs.cpSync(path.join(snapshotDir, 'thumbs'), path.join(restoredDataDir, 'thumbs'), {
     recursive: true,
   });
+  const snapshotAdminHash = path.join(snapshotDir, 'admin.hash');
+  if (fs.existsSync(snapshotAdminHash)) {
+    fs.copyFileSync(snapshotAdminHash, path.join(restoredDataDir, 'admin.hash'));
+  }
 }
 
 describe('scripts/backup.js', () => {
@@ -202,17 +219,20 @@ describe('scripts/backup.js', () => {
   });
 
   it('AC3/AC4: restore into an emptied data/ recovers exact guests/submissions/guest_badges/file counts', async () => {
-    const { root, dbPath, uploadsDir, thumbsDir } = makeTempLayout();
+    const { root, dbPath, uploadsDir, thumbsDir, adminHashPath } = makeTempLayout();
     const db = openSchemaDb(dbPath);
     seedFixture(db);
     seedUploadFiles(uploadsDir);
     seedThumbFiles(thumbsDir);
+    seedAdminHashFile(adminHashPath);
+    const originalHashBytes = fs.readFileSync(adminHashPath);
 
     const backupDir = path.join(root, 'backups');
     const destDir = await backupData({
       dbPath,
       uploadsDir,
       thumbsDir,
+      adminHashPath,
       backupDir,
       timestamp: '20260807-010000',
     });
@@ -222,7 +242,8 @@ describe('scripts/backup.js', () => {
     fs.rmSync(path.join(root, 'data'), { recursive: true, force: true });
     expect(fs.existsSync(path.join(root, 'data'))).toBe(false);
 
-    // Documented restore: copy app.db + uploads/ + thumbs/ back into a fresh data/.
+    // Documented restore: copy app.db + uploads/ + thumbs/ + admin.hash back
+    // into a fresh data/.
     const restoredDataDir = path.join(root, 'data');
     restoreFromSnapshot(destDir, restoredDataDir);
 
@@ -241,6 +262,13 @@ describe('scripts/backup.js', () => {
 
     const restoredThumbs = fs.readdirSync(path.join(restoredDataDir, 'thumbs'));
     expect(restoredThumbs.length).toBe(THUMB_FILE_COUNT);
+
+    // AC2 (#315), covered at the file layer: the exact credential the
+    // /admin/login path reads via config.ADMIN_HASH_PATH must be present,
+    // byte-identical, after restore -- otherwise the host is locked out of
+    // /admin post-restore even though guests/photos are fine.
+    const restoredHashBytes = fs.readFileSync(path.join(restoredDataDir, 'admin.hash'));
+    expect(restoredHashBytes.equals(originalHashBytes)).toBe(true);
   });
 
   it('guards a missing source directory instead of throwing (thumbs/ never created)', async () => {
@@ -262,5 +290,57 @@ describe('scripts/backup.js', () => {
     expect(fs.existsSync(path.join(destDir, 'app.db'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'uploads'))).toBe(false);
     expect(fs.existsSync(path.join(destDir, 'thumbs'))).toBe(false);
+  });
+
+  it('AC1 (#315): copies admin.hash into the snapshot, byte-identical to the source', async () => {
+    const { root, dbPath, uploadsDir, thumbsDir, adminHashPath } = makeTempLayout();
+    const db = openSchemaDb(dbPath);
+    seedFixture(db);
+    db.close();
+    seedAdminHashFile(adminHashPath);
+    const sourceBytes = fs.readFileSync(adminHashPath);
+
+    const backupDir = path.join(root, 'backups');
+    const destDir = await backupData({
+      dbPath,
+      uploadsDir,
+      thumbsDir,
+      adminHashPath,
+      backupDir,
+      timestamp: '20260807-030000',
+    });
+
+    const snapshotHashPath = path.join(destDir, 'admin.hash');
+    expect(fs.existsSync(snapshotHashPath)).toBe(true);
+    // Byte comparison, not just existence: if the copy silently truncated or
+    // re-encoded the hash, the restored admin password would no longer match
+    // what bcrypt originally produced, and this assertion would fail while a
+    // plain existsSync check would not.
+    const snapshotBytes = fs.readFileSync(snapshotHashPath);
+    expect(snapshotBytes.equals(sourceBytes)).toBe(true);
+  });
+
+  it('guards a missing admin.hash instead of throwing (backup still succeeds with no admin.hash in the snapshot)', async () => {
+    const { root, dbPath, uploadsDir, thumbsDir, adminHashPath } = makeTempLayout();
+    const db = openSchemaDb(dbPath);
+    seedFixture(db);
+    db.close();
+    // adminHashPath is deliberately never written -- exercises the
+    // missing-source guard for an event that has never had an admin
+    // password set.
+    expect(fs.existsSync(adminHashPath)).toBe(false);
+
+    const backupDir = path.join(root, 'backups');
+    const destDir = await backupData({
+      dbPath,
+      uploadsDir,
+      thumbsDir,
+      adminHashPath,
+      backupDir,
+      timestamp: '20260807-040000',
+    });
+
+    expect(fs.existsSync(path.join(destDir, 'app.db'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'admin.hash'))).toBe(false);
   });
 });

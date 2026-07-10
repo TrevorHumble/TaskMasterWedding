@@ -83,6 +83,7 @@ This writes a timestamped snapshot to `backups/<YYYYMMDD-HHMMSS>/`, containing:
 - `app.db` — a consistent copy of the database, taken with SQLite's own online backup API (not a plain file copy, which can read a torn/partial file while the app is writing in WAL mode)
 - `uploads/` — a copy of every uploaded photo and avatar
 - `thumbs/` — a copy of every generated thumbnail
+- `admin.hash` — the hashed admin password, if one has been set (a fresh event with no admin password configured yet has none to copy)
 
 The backup folder location is controlled by the `BACKUP_DIR` config key. Its default resolves to `<ROOT>/backups` — a sibling of `<ROOT>/data`, i.e. outside `data/`, not a subfolder of it (see `config.js`). Set the `BACKUP_DIR` environment variable to point backups at a second drive or a mounted external location.
 
@@ -110,7 +111,14 @@ The hosted restore procedure is canonical — see the restore section of [`docs/
    Copy-Item backups\<timestamp>\uploads data\uploads -Recurse
    Copy-Item backups\<timestamp>\thumbs data\thumbs -Recurse
    ```
-5. Start the app again.
+5. Copy the admin password hash back, if the snapshot has one (skip this step if `admin.hash` isn't in the snapshot folder — that just means no admin password had been set yet). Without this step the restored app has no admin password configured, and the host cannot log into `/admin` until one is set again:
+   ```bash
+   cp backups/<timestamp>/admin.hash data/admin.hash
+   ```
+   ```powershell
+   Copy-Item backups\<timestamp>\admin.hash data\admin.hash
+   ```
+6. Start the app again.
 
 ### Gitignored, and cleared at teardown
 
