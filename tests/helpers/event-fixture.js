@@ -175,14 +175,19 @@ function thumbNameFor(originalName) {
 
 /**
  * Build a manifest of `count` conforming {photo_path, thumb_path} pairs plus
- * a small pool of avatar filenames, all derived from `seed` so the same seed
- * always yields the same filenames.
+ * `avatarCount` unique avatar filenames, all derived from `seed` so the same
+ * seed always yields the same filenames.
  *
  * @param {number} count - number of photo pairs needed (one per submission).
  * @param {number} seed
+ * @param {number} [avatarCount] - number of DISTINCT avatar filenames to mint,
+ *   one per avatar-bearing guest (issue #320 — a shared avatar file among
+ *   guests means deleting one guest's avatar strands every other guest who
+ *   pointed at the same file). Defaults to 2 so existing 2-arg callers
+ *   (buildEventManifest(count, seed)) are unaffected.
  * @returns {{ photos: Array<{photo_path: string, thumb_path: string}>, avatars: string[] }}
  */
-function buildManifest(count, seed) {
+function buildManifest(count, seed, avatarCount = 2) {
   // 16 hex chars: seed and index folded together so different seeds produce
   // disjoint filenames (no cross-seed collisions when tests run seed 1 and
   // seed 2 back to back against the same disk).
@@ -195,10 +200,14 @@ function buildManifest(count, seed) {
     photos.push({ photo_path, thumb_path: thumbNameFor(photo_path) });
   }
 
-  // A handful of avatar filenames, cycled across avatar-bearing guests
-  // exactly like demo-fixture.js does with MANIFEST.avatars.
+  // avatarCount DISTINCT avatar filenames, one per avatar-bearing guest (no
+  // more cycling — see seedEvent, which sizes avatarCount to exactly the
+  // number of guests it flags for an avatar). Uses a reversed seed base (vs.
+  // photos' forward base) so avatar names stay disjoint from photo names for
+  // any non-palindromic seed; the per-index suffix (i, zero-padded) makes
+  // every avatar filename in the batch distinct from every other one.
   const avatarBase = (seed >>> 0).toString(16).padStart(8, '0').split('').reverse().join('');
-  const avatars = [0, 1].map((i) => {
+  const avatars = Array.from({ length: avatarCount }, (_, i) => {
     const hex = (avatarBase + i.toString(16).padStart(8, '0')).slice(0, 16);
     const stamp = 1800000100000 + i;
     return `${hex}-${stamp}.jpg`;
@@ -312,11 +321,17 @@ function seedEvent(db, options = {}) {
   const takenDownSet = new Set(takenDownGuestIdx);
 
   const totalSubmissions = totalVisible + takenDownSet.size;
-  const manifest = buildManifest(totalSubmissions, seed);
 
   // ~40% of guests get an avatar (AC-adjacent realism from the issue, not a
   // numbered AC): deterministic via rng, not index parity, so it interacts
   // with the shuffle above instead of always landing on the same guests.
+  // Computed BEFORE buildManifest (issue #320) so its size can be passed in
+  // as avatarCount — one unique avatar filename per avatar-bearing guest,
+  // instead of cycling a fixed 2-name pool across however many guests are
+  // flagged. buildManifest itself never touches rng, so moving this call
+  // ahead of it does not change the rng-consumption order below (completion
+  // counts -> taken-down set -> avatar set -> social set), which is what
+  // keeps the same {guests, seed} deterministic.
   const avatarGuestIdx = new Set(
     shuffledIndices(rng, guestCount).slice(0, Math.round(guestCount * 0.4))
   );
@@ -326,6 +341,8 @@ function seedEvent(db, options = {}) {
     shuffledIndices(rng, guestCount).slice(0, Math.round(guestCount * 0.25))
   );
   const SOCIAL_PLATFORMS = ['instagram', 'facebook', 'tiktok'];
+
+  const manifest = buildManifest(totalSubmissions, seed, avatarGuestIdx.size);
 
   const run = db.transaction(() => {
     // --- Clean: submissions first (FK), then guests, then event-prefixed tasks. ---
@@ -354,9 +371,11 @@ function seedEvent(db, options = {}) {
       const name = nameFor(i);
       guestNames.push(name);
 
-      const avatarPath = avatarGuestIdx.has(i)
-        ? manifest.avatars[avatarSeq++ % manifest.avatars.length]
-        : null;
+      // No wrap (`% manifest.avatars.length`): manifest.avatars is now sized
+      // to exactly avatarGuestIdx.size (issue #320), and avatarSeq only
+      // increments on an avatar-bearing guest, so a plain post-increment
+      // index always lands in range and never repeats a filename.
+      const avatarPath = avatarGuestIdx.has(i) ? manifest.avatars[avatarSeq++] : null;
 
       const socialLinks = socialGuestIdx.has(i)
         ? JSON.stringify({
