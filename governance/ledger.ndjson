@@ -79,3 +79,4 @@
 {"schema":"gl1","pr":370,"issue":245,"merged_sha":"0339865698293f682b68a4080437271aed106ed9","ts":"2026-07-10T03:43:55Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":371,"issue":285,"merged_sha":"0948865307ba5740df23a0a2358295eece6f9861","ts":"2026-07-10T20:42:42Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":372,"issue":null,"merged_sha":"7d360823e077bccfc93355fb90741162bfa0f338","ts":"2026-07-10T20:47:37Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":373,"issue":309,"merged_sha":"00c077782ab2aa663cbf8713479e6a26c359169e","ts":"2026-07-10T21:10:24Z","reviews":[],"labels":[],"freeze":false}
