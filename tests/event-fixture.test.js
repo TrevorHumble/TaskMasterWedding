@@ -29,7 +29,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, makeAdminAgent } = require('./helpers/testApp');
 
 // Re-declared exactly as src/services/photos.js defines them (they are
 // module-private, not exported) and exactly as tests/helpers/demo-fixture.js
@@ -37,6 +37,7 @@ const { loadApp } = require('./helpers/testApp');
 const ORIGINAL_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)$/i;
 const THUMB_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)\.jpg$/i;
 
+let app;
 let db;
 let config;
 let eventFixture;
@@ -44,6 +45,7 @@ let scoring;
 
 beforeAll(() => {
   const loaded = loadApp();
+  app = loaded.app;
   db = loaded.db;
 
   config = require('../config');
@@ -52,73 +54,9 @@ beforeAll(() => {
 
   // Badge catalog must exist before seedEvent calls recomputeAutoBadges /
   // awardSpecialBadge (scoring.js skips silently if a badge code is missing —
-  // see scoring.js:139-142), exactly like scripts/seed-event.js's
-  // ensureBadgeCatalog step. Insert the same 7-row catalog directly here so
-  // this test file does not depend on scripts/seed.js's require-time side
-  // effects against a different db handle.
-  const BADGES = [
-    {
-      code: 'BLOOM',
-      name: 'First Bloom',
-      type: 'auto',
-      threshold: 5,
-      art_path: '/badges/bloom.svg',
-      description: '',
-    },
-    {
-      code: 'BOUQUET',
-      name: 'Bouquet Builder',
-      type: 'auto',
-      threshold: 10,
-      art_path: '/badges/bouquet.svg',
-      description: '',
-    },
-    {
-      code: 'GARDEN',
-      name: 'Full Garden',
-      type: 'auto',
-      threshold: 15,
-      art_path: '/badges/garden.svg',
-      description: '',
-    },
-    {
-      code: 'EARLYBIRD',
-      name: 'Early Bird',
-      type: 'special',
-      threshold: null,
-      art_path: '/badges/earlybird.svg',
-      description: '',
-    },
-    {
-      code: 'SHUTTERBUG',
-      name: 'Shutterbug',
-      type: 'special',
-      threshold: null,
-      art_path: '/badges/shutterbug.svg',
-      description: '',
-    },
-    {
-      code: 'CROWDFAV',
-      name: 'Crowd Favorite',
-      type: 'special',
-      threshold: null,
-      art_path: '/badges/crowdfav.svg',
-      description: '',
-    },
-    {
-      code: 'CHOICE',
-      name: "Task Master's Choice",
-      type: 'special',
-      threshold: null,
-      art_path: '/badges/choice.svg',
-      description: '',
-    },
-  ];
-  const insertBadge = db.prepare(`
-    INSERT INTO badges (code, name, type, threshold, art_path, description)
-    VALUES (@code, @name, @type, @threshold, @art_path, @description)
-  `);
-  for (const b of BADGES) insertBadge.run(b);
+  // see scoring.js:139-142). No manual insert needed here (#314): src/db.js's
+  // boot-heal now runs ensureBadgeCatalog() at module load, so loadApp()
+  // above already left the full canonical catalog in place on this db handle.
 });
 
 describe('AC1: guest count', () => {
@@ -239,10 +177,11 @@ describe('AC5: determinism across two seeded runs', () => {
   function seedInFreshDir(seed) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gpp-event-ac5-'));
     const env = { ...process.env, DATA_DIR: tmp, DB_PATH: path.join(tmp, 'test.db') };
+    // No manual badge insert needed (#314): requiring ./src/db in the child
+    // process below runs its boot-heal (ensureBadgeCatalog at module load),
+    // seeding the full canonical catalog into this fresh empty data dir.
     const script =
       "const { db } = require('./src/db');" +
-      "const insertBadge = db.prepare('INSERT INTO badges (code, name, type, threshold, art_path, description) VALUES (?, ?, ?, ?, ?, ?)');" +
-      "[['BLOOM','a','auto',5,'/b.svg',''],['BOUQUET','b','auto',10,'/b.svg',''],['GARDEN','c','auto',15,'/b.svg',''],['EARLYBIRD','d','special',null,'/b.svg',''],['SHUTTERBUG','e','special',null,'/b.svg',''],['CROWDFAV','f','special',null,'/b.svg',''],['CHOICE','g','special',null,'/b.svg','']].forEach(r => insertBadge.run(...r));" +
       "const { seedEvent } = require('./tests/helpers/event-fixture');" +
       "const scoring = require('./src/services/scoring');" +
       `seedEvent(db, { guests: 100, seed: ${seed} });` +
@@ -425,6 +364,102 @@ describe('AC9: badge correctness', () => {
     // Non-vacuous: confirm the loop actually exercised the "should hold" branch
     // at least once (i.e. this fixture has real badge holders to check).
     expect(checkedAtLeastOneHolder).toBe(true);
+  });
+});
+
+describe('AC1 (#320): every avatar-bearing guest gets a unique avatar file', () => {
+  beforeAll(() => {
+    eventFixture.seedEvent(db, { guests: 100, seed: 1 });
+  });
+
+  it('no avatar_path is shared by more than one guest', () => {
+    const dupes = db
+      .prepare(
+        `SELECT avatar_path, COUNT(*) AS n
+           FROM guests
+          WHERE avatar_path IS NOT NULL
+          GROUP BY avatar_path
+         HAVING COUNT(*) > 1`
+      )
+      .all();
+    expect(dupes).toEqual([]);
+  });
+
+  it('is non-vacuous: at least one guest actually has an avatar to check', () => {
+    const n = db.prepare('SELECT COUNT(*) AS n FROM guests WHERE avatar_path IS NOT NULL').get().n;
+    expect(n).toBeGreaterThan(0);
+  });
+
+  it('the duplicate-detecting query has teeth: a genuine duplicate is caught', () => {
+    // Confirms the GROUP BY ... HAVING COUNT(*) > 1 query above is not
+    // vacuously true — feed it a real duplicate (mirroring the pre-fix
+    // defect, where avatarSeq wrapped over a 2-name pool) and confirm it
+    // fires. Runs last in this describe block; the next block's beforeAll
+    // re-seeds before any other assertion depends on clean data.
+    const [a, b] = db.prepare('SELECT id FROM guests WHERE avatar_path IS NOT NULL LIMIT 2').all();
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+    const sharedName = 'deadbeefdeadbeef-1800000199999.jpg';
+    db.prepare('UPDATE guests SET avatar_path = ? WHERE id = ?').run(sharedName, a.id);
+    db.prepare('UPDATE guests SET avatar_path = ? WHERE id = ?').run(sharedName, b.id);
+
+    const dupes = db
+      .prepare(
+        `SELECT avatar_path, COUNT(*) AS n
+           FROM guests
+          WHERE avatar_path IS NOT NULL
+          GROUP BY avatar_path
+         HAVING COUNT(*) > 1`
+      )
+      .all();
+    expect(dupes.length).toBeGreaterThan(0);
+  });
+});
+
+describe('AC2 (#320): guest delete leaves every surviving avatar resolvable on disk', () => {
+  let adminAgent;
+  let targetGuestId;
+  let otherAvatarGuestCount;
+
+  beforeAll(async () => {
+    // A modest guest count keeps ~40% avatar-bearing guests in the low
+    // teens: enough to pick one to delete and still have several others
+    // left whose files must survive.
+    const { manifest } = eventFixture.seedEvent(db, { guests: 30, seed: 1 });
+    const seedEventScript = require('../scripts/seed-event');
+    await seedEventScript.installSamplePhotos(manifest);
+
+    adminAgent = await makeAdminAgent(app);
+
+    const target = db.prepare('SELECT id FROM guests WHERE avatar_path IS NOT NULL LIMIT 1').get();
+    expect(target).toBeDefined(); // non-vacuous: a guest with an avatar exists to delete
+    targetGuestId = target.id;
+
+    otherAvatarGuestCount = db
+      .prepare('SELECT COUNT(*) AS n FROM guests WHERE avatar_path IS NOT NULL AND id != ?')
+      .get(targetGuestId).n;
+    expect(otherAvatarGuestCount).toBeGreaterThan(0); // non-vacuous: other avatar-bearing guests remain after the delete
+  }, 30000);
+
+  it("deleting one avatar-bearing guest does not strand any other guest's avatar file", async () => {
+    const res = await adminAgent
+      .post(`/admin/guests/${targetGuestId}/delete`)
+      .type('form')
+      .send({});
+    expect(res.status).toBe(303);
+
+    const remaining = db
+      .prepare('SELECT avatar_path FROM guests WHERE avatar_path IS NOT NULL')
+      .all();
+    // Every OTHER avatar-bearing guest is still present with their file intact
+    // (under the pre-fix shared-pool defect, deleting one guest's avatar file
+    // would also delete the file several other guests pointed at, so this
+    // count and the existsSync loop below would both fail).
+    expect(remaining.length).toBe(otherAvatarGuestCount);
+
+    for (const row of remaining) {
+      expect(fs.existsSync(path.join(config.UPLOADS_DIR, row.avatar_path))).toBe(true);
+    }
   });
 });
 

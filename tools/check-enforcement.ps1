@@ -8,8 +8,8 @@ Set-Location $top
 $ok = $true
 
 # 1. Commit gates — active right now (needs core.hooksPath set by tools/setup-hooks.ps1).
-$hp = "$(& git config --get core.hooksPath)".Trim()
-if (($hp -eq '.githooks') -and (Test-Path '.githooks/pre-commit') -and (Test-Path '.githooks/commit-msg')) {
+. (Join-Path $top 'tools/commit-gate-status.ps1')
+if (Test-CommitGateActive $top) {
   Write-Host "[ON]  Commit gates - pre-commit (tree review) and commit-msg (issue review) active." -ForegroundColor Green
 } else {
   Write-Host "[OFF] Commit gates - not fully active (need pre-commit + commit-msg + core.hooksPath=.githooks). Reopen in Claude Code, or run tools/setup-hooks.ps1." -ForegroundColor Red; $ok = $false

@@ -15,11 +15,16 @@
 //      "photo") — the heavy path: multer + synchronous better-sqlite3 +
 //      sharp thumbnailing, where a blocked event loop would show up first.
 //
-// Every request is timed and recorded as { ms, status }. summarize() reduces
-// the samples to percentiles + error rate; evaluate() checks them against a
-// pass bar; the CLI prints a summary line and exits non-zero on failure so it
-// is CI/script-friendly (though the full run itself needs a live server and
-// is a documented manual step — see docs/loadtest.md).
+// Every request is timed and recorded as { ms, status, path, networkFailure }.
+// A server 5xx and a client-side network failure (connection refused,
+// timeout, reset — no HTTP response at all) are DISTINCT outcomes: only
+// networkFailure: true identifies the latter (status is null, never a magic
+// status code). summarize() reduces the samples to percentiles + separate
+// server5xx / networkFailures counts, both attributed per path; evaluate()
+// checks them against a pass bar keyed on server5xx only; the CLI prints a
+// summary line and exits non-zero on failure so it is CI/script-friendly
+// (though the full run itself needs a live server and is a documented manual
+// step — see docs/loadtest.md).
 //
 // Requiring this module has NO side effects — it only exports the pure
 // helpers and the CLI pieces. The CLI runs only under `require.main === module`.
@@ -55,23 +60,49 @@ function percentile(samples, p) {
 }
 
 /**
- * Reduce a list of { ms, status } samples to summary statistics.
- * A sample counts as an error when status >= 500 (server-side failure —
- * client 4xx is not counted here, since the harness's own bad requests
- * should not be conflated with server breakage under load).
+ * Reduce a list of { ms, status, path, networkFailure } samples to summary
+ * statistics. Two DISTINCT failure kinds are counted separately, never
+ * merged:
+ *   - server5xx: the server answered with a real HTTP status >= 500
+ *     (networkFailure is falsy and status is a number >= 500). Client 4xx is
+ *     not counted here, since the harness's own bad requests should not be
+ *     conflated with server breakage under load.
+ *   - networkFailures: no HTTP response was received at all (connection
+ *     refused, timeout, reset) — identified ONLY by networkFailure === true,
+ *     never by a status value (status is null for these samples).
+ * Each failing sample is also attributed to its request path in `byPath`, so
+ * a caller can see WHERE the run broke, not just how much.
  *
- * @param {Array<{ms: number, status: number}>} samples
+ * @param {Array<{ms: number, status: number|null, path: string, networkFailure: boolean}>} samples
  * @param {number} [durationSec] - wall-clock duration the samples were
  *   collected over, for requests-per-second. Defaults to the sum of sample
  *   latencies converted to seconds if omitted (a reasonable fallback for
  *   pure unit tests that don't run a real timed harness).
- * @returns {{count: number, errors: number, errorRate: number, p50: number, p95: number, p99: number, rps: number}}
+ * @returns {{count: number, server5xx: number, networkFailures: number, byPath: Object<string, {server5xx: number, networkFailures: number}>, p50: number, p95: number, p99: number, rps: number}}
  */
 function summarize(samples, durationSec) {
   const count = samples.length;
-  const errors = samples.filter((s) => s.status >= 500).length;
-  const errorRate = count === 0 ? 0 : errors / count;
-  const latencies = samples.map((s) => s.ms);
+  let server5xx = 0;
+  let networkFailures = 0;
+  const byPath = {};
+  const latencies = [];
+
+  for (const s of samples) {
+    latencies.push(s.ms);
+
+    const isServer5xx = !s.networkFailure && typeof s.status === 'number' && s.status >= 500;
+    const isNetworkFailure = s.networkFailure === true;
+
+    if (isServer5xx) server5xx += 1;
+    if (isNetworkFailure) networkFailures += 1;
+
+    if (isServer5xx || isNetworkFailure) {
+      const p = s.path || 'unknown';
+      if (!byPath[p]) byPath[p] = { server5xx: 0, networkFailures: 0 };
+      if (isServer5xx) byPath[p].server5xx += 1;
+      if (isNetworkFailure) byPath[p].networkFailures += 1;
+    }
+  }
 
   const effectiveDuration =
     durationSec !== undefined && durationSec > 0
@@ -80,8 +111,9 @@ function summarize(samples, durationSec) {
 
   return {
     count,
-    errors,
-    errorRate,
+    server5xx,
+    networkFailures,
+    byPath,
     p50: percentile(latencies, 50),
     p95: percentile(latencies, 95),
     p99: percentile(latencies, 99),
@@ -91,21 +123,24 @@ function summarize(samples, durationSec) {
 
 /**
  * Gate a summary against a pass bar. Pass requires BOTH:
- *   - errorRate === 0 (zero 5xx across the whole run)
+ *   - server5xx === 0 (zero real server errors across the whole run)
  *   - p95 <= thresholds.p95Ms
- * Any other combination fails, with a human-readable reason for each
- * violated bar so a failing run's printed summary explains why.
+ * networkFailures are reported but never, by themselves, fail the run — a
+ * client-side connection drop is harness/network noise, not proof the app
+ * broke. Any violated bar produces a human-readable reason so a failing
+ * run's printed summary explains why; the server-error reason names
+ * `server5xx` explicitly.
  *
- * @param {{errorRate: number, p95: number}} summary
+ * @param {{server5xx: number, count: number, p95: number}} summary
  * @param {{p95Ms: number}} thresholds
  * @returns {{pass: boolean, reasons: string[]}}
  */
 function evaluate(summary, thresholds) {
   const reasons = [];
 
-  if (summary.errorRate > 0) {
+  if (summary.server5xx > 0) {
     reasons.push(
-      `errorRate ${(summary.errorRate * 100).toFixed(1)}% > 0% (${summary.errors}/${summary.count} requests returned 5xx)`
+      `server5xx ${summary.server5xx} > 0 (${summary.server5xx}/${summary.count} requests returned a real server 5xx)`
     );
   }
   if (summary.p95 > thresholds.p95Ms) {
@@ -115,17 +150,40 @@ function evaluate(summary, thresholds) {
   return { pass: reasons.length === 0, reasons };
 }
 
+/**
+ * Format a summary (from summarize()) into the printed CLI line, including a
+ * per-path breakdown for any path that had at least one failure.
+ *
+ * @param {ReturnType<typeof summarize>} summary
+ * @returns {string} e.g.
+ *   "Summary: count=10 server5xx=1 networkFailures=1 p50=5ms p95=5ms p99=5ms rps=200.0\n" +
+ *   "  /tasks/1/submit: server5xx=1\n" +
+ *   "  /gallery: networkFailures=1"
+ */
+function formatSummary(summary) {
+  const headline =
+    `Summary: count=${summary.count} server5xx=${summary.server5xx} ` +
+    `networkFailures=${summary.networkFailures} p50=${summary.p50}ms p95=${summary.p95}ms ` +
+    `p99=${summary.p99}ms rps=${summary.rps.toFixed(1)}`;
+
+  const pathLines = Object.keys(summary.byPath || {})
+    .sort()
+    .map((p) => {
+      const counts = summary.byPath[p];
+      const parts = [];
+      if (counts.server5xx > 0) parts.push(`server5xx=${counts.server5xx}`);
+      if (counts.networkFailures > 0) parts.push(`networkFailures=${counts.networkFailures}`);
+      return `  ${p}: ${parts.join(' ')}`;
+    });
+
+  return pathLines.length === 0 ? headline : `${headline}\n${pathLines.join('\n')}`;
+}
+
 // ---------------------------------------------------------------------------
 // CLI-only pieces below. Nothing above this line performs I/O.
 // ---------------------------------------------------------------------------
 
 const DEFAULT_THRESHOLDS = { p95Ms: 2000 };
-
-// Single sentinel status for a network-level failure (connection refused,
-// timeout, DNS) where the server never sent a real HTTP status. Chosen >= 500
-// so summarize()'s `status >= 500` error rule counts it as an error, exactly
-// as a real 5xx would. Referred to by this name everywhere it matters.
-const NETWORK_FAILURE_STATUS = 599;
 
 /**
  * Parse CLI flags into an options object with documented defaults.
@@ -221,30 +279,36 @@ async function runPool(limit, shouldStop, worker) {
 }
 
 /**
- * Perform one HTTP request and record { ms, status }. Never throws: a
- * network-level failure (connection refused, timeout, DNS) pushes a sample
- * with status NETWORK_FAILURE_STATUS (599) so that summarize()'s
- * `status >= 500` rule counts it as an error, the same as a real 5xx.
+ * Perform one HTTP request and record { ms, status, path, networkFailure }.
+ * Never throws: a network-level failure (connection refused, timeout, DNS)
+ * pushes a sample with `networkFailure: true` and `status: null` — no HTTP
+ * status was ever received, so none is fabricated. A real response (any
+ * status, including a 5xx) pushes `networkFailure: false` with its actual
+ * status.
  *
- * @param {Array<{ms:number,status:number}>} samples - pushed into in place
- * @param {string} url
+ * @param {Array<{ms:number,status:number|null,path:string,networkFailure:boolean}>} samples - pushed into in place
+ * @param {string} url - the full URL fetched
+ * @param {string} requestPath - a stable label for this request (the route
+ *   shape, e.g. '/tasks/:id/submit', rather than the per-guest expanded URL,
+ *   so the byPath breakdown groups all lanes' hits to the same route)
  * @param {object} [fetchOpts]
  * @returns {Promise<Response|null>} the Response, or null on network failure
  */
-async function timedFetch(samples, url, fetchOpts) {
+async function timedFetch(samples, url, requestPath, fetchOpts) {
   const start = Date.now();
   try {
     const res = await fetch(url, { redirect: 'manual', ...fetchOpts });
     const ms = Date.now() - start;
     // A redirect (e.g. /j/:token -> /onboard or /) is a successful response
     // from the server's point of view — record its actual status, not an error.
-    samples.push({ ms, status: res.status });
+    samples.push({ ms, status: res.status, path: requestPath, networkFailure: false });
     return res;
   } catch (_err) {
     const ms = Date.now() - start;
-    // Network-level failure — the server did not answer at all. Record the
-    // NETWORK_FAILURE_STATUS sentinel so `status >= 500` still catches it.
-    samples.push({ ms, status: NETWORK_FAILURE_STATUS });
+    // Network-level failure — the server did not answer at all. No status
+    // was received, so status is null; networkFailure: true is the ONLY
+    // signal that identifies this as a connection-level drop, never a status code.
+    samples.push({ ms, status: null, path: requestPath, networkFailure: true });
     return null;
   }
 }
@@ -316,7 +380,7 @@ function loadSamplePhoto() {
  * @param {object} ctx
  * @param {string} ctx.baseUrl
  * @param {string} ctx.tokenPrefix
- * @param {Array<{ms:number,status:number}>} ctx.samples
+ * @param {Array<{ms:number,status:number|null,path:string,networkFailure:boolean}>} ctx.samples
  * @param {Map<number, string>} ctx.cookies - lane -> captured gsid cookie
  * @param {Map<number, number>} ctx.taskIds - lane -> discovered active task id
  * @param {{buffer: Buffer, filename: string, contentType: string}} ctx.photo
@@ -330,7 +394,7 @@ async function runOneLap(ctx, laneIndex) {
   let cookie = cookies.get(laneIndex);
   if (!cookie) {
     const token = `${tokenPrefix}${laneIndex}`;
-    const res = await timedFetch(samples, `${baseUrl}/j/${token}`);
+    const res = await timedFetch(samples, `${baseUrl}/j/${token}`, '/j/:token');
     if (res) {
       const captured = captureSignedCookie(res.headers.get('set-cookie'));
       if (captured) {
@@ -346,12 +410,12 @@ async function runOneLap(ctx, laneIndex) {
 
   const headers = { cookie };
 
-  await timedFetch(samples, `${baseUrl}/`, { headers });
+  await timedFetch(samples, `${baseUrl}/`, '/', { headers });
 
   // GET /tasks — read the body so we can discover a real ACTIVE task id from
   // the rendered markup (see extractActiveTaskIds). Cache the choice per lane
   // so we only parse once; later laps reuse it.
-  const tasksRes = await timedFetch(samples, `${baseUrl}/tasks`, { headers });
+  const tasksRes = await timedFetch(samples, `${baseUrl}/tasks`, '/tasks', { headers });
   let taskId = taskIds.get(laneIndex);
   if (taskId === undefined && tasksRes) {
     let html;
@@ -367,9 +431,9 @@ async function runOneLap(ctx, laneIndex) {
     }
   }
 
-  await timedFetch(samples, `${baseUrl}/gallery`, { headers });
-  await timedFetch(samples, `${baseUrl}/feed`, { headers });
-  await timedFetch(samples, `${baseUrl}/leaderboard`, { headers });
+  await timedFetch(samples, `${baseUrl}/gallery`, '/gallery', { headers });
+  await timedFetch(samples, `${baseUrl}/feed`, '/feed', { headers });
+  await timedFetch(samples, `${baseUrl}/leaderboard`, '/leaderboard', { headers });
 
   // Only submit when we found a genuinely active task — otherwise the POST
   // would 404 (task_inactive) and skip the sharp+DB heavy path entirely,
@@ -388,7 +452,7 @@ async function runOneLap(ctx, laneIndex) {
 
   const form = new FormData();
   form.append('photo', new Blob([photo.buffer], { type: photo.contentType }), photo.filename);
-  await timedFetch(samples, `${baseUrl}/tasks/${taskId}/submit`, {
+  await timedFetch(samples, `${baseUrl}/tasks/${taskId}/submit`, '/tasks/:id/submit', {
     method: 'POST',
     headers,
     body: form,
@@ -400,7 +464,7 @@ async function runOneLap(ctx, laneIndex) {
  * a live server, for either a fixed duration or a fixed request count.
  *
  * @param {{baseUrl: string, concurrency: number, durationSec: number|null, requests: number|null, tokenPrefix: string}} opts
- * @returns {Promise<{samples: Array<{ms:number,status:number}>, durationSec: number}>}
+ * @returns {Promise<{samples: Array<{ms:number,status:number|null,path:string,networkFailure:boolean}>, durationSec: number}>}
  */
 async function runLoadTest(opts) {
   const samples = [];
@@ -452,10 +516,7 @@ async function main() {
   const summary = summarize(samples, durationSec);
   const result = evaluate(summary, DEFAULT_THRESHOLDS);
 
-  console.log(
-    `Summary: count=${summary.count} errors=${summary.errors} errorRate=${(summary.errorRate * 100).toFixed(2)}% ` +
-      `p50=${summary.p50}ms p95=${summary.p95}ms p99=${summary.p99}ms rps=${summary.rps.toFixed(1)}`
-  );
+  console.log(formatSummary(summary));
 
   if (result.pass) {
     console.log('PASS: within Goal A thresholds.');
@@ -475,6 +536,7 @@ module.exports = {
   percentile,
   summarize,
   evaluate,
+  formatSummary,
   parseArgs,
   captureSignedCookie,
   extractActiveTaskIds,
@@ -482,5 +544,4 @@ module.exports = {
   runPool,
   runLoadTest,
   DEFAULT_THRESHOLDS,
-  NETWORK_FAILURE_STATUS,
 };

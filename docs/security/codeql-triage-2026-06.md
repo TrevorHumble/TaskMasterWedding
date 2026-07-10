@@ -1,5 +1,7 @@
 # CodeQL Alert Triage — June 2026
 
+> **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
+
 Surfaced by the CodeQL run on PR #57. Three rule classes, 34 alerts total.
 Each verdict is grounded in the actual data flow; see the referenced files.
 

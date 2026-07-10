@@ -25,15 +25,9 @@ beforeAll(async () => {
     .prepare('INSERT INTO guests (token, name) VALUES (?, ?)')
     .run('badgetoken000000000000000000000', 'Badge Guest').lastInsertRowid;
 
-  db.prepare('INSERT INTO badges (code, name, type, art_path) VALUES (?, ?, ?, ?)').run(
-    'CHOICE',
-    "Editor's Choice",
-    'special',
-    '🏆'
-  );
-  db.prepare(
-    'INSERT INTO badges (code, name, type, threshold, art_path) VALUES (?, ?, ?, ?, ?)'
-  ).run('COMPLETIONIST', 'Completionist', 'metric', 15, '🎯');
+  // CHOICE (special) and COMPLETIONIST (metric) both already exist here
+  // (#314): src/db.js's boot-heal runs ensureBadgeCatalog() at module load,
+  // so loadApp() above already seeded the full canonical catalog.
 });
 
 function heldCount(badgeCode) {
