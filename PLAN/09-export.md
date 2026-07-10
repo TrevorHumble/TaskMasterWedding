@@ -1,5 +1,7 @@
 # 09 — One-click export (zip of photos + xlsx) and teardown
 
+> **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
+
 This section gives you the complete export service for **Garden Party Pastels**. One admin click downloads a single ZIP file that contains:
 
 1. **One folder per guest** holding that guest's **original full-size photos**.

@@ -440,3 +440,67 @@ describe('AC8: schema migration is guarded and idempotent', () => {
     db.prepare('DELETE FROM badges WHERE code = ?').run('AC8PROBE');
   });
 });
+
+describe('#314: badge catalog boot-heal — played-in databases missing new catalog rows', () => {
+  // Runs last: the "#193 AC3" block above already reset `badges` to exactly
+  // the 9 canonical rows (it deletes everything, including AC5's BESTDRESSED,
+  // then rebuilds from scripts/seed-event's ensureBadgeCatalog), and AC8
+  // cleans up its own AC8PROBE row, so this block starts from a known 9-row
+  // baseline.
+
+  it('AC1: a DB missing COMPLETIONIST/MOSTPHOTOS (7 rows) is healed to 9 by the boot-path ensure', () => {
+    const { ensureBadgeCatalog } = require('../src/db');
+
+    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(9);
+    db.prepare(`DELETE FROM badges WHERE code IN ('COMPLETIONIST', 'MOSTPHOTOS')`).run();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(7);
+
+    // The boot-path ensure: src/db.js's own exported guard, the same one
+    // called once automatically at module load — proving a database that
+    // predates #193 gets healed on a later boot, not just on first creation.
+    const result = ensureBadgeCatalog();
+    expect(result.inserted).toBe(2);
+    expect(result.skipped).toBe(7);
+
+    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(9);
+    const codes = db
+      .prepare('SELECT code FROM badges')
+      .all()
+      .map((r) => r.code);
+    expect(codes).toContain('COMPLETIONIST');
+    expect(codes).toContain('MOSTPHOTOS');
+  });
+
+  it('AC2: a guest covering every active task gains COMPLETIONIST via recomputeAfterSubmissionChange on the healed DB', () => {
+    // Deactivate everything else so "covers every active task" is unambiguous,
+    // same convention the earlier describes in this file use.
+    db.prepare('UPDATE tasks SET is_active = 0').run();
+    const taskX = makeTask('314 Task X');
+    const taskY = makeTask('314 Task Y');
+    const guest = makeGuest('314-guest', '314 Guest');
+
+    submit(guest, taskX);
+    submit(guest, taskY);
+
+    scoring.recomputeAfterSubmissionChange(guest);
+
+    expect(heldCodes(guest)).toContain('COMPLETIONIST');
+  });
+
+  it('AC3: an admin-edited badge name survives a re-run of the ensure (insert-only, no overwrite)', () => {
+    const { ensureBadgeCatalog } = require('../src/db');
+
+    db.prepare(`UPDATE badges SET name = ? WHERE code = ?`).run('Admin Renamed Bloom', 'BLOOM');
+
+    // All 9 rows already exist (healed by AC1 above), so re-running the
+    // ensure must insert nothing — if it instead overwrote existing rows
+    // (e.g. a plain INSERT or an ON CONFLICT DO UPDATE), this would either
+    // throw a UNIQUE violation or silently revert the admin's edit below.
+    const result = ensureBadgeCatalog();
+    expect(result.inserted).toBe(0);
+    expect(result.skipped).toBe(9);
+
+    const row = db.prepare('SELECT name FROM badges WHERE code = ?').get('BLOOM');
+    expect(row.name).toBe('Admin Renamed Bloom');
+  });
+});

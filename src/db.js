@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 const config = require('../config');
+const { ensureBadgeCatalog: ensureBadgeCatalogRows } = require('../scripts/badge-catalog');
 
 // --- Make sure the data directory exists before we try to open the DB file. ---
 // (Section 01-setup also does this on boot, but we do it here too so that
@@ -360,6 +361,32 @@ function ensureTaskIdNullable() {
 
 ensureTaskIdNullable();
 
+// --- Guarded migration: badge catalog boot-heal (issue #314) ---
+/**
+ * Heal the badges table with any catalog rows added since this database was
+ * first seeded (e.g. #193's COMPLETIONIST/MOSTPHOTOS) — the boot path that
+ * already owns "make an old database current", extended to cover a played-in
+ * database that was never re-seeded. Delegates to the one shared catalog +
+ * insert function in scripts/badge-catalog.js (consolidated #314) so
+ * scripts/seed.js, scripts/seed-event.js, and this boot path can never drift
+ * into separate catalogs (#193 AC4's guarantee).
+ *
+ * Insert-only (INSERT OR IGNORE keyed on badges.code), so an existing row —
+ * including one an admin has hand-edited — is never overwritten. Runs AFTER
+ * ensureBadgeTypeCheckWidened() (badges' CHECK already accepts every type
+ * the catalog uses) and after ensureTaskIdNullable() (the last of the
+ * guarded shape migrations), following the same define-call-export pattern
+ * as every migration above. Exported so tests can bind to this real guard
+ * rather than an inline copy of it.
+ *
+ * @returns {{ inserted: number, skipped: number }}
+ */
+function ensureBadgeCatalog() {
+  return ensureBadgeCatalogRows(db);
+}
+
+ensureBadgeCatalog();
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -399,6 +426,7 @@ module.exports = {
   ensurePinnedColumn,
   ensureGuestIdentityColumns,
   ensureTaskIdNullable,
+  ensureBadgeCatalog,
   getGuestByToken,
   getGuestById,
   getGuestByContact,

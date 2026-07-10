@@ -102,16 +102,11 @@ beforeAll(async () => {
     'INSERT INTO comments (submission_id, guest_id, body, taken_down) VALUES (?, ?, ?, 1)'
   ).run(subA, guestA, 'Removed later.');
 
-  // Two badges: one with a threshold, one without (NULL) — the null-render check.
-  db.prepare(
-    'INSERT INTO badges (code, name, type, threshold, art_path) VALUES (?, ?, ?, ?, ?)'
-  ).run('BLOOM', 'Bloom', 'auto', 5, '🌸');
-  db.prepare('INSERT INTO badges (code, name, type, art_path) VALUES (?, ?, ?, ?)').run(
-    'CHOICE',
-    "Editor's Choice",
-    'special',
-    '🏆'
-  );
+  // BLOOM (threshold 5) and CHOICE (threshold NULL) already exist here
+  // (#314): src/db.js's boot-heal runs ensureBadgeCatalog() at module load,
+  // so loadApp() above already seeded the canonical catalog — including the
+  // one-with-a-threshold / one-without-a-threshold pair the null-render check
+  // below needs, with no manual insert required.
 
   // Extension-fallback fixture: an uppercase .PNG and a no-extension file.
   const extGuest = db
@@ -293,7 +288,10 @@ describe('buildSummaryBuffer — workbook contents', () => {
       rows.push(row.values.slice(1));
     });
 
-    expect(rows.length).toBe(2);
+    // One sheet row per row in the badges table (the canonical catalog,
+    // seeded by boot-heal — #314 — rather than a fixture-only count).
+    const catalogCount = db.prepare('SELECT COUNT(*) AS n FROM badges').get().n;
+    expect(rows.length).toBe(catalogCount);
     const bloom = rows.find((r) => r[0] === 'BLOOM');
     const choice = rows.find((r) => r[0] === 'CHOICE');
     expect(bloom[3]).toBe(5);
