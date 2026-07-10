@@ -6,7 +6,7 @@
 #      true -- the gate arms the moment you open the project in Claude Code).
 #   2. GREETS with the honest current state, so the owner sees positive evidence
 #      they're protected -- and is told if their git identity still needs setting.
-# Identity auto-fill and the full verify live in setup.ps1 (run explicitly, where a
+# The full verify lives in tools/check-enforcement.ps1 (run explicitly, where a
 # slow network is fine). Fail-safe: any error -> no action, no greeting.
 try {
   $top = (& git rev-parse --show-toplevel 2>$null)
@@ -23,12 +23,12 @@ try {
 
   # 2. Greet (honest state). Local identity check only -- no network.
   $haveEmail = "$(& git -C $top config user.email)".Trim()
-  $idNote = if ($haveEmail) { '' } else { ' Set your git name/email (or run setup.ps1) before your first commit.' }
+  $idNote = if ($haveEmail) { '' } else { ' Set your git name/email before your first commit.' }
 
   if ($commitOn) {
     $msg = "Gates armed: commit gate active, goal gate + loop gate loaded. You're protected -- direct away.$idNote (Re-check anytime: tools/check-enforcement.ps1)"
   } else {
-    $msg = "Goal gate + loop gate loaded, but the commit gate file is missing -- check .githooks/pre-commit, or run: powershell -ExecutionPolicy Bypass -File setup.ps1"
+    $msg = "Goal gate + loop gate loaded, but the commit gate file is missing -- check .githooks/pre-commit, or run: powershell -ExecutionPolicy Bypass -File tools/setup-hooks.ps1"
   }
   Write-Output (@{ systemMessage = $msg } | ConvertTo-Json -Compress)
 } catch {
