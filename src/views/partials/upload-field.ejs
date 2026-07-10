@@ -12,14 +12,22 @@
       multiple (optional) - boolean; adds the multiple attribute (issue #247's
                  memory-batch upload; every other caller omits this and is
                  unaffected)
+      label    (optional) - picker button text; defaults to "Choose a photo…".
+                 When omitted, this partial's rendered output is byte-for-byte
+                 identical to before this local existed (issue #364), so every
+                 caller that doesn't pass it is unaffected. The memory batch
+                 picker passes "Choose photos…" (issue #364 AC1).
 %>
 <div class="upload-field">
   <%# No-JS baseline: this visible text intentionally mirrors PLACEHOLDER /
       uploadLabelText('') in src/public/js/upload-filename.js. AC3 requires
       this label render server-side so the control works with no JS; AC1
       requires the helper return the same copy once JS wires the filename
-      display. This is the one remaining, deliberate duplication. %>
-  <label class="btn" for="<%= id %>">Choose a photo…</label>
+      display. This is the one remaining, deliberate duplication (for the
+      default singular label only — the multiple-picker's plural placeholder
+      is read from this label's own text at runtime, see upload-filename.js,
+      so it is not duplicated a third time). %>
+  <label class="btn" for="<%= id %>"><%= (typeof label !== 'undefined' && label) ? label : 'Choose a photo…' %></label>
   <input type="file"
          id="<%= id %>"
          name="<%= name %>"
