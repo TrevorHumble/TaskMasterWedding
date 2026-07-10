@@ -3,31 +3,63 @@
   var _isAdmin = (typeof isAdmin !== 'undefined' && isAdmin);
   var _flash = (typeof flash !== 'undefined' && flash) ? flash : null;
   var _flashType = (_flash && _flash.type === 'err') ? 'flash-err' : 'flash-ok';
+
+  // Active-section-from-path (issue #252 AC2). This is the SINGLE place this
+  // rule is computed — every guest nav link below reads _active, nothing else
+  // in the app re-derives a section from req.path.
+  var _path = (typeof currentPath !== 'undefined' && currentPath) ? currentPath : '';
+  function _section(p) {
+    if (p.indexOf('/tasks') === 0) return 'tasks';
+    if (p.indexOf('/gallery') === 0 || p.indexOf('/feed') === 0 || p.indexOf('/p/') === 0) return 'gallery';
+    if (p.indexOf('/leaderboard') === 0 || p.indexOf('/u/') === 0) return 'leaderboard';
+    // '/me' or '/me/...' only — a bare `indexOf('/me') === 0` check would also
+    // match '/memories/new' (it starts with the same three characters), which
+    // would wrongly light up "My Profile" on the Share-a-memory page.
+    if (p === '/' || p === '/me' || p.indexOf('/me/') === 0) return 'profile';
+    return '';
+  }
+  var _active = _section(_path);
+  // Built as a raw string, not emitted through the escaping output tag —
+  // that tag would HTML-entity the double quotes in aria-current="page".
+  function _navAttrs(section) {
+    return _active === section ? ' aria-current="page"' : '';
+  }
 %>
 <header class="site-header">
   <div class="site-header-inner">
-    <a class="brand" href="<%= _isAdmin ? '/admin' : '/' %>">
-      <span class="brand-heart" style="color:var(--color-primary);"><%- include('heart', { size: 20 }) %></span>
-      <span class="brand-text">Lilly &amp; Axel</span>
-    </a>
-    <nav class="site-nav" aria-label="Primary">
-      <% if (_isAdmin) { %>
+    <% if (_isAdmin) { %>
+      <a class="admin-brand" href="/admin">
+        <span class="brand-heart" style="color:var(--color-primary);"><%- include('heart', { size: 20 }) %></span>
+        <span class="admin-brand-text">Lilly &amp; Axel</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary">
         <a class="nav-link" href="/admin">Dashboard</a>
         <a class="nav-link" href="/admin/tasks">Tasks</a>
         <a class="nav-link" href="/admin/guests">Guests</a>
         <a class="nav-link" href="/admin/photos">Photos</a>
         <a class="nav-link" href="/admin/comments">Comments</a>
+        <a class="nav-link" href="/admin/bugs">Bugs</a>
         <a class="nav-link" href="/admin/qrsheet">QR Sheet</a>
         <form class="nav-logout" method="post" action="/admin/logout">
           <button type="submit" class="nav-link nav-link-button">Log out</button>
         </form>
-      <% } else { %>
-        <a class="nav-link" href="/tasks">Tasks</a>
-        <a class="nav-link" href="/gallery">Gallery</a>
-        <a class="nav-link" href="/leaderboard">Leaderboard</a>
-        <a class="nav-link" href="/">My Profile</a>
-      <% } %>
-    </nav>
+      </nav>
+    <% } else { %>
+      <a class="masthead" href="/">
+        <span class="brand-script">Wedding Master</span>
+        <span class="masthead-names">&#9829; Lilly &amp; Axel &#9829;</span>
+      </a>
+      <nav class="site-nav site-nav-guest" aria-label="Primary">
+        <div class="site-nav-row">
+          <a class="nav-link" href="/tasks"<%- _navAttrs('tasks') %>>Tasks</a>
+          <a class="nav-link" href="/gallery"<%- _navAttrs('gallery') %>>Gallery</a>
+        </div>
+        <div class="site-nav-row">
+          <a class="nav-link" href="/leaderboard"<%- _navAttrs('leaderboard') %>>Leaderboard</a>
+          <a class="nav-link" href="/"<%- _navAttrs('profile') %>>My Profile</a>
+        </div>
+      </nav>
+    <% } %>
   </div>
 </header>
 
