@@ -89,3 +89,5 @@
 {"schema":"gl1","pr":382,"issue":null,"merged_sha":"ed8992511b4a8ea3ee3dbdd26e348279f37c70da","ts":"2026-07-10T22:17:52Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":383,"issue":356,"merged_sha":"748e9c7bf1285b86563afa2c320145f39e1091d2","ts":"2026-07-10T22:22:42Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":386,"issue":null,"merged_sha":"25344e2c7cae42ee63e786b8e7e8dd660108161c","ts":"2026-07-10T22:28:16Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":381,"issue":376,"merged_sha":"ef2cce199dbd1f435b245c3bdd9ce06389b5ebec","ts":"2026-07-10T22:34:21Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1-governance","pr":381,"merged_sha":"ef2cce199dbd1f435b245c3bdd9ce06389b5ebec","ts":"2026-07-10T22:34:21Z","files":[".claude/hooks/session-greeting.ps1","tools/check-enforcement.ps1","tools/check-gate.ps1","tools/commit-gate-status.ps1"]}
