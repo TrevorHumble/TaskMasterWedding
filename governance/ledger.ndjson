@@ -101,3 +101,4 @@
 {"schema":"gl1","pr":398,"issue":null,"merged_sha":"445060e5fa29a18e794333278f3abbb8d60d7b1c","ts":"2026-07-10T23:35:17Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":397,"issue":364,"merged_sha":"f3a75422aab699ef3c16625ddc266bc0b07d5467","ts":"2026-07-10T23:40:40Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":391,"issue":241,"merged_sha":"23f384fd75e6cce037af63d4ab06463e7df9bc1f","ts":"2026-07-10T23:46:29Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":396,"issue":305,"merged_sha":"6b8892a9566c000d71e5042b614e45535fcf4769","ts":"2026-07-10T23:50:41Z","reviews":[],"labels":[],"freeze":false}
