@@ -87,3 +87,4 @@
 {"schema":"gl1","pr":380,"issue":323,"merged_sha":"7341b7df84547f3b220ab3fbdff8742a120ad841","ts":"2026-07-10T22:08:29Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":380,"merged_sha":"7341b7df84547f3b220ab3fbdff8742a120ad841","ts":"2026-07-10T22:08:29Z","files":["DESIGN.md","standards/adversarial-review-protocol.md"]}
 {"schema":"gl1","pr":382,"issue":null,"merged_sha":"ed8992511b4a8ea3ee3dbdd26e348279f37c70da","ts":"2026-07-10T22:17:52Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":383,"issue":356,"merged_sha":"748e9c7bf1285b86563afa2c320145f39e1091d2","ts":"2026-07-10T22:22:42Z","reviews":[],"labels":[],"freeze":false}
