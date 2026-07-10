@@ -105,6 +105,19 @@ db.exec(`
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS bug_reports (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    guest_id    INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+    body        TEXT    NOT NULL,
+    page        TEXT,
+    user_agent  TEXT,
+    resolved    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_bug_reports_resolved
+    ON bug_reports(resolved, created_at DESC);
+
   CREATE INDEX IF NOT EXISTS idx_submissions_photo_path
     ON submissions(photo_path COLLATE NOCASE);
 

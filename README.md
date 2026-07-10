@@ -12,7 +12,7 @@ It runs on a small rented Linux host with a persistent disk, reachable over HTTP
 - **Leaderboard + gallery.** A public ranking and one shared photo gallery with a lightbox.
 - **Feed, likes, comments.** A live `/feed` shows recent photos; guests can like and comment on any photo.
 - **Profiles.** Avatar, name, badges, submissions, and optional social links. Guests can view each other's profiles.
-- **Admin panel.** Create guests and QR codes, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
+- **Admin panel.** Create guests and QR codes, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, work a bug-report queue, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
 
 ## Quickstart
 
@@ -44,9 +44,9 @@ Then open <http://localhost:3000>.
 
 ## How it is used
 
-**Guests** scan their QR code, which opens `/j/:token` and signs them in (a signed `gsid` cookie). First sign-in goes through `/onboard` to set a name and avatar. From the home page they browse `/tasks`, open a task, upload a photo to complete it, and view `/gallery`, `/feed` (where they can like and comment on photos), `/leaderboard`, and profiles at `/u/:guestId`.
+**Guests** scan their QR code, which opens `/j/:token` and signs them in (a signed `gsid` cookie). First sign-in goes through `/onboard` to set a name and avatar, then a one-time `/how-to-play` rules card before landing on the home page. From the home page they browse `/tasks`, open a task, upload a photo to complete it, view `/gallery`, `/feed` (where they can like and comment on photos), `/leaderboard`, and profiles at `/u/:guestId`, and can revisit `/how-to-play` or send in `/bug-report` from the profile menu.
 
-**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to guest creation and bulk create, the printable QR sheet at `/admin/qrsheet`, task CRUD, awarding points and badges, comment moderation at `/admin/comments`, photo takedown, and `/admin/export`.
+**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to guest creation and bulk create, the printable QR sheet at `/admin/qrsheet`, task CRUD, awarding points and badges, comment moderation at `/admin/comments`, the bug-report queue at `/admin/bugs`, photo takedown, and `/admin/export`.
 
 ## Going live
 
@@ -129,10 +129,12 @@ src/
   middleware/session.js   attachGuest, requireGuest, requireAdmin, one-shot flash
   routes/
     auth.js               /j/:token sign-in, /onboard, /admin/login, /admin/logout
-    guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /me/edit
+    guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /me/edit,
+                           /how-to-play, /bug-report
     community.js          /gallery, /feed, GET /p/:submissionId, /p/:submissionId/like,
                            /p/:submissionId/comments, /leaderboard, /u/:guestId
-    admin.js              /admin dashboard, guests + bulk create, qrsheet, tasks, awards, takedown, export
+    admin.js              /admin dashboard, guests + bulk create, qrsheet, tasks, awards, takedown,
+                           export, /admin/bugs
   services/
     photos.js             multer disk storage, sharp thumbnails/avatars, takedown/delete
     scoring.js            points, auto badges (5/10/15), special badges, leaderboard

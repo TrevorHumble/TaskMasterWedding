@@ -23,6 +23,8 @@
 //   GET  /admin/comments                 ALL comments incl. taken-down
 //   POST /admin/comments/:id/hide        hide a comment
 //   POST /admin/comments/:id/restore     unhide a comment
+//   GET  /admin/bugs                     bug report queue (unresolved, then resolved)
+//   POST /admin/bugs/:id/resolve         mark a bug report resolved
 //   GET  /admin/export                   defined in 09-export (see ADD-THIS there)
 //
 // NOTE: GET/POST /admin/login and POST /admin/logout live in 03-auth (routes/auth.js).
@@ -713,6 +715,49 @@ router.post('/comments/:id/restore', (req, res) => {
   }
   db.prepare('UPDATE comments SET taken_down = 0 WHERE id = ?').run(id);
   redirectWithMsg(res, '/admin/comments', 'Comment restored.');
+});
+
+// ---------------------------------------------------------------------------
+// GET /admin/bugs  — bug report queue (issue #245). Unresolved reports first
+// (newest first within that group), then resolved reports collapsed at the
+// bottom (also newest first) — one ORDER BY does both: resolved=0 sorts
+// before resolved=1, and created_at DESC breaks ties inside each group.
+// ---------------------------------------------------------------------------
+router.get('/bugs', (req, res) => {
+  const reports = db
+    .prepare(
+      `SELECT r.id          AS id,
+              r.body        AS body,
+              r.page        AS page,
+              r.resolved    AS resolved,
+              r.created_at  AS created_at,
+              g.id          AS guest_id,
+              g.name        AS guest_name
+         FROM bug_reports r
+         JOIN guests g ON g.id = r.guest_id
+        ORDER BY r.resolved ASC, r.created_at DESC, r.id DESC`
+    )
+    .all();
+
+  res.render('admin-bugs', {
+    title: 'Bugs',
+    reports,
+    msg: req.query.msg || '',
+    isAdmin: true,
+  });
+});
+
+// POST /admin/bugs/:id/resolve  — mark a bug report resolved. One-way (there
+// is no "reopen" affordance per the design), so this always sets resolved to
+// 1 rather than toggling.
+router.post('/bugs/:id/resolve', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const report = db.prepare('SELECT id FROM bug_reports WHERE id = ?').get(id);
+  if (!report) {
+    return redirectWithMsg(res, '/admin/bugs', 'Bug report not found.');
+  }
+  db.prepare('UPDATE bug_reports SET resolved = 1 WHERE id = ?').run(id);
+  redirectWithMsg(res, '/admin/bugs', 'Bug report resolved.');
 });
 
 // ---------------------------------------------------------------------------

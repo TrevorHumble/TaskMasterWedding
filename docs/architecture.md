@@ -16,9 +16,9 @@ flowchart TD
         express["Express app (src/app.js)<br/>localhost:3000"]
         express --> mw["Middleware<br/>signed cookies, body parsing,<br/>attachGuest"]
         mw --> auth["routes/auth.js<br/>/j/:token, /onboard, /admin/login"]
-        mw --> guest["routes/guest.js<br/>/, /tasks, /tasks/:id/submit, /me/edit"]
+        mw --> guest["routes/guest.js<br/>/, /tasks, /tasks/:id/submit, /me/edit,<br/>/how-to-play, /bug-report"]
         mw --> community["routes/community.js<br/>/gallery, /feed, GET /p/:submissionId,<br/>/p/:submissionId/like, /p/:submissionId/comments,<br/>/leaderboard, /u/:guestId"]
-        mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, awards, export,<br/>/admin/comments, /admin/badges"]
+        mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, awards, export,<br/>/admin/comments, /admin/badges, /admin/bugs"]
 
         auth --> svc
         guest --> svc
@@ -48,7 +48,7 @@ flowchart TD
 
 ## Data model
 
-Seven tables. Several UNIQUE constraints carry the core game rules.
+Eight tables. Several UNIQUE constraints carry the core game rules.
 
 ```mermaid
 erDiagram
@@ -60,6 +60,7 @@ erDiagram
     submissions ||--o{ likes : "liked by"
     guests ||--o{ comments : "comments"
     submissions ||--o{ comments : "commented on"
+    guests ||--o{ bug_reports : "files"
 
     guests {
         int id PK
@@ -124,6 +125,15 @@ erDiagram
         int taken_down
         text created_at
     }
+    bug_reports {
+        int id PK
+        int guest_id FK
+        text body
+        text page
+        text user_agent
+        int resolved
+        text created_at
+    }
 ```
 
 UNIQUE constraints:
@@ -133,7 +143,7 @@ UNIQUE constraints:
 - `likes UNIQUE(submission_id, guest_id)` — a guest can like a given photo at most once; the like route toggles this row.
 - `guests` partial unique index on `contact` (`WHERE contact IS NOT NULL`) — two guests cannot share a normalized contact.
 
-`submissions` and `guest_badges` reference `guests(id)` and their parent (`tasks`/`badges`) with `ON DELETE CASCADE`; `likes` and `comments` reference `submissions(id)` and `guests(id)` the same way. Foreign keys are enforced (`PRAGMA foreign_keys = ON` in `src/db.js`).
+`submissions` and `guest_badges` reference `guests(id)` and their parent (`tasks`/`badges`) with `ON DELETE CASCADE`; `likes` and `comments` reference `submissions(id)` and `guests(id)` the same way; `bug_reports` references `guests(id)` the same way. Foreign keys are enforced (`PRAGMA foreign_keys = ON` in `src/db.js`).
 
 ## Walkthrough: a photo upload
 
@@ -149,7 +159,7 @@ If the admin later takes the photo down, the row's `taken_down` flips to 1: the 
 
 1. A guest scans the QR code on their place-card, which opens `GET /j/:token` (the token is the random value from `guests.token`).
 2. `routes/auth.js` looks up the guest by token (`getGuestByToken` in `src/db.js`). On a match it sets the signed `gsid` cookie carrying the token.
-3. If the guest has not finished onboarding (`onboarded = 0`), they are sent to `/onboard` to set a name and avatar; otherwise they land on the guest home at `/`.
+3. If the guest has not finished onboarding (`onboarded = 0`), they are sent to `/onboard` to set a name and avatar, which on completion redirects to a one-time `/how-to-play?first=1` rules card (issue #246) before the guest home; an already-onboarded guest lands on the guest home at `/` directly.
 4. On every later request, `attachGuest` reads and verifies the signed `gsid` cookie, loads the guest, and exposes it to routes and views. The cookie signature (via `cookie-parser` and `COOKIE_SECRET`) is what makes the token tamper-evident.
 
 The admin sign-in is parallel: `POST /admin/login` checks the submitted password against the bcrypt hash in `data/admin.hash`, and on success sets the signed `admin` cookie that `requireAdmin` checks for every `/admin` route.

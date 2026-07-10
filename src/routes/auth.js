@@ -265,7 +265,11 @@ router.post('/onboard', requireGuest, (req, res, next) => {
         );
       }
 
-      res.redirect('/');
+      // First-time guests land on the how-to-play card (issue #246) instead
+      // of straight to their profile, so they learn the three rules before
+      // playing. ?first=1 tells that route to show the "Skip for now" link —
+      // there is nothing to skip when the guest reaches it any other way.
+      res.redirect('/how-to-play?first=1');
     } catch (e) {
       // Anything unexpected in this async callback (e.g. a DB write failure)
       // must not become an unhandled rejection that kills the process —
