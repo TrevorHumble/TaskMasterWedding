@@ -29,7 +29,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, makeAdminAgent } = require('./helpers/testApp');
 
 // Re-declared exactly as src/services/photos.js defines them (they are
 // module-private, not exported) and exactly as tests/helpers/demo-fixture.js
@@ -37,6 +37,7 @@ const { loadApp } = require('./helpers/testApp');
 const ORIGINAL_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)$/i;
 const THUMB_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)\.jpg$/i;
 
+let app;
 let db;
 let config;
 let eventFixture;
@@ -44,6 +45,7 @@ let scoring;
 
 beforeAll(() => {
   const loaded = loadApp();
+  app = loaded.app;
   db = loaded.db;
 
   config = require('../config');
@@ -362,6 +364,102 @@ describe('AC9: badge correctness', () => {
     // Non-vacuous: confirm the loop actually exercised the "should hold" branch
     // at least once (i.e. this fixture has real badge holders to check).
     expect(checkedAtLeastOneHolder).toBe(true);
+  });
+});
+
+describe('AC1 (#320): every avatar-bearing guest gets a unique avatar file', () => {
+  beforeAll(() => {
+    eventFixture.seedEvent(db, { guests: 100, seed: 1 });
+  });
+
+  it('no avatar_path is shared by more than one guest', () => {
+    const dupes = db
+      .prepare(
+        `SELECT avatar_path, COUNT(*) AS n
+           FROM guests
+          WHERE avatar_path IS NOT NULL
+          GROUP BY avatar_path
+         HAVING COUNT(*) > 1`
+      )
+      .all();
+    expect(dupes).toEqual([]);
+  });
+
+  it('is non-vacuous: at least one guest actually has an avatar to check', () => {
+    const n = db.prepare('SELECT COUNT(*) AS n FROM guests WHERE avatar_path IS NOT NULL').get().n;
+    expect(n).toBeGreaterThan(0);
+  });
+
+  it('the duplicate-detecting query has teeth: a genuine duplicate is caught', () => {
+    // Confirms the GROUP BY ... HAVING COUNT(*) > 1 query above is not
+    // vacuously true — feed it a real duplicate (mirroring the pre-fix
+    // defect, where avatarSeq wrapped over a 2-name pool) and confirm it
+    // fires. Runs last in this describe block; the next block's beforeAll
+    // re-seeds before any other assertion depends on clean data.
+    const [a, b] = db.prepare('SELECT id FROM guests WHERE avatar_path IS NOT NULL LIMIT 2').all();
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+    const sharedName = 'deadbeefdeadbeef-1800000199999.jpg';
+    db.prepare('UPDATE guests SET avatar_path = ? WHERE id = ?').run(sharedName, a.id);
+    db.prepare('UPDATE guests SET avatar_path = ? WHERE id = ?').run(sharedName, b.id);
+
+    const dupes = db
+      .prepare(
+        `SELECT avatar_path, COUNT(*) AS n
+           FROM guests
+          WHERE avatar_path IS NOT NULL
+          GROUP BY avatar_path
+         HAVING COUNT(*) > 1`
+      )
+      .all();
+    expect(dupes.length).toBeGreaterThan(0);
+  });
+});
+
+describe('AC2 (#320): guest delete leaves every surviving avatar resolvable on disk', () => {
+  let adminAgent;
+  let targetGuestId;
+  let otherAvatarGuestCount;
+
+  beforeAll(async () => {
+    // A modest guest count keeps ~40% avatar-bearing guests in the low
+    // teens: enough to pick one to delete and still have several others
+    // left whose files must survive.
+    const { manifest } = eventFixture.seedEvent(db, { guests: 30, seed: 1 });
+    const seedEventScript = require('../scripts/seed-event');
+    await seedEventScript.installSamplePhotos(manifest);
+
+    adminAgent = await makeAdminAgent(app);
+
+    const target = db.prepare('SELECT id FROM guests WHERE avatar_path IS NOT NULL LIMIT 1').get();
+    expect(target).toBeDefined(); // non-vacuous: a guest with an avatar exists to delete
+    targetGuestId = target.id;
+
+    otherAvatarGuestCount = db
+      .prepare('SELECT COUNT(*) AS n FROM guests WHERE avatar_path IS NOT NULL AND id != ?')
+      .get(targetGuestId).n;
+    expect(otherAvatarGuestCount).toBeGreaterThan(0); // non-vacuous: other avatar-bearing guests remain after the delete
+  }, 30000);
+
+  it("deleting one avatar-bearing guest does not strand any other guest's avatar file", async () => {
+    const res = await adminAgent
+      .post(`/admin/guests/${targetGuestId}/delete`)
+      .type('form')
+      .send({});
+    expect(res.status).toBe(303);
+
+    const remaining = db
+      .prepare('SELECT avatar_path FROM guests WHERE avatar_path IS NOT NULL')
+      .all();
+    // Every OTHER avatar-bearing guest is still present with their file intact
+    // (under the pre-fix shared-pool defect, deleting one guest's avatar file
+    // would also delete the file several other guests pointed at, so this
+    // count and the existsSync loop below would both fail).
+    expect(remaining.length).toBe(otherAvatarGuestCount);
+
+    for (const row of remaining) {
+      expect(fs.existsSync(path.join(config.UPLOADS_DIR, row.avatar_path))).toBe(true);
+    }
   });
 });
 
