@@ -348,7 +348,10 @@ function seedSocial(db, { guestIds, visibleSubmissions, rng, social }) {
     const others = otherGuestIds(target.guestId);
 
     const alreadyLiked = new Set(
-      db.prepare('SELECT guest_id FROM likes WHERE submission_id = ?').all(target.id).map((r) => r.guest_id)
+      db
+        .prepare('SELECT guest_id FROM likes WHERE submission_id = ?')
+        .all(target.id)
+        .map((r) => r.guest_id)
     );
     for (const guestId of others) {
       if (!alreadyLiked.has(guestId)) {
