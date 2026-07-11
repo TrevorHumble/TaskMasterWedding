@@ -4,8 +4,8 @@
 //         gone from a subsequent load
 //   AC2 — a non-owner's delete attempt gets 403; the comment and its count
 //         are unchanged
-//   AC3 — an anonymous request is refused by requireGuest (403); no row is
-//         deleted
+//   AC3 — an anonymous request is refused by requireGuest (redirected to
+//         /join, 302, per #241); no row is deleted
 //   AC4 — an unknown commentId, and a commentId already deleted once, both
 //         404 on the (second) attempt; no row is deleted
 //   AC5 — the dialog thread renders the ⋯ actions menu trigger
@@ -188,8 +188,11 @@ it("AC2: a non-owner deleting another guest's comment gets 403 and the comment r
 
 // ---------------------------------------------------------------------------
 // AC3 — anonymous is refused by requireGuest before the handler runs.
+// requireGuest redirects an unauthenticated request to /join (issue #241)
+// rather than 403ing it; either way the delete handler never runs and no row
+// is removed, which is the security property this asserts.
 // ---------------------------------------------------------------------------
-it('AC3: an anonymous request is refused (403) and deletes nothing', async () => {
+it('AC3: an anonymous request is refused (redirected to /join) and deletes nothing', async () => {
   const author = await signedInGuest('del-ac3-author', 'AC3 Author');
   const commenter = await signedInGuest('del-ac3-commenter', 'AC3 Commenter');
   const submissionId = seedSubmission(author.guestId, {
@@ -199,7 +202,8 @@ it('AC3: an anonymous request is refused (403) and deletes nothing', async () =>
   const commentId = await postComment(commenter.agent, submissionId, 'stays put');
 
   const res = await request(app).post('/p/' + submissionId + '/comments/' + commentId + '/delete');
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(302);
+  expect(res.headers.location).toBe('/join');
 
   const row = db.prepare(`SELECT * FROM comments WHERE id = ?`).get(commentId);
   expect(row).toBeTruthy();
