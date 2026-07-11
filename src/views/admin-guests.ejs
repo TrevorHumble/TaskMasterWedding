@@ -34,6 +34,26 @@
 
         <p class="guest-meta"><%= g.points %> pts · <%= g.completed %>/<%= totalTasks %> tasks</p>
 
+        <p class="guest-identity-meta">
+          Contact: <%= g.contact ? g.contact : 'none on file' %> ·
+          Re-entry code: <%= g.pin ? g.pin : 'none set' %>
+        </p>
+
+        <form action="/admin/guests/<%= g.id %>/identity" method="post" class="guest-identity-form">
+          <label class="guest-identity-label">
+            Contact
+            <input type="text" name="contact" value="<%= g.contact %>"
+                   placeholder="email or phone" aria-label="Guest contact (email or phone)" />
+          </label>
+          <label class="guest-identity-label">
+            Re-entry code
+            <input type="text" name="pin" value="<%= g.pin %>"
+                   pattern="\d{4}" maxlength="4" inputmode="numeric"
+                   placeholder="4 digits" aria-label="Guest re-entry PIN" />
+          </label>
+          <button type="submit" class="btn btn-sm btn-secondary">Update</button>
+        </form>
+
         <div class="guest-link-row">
           <input type="text" readonly value="<%= g.link %>" onclick="this.select();"
                  aria-label="Private sign-in link" />

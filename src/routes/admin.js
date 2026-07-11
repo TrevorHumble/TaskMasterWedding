@@ -33,13 +33,13 @@
 const express = require('express');
 
 const config = require('../../config');
-const { db } = require('../db');
+const { db, getGuestByContact } = require('../db');
 const { requireAdmin } = require('../middleware/session');
 const qr = require('../services/qr');
 const scoring = require('../services/scoring');
 const photos = require('../services/photos');
 const { streamExportZip } = require('../services/export');
-const { makeUniqueToken } = require('../services/identity');
+const { makeUniqueToken, normalizeContact, isValidPin } = require('../services/identity');
 
 const router = express.Router();
 
@@ -125,6 +125,12 @@ router.get('/guests', (req, res) => {
       points: scoring.getPoints(g.id),
       completed: scoring.getCompletedCount(g.id),
       heldCodes: held,
+      // contact/pin (issue #243) so the admin can view and edit a guest's
+      // re-entry identity — recovery on the spot at the reception, no reset
+      // flow. '' rather than null so the EJS text-input `value=` never
+      // renders the literal string "null".
+      contact: g.contact || '',
+      pin: g.pin || '',
     };
   });
 
@@ -190,6 +196,97 @@ router.post('/guests/:id/edit', (req, res) => {
   }
   db.prepare('UPDATE guests SET name = ?, pinned = ? WHERE id = ?').run(name, pinned, id);
   redirectWithMsg(res, '/admin/guests', 'Guest updated.');
+});
+
+// POST /admin/guests/:id/identity  — admin sets a guest's contact and/or
+// re-entry PIN (issue #243). Goal C: the host can read a locked-out guest's
+// PIN back to them on the spot, or fix a mistyped contact, with no reset
+// flow. Both fields are optional and independent — an empty/absent field
+// means "leave this one alone" (a host correcting only the PIN should not be
+// forced to retype a correct contact, and vice versa).
+//
+// Validation is the SAME rule signup uses (normalizeContact / isValidPin
+// from services/identity.js) — this route does not re-encode either rule,
+// it calls the single owner both places already share.
+router.post('/guests/:id/identity', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const guest = db.prepare('SELECT id, contact, pin FROM guests WHERE id = ?').get(id);
+  if (!guest) {
+    return redirectWithMsg(res, '/admin/guests', 'Guest not found.');
+  }
+
+  const rawPin = typeof req.body.pin === 'string' ? req.body.pin.trim() : '';
+  const rawContact = typeof req.body.contact === 'string' ? req.body.contact.trim() : '';
+
+  // Validate PIN first (matches the plan's ordering) so a bad PIN never lets
+  // a valid contact half-apply — either everything submitted is valid, or
+  // nothing is written.
+  if (rawPin) {
+    if (!isValidPin(rawPin)) {
+      return redirectWithMsg(res, '/admin/guests', 'Please choose a 4-digit PIN (numbers only).');
+    }
+  }
+
+  let normalized = null;
+  if (rawContact) {
+    normalized = normalizeContact(rawContact);
+    if (!normalized) {
+      return redirectWithMsg(res, '/admin/guests', 'Please enter a valid email or phone number.');
+    }
+    // Collision check: one guest per normalized contact. Only a DIFFERENT
+    // guest already holding this contact is a conflict — re-submitting the
+    // guest's own current contact (unchanged, or just re-cased/reformatted)
+    // must be allowed.
+    const existing = getGuestByContact(normalized.value);
+    if (existing && existing.id !== id) {
+      return redirectWithMsg(
+        res,
+        '/admin/guests',
+        'That contact is already in use by another guest.'
+      );
+    }
+  }
+
+  if (!rawPin && !normalized) {
+    // Neither field submitted (or both blank) — nothing to change.
+    return redirectWithMsg(res, '/admin/guests', 'Nothing to update.');
+  }
+
+  // The collision check above is a pre-check, not a lock — a concurrent
+  // request could still slip a colliding contact past it and into the
+  // idx_guests_contact UNIQUE index before this UPDATE runs. Guard the write
+  // itself the same way POST /admin/badges guards createCustomBadge's insert
+  // above: catch the constraint violation and answer with the same friendly
+  // "already in use" wording as the pre-check, instead of a bare 500.
+  try {
+    if (rawPin && normalized) {
+      db.prepare('UPDATE guests SET pin = ?, contact = ?, contact_type = ? WHERE id = ?').run(
+        rawPin,
+        normalized.value,
+        normalized.type,
+        id
+      );
+    } else if (rawPin) {
+      db.prepare('UPDATE guests SET pin = ? WHERE id = ?').run(rawPin, id);
+    } else {
+      db.prepare('UPDATE guests SET contact = ?, contact_type = ? WHERE id = ?').run(
+        normalized.value,
+        normalized.type,
+        id
+      );
+    }
+  } catch (err) {
+    if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return redirectWithMsg(
+        res,
+        '/admin/guests',
+        'That contact is already in use by another guest.'
+      );
+    }
+    throw err;
+  }
+
+  redirectWithMsg(res, '/admin/guests', 'Guest contact/PIN updated.');
 });
 
 // POST /admin/guests/:id/delete  — delete a guest. The FK cascade removes their
