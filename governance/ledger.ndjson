@@ -109,3 +109,4 @@
 {"schema":"gl1","pr":403,"issue":null,"merged_sha":"0790114e23c90b52c2e37965c6c8c79f837bf543","ts":"2026-07-11T00:20:47Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":405,"issue":404,"merged_sha":"bb200fd39805b30f9c96af5aaadbe0929f4fab55","ts":"2026-07-11T00:24:45Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":405,"merged_sha":"bb200fd39805b30f9c96af5aaadbe0929f4fab55","ts":"2026-07-11T00:24:45Z","files":[".github/workflows/ci.yml",".github/workflows/codeql.yml","DESIGN.md"]}
+{"schema":"gl1","pr":394,"issue":338,"merged_sha":"942e4d22a5f8b850332a393b86b8bff31469a554","ts":"2026-07-11T00:29:17Z","reviews":[],"labels":[],"freeze":false}
