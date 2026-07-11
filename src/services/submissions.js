@@ -33,15 +33,27 @@ const scoring = require('./scoring');
 const stmtActiveTask = db.prepare('SELECT id, is_active FROM tasks WHERE id = ?');
 
 const stmtExistingSubmission = db.prepare(
-  'SELECT id, photo_path, thumb_path FROM submissions WHERE guest_id = ? AND task_id = ?'
+  'SELECT id, photo_path, thumb_path, taken_down FROM submissions WHERE guest_id = ? AND task_id = ?'
 );
 
+// Sticky-takedown replace (issue #190): deliberately does NOT touch
+// taken_down. Forcing taken_down = 0 here (as this statement used to) is
+// exactly the bug #190 fixed — it let any resubmit silently reverse an
+// admin's takedown. Whatever taken_down was before the replace, it still is
+// after; only resubmitted (set by stmtMarkResubmitted below, conditionally)
+// records that a new photo is waiting behind a still-hidden row.
 const stmtReplaceSubmission = db.prepare(
   `UPDATE submissions
-      SET photo_path = ?, thumb_path = ?, caption = ?, taken_down = 0,
+      SET photo_path = ?, thumb_path = ?, caption = ?,
           created_at = datetime('now')
     WHERE id = ?`
 );
+
+// Flip resubmitted on only when the replace landed on an already-taken-down
+// row (issue #190 AC1/AC3). Never flips it off here — restoreSubmission
+// (src/services/photos.js) is the single place that clears it, in the same
+// transaction as the taken_down flag flip back to 0.
+const stmtMarkResubmitted = db.prepare(`UPDATE submissions SET resubmitted = 1 WHERE id = ?`);
 
 const stmtInsertSubmission = db.prepare(
   `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, caption, taken_down)
@@ -83,7 +95,10 @@ function normalizeCaption(caption) {
  *      original is deleted and the call returns 'thumb_failed'.
  *   3. The caption is normalized (see normalizeCaption).
  *   4. An existing (guestId, taskId) row is replaced in place — preserving
- *      its id and un-hiding it (taken_down = 0) — or a new row is inserted.
+ *      its id AND its current taken_down value (issue #190: a host takedown
+ *      is sticky across a resubmit; it no longer self-restores) — or a new
+ *      row is inserted. When the replaced row was taken_down, resubmitted is
+ *      also set so /admin/photos can flag it for a moderation decision.
  *      Old files are deleted only once the DB write has committed, and only
  *      when their filename actually changed; deletion failures are logged
  *      and ignored, because a leftover file is harmless but losing the new
@@ -99,7 +114,7 @@ function normalizeCaption(caption) {
  *        descriptor: filename is the stored original's relative filename,
  *        path is its absolute path on disk (what makeThumb reads from).
  * @param {*} params.caption - raw caption input; normalized internally.
- * @returns {Promise<{status: 'created'|'replaced'|'task_inactive'|'thumb_failed', submissionId?: number}>}
+ * @returns {Promise<{status: 'created'|'replaced'|'replaced_hidden'|'task_inactive'|'thumb_failed', submissionId?: number}>}
  */
 async function submitPhoto({ guestId, taskId, file, caption }) {
   const task = stmtActiveTask.get(taskId);
@@ -126,7 +141,15 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
   if (existing) {
     stmtReplaceSubmission.run(photoPath, thumbPath, cap, existing.id);
     submissionId = existing.id;
-    status = 'replaced';
+
+    if (existing.taken_down === 1) {
+      // Sticky takedown (issue #190): the row stays hidden. Mark it
+      // resubmitted so the host sees a decision waiting on /admin/photos.
+      stmtMarkResubmitted.run(existing.id);
+      status = 'replaced_hidden';
+    } else {
+      status = 'replaced';
+    }
 
     // Delete the superseded files only after the DB write committed, and only
     // when the filename actually changed. Failures are logged and ignored: a

@@ -20,6 +20,13 @@ GitHub every time, per `DESIGN.md` § "Roadmap: board-derived, session-structure
    merge on GitHub from isolated worktrees, so a primary checkout never updates itself; a brief
    (or an owner review) started from a stale checkout is pointed at code that no longer exists
    (#200: the owner once reviewed a checkout 32 commits behind without knowing).
+
+   Then run `powershell -File tools/check-deps-parity.ps1` — also read-only, comparing installed
+   `node_modules/` versions against `package-lock.json`. Fresh code does not imply fresh installed
+   dependencies (#319: this machine ran a stale sharp binary for six-plus phases while CI tested
+   the bumped one). If it flags drift, reconcile per `docs/dependency-upgrade.md` (`npm ci`) before
+   trusting `npm test` results from this checkout.
+
 1. **Read the epic:** `gh issue view 126` — find the named track's section, its `Files:` line,
    its relation tag (`depends on <track>` / `parallel-safe with <track>` / `parallel after
 #<root>`), and its issue checklist in listed order. This order **is** the build order.

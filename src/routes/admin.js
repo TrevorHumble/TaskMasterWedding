@@ -672,6 +672,7 @@ router.get('/photos', (req, res) => {
               s.thumb_path   AS thumb_path,
               s.caption      AS caption,
               s.taken_down   AS taken_down,
+              s.resubmitted  AS resubmitted,
               s.photo_bonus  AS photo_bonus,
               s.created_at   AS created_at,
               g.id           AS guest_id,

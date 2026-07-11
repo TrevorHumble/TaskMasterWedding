@@ -233,9 +233,13 @@ function buildManifest(count, seed, avatarCount = 2) {
  * @param {number} n - guest count.
  * @param {number} taskCount - number of available event tasks.
  * @param {() => number} rng
+ * @param {boolean} [topTie] - when true (issue #450), guest 1 joins guest 0 at
+ *   the engineered top count instead of the mid-pack tie value, producing a
+ *   top-of-leaderboard tie. Default false preserves the unique-top-scorer
+ *   invariant existing callers (tests/event-fixture.test.js AC3/AC5) assert on.
  * @returns {number[]} counts[i] = how many visible submissions guest i gets.
  */
-function buildCompletionSpread(n, taskCount, rng) {
+function buildCompletionSpread(n, taskCount, rng, topTie) {
   const counts = new Array(n).fill(0);
   if (n === 0) return counts;
 
@@ -248,7 +252,7 @@ function buildCompletionSpread(n, taskCount, rng) {
   // shared by guests 1 and 2 (if n is that small, the loop below still
   // leaves them tied since neither is touched again).
   const tieValue = Math.min(8, Math.max(1, topCount - 1));
-  if (n > 1) counts[1] = tieValue;
+  if (n > 1) counts[1] = topTie ? topCount : tieValue;
   if (n > 2) counts[2] = tieValue;
 
   // Remaining guests (index 3..n-1): split into "many low" (1-4), "some
@@ -275,6 +279,97 @@ function buildCompletionSpread(n, taskCount, rng) {
 }
 
 // ---------------------------------------------------------------------------
+// Social layer (likes/comments) seeding — issue #450. Runs after submissions
+// exist, inside the same transaction, so a caller that opts in always gets
+// both the rows AND their submission ids in one atomic seed.
+// ---------------------------------------------------------------------------
+
+// Short, generic congratulatory strings — deliberately bland (not per-task)
+// since the fixture doesn't know what's in any given bundled sample photo.
+const CANNED_COMMENTS = [
+  'Love this!',
+  'So happy for you two!',
+  'What a great shot.',
+  'This made my night.',
+  'Cheers to the happy couple!',
+  'Best wedding ever.',
+  'Absolutely stunning.',
+  'Wish I could relive this moment.',
+  'This is going in the album.',
+  'Iconic.',
+];
+
+/**
+ * Insert `likes`/`comments` rows for a seeded event, per issue #450 AC1/AC2.
+ * Must run inside the same transaction as the submission inserts it reads
+ * from `visibleSubmissions` (their ids only exist once inserted).
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {{ guestIds: number[], visibleSubmissions: Array<{id: number, guestId: number}>, rng: () => number, social: 'normal'|'extreme' }} args
+ */
+function seedSocial(db, { guestIds, visibleSubmissions, rng, social }) {
+  const insertLike = db.prepare(`INSERT INTO likes (submission_id, guest_id) VALUES (?, ?)`);
+  const insertComment = db.prepare(
+    `INSERT INTO comments (submission_id, guest_id, body) VALUES (?, ?, ?)`
+  );
+
+  function otherGuestIds(ownerId) {
+    return guestIds.filter((id) => id !== ownerId);
+  }
+
+  // Baseline pass: every visible submission gets a modest, varied count of
+  // likes (0-4, never the owner) and comments (0-3) so the gallery looks like
+  // a real party rather than an empty grid.
+  for (const sub of visibleSubmissions) {
+    const others = otherGuestIds(sub.guestId);
+
+    const likeCount = Math.min(rngInt(rng, 5), others.length);
+    const likers = shuffledIndices(rng, others.length)
+      .slice(0, likeCount)
+      .map((idx) => others[idx]);
+    for (const guestId of likers) {
+      insertLike.run(sub.id, guestId);
+    }
+
+    const commentCount = rngInt(rng, 4);
+    for (let i = 0; i < commentCount; i++) {
+      const guestId = others.length > 0 ? others[rngInt(rng, others.length)] : sub.guestId;
+      insertComment.run(sub.id, guestId, CANNED_COMMENTS[rngInt(rng, CANNED_COMMENTS.length)]);
+    }
+  }
+
+  // Extreme pass: guest 0's first visible submission (inserted before any
+  // other guest's row, since the seeding loop processes guest 0 first and
+  // topCount > 0 guarantees it has at least one) gets topped up to the
+  // maximum possible likes (one from every other guest — UNIQUE(submission_id,
+  // guest_id) caps it there) and exactly 50 comments (#450 AC2).
+  if (social === 'extreme' && visibleSubmissions.length > 0) {
+    const target = visibleSubmissions[0];
+    const others = otherGuestIds(target.guestId);
+
+    const alreadyLiked = new Set(
+      db
+        .prepare('SELECT guest_id FROM likes WHERE submission_id = ?')
+        .all(target.id)
+        .map((r) => r.guest_id)
+    );
+    for (const guestId of others) {
+      if (!alreadyLiked.has(guestId)) {
+        insertLike.run(target.id, guestId);
+      }
+    }
+
+    const currentComments = db
+      .prepare('SELECT COUNT(*) AS n FROM comments WHERE submission_id = ?')
+      .get(target.id).n;
+    for (let i = currentComments; i < 50; i++) {
+      const guestId = others.length > 0 ? others[i % others.length] : target.guestId;
+      insertComment.run(target.id, guestId, CANNED_COMMENTS[i % CANNED_COMMENTS.length]);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Seeding.
 // ---------------------------------------------------------------------------
 
@@ -287,7 +382,7 @@ function buildCompletionSpread(n, taskCount, rng) {
  * {guests, seed} always produces the exact same rows.
  *
  * @param {import('better-sqlite3').Database} db
- * @param {{ guests?: number, seed?: number }} [options]
+ * @param {{ guests?: number, seed?: number, social?: 'none'|'normal'|'extreme', topTie?: boolean }} [options]
  * @returns {{ taskIds: number[], guestIds: number[], manifest: object, guestNames: string[] }}
  */
 function seedEvent(db, options = {}) {
@@ -305,9 +400,23 @@ function seedEvent(db, options = {}) {
   if (!Number.isInteger(seed)) {
     throw new Error(`seedEvent: seed must be an integer, got ${JSON.stringify(options.seed)}`);
   }
+  // #450: opt-in social-layer seeding, default 'none' so every existing
+  // caller (tests, scripts/seed-event.js) is byte-for-byte unaffected.
+  const social = options.social === undefined ? 'none' : options.social;
+  if (!['none', 'normal', 'extreme'].includes(social)) {
+    throw new Error(
+      `seedEvent: social must be 'none', 'normal', or 'extreme', got ${JSON.stringify(options.social)}`
+    );
+  }
+  // #450: opt-in top-of-leaderboard tie, default false so AC3/AC5's
+  // unique-top-scorer invariant keeps holding for every existing caller.
+  const topTie = options.topTie === undefined ? false : options.topTie;
+  if (typeof topTie !== 'boolean') {
+    throw new Error(`seedEvent: topTie must be a boolean, got ${JSON.stringify(options.topTie)}`);
+  }
   const rng = makeRng(seed);
 
-  const completionCounts = buildCompletionSpread(guestCount, EVENT_TASKS.length, rng);
+  const completionCounts = buildCompletionSpread(guestCount, EVENT_TASKS.length, rng, topTie);
   const totalVisible = completionCounts.reduce((a, b) => a + b, 0);
 
   // A fraction of guests also get one extra taken-down submission, on a task
@@ -430,9 +539,14 @@ function seedEvent(db, options = {}) {
         .replace(/\.\d+Z$/, '');
     }
 
+    // Populated only for taken_down = 0 rows, in insertion order — seedSocial
+    // reads visibleSubmissions[0] as "guest 0's first visible submission"
+    // (guest 0 is always processed first below and always has count > 0).
+    const visibleSubmissions = [];
+
     function insertOne(guestId, taskId, takenDown) {
       const pair = manifest.photos[manifestIndex];
-      insertSubmission.run(
+      const info = insertSubmission.run(
         guestId,
         taskId,
         pair.photo_path,
@@ -441,6 +555,9 @@ function seedEvent(db, options = {}) {
         nextCreatedAt()
       );
       manifestIndex += 1;
+      if (!takenDown) {
+        visibleSubmissions.push({ id: info.lastInsertRowid, guestId });
+      }
     }
 
     // Shuffle which tasks each guest's visible completions land on so the
@@ -470,6 +587,10 @@ function seedEvent(db, options = {}) {
           insertOne(guestIds[i], taskIds[pick], 1);
         }
       }
+    }
+
+    if (social !== 'none') {
+      seedSocial(db, { guestIds, visibleSubmissions, rng, social });
     }
 
     return { taskIds, guestIds, manifest, guestNames };

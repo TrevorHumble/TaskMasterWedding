@@ -24,6 +24,14 @@ powershell -File tools/check-freshness.ps1
 
 Build sessions merge their work on GitHub from separate worktrees, so this folder never updates itself — if the check says you are N commits behind, run `git pull` before looking at the app, or you will be reviewing a version that no longer exists. The check is read-only; it never changes your files.
 
+**Then check the installed dependencies actually match the lockfile CI tested:**
+
+```powershell
+powershell -File tools/check-deps-parity.ps1
+```
+
+Code being current does not mean `node_modules/` is — a dependency bump merged on GitHub does not update this machine's installed packages by itself. This check compares each installed prod dependency (plus the devDependencies the tests need) against `package-lock.json` and exits 1 on any mismatch or missing install. If it flags drift, see [`docs/dependency-upgrade.md`](docs/dependency-upgrade.md) for the reconciliation procedure (`npm ci`). Also read-only; it never installs or changes anything itself.
+
 Requires **Node.js 20+** on Windows (PowerShell) for local development. Production runs on Linux — see [`docs/deploy.md`](docs/deploy.md) for the hosted deploy. From the project root:
 
 ```powershell
@@ -50,7 +58,7 @@ Then open <http://localhost:3000>.
 
 ## Going live
 
-Production runs on a rented Linux host, not the dev laptop: a host with a persistent disk, environment variables set per the table in `docs/deploy.md` (including `BASE_URL` and `TRUST_PROXY`), then `docker compose up -d` or the systemd unit described there. The host's reverse proxy terminates HTTPS at the stable domain the QR codes encode. See [`docs/deploy.md`](docs/deploy.md) for the full procedure — provisioning, TLS, environment variables, and the process supervisor.
+Production runs on a rented Linux host, not the dev laptop: a host with a persistent disk, environment variables set per the table in `docs/deploy.md` (including `BASE_URL` and `TRUST_PROXY`), then `docker compose up -d --build` or the systemd unit described there. The host's reverse proxy terminates HTTPS at the stable domain the QR codes encode. See [`docs/deploy.md`](docs/deploy.md) for the full procedure — provisioning, TLS, environment variables, and the process supervisor.
 
 ### Working in a worktree
 
@@ -61,6 +69,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/new-agent-worktree.ps1
 ```
 
 This creates a sibling folder checked out on `<name>`, sharing this repo's history. It prints the folder's path once ready — `cd` there and work as normal; the commit gate is already active.
+
+**Clean up when a session is done:** a worktree that is created but never removed leaves a full second source copy on disk. If one shows up nested inside this checkout (`.claude/worktrees/<name>/`, seen after issue #319), delete that folder and remove its entry from git's worktree list:
+
+```powershell
+git worktree remove .claude/worktrees/<name>
+```
+
+`eslint.config.js` ignores `.claude/worktrees/**` so a leftover one never pollutes `npm run lint` output here, but the disk space and git worktree registration are still real — remove it rather than leaving it.
 
 ## Backups
 
@@ -167,6 +183,7 @@ standards/                Checkable standards the orchestrator pipeline enforces
 
 ## Documentation
 
+- Hosted deploy runbook (containers, systemd, TLS, backups): [`docs/deploy.md`](docs/deploy.md).
 - Manual pre-wedding walkthrough (step-by-step test plan): [`docs/test-plan.md`](docs/test-plan.md).
 - Peak-load test harness and how to read a run: [`docs/loadtest.md`](docs/loadtest.md).
 - Detailed build plan: [`PLAN/00-README.md`](PLAN/00-README.md) and the numbered files through `10-theme-and-art.md` (historical; for current hosting see docs/deploy.md).
