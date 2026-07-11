@@ -57,6 +57,7 @@ const config = require('../../config');
 const { db } = require('../db');
 const scoring = require('./scoring');
 const rateLimit = require('./rate-limit');
+const { isAdminRequest } = require('../middleware/session');
 
 // ---------------------------------------------------------------------------
 // Constants. This file is the ONE place the photo-pipeline limits live, so the
@@ -1224,6 +1225,9 @@ const _isTakenDownThumb = db.prepare(
 /**
  * Guard middleware for the /uploads static mount.
  * Blocks taken-down submission originals; passes avatars and live photos.
+ * An authenticated admin (issue #191) bypasses the takedown 404 — moderation
+ * needs to see what it is hiding in order to decide whether to restore it —
+ * but still 404s a malformed/allowlist-failing path either way.
  */
 function blockTakenDownOriginal(req, res, next) {
   let name;
@@ -1238,6 +1242,11 @@ function blockTakenDownOriginal(req, res, next) {
     return res.sendStatus(404);
   }
 
+  // Admin bypass: an admin session sees taken-down files too (issue #191).
+  if (isAdminRequest(req)) {
+    return next();
+  }
+
   // Stage 2: takedown check (case-insensitive).
   const row = _isTakenDownOriginal.get(name);
   if (row) {
@@ -1250,6 +1259,7 @@ function blockTakenDownOriginal(req, res, next) {
 /**
  * Guard middleware for the /thumbs static mount.
  * Blocks taken-down submission thumbnails; passes live thumbnails.
+ * Same admin bypass as blockTakenDownOriginal above (issue #191).
  */
 function blockTakenDownThumb(req, res, next) {
   let name;
@@ -1262,6 +1272,11 @@ function blockTakenDownThumb(req, res, next) {
   // Stage 1: allowlist check.
   if (!THUMB_RE.test(name)) {
     return res.sendStatus(404);
+  }
+
+  // Admin bypass: an admin session sees taken-down files too (issue #191).
+  if (isAdminRequest(req)) {
+    return next();
   }
 
   // Stage 2: takedown check (case-insensitive).
