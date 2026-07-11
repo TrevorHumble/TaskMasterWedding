@@ -1,0 +1,27 @@
+# docker-compose.yml
+# Hosted-deploy compose file (docs/deploy.md, Option A). See DESIGN.md §
+# Hosted deployment for the ADR this implements.
+services:
+  app:
+    build: .
+    ports:
+      # Host port on the left, container port on the right. The container
+      # always listens on 3000 internally (Dockerfile EXPOSE / HEALTHCHECK
+      # are both pinned to it) — to serve the app on a different host port,
+      # change the LEFT side only (e.g. "8080:3000"). Do not use the PORT
+      # env var to do this: env_file below would pass PORT through to the
+      # app inside the container, which would then listen on a port this
+      # mapping's right side and the HEALTHCHECK no longer match, so the
+      # container would restart-loop reporting unhealthy. Leave PORT unset
+      # in .env for this compose path; see docs/deploy.md.
+      - '3000:3000'
+    env_file: .env
+    volumes:
+      # The persistence boundary: everything the app must not lose lives in
+      # ./data (SQLite database, uploaded photos, thumbnails, admin hash).
+      # ./backups receives scripts/backup.js output. Both are bind mounts, not
+      # named volumes, so the data is plain files on the host disk you already
+      # control and back up independently of the container's lifecycle.
+      - ./data:/app/data
+      - ./backups:/app/backups
+    restart: unless-stopped
