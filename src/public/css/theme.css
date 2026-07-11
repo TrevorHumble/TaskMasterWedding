@@ -1453,6 +1453,8 @@ textarea {
 .comment-button,
 .see-all-comments,
 .comment-post,
+.comment-delete,
+.comment-menu-trigger,
 .comments-dialog-close,
 .comments-dialog-thread .feed-comment a {
   -webkit-tap-highlight-color: transparent;
@@ -1468,6 +1470,8 @@ textarea {
 .comment-button:focus-visible,
 .see-all-comments:focus-visible,
 .comment-post:focus-visible,
+.comment-delete:focus-visible,
+.comment-menu-trigger:focus-visible,
 .comments-dialog-close:focus-visible,
 .comments-dialog-thread .feed-comment a:focus-visible {
   outline: 2px solid var(--color-primary);
@@ -1715,6 +1719,70 @@ body:has(dialog[open]) {
 }
 .comments-dialog-empty {
   margin: 0;
+}
+/* One thread row = the comment paragraph plus its own-comment ⋯ actions menu
+   (#338, revised to the kebab pattern 2026-07-10) — position: relative so the
+   menu panel below can anchor to this row's end without reflowing siblings. */
+.feed-comment-item {
+  position: relative;
+  margin-bottom: var(--space-2);
+  padding-right: 1.5em;
+}
+.feed-comment-item:last-child {
+  margin-bottom: 0;
+}
+/* The ⋯ trigger (#338): a native <summary>, quiet sage-muted, anchored to
+   the row's end. The default disclosure marker (a triangle, or
+   ::-webkit-details-marker on Safari/Chrome) is hidden — the ⋯ glyph itself
+   is the only affordance, matching the Instagram/Bluesky reference. */
+.comment-menu {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+.comment-menu-trigger {
+  display: block;
+  list-style: none;
+  cursor: pointer;
+  padding: 0 var(--space-1);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+.comment-menu-trigger::-webkit-details-marker {
+  display: none;
+}
+.comment-menu-trigger:hover {
+  color: var(--color-primary);
+}
+/* The open menu panel: floats over the thread (not in normal flow) so
+   opening it never shoves neighboring rows — AC7/the issue's "must not
+   reflow the thread" requirement. */
+.comment-menu[open] .comment-delete-form {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1;
+  margin: 2px 0 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+/* Delete (#338): quiet plain text — no button box — same no-box/tap-
+   highlight/focus-visible treatment as .comment-post above. */
+.comment-delete {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.comment-delete:hover {
+  color: var(--color-primary);
 }
 /* Composer, Instagram pattern: viewer avatar left, borderless auto-growing
    textarea (grown by feed.js from scrollHeight; the max-height caps it at

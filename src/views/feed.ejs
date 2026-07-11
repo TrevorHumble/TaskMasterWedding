@@ -138,10 +138,43 @@
               <p class="muted comments-dialog-empty">No comments yet.</p>
             <% } %>
             <% p.comments.forEach(function (c) { %>
-              <p class="feed-comment">
-                <a href="/u/<%= c.guest_id %>"><%= c.guest_name || 'Guest' %></a>
-                <%= c.body %>
-              </p>
+              <div class="feed-comment-item">
+                <p class="feed-comment">
+                  <a href="/u/<%= c.guest_id %>"><%= c.guest_name || 'Guest' %></a>
+                  <%= c.body %>
+                </p>
+                <%# Own-comment actions menu is a native <details>/<summary>
+                    disclosure (issue #338, revised to the kebab pattern
+                    2026-07-10) — no JS is required to open it or to reach
+                    Delete inside it; JS only enhances it (close-on-outside-
+                    tap/after-delete in src/public/js/feed.js). Rendered only
+                    for the signed-in guest's OWN comment, and never in the
+                    card's clamped preview (that block is above, built from
+                    commentPreview, and never touches this dialog markup).
+                    data-confirm reuses the app's established
+                    destructive-confirm convention (see admin.js and
+                    tests/destructive-confirm.test.js); feed.js has no shared
+                    admin.js on this page, so it runs the same confirm check
+                    itself before the fetch. data-delete-comment is the no-JS
+                    form's progressive-enhancement hook. %>
+                <% if (guest && c.guest_id === guest.id) { %>
+                  <details class="comment-menu">
+                    <summary class="comment-menu-trigger" aria-label="Comment actions">&#8943;</summary>
+                    <form
+                      method="post"
+                      action="/p/<%= p.submission_id %>/comments/<%= c.id %>/delete"
+                      class="comment-delete-form"
+                      data-confirm="Delete this comment? This can't be undone."
+                    >
+                      <button
+                        type="submit"
+                        class="comment-delete"
+                        data-delete-comment="<%= c.id %>"
+                      >Delete</button>
+                    </form>
+                  </details>
+                <% } %>
+              </div>
             <% }); %>
           </div>
           <% if (guest) { %>
