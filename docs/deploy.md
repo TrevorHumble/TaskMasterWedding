@@ -15,16 +15,17 @@ How to take Garden Party Pastels from a bare Linux host to serving guests over H
 
 Set these in a `.env` file in the project root (copy `.env.example`; the `.env` you create is gitignored and never committed).
 
-| Variable              | Required             | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| --------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `COOKIE_SECRET`       | Yes                  | Signs the guest and admin cookies. Fixed, so restarts do not sign everyone out. Generate one with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`                                                                                                                                                                                                                                               |
-| `BASE_URL`            | Yes                  | The public `https://` domain. Guest QR codes are built from this value — get it right before printing place-cards.                                                                                                                                                                                                                                                                                                          |
-| `NODE_ENV=production` | Yes                  | Turns on Secure cookies and production behavior throughout the app.                                                                                                                                                                                                                                                                                                                                                         |
-| `TRUST_PROXY`         | Yes (behind a proxy) | Set to `true` so Express reads the real guest IP from the reverse proxy's `X-Forwarded-For` header instead of the proxy's own address. Unset means "no proxy," which is wrong for every shape below.                                                                                                                                                                                                                        |
-| `PORT`                | Option B only        | The port the bare Node process listens on. **Docker/Compose path (Option A): leave this unset.** The container always listens on 3000 internally; changing it there desyncs the image's `EXPOSE`/`HEALTHCHECK` from where the app actually listens, and the container restart-loops reporting unhealthy. To serve Option A on a different host port, edit the host side of `docker-compose.yml`'s `ports:` mapping instead. |
-| `DATA_DIR`            | No                   | Overrides where the database, uploads, thumbnails, and admin hash live. Leave unset for the default (`./data`, bind-mounted in Option A).                                                                                                                                                                                                                                                                                   |
-| `BACKUP_DIR`          | No                   | Overrides where `scripts/backup.js` writes snapshots. Leave unset for the default (`./backups`, bind-mounted in Option A).                                                                                                                                                                                                                                                                                                  |
-| `MAINTENANCE`         | No                   | Set to `1` or `true` to serve guests a 503 maintenance page while `/admin` stays reachable.                                                                                                                                                                                                                                                                                                                                 |
+| Variable                 | Required             | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------ | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COOKIE_SECRET`          | Yes                  | Signs the guest and admin cookies. Fixed, so restarts do not sign everyone out. Generate one with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`                                                                                                                                                                                                                                               |
+| `BASE_URL`               | Yes                  | The public `https://` domain. Guest QR codes are built from this value — get it right before printing place-cards.                                                                                                                                                                                                                                                                                                          |
+| `NODE_ENV=production`    | Yes                  | Turns on Secure cookies and production behavior throughout the app.                                                                                                                                                                                                                                                                                                                                                         |
+| `TRUST_PROXY`            | Yes (behind a proxy) | Set to `true` so Express reads the real guest IP from the reverse proxy's `X-Forwarded-For` header instead of the proxy's own address. Unset means "no proxy," which is wrong for every shape below.                                                                                                                                                                                                                        |
+| `PORT`                   | Option B only        | The port the bare Node process listens on. **Docker/Compose path (Option A): leave this unset.** The container always listens on 3000 internally; changing it there desyncs the image's `EXPOSE`/`HEALTHCHECK` from where the app actually listens, and the container restart-loops reporting unhealthy. To serve Option A on a different host port, edit the host side of `docker-compose.yml`'s `ports:` mapping instead. |
+| `DATA_DIR`               | No                   | Overrides where the database, uploads, thumbnails, and admin hash live. Leave unset for the default (`./data`, bind-mounted in Option A).                                                                                                                                                                                                                                                                                   |
+| `BACKUP_DIR`             | No                   | Overrides where `scripts/backup.js` writes snapshots. Leave unset for the default (`./backups`, bind-mounted in Option A).                                                                                                                                                                                                                                                                                                  |
+| `BACKUP_RETENTION_COUNT` | No                   | How many snapshots under `BACKUP_DIR` a scheduled backup run keeps; older ones are pruned after each run. Unset (`0`) keeps everything — see Scheduled backups below before turning on a cron/timer schedule.                                                                                                                                                                                                               |
+| `MAINTENANCE`            | No                   | Set to `1` or `true` to serve guests a 503 maintenance page while `/admin` stays reachable.                                                                                                                                                                                                                                                                                                                                 |
 
 ## Option A — Docker Compose
 
@@ -144,15 +145,59 @@ docker compose exec app node scripts/backup.js   # Option A
 node scripts/backup.js                           # Option B
 ```
 
-This writes a timestamped folder under `BACKUP_DIR` (default `./backups`) with a consistent copy of the database, the photo directories, and the admin password hash. Scheduling this on a recurring basis with off-host retention is covered separately (issue #287); until that lands, run it manually on a cadence you are comfortable with.
+This writes a timestamped folder under `BACKUP_DIR` (default `./backups`) with a consistent copy of the database, the photo directories, and the admin password hash.
+
+## Scheduled backups
+
+A production host should not depend on a human remembering to run `scripts/backup.js`. Put it on the host's own scheduler — cron or a systemd timer — not an in-app `setInterval`, so a wedged app process cannot also silently stop backups.
+
+**cron (Option B):**
+
+```
+17 * * * * cd /srv/taskmasterwedding && /usr/bin/node scripts/backup.js >> /var/log/tmw-backup.log 2>&1
+```
+
+Hourly, offset 17 minutes past the hour to avoid top-of-hour load on the host. Adjust the working directory to match your checkout.
+
+**Docker Compose (Option A):**
+
+```
+17 * * * * cd /srv/taskmasterwedding && docker compose exec -T app node scripts/backup.js >> /var/log/tmw-backup.log 2>&1
+```
+
+The `-T` flag disables the pseudo-TTY that `docker compose exec` allocates by default, which cron's non-interactive environment doesn't have. The compose file already bind-mounts `./backups`, so snapshots land on the host at the usual path.
+
+**Retention.** Set `BACKUP_RETENTION_COUNT` in `.env` to the number of snapshots to keep; each backup run prunes older ones down to that count after it finishes writing the new snapshot. Unset (the default) keeps every snapshot forever — fine for a laptop doing occasional manual backups, wrong for an hourly production schedule that would otherwise fill the disk over the weeks before the event.
+
+```
+# .env
+BACKUP_RETENTION_COUNT=48
+```
+
+`48` matches an hourly schedule with two days of history. Scale it to your cadence — e.g. `14` for daily backups with two weeks of history.
+
+**Off-host copy.** A snapshot on the same disk as `data/` protects against an app bug (a bad write, a corrupted table) — it does not protect against losing that disk, or the whole host. Copy `BACKUP_DIR` somewhere else too:
+
+- **rclone** (works with S3, Backblaze B2, Google Drive, and most other cloud storage — configure the remote once with `rclone config`, then):
+  ```bash
+  rclone sync ./backups remote:wedding-backups
+  ```
+  See [rclone's own docs](https://rclone.org/docs/) for configuring `remote`.
+- **scp/rsync** (to a second host or NAS you control):
+  ```bash
+  rsync -a ./backups/ user@second-host:/srv/wedding-backups/
+  ```
+
+Add either as its own cron line after the backup job, offset a few minutes later so it copies a finished snapshot rather than one mid-write.
 
 ## Restore
 
 1. Stop the app (`docker compose down` or `systemctl stop garden-party`).
 2. Make sure `./data` is empty or does not exist — restoring on top of an existing `data/` overwrites it.
-3. Copy the snapshot's contents back into `./data`:
+3. Delete any stale WAL files left from the prior run, then copy the chosen snapshot's contents back into `./data`:
    ```bash
    mkdir -p data
+   rm -f data/app.db-wal data/app.db-shm
    cp backups/<timestamp>/app.db data/app.db
    cp -r backups/<timestamp>/uploads data/uploads
    cp -r backups/<timestamp>/thumbs data/thumbs
