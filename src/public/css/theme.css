@@ -1910,6 +1910,25 @@ body:has(dialog[open]) {
 .podium-name a {
   color: inherit;
 }
+/* Tied-guest names line (#361): a joined list of first names can run long
+   ("Liam, Priya and Noah") in a ~1/3-width column, so it needs body-scale
+   text, a wrap point on any character (not just spaces — a single unbroken
+   name can still exceed the column), and taller line-height for 2-3 wrapped
+   lines. The element carries both `.podium-name` and `.podium-names`, so
+   compounding both classes onto each selector below (rather than relying on
+   `.podium-names` alone) gives specificity (0,2,0) and (0,4,0) respectively
+   — each strictly higher than the rule it must beat ((0,1,0) base and
+   (0,3,0) rank-1 override) regardless of source order, so a 1st-place tie
+   still shrinks to this size instead of inheriting the heading-size
+   override. */
+.podium-name.podium-names {
+  font-size: var(--fs-small);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.podium-slot.rank-1 .podium-name.podium-names {
+  font-size: var(--fs-small);
+}
 .podium-subline {
   font-size: var(--fs-small);
 }

@@ -13,6 +13,8 @@
 // DATA_DIR / DB_PATH. Do not hoist requires above the loadApp() call.
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const request = require('supertest');
 const { loadApp } = require('./helpers/testApp');
 
@@ -380,5 +382,72 @@ describe('podium tie redesign (#249)', () => {
     const solo = podium.match(/<a class="podium-avatar"[^>]*>/g) || [];
     expect(solo.length).toBe(1);
     expect(solo[0]).toMatch(/href="\/u\/\d+"/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #361 — the tied-names line (`.podium-name podium-names`) has no
+// dedicated CSS rule, so it inherits `.podium-name`'s single-name heading
+// size with no wrap accommodation: a 2+-guest tie can overflow a ~1/3-width
+// podium column at 375px.
+// ---------------------------------------------------------------------------
+describe('podium tied-names sizing and wrap (#361)', () => {
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css'),
+    'utf8'
+  );
+
+  test('AC1: the .podium-names rule wraps on any character and shrinks off heading size', () => {
+    // First `.podium-names {`-ending selector in source is the base rule
+    // (not the rank-1-scoped override further down), so this match is the
+    // one that must carry both declarations.
+    const match = css.match(/\.podium-names\s*\{([\s\S]*?)\}/);
+    expect(match).not.toBeNull();
+    const block = match[1];
+
+    expect(block).toContain('overflow-wrap: anywhere');
+
+    const fontSize = block.match(/font-size:\s*([^;]+);/);
+    expect(fontSize).not.toBeNull();
+    expect(fontSize[1].trim()).not.toBe('var(--fs-h3)');
+  });
+
+  test('CRITICAL: the rank-1 .podium-names override out-specificities the rank-1 .podium-name override', () => {
+    // `.podium-slot.rank-1 .podium-name` (0,3,0) sets font-size: var(--fs-h2)
+    // for ANY .podium-name descendant in a 1st-place slot — including the
+    // tied-names div, which carries both .podium-name and .podium-names. If
+    // the rank-1-scoped `.podium-names` rule doesn't out-specificity that,
+    // a 1st-place tie still renders its names line at heading size: the
+    // exact overflow this issue fixes. Specificity is approximated by
+    // counting class selectors, since both rules are pure class/descendant
+    // selectors with no ids or element types.
+    const rank1NameRule = css.match(/\.podium-slot\.rank-1 \.podium-name \{/);
+    const rank1NamesRule = css.match(/\.podium-slot\.rank-1 \.podium-name\.podium-names \{/);
+    expect(rank1NameRule).not.toBeNull();
+    expect(rank1NamesRule).not.toBeNull();
+
+    const classCount = (selectorText) => (selectorText.match(/\.[a-zA-Z][\w-]*/g) || []).length;
+    expect(classCount(rank1NamesRule[0])).toBeGreaterThan(classCount(rank1NameRule[0]));
+  });
+
+  test('AC2: a three-way tie with names >=12 chars each renders all three inside .podium-names', async () => {
+    resetField();
+    // A unique 1st place keeps this a partial (not all-guest) tie, so the
+    // podium renders instead of falling to the AC4 "everyone's tied" path.
+    makeGuest('Top Guest', 19);
+    makeGuest('Featherstonia', 12, 0);
+    makeGuest('Christophera', 12, 10);
+    makeGuest('Wolfgangston', 12, 20);
+
+    const res = await signedInBoard(lastToken);
+    expect(res.status).toBe(200);
+    const podium = podiumMarkup(res.text);
+
+    const namesDiv = podium.match(/<div class="podium-name podium-names">([\s\S]*?)<\/div>/);
+    expect(namesDiv).not.toBeNull();
+    const text = collapse(namesDiv[1]);
+    expect(text).toContain('Featherstonia');
+    expect(text).toContain('Christophera');
+    expect(text).toContain('Wolfgangston');
   });
 });
