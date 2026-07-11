@@ -75,6 +75,20 @@ describe('initials() helper', () => {
   it('AF is not FA (order matters)', () => {
     expect(initials('Ava Fenwick')).not.toBe('FA');
   });
+
+  // Surrogate pairs: the first CHARACTER may be two UTF-16 code units.
+  // Indexing [0] would return a lone high surrogate — a broken glyph.
+  it('emoji-leading name keeps the whole code point', () => {
+    const result = initials('👰 Fenwick');
+    expect(result).toBe('👰F');
+    expect(result.isWellFormed()).toBe(true);
+  });
+
+  it('single-word emoji name returns the whole emoji', () => {
+    const result = initials('👰');
+    expect(result).toBe('👰');
+    expect(result.isWellFormed()).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

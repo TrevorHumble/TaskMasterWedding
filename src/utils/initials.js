@@ -13,9 +13,12 @@ function initials(name) {
   if (!name || typeof name !== 'string') return '';
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '';
-  const first = parts[0][0].toUpperCase();
+  // Spread iterates code POINTS, not UTF-16 code units — indexing with [0]
+  // would split a surrogate pair (emoji, astral-plane scripts) and return a
+  // lone surrogate that renders as a broken glyph.
+  const first = [...parts[0]][0].toUpperCase();
   if (parts.length === 1) return first;
-  const last = parts[parts.length - 1][0].toUpperCase();
+  const last = [...parts[parts.length - 1]][0].toUpperCase();
   return first + last;
 }
 
