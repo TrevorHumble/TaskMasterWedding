@@ -15,6 +15,12 @@ const { db } = require('../db');
 // `flash` cookie's shape.
 const { requireGuest, setFlash } = require('../middleware/session');
 
+// isValidPin (issue #243) — the SAME 4-digit-shape rule signup (routes/auth.js)
+// and the admin identity route (routes/admin.js) already share from
+// services/identity.js. POST /me/edit below calls this single owner rather
+// than re-encoding the shape rule a third time.
+const { isValidPin } = require('../services/identity');
+
 // Photos service (section 05) — REAL exports only.
 // `upload` is the multer DISK-storage middleware ALREADY BOUND to single('photo')
 // — call it directly as `photos.upload(req, res, cb)` (do NOT call .single on it).
@@ -553,6 +559,20 @@ router.post('/me/edit', function (req, res) {
       return res.redirect('/me/edit');
     }
 
+    // Optional new re-entry code (issue #243 AC3/AC4). Empty/absent means
+    // "leave the existing pin unchanged" — a guest correcting only their name
+    // or avatar must never accidentally wipe a working code. Validated with
+    // isValidPin (see the require at top of this file), checked FIRST before
+    // any other field is touched, so an invalid pin short-circuits the whole
+    // save — nothing (name, avatar, socials, pin) is written — rather than
+    // silently saving the rest alongside a rejected pin.
+    const rawPin = typeof req.body.pin === 'string' ? req.body.pin.trim() : '';
+    if (rawPin && !isValidPin(rawPin)) {
+      setFlash(res, 'error', 'Please choose a 4-digit PIN (numbers only).');
+      return res.redirect('/me/edit');
+    }
+    const newPin = rawPin ? rawPin : guest.pin; // blank submitted -> keep existing
+
     // Name: required-ish. If blank, keep the old name rather than wiping it.
     let name = '';
     if (typeof req.body.name === 'string') {
@@ -616,12 +636,9 @@ router.post('/me/edit', function (req, res) {
       }
     }
 
-    db.prepare('UPDATE guests SET name = ?, avatar_path = ?, social_links = ? WHERE id = ?').run(
-      name,
-      newAvatarPath,
-      socialJson,
-      guest.id
-    );
+    db.prepare(
+      'UPDATE guests SET name = ?, avatar_path = ?, social_links = ?, pin = ? WHERE id = ?'
+    ).run(name, newAvatarPath, socialJson, newPin, guest.id);
 
     setFlash(res, 'success', 'Profile updated!');
     return res.redirect('/');

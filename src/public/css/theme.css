@@ -957,6 +957,27 @@ textarea {
   color: var(--color-text-muted);
   margin-top: var(--space-2);
 }
+/* ---- Re-entry code field (issue #243) ---- */
+.pin-field {
+  position: relative;
+}
+.pin-field .text-input {
+  padding-right: 48px; /* room for the reveal button */
+}
+.pin-reveal {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  cursor: pointer;
+}
 /* Batch-caption note (issue #364 AC7): hidden by default via the [hidden]
    attribute set server-side; memory-caption.js toggles it against the
    caption input on the 1-vs-2+ file boundary. */
