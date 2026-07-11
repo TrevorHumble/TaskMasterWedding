@@ -416,6 +416,70 @@ maybeDescribe('review-runner (issue #128)', () => {
     expect(fs.existsSync(path.join(reviewsRoot, bogusOid))).toBe(false);
   });
 
+  // AC1 (#417): mixed severities tally correctly into the persisted evidence's
+  // `defects` object, and findings_count reflects the total. Would fail to
+  // catch a bucket miscount or a severity/count mismatch.
+  it('AC1 (#417): mixed severities -> evidence defects tallied, findings_count 4', () => {
+    const { tmp, treeOid } = makeFixtureRepo('rr-sev-ac1-', 131);
+    const runDir = path.join(tmp, 'run');
+    const reviewsRoot = path.join(tmp, '.review_state', 'reviews');
+    writeVerdict(runDir, 'reviewer-a.json', {
+      reviewerId: 'reviewer-a',
+      verdict: 'PASS',
+      defects: [
+        { severity: 'blocker', text: 'b1' },
+        { severity: 'major', text: 'm1' },
+        { severity: 'major', text: 'm2' },
+        { severity: 'nit', text: 'n1' },
+      ],
+    });
+    writeVerdict(runDir, 'reviewer-b.json', {
+      reviewerId: 'reviewer-b',
+      verdict: 'PASS',
+      defects: [],
+    });
+
+    const r = runRunner(tmp, runDir, treeOid, 'both-pass', reviewsRoot);
+
+    expect(r.status).toBe(0);
+    const evA = JSON.parse(
+      fs.readFileSync(path.join(reviewsRoot, treeOid, 'reviewer-a.json'), 'utf8')
+    );
+    expect(evA.defects).toEqual({ blocker: 1, major: 2, minor: 0, nit: 1 });
+    expect(evA.findings_count).toBe(4);
+  });
+
+  // AC2 (#417): an unrecognized severity value still counts toward the
+  // total but is bucketed nowhere. Would fail to catch either a crash on
+  // unknown severity or a wrong bucket absorbing it.
+  it('AC2 (#417): unknown severity -> counted in total, bucketed nowhere, exit 0', () => {
+    const { tmp, treeOid } = makeFixtureRepo('rr-sev-ac2-', 131);
+    const runDir = path.join(tmp, 'run');
+    const reviewsRoot = path.join(tmp, '.review_state', 'reviews');
+    writeVerdict(runDir, 'reviewer-a.json', {
+      reviewerId: 'reviewer-a',
+      verdict: 'PASS',
+      defects: [
+        { severity: 'blocker', text: 'b1' },
+        { severity: 'typo', text: 'unrecognized severity' },
+      ],
+    });
+    writeVerdict(runDir, 'reviewer-b.json', {
+      reviewerId: 'reviewer-b',
+      verdict: 'PASS',
+      defects: [],
+    });
+
+    const r = runRunner(tmp, runDir, treeOid, 'both-pass', reviewsRoot);
+
+    expect(r.status).toBe(0);
+    const evA = JSON.parse(
+      fs.readFileSync(path.join(reviewsRoot, treeOid, 'reviewer-a.json'), 'utf8')
+    );
+    expect(evA.defects).toEqual({ blocker: 1, major: 0, minor: 0, nit: 0 });
+    expect(evA.findings_count).toBe(2);
+  });
+
   // Edge: a defect with no `file` is never citation-validated, so a clean
   // panel with a file-less defect still passes.
   it('edge: defect with no file citation does not block a clean panel', () => {
@@ -436,5 +500,44 @@ maybeDescribe('review-runner (issue #128)', () => {
     const r = runRunner(tmp, runDir, treeOid, 'both-pass', reviewsRoot);
 
     expect(r.status).toBe(0);
+  });
+});
+
+// AC3 (#417): tools/persist-review.ps1 called directly (not via the runner)
+// with only -Blocker/-Minor and no -FindingsCount must derive findings_count
+// from the severity buckets, and emit them as the `defects` object.
+const PERSIST_REVIEW = path.join(__dirname, '..', 'tools', 'persist-review.ps1');
+
+maybeDescribe('persist-review.ps1 (#417 AC3)', () => {
+  it('AC3: -Blocker 2 -Minor 1, no -FindingsCount -> defects object + findings_count 3', () => {
+    const { tmp, treeOid } = makeFixtureRepo('pr-ac3-', 5);
+    const reviewsRoot = path.join(tmp, '.review_state', 'reviews');
+    const args = [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      PERSIST_REVIEW,
+      '-TreeOid',
+      treeOid,
+      '-ReviewerId',
+      'r1',
+      '-Verdict',
+      'PASS',
+      '-Blocker',
+      '2',
+      '-Minor',
+      '1',
+      '-ReviewsRoot',
+      reviewsRoot,
+    ];
+    const r = spawnSync(PS, args, { cwd: tmp, encoding: 'utf8' });
+    expect(r.status).toBe(0);
+
+    const evPath = path.join(reviewsRoot, treeOid, 'r1.json');
+    expect(fs.existsSync(evPath)).toBe(true);
+    const ev = JSON.parse(fs.readFileSync(evPath, 'utf8'));
+    expect(ev.defects).toEqual({ blocker: 2, major: 0, minor: 1, nit: 0 });
+    expect(ev.findings_count).toBe(3);
   });
 });
