@@ -26,6 +26,10 @@ Read the issue's declared tier (`ready` or `backlog`) before applying the checkl
 
 For backlog issues, check the `Graduate after` field. If the graduation condition requires human-approval rather than a deterministic check, return FAIL with the finding: "Graduate after condition is not deterministic — human-approval is not a machine-verifiable gate."
 
+For ready issues, independently classify the issue's run tier using the same eligibility rules `tools/classify-issue-run.ps1` encodes (system-level surface, security-flagged, orchestrator-escalated, wedding-critical guest paths, schema-or-data-migration — citing that script as the single source of truth). If the independently-derived classification disagrees with the issue's declared `**Run tier:**` value, return a blocking FAIL.
+
+**Coverage-first instruction for `sonnet-only` runs.** When this review is conducted as part of a `sonnet-only` run, report every finding identified — including low-confidence and low-severity ones — tagged with its own severity and confidence. Do not silently drop a finding judged minor; the orchestrator, not the reviewer, decides what to act on. This instruction does not promise a downstream filtering step (on the common single-round PASS path none runs) — it exists because Sonnet follows "be conservative / only report serious issues" phrasing literally and under-reports as a result, so non-suppression is the rule and severity-tagging is the triage mechanism. This is scoped to the `sonnet-only` run only; it does not override the standing "retract your own over-flags" bar for Opus reviews in `standards/adversarial-review-protocol.md`.
+
 ## Bias check
 
 If the spawning prompt names what the artifact is supposed to accomplish, or expresses an expected outcome, halt immediately and return `FAIL` with the finding: "Spawner injected intent — reviewer bias risk."
@@ -53,3 +57,4 @@ One token verdict (`PASS` or `FAIL`) followed by the numbered defect list. A PAS
 - [ ] Implementation plan is present with at least three numbered steps, each naming a file path or concrete deliverable.
 - [ ] Dependency map contains all three fields: `Depends on`, `Blocks`, `Touches`.
 - [ ] No FINAL, LAST, or TRULY_FINAL in filenames or section headers referenced by this issue.
+- [ ] Independently classify the run tier via `tools/classify-issue-run.ps1`'s eligibility rules; disagreement with the issue's declared `**Run tier:**` value is a blocking FAIL.

@@ -325,6 +325,21 @@ etc.) run on **Sonnet**. Reviewers (all `reviewer-*.md` agents, including the ad
 **Opus** — a different model from the implementer, per the independence rule in
 `standards/agent-standards.md`. Set `model:` explicitly on every spawn call; never rely on defaults.
 
+**`sonnet-only` tier (#427).** An issue carrying the `sonnet-only` label (eligibility gated by
+`tools/classify-issue-run.ps1`) runs its whole pipeline on Sonnet: the orchestrator, the
+implementer, and every reviewer that fires (`reviewer-issue`, `reviewer-pr`,
+`reviewer-design-philosophy`) — the severity-adjudicator, if it fires, still runs on Opus. This is a
+bounded exception to the "different model from the implementer" independence rule above, scoped to
+routine, low-stakes, reversible issues only (see the eligibility gates in `tools/classify-issue-run.ps1`
+and `CLAUDE.md`); every reviewer on this tier carries the coverage-first instruction in its charter to
+counter Sonnet's tendency to under-report findings.
+
+**Escalation safety valve.** If a `sonnet-only` run trips any eligibility gate mid-run (a touched path
+turns out to match the system-level surface or a guest-critical path, a security flag is raised, a
+schema/data migration is discovered, or the orchestrator escalates), the remaining run escalates
+immediately to the standard Opus policy above. Reaching the 3-round soft cap on a `sonnet-only` run is
+itself an escalation trigger: the severity-adjudicator invocation and everything after it run on Opus.
+
 ---
 
 ## Research-first rule

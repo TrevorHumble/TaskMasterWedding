@@ -58,6 +58,7 @@ A ready-issue must include all of the following before it can be reviewed:
 - **Acceptance criteria** — each criterion in **Given/When/Then** form, resolving to a literal string or structural check.
 - **implementation plan** — at least three numbered steps, each naming a file path or concrete deliverable.
 - **Dependency map** — `Depends on`, `Blocks`, and `Touches` all present.
+- **`**Run tier:**` field** — a `**Run tier:**` line whose value is `sonnet-only` or `opus`. The declared value must equal `tools/classify-issue-run.ps1`'s output for the issue's `Touches` paths and flags (security-flagged, escalated, schema-or-data-migration) — the classifier is the single source of truth for eligibility. A backlog-tier issue defers its run tier to graduation: it carries no `**Run tier:**` field, and the field is filled in when the orchestrator opens the graduated ready-issue.
 
 The reviewer applies the full checklist to a ready-issue.
 
@@ -87,6 +88,7 @@ A backlog issue is never implemented in place. When its `Graduate after` conditi
 - [ ] PASS/FAIL — Implementation plan is present and contains at least three numbered steps, each naming a file path or a concrete deliverable.
 - [ ] PASS/FAIL — Dependency map contains all three fields: `Depends on`, `Blocks`, `Touches`.
 - [ ] PASS/FAIL — No FINAL, LAST, or TRULY_FINAL in filenames or section headers referenced by this issue.
+- [ ] PASS/FAIL — Reviewer independently derives the run tier by running `tools/classify-issue-run.ps1` against the issue's `Touches` paths and flags, and confirms it matches the issue's declared `**Run tier:**` value.
 
 ### Backlog-tier checklist
 
