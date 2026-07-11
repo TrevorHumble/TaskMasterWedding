@@ -50,7 +50,7 @@ Then open <http://localhost:3000>.
 
 ## Going live
 
-Production runs on a rented Linux host, not the dev laptop: a host with a persistent disk, environment variables set per the table in `docs/deploy.md` (including `BASE_URL` and `TRUST_PROXY`), then `docker compose up -d` or the systemd unit described there. The host's reverse proxy terminates HTTPS at the stable domain the QR codes encode. See [`docs/deploy.md`](docs/deploy.md) for the full procedure — provisioning, TLS, environment variables, and the process supervisor.
+Production runs on a rented Linux host, not the dev laptop: a host with a persistent disk, environment variables set per the table in `docs/deploy.md` (including `BASE_URL` and `TRUST_PROXY`), then `docker compose up -d --build` or the systemd unit described there. The host's reverse proxy terminates HTTPS at the stable domain the QR codes encode. See [`docs/deploy.md`](docs/deploy.md) for the full procedure — provisioning, TLS, environment variables, and the process supervisor.
 
 ### Working in a worktree
 
@@ -167,6 +167,7 @@ standards/                Checkable standards the orchestrator pipeline enforces
 
 ## Documentation
 
+- Hosted deploy runbook (containers, systemd, TLS, backups): [`docs/deploy.md`](docs/deploy.md).
 - Manual pre-wedding walkthrough (step-by-step test plan): [`docs/test-plan.md`](docs/test-plan.md).
 - Peak-load test harness and how to read a run: [`docs/loadtest.md`](docs/loadtest.md).
 - Detailed build plan: [`PLAN/00-README.md`](PLAN/00-README.md) and the numbered files through `10-theme-and-art.md` (historical; for current hosting see docs/deploy.md).
