@@ -147,8 +147,19 @@ foreach ($f in $verdictFiles) {
   $defects = @($obj.defects | Where-Object { $_ })
   $findingsCount = $defects.Count
 
+  # Severity tally (#417): only the four recognized values increment a
+  # bucket. `severity` is NOT validated (per tools/review-verdict.schema.md)
+  # -- an unrecognized value (e.g. "typo") still counts toward the total
+  # findingsCount above but lands in no bucket, so blocker+major+minor+nit
+  # can be less than findingsCount but never more.
+  $sevCounts = @{ blocker = 0; major = 0; minor = 0; nit = 0 }
+
   foreach ($d in $defects) {
     if (-not $d) { continue }
+    $sev = [string]$d.severity
+    if ($sevCounts.ContainsKey($sev)) {
+      $sevCounts[$sev]++
+    }
     $file = $d.file
     if ([string]::IsNullOrWhiteSpace($file)) {
       # No citation to validate.
@@ -179,6 +190,10 @@ foreach ($f in $verdictFiles) {
     reviewerId    = $reviewerId
     verdict       = $verdict
     findingsCount = $findingsCount
+    blocker       = $sevCounts.blocker
+    major         = $sevCounts.major
+    minor         = $sevCounts.minor
+    nit           = $sevCounts.nit
   }
 }
 
@@ -206,7 +221,8 @@ foreach ($rv in $reviewers) {
   $persistArgs = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $scriptDir 'persist-review.ps1'),
     '-TreeOid', $TreeOid, '-ReviewerId', $rv.reviewerId, '-Verdict', $rv.verdict,
-    '-FindingsCount', $rv.findingsCount
+    '-FindingsCount', $rv.findingsCount,
+    '-Blocker', $rv.blocker, '-Major', $rv.major, '-Minor', $rv.minor, '-Nit', $rv.nit
   )
   if ($ReviewsRoot) { $persistArgs += @('-ReviewsRoot', $ReviewsRoot) }
   & $psExe @persistArgs
