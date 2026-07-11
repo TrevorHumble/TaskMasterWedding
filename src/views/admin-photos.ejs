@@ -38,6 +38,13 @@
         </form>
         <% if (p.taken_down) { %>
           <p class="status-down">TAKEN DOWN</p>
+          <% if (p.resubmitted) { %>
+            <!-- Issue #190: the guest replaced this photo while it was still
+                 taken down (sticky takedown). It stays hidden until Restore
+                 is pressed below; this marker is the only thing that tells
+                 the host a new photo is waiting behind the old one. -->
+            <p class="status-down">RESUBMITTED — awaiting your decision</p>
+          <% } %>
           <form action="/admin/photos/<%= p.id %>/restore" method="post">
             <button type="submit" class="btn btn-sm">Restore</button>
           </form>

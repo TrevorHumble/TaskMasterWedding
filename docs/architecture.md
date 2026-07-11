@@ -92,6 +92,7 @@ erDiagram
         text thumb_path
         text caption
         int taken_down
+        int resubmitted "1 = guest replaced this while taken_down (issue #190)"
         int photo_bonus
         text created_at
     }
@@ -153,7 +154,7 @@ UNIQUE constraints:
 4. `services/scoring.js` recomputes the guest's completed-task count (non-taken-down submissions). If the count crossed a `BADGE_THRESHOLDS` boundary (5 / 10 / 15), the matching auto badge is recorded in `guest_badges` with `awarded_by = 'system'`; `UNIQUE(guest_id, badge_id)` makes this safe to repeat.
 5. The guest is redirected back, the photo now counts for a point, appears in `/gallery`, on the guest's profile, and affects the leaderboard.
 
-If the admin later takes the photo down, the row's `taken_down` flips to 1: the photo drops out of the gallery, profiles, and scoring, and can be restored later.
+If the admin later takes the photo down, the row's `taken_down` flips to 1: the photo drops out of the gallery, profiles, and scoring, and can be restored later. The takedown is sticky (issue #190): if the guest resubmits the same task while it is still taken down, the photo is replaced in place but `taken_down` stays 1 — a resubmit no longer un-hides it — and `resubmitted` flips to 1 so `/admin/photos` flags a decision waiting. Restoring the submission clears both `taken_down` and `resubmitted`.
 
 ## Walkthrough: a sign-in
 

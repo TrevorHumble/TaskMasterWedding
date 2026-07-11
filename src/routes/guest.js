@@ -291,8 +291,8 @@ router.post('/bug-report', function (req, res) {
 
 // ---------------------------------------------------------------------------
 // GET /tasks/:id  — one task's detail + the upload form. If the guest has
-// already submitted (and it's not taken down), show their photo and allow
-// replacing it.
+// already submitted, show their photo (or, if a host took it down, the
+// "with the hosts" state — issue #190) and allow replacing it.
 // ---------------------------------------------------------------------------
 router.get('/tasks/:id', function (req, res) {
   const guest = res.locals.guest;
@@ -311,12 +311,16 @@ router.get('/tasks/:id', function (req, res) {
     return res.status(404).render('404', { title: 'Not found' });
   }
 
-  // Existing, non-taken-down submission for this guest+task (may be null).
+  // The guest's submission for this task, loaded REGARDLESS of taken_down
+  // (issue #190): a host takedown must not make the task page fall back to
+  // "not done" and invite a resubmit that would have silently reversed the
+  // takedown. task.ejs branches on submission.taken_down to render the
+  // "with the hosts" state instead of the ordinary complete state.
   const submission = db
     .prepare(
-      `SELECT id, photo_path, thumb_path, caption, created_at
+      `SELECT id, photo_path, thumb_path, caption, created_at, taken_down
          FROM submissions
-        WHERE guest_id = ? AND task_id = ? AND taken_down = 0`
+        WHERE guest_id = ? AND task_id = ?`
     )
     .get(guest.id, taskId);
 
@@ -377,11 +381,16 @@ router.post('/tasks/:id/submit', function (req, res) {
       return res.redirect('/tasks/' + taskId);
     }
 
-    setFlash(
-      res,
-      'success',
-      result.status === 'replaced' ? 'Photo replaced!' : 'Task complete! +1 point.'
-    );
+    // replaced_hidden (issue #190): the resubmit landed on a still-taken-down
+    // row, so it does not go live — tell the guest that plainly rather than
+    // claiming "Photo replaced!" for something that isn't visible yet.
+    let flashMsg = 'Task complete! +1 point.';
+    if (result.status === 'replaced') {
+      flashMsg = 'Photo replaced!';
+    } else if (result.status === 'replaced_hidden') {
+      flashMsg = 'Photo received — it will appear once the hosts approve it.';
+    }
+    setFlash(res, 'success', flashMsg);
     return res.redirect('/tasks/' + taskId);
   });
 });
