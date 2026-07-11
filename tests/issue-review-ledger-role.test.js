@@ -84,10 +84,10 @@ maybeDescribe('persist-issue-review.ps1 ledger bridge (#359 AC1)', () => {
     expect(ev.issue_number).toBe(9999);
   });
 
-  it('sibling .ledger-entry.json carries no issue_number (commit-msg gate must ignore it)', () => {
+  it('sibling .ledger-entry.txt carries no issue_number (commit-msg gate must ignore it)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'irev-ledger-'));
     runPersist(root, ['-Round', '2']);
-    const entryPath = path.join(root, '9999', 'reviewer-issue-opus.ledger-entry.json');
+    const entryPath = path.join(root, '9999', 'reviewer-issue-opus.ledger-entry.txt');
     expect(fs.existsSync(entryPath)).toBe(true);
     const entry = JSON.parse(fs.readFileSync(entryPath, 'utf8'));
     // The real behavioral guard from tools/issue-core.ps1 Read-IssueEvidence: a file
@@ -96,6 +96,18 @@ maybeDescribe('persist-issue-review.ps1 ledger bridge (#359 AC1)', () => {
     // evidence count -- inverting this (adding issue_number) would fail the assertion.
     expect(entry.issue_number).toBeUndefined();
     expect(entry).toEqual({ role: 'issue', model: 'opus', verdict: 'PASS', round: 2 });
+  });
+
+  it('the *.json glob under the issue dir matches only the real evidence file (#412)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'irev-ledger-'));
+    runPersist(root, ['-Round', '2']);
+    const dir = path.join(root, '9999');
+    // This is the exact glob tools/issue-core.ps1 Read-IssueEvidence uses
+    // (Get-ChildItem -Filter '*.json'). If the sibling were still named
+    // .ledger-entry.json, this would return two files instead of one --
+    // inverting the sibling's extension back to .json would fail this assertion.
+    const jsonFiles = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    expect(jsonFiles).toEqual(['reviewer-issue-opus.json']);
   });
 
   it('defaults -Round to 1 when omitted', () => {
