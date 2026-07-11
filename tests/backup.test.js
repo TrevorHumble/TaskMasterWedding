@@ -4,8 +4,9 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const Database = require('better-sqlite3');
-const { backupData } = require('../scripts/backup');
+const { backupData, pruneBackups } = require('../scripts/backup');
 
 // This test builds its own isolated temp DB/dirs directly with better-sqlite3
 // rather than going through tests/helpers/testApp.js: backup.js operates on
@@ -342,5 +343,129 @@ describe('scripts/backup.js', () => {
 
     expect(fs.existsSync(path.join(destDir, 'app.db'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'admin.hash'))).toBe(false);
+  });
+});
+
+describe('pruneBackups (issue #287)', () => {
+  let backupDir;
+
+  beforeEach(() => {
+    backupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gpp-prune-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(backupDir, { recursive: true, force: true });
+  });
+
+  it('AC1: deletes the oldest snapshot, keeps the newest two intact', () => {
+    const names = ['20260101-000000', '20260102-000000', '20260103-000000'];
+    for (const name of names) {
+      const dir = path.join(backupDir, name);
+      fs.mkdirSync(dir);
+      fs.writeFileSync(path.join(dir, 'app.db'), `contents-of-${name}`);
+    }
+
+    const deleted = pruneBackups({ backupDir, keep: 2 });
+
+    // Assert the real value, not just "something happened": exactly the
+    // oldest name comes back, in an array, not a count or a boolean.
+    expect(deleted).toEqual(['20260101-000000']);
+    expect(fs.existsSync(path.join(backupDir, '20260101-000000'))).toBe(false);
+    // The two retained folders are not just present -- their contents
+    // survived untouched, so this would fail if pruning were inverted and
+    // deleted the newest two instead of the oldest one.
+    expect(fs.existsSync(path.join(backupDir, '20260102-000000'))).toBe(true);
+    expect(fs.readFileSync(path.join(backupDir, '20260102-000000', 'app.db'), 'utf8')).toBe(
+      'contents-of-20260102-000000'
+    );
+    expect(fs.existsSync(path.join(backupDir, '20260103-000000'))).toBe(true);
+    expect(fs.readFileSync(path.join(backupDir, '20260103-000000', 'app.db'), 'utf8')).toBe(
+      'contents-of-20260103-000000'
+    );
+  });
+
+  it('AC2: ignores a non-snapshot directory and a stray file regardless of keep value', () => {
+    const names = ['20260101-000000', '20260102-000000', '20260103-000000'];
+    for (const name of names) {
+      fs.mkdirSync(path.join(backupDir, name));
+    }
+    fs.mkdirSync(path.join(backupDir, 'keep-me'));
+    fs.writeFileSync(path.join(backupDir, 'notes.txt'), 'do not touch');
+
+    const deleted = pruneBackups({ backupDir, keep: 1 });
+
+    // Only snapshot-named directories are ever candidates -- keep-me and
+    // notes.txt must never appear in the deleted list even with keep=1,
+    // which would otherwise delete everything but one snapshot.
+    expect(deleted).not.toContain('keep-me');
+    expect(deleted).not.toContain('notes.txt');
+    expect(fs.existsSync(path.join(backupDir, 'keep-me'))).toBe(true);
+    expect(fs.existsSync(path.join(backupDir, 'notes.txt'))).toBe(true);
+  });
+
+  it('AC3: keep=0 (the config default) deletes nothing', () => {
+    const names = ['20260101-000000', '20260102-000000', '20260103-000000'];
+    for (const name of names) {
+      fs.mkdirSync(path.join(backupDir, name));
+    }
+
+    const deleted = pruneBackups({ backupDir, keep: 0 });
+
+    expect(deleted).toEqual([]);
+    for (const name of names) {
+      expect(fs.existsSync(path.join(backupDir, name))).toBe(true);
+    }
+  });
+
+  it('no-ops instead of throwing when backupDir does not exist yet (fresh host, first run)', () => {
+    const missingDir = path.join(backupDir, 'does-not-exist');
+    expect(() => pruneBackups({ backupDir: missingDir, keep: 5 })).not.toThrow();
+    expect(pruneBackups({ backupDir: missingDir, keep: 5 })).toEqual([]);
+  });
+
+  it('no-ops on a negative or non-finite keep instead of deleting everything', () => {
+    fs.mkdirSync(path.join(backupDir, '20260101-000000'));
+    expect(pruneBackups({ backupDir, keep: -1 })).toEqual([]);
+    expect(pruneBackups({ backupDir, keep: NaN })).toEqual([]);
+    expect(fs.existsSync(path.join(backupDir, '20260101-000000'))).toBe(true);
+  });
+});
+
+describe('backup.js CLI (issue #287 AC4)', () => {
+  let tempBackupDir;
+
+  beforeEach(() => {
+    tempBackupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gpp-cli-backup-test-'));
+  });
+
+  afterEach(() => {
+    // backupData creates the destination snapshot folder before opening the
+    // DB, so a run that fails to open a missing dbPath still leaves an empty
+    // timestamped folder behind under tempBackupDir -- clean the whole temp
+    // dir rather than asserting it is empty.
+    fs.rmSync(tempBackupDir, { recursive: true, force: true });
+  });
+
+  it('exits nonzero and writes to stderr when dbPath does not exist', () => {
+    const missingDbPath = path.join(tempBackupDir, 'nonexistent-app.db');
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'backup.js');
+
+    const result = spawnSync(process.execPath, [scriptPath], {
+      cwd: path.join(__dirname, '..'),
+      env: {
+        ...process.env,
+        DB_PATH: missingDbPath,
+        BACKUP_DIR: tempBackupDir,
+      },
+      encoding: 'utf8',
+    });
+
+    // Assert the real values -- a nonzero status code AND non-empty stderr,
+    // not just "the process ran." This is a regression test over the CLI's
+    // existing catch handler (process.exitCode = 1 + console.error), not new
+    // behavior -- it would fail if a future change swallowed the error or
+    // reset the exit code before exiting.
+    expect(result.status).not.toBe(0);
+    expect(result.stderr.length).toBeGreaterThan(0);
   });
 });
