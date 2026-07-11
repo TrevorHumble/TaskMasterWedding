@@ -22,6 +22,10 @@ param(
   [Parameter(Mandatory = $true)][ValidateSet('PASS', 'FAIL')][string]$Verdict,
   [ValidateSet('issue', 'pr')][string]$Role = 'pr',
   [int]$FindingsCount = 0,
+  [int]$Blocker = 0,
+  [int]$Major = 0,
+  [int]$Minor = 0,
+  [int]$Nit = 0,
   [string]$ReviewsRoot = ''
 )
 
@@ -38,6 +42,17 @@ if (-not $ReviewsRoot) {
 $dir = Join-Path $ReviewsRoot $TreeOid
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
+# findings_count (#417): when -FindingsCount is explicitly supplied (the
+# runner always supplies it), use that value as-is -- this keeps an
+# unknown-severity defect counted toward the total even though it lands in
+# no severity bucket (AC2). When omitted (the direct-call case, e.g. AC3),
+# derive it from the four severity buckets so a caller that only passes
+# -Blocker/-Major/-Minor/-Nit still gets a correct total.
+$findingsCount = $FindingsCount
+if (-not $PSBoundParameters.ContainsKey('FindingsCount')) {
+  $findingsCount = $Blocker + $Major + $Minor + $Nit
+}
+
 # Schema $SCHEMA_REV1 (declared in tools/verdict-core.ps1) — must match
 # tools/verdict-core.ps1 Read-Evidence (which keeps only files whose inner
 # tree_oid equals the directory/tree it is validating).
@@ -47,7 +62,8 @@ $ev = [ordered]@{
   model          = $Model
   role           = $Role
   verdict        = $Verdict
-  findings_count = $FindingsCount
+  findings_count = $findingsCount
+  defects        = [ordered]@{ blocker = $Blocker; major = $Major; minor = $Minor; nit = $Nit }
   tree_oid       = $TreeOid
   ts             = (Get-Date -Format o)
 }

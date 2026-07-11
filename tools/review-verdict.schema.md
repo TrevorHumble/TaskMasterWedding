@@ -67,3 +67,8 @@ citation validation as long as its `file`/`line` (if present) are valid.
   schema) and `tools/review_verdict.ps1` to bind the tree-level PASS. This
   schema is never written to disk itself — it exists only as the runner's
   input contract.
+- The runner also tallies each reviewer's `defects[].severity` into a
+  `{blocker,major,minor,nit}` breakdown, passed through to
+  `persist-review.ps1 -Blocker/-Major/-Minor/-Nit` alongside `-FindingsCount`
+  (#417). This is still not _validation_ of `severity` — an unrecognized
+  value is counted toward `findings_count` but bucketed nowhere.
