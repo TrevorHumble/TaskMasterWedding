@@ -78,12 +78,60 @@ function recordMemoryAttempt(guestId, opts = {}) {
   return { allowed: true, remaining: max - live.length };
 }
 
+// ---------------------------------------------------------------------------
+// Per-guest HEIC-DECODE sliding-window rate limiter (issue #281).
+// Separate window/Map from the memory-batch limiter above: a guest's HEIC
+// decode budget is independent of their memory-batch budget, and it is
+// consumed only by files that actually sniff as HEIC (photos.js enforces the
+// HEIC-only condition — non-HEIC uploads never call this). Same sliding-window
+// shape and "denied attempts are not recorded" recovery semantics as
+// recordMemoryAttempt.
+// ---------------------------------------------------------------------------
+
+// guestId -> number[] of HEIC-decode attempt timestamps still inside the window.
+const heicDecodesByGuest = new Map();
+
 /**
- * Clear all recorded attempts. Exposed for tests that want a clean window;
- * not used by the app in normal operation.
+ * Record a HEIC-decode attempt for a guest and decide whether it is allowed.
+ * Called by src/services/photos.js right before a HEIC decode, per HEIC file.
+ *
+ * @param {number} guestId
+ * @param {object} [opts]
+ * @param {number} [opts.max=config.HEIC_DECODE_RATE_MAX] - max decodes per window.
+ * @param {number} [opts.windowMs=config.HEIC_DECODE_RATE_WINDOW_MS] - window length.
+ * @param {number} [opts.now=Date.now()] - injectable clock for deterministic tests.
+ * @returns {{ allowed: boolean, remaining: number }} remaining is how many more
+ *          decodes are permitted in the current window AFTER this one (0 when denied).
+ */
+function recordHeicDecodeAttempt(guestId, opts = {}) {
+  const max = typeof opts.max === 'number' ? opts.max : config.HEIC_DECODE_RATE_MAX;
+  const windowMs =
+    typeof opts.windowMs === 'number' ? opts.windowMs : config.HEIC_DECODE_RATE_WINDOW_MS;
+  const now = typeof opts.now === 'number' ? opts.now : Date.now();
+  const cutoff = now - windowMs;
+
+  const raw = heicDecodesByGuest.get(guestId) || [];
+  const live = raw.filter((ts) => ts > cutoff);
+
+  if (live.length >= max) {
+    // Over the limit: do NOT record this attempt, so a guest who stops trying
+    // recovers exactly one window after their last ALLOWED decode.
+    heicDecodesByGuest.set(guestId, live);
+    return { allowed: false, remaining: 0 };
+  }
+
+  live.push(now);
+  heicDecodesByGuest.set(guestId, live);
+  return { allowed: true, remaining: max - live.length };
+}
+
+/**
+ * Clear all recorded attempts (both limiters). Exposed for tests that want a
+ * clean window; not used by the app in normal operation.
  */
 function _resetRateLimiter() {
   attemptsByGuest.clear();
+  heicDecodesByGuest.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +192,7 @@ async function hasFreeSpace(minFreeBytes = config.MIN_FREE_DISK_BYTES, dir = con
 
 module.exports = {
   recordMemoryAttempt,
+  recordHeicDecodeAttempt,
   hasFreeSpace,
   setFreeSpaceReader,
   defaultFreeSpaceReader,

@@ -156,6 +156,47 @@ const config = {
   // MIN_FREE_DISK_BYTES: reject a memory batch if free space on the data volume
   //   is below this. Default 524288000 (500 MB).
   MIN_FREE_DISK_BYTES: parseInt(process.env.MIN_FREE_DISK_BYTES, 10) || 524288000,
+
+  // Per-guest HEIC-DECODE rate limit (issue #281). A HEIC decode is expensive
+  // (a full raw-frame allocation, serialized one-at-a-time on a shared chain,
+  // and a crafted hang can burn the 20s decode timeout), so a hostile guest
+  // flooding hang-crafted HEICs could monopolize the single global decode chain
+  // and deny every guest's HEIC uploads. This throttle is checked BEFORE the
+  // decode, for files that actually sniff as HEIC only, across all three upload
+  // paths (task submit, memory batch, avatar). It NEVER touches JPEG/PNG/WebP.
+  //
+  // Tuned GENEROUS — it must never fire for a real guest, only stop a
+  // pathological rapid flood:
+  //   HEIC_DECODE_RATE_MAX: 60 HEIC decodes per HEIC_DECODE_RATE_WINDOW_MS.
+  //   HEIC_DECODE_RATE_WINDOW_MS: 120000 (2 minutes).
+  // 60 decodes / 2 min is ~6 full 10-file memory batches back-to-back in two
+  // minutes — far past any human selecting and uploading real photos through
+  // the picker, while a scripted flood trips it in seconds. Combined with the
+  // pixel cap, 20s decode timeout, one-at-a-time serialization, and worker
+  // isolation, it bounds how much of the shared decode chain any single guest
+  // can command.
+  HEIC_DECODE_RATE_MAX: parseInt(process.env.HEIC_DECODE_RATE_MAX, 10) || 60,
+  HEIC_DECODE_RATE_WINDOW_MS: parseInt(process.env.HEIC_DECODE_RATE_WINDOW_MS, 10) || 120000,
+
+  // Global cap on the number of PENDING (queued + in-flight) HEIC decodes
+  // across ALL guests (issue #281). HEIC decodes are serialized one-at-a-time,
+  // and each pending decode PINS its source buffer (up to MAX_UPLOAD_BYTES =
+  // 15 MB) in the main process until its turn. The per-guest rate limit bounds
+  // how fast one guest enqueues, but not the total queue DEPTH: many
+  // self-onboarding guests (or one guest over many connections) flooding
+  // hang-crafted HEICs — each draining slowly against the 20s decode timeout —
+  // could grow the queue and its held buffers without bound and OOM the ~2 GB
+  // host. This cap bounds total held decode memory to MAX_PENDING_HEIC_DECODES
+  // x 15 MB regardless of how many guests flood.
+  //
+  // 8: worst-case ~120 MB of held source buffers, comfortably within the ~2 GB
+  // host's headroom alongside Node + SQLite + sharp (sharp itself can spike
+  // during thumbnailing). 8 is also far more depth than the one-at-a-time drain
+  // needs under normal load (a normal HEIC decodes in ~1-3s, so a healthy burst
+  // clears in seconds); beyond 8 pending, "give it a moment" is the honest
+  // response. Env-overridable if a specific event wants more concurrent-upload
+  // headroom.
+  MAX_PENDING_HEIC_DECODES: parseInt(process.env.MAX_PENDING_HEIC_DECODES, 10) || 8,
 };
 
 // ---- Lowercase aliases (backwards compatibility ONLY) ----------------------

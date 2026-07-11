@@ -21,7 +21,10 @@
 
     <div class="form-row">
       <span class="form-label">Profile photo (optional)</span>
-      <%- include('partials/upload-field', { id: 'avatar', name: 'avatar', accept: 'image/jpeg,image/png,image/webp' }) %>
+      <!-- image/* (not a fixed jpeg/png/webp list): HEIC is now accepted and
+           converted server-side (issue #281), so the picker should not hide
+           it. Matches task.ejs / me-edit.ejs, which already used image/*. -->
+      <%- include('partials/upload-field', { id: 'avatar', name: 'avatar', accept: 'image/*' }) %>
       <p class="form-help">A selfie or any picture of you. You can add or change this later.</p>
     </div>
 
