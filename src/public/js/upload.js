@@ -173,6 +173,14 @@ function initPreview() {
     return; // No upload form on this page.
   }
 
+  // Idempotent guard: upload.js is loaded twice per page that uses this
+  // form (direct <script> tag + footer's pageScript). Without this, the
+  // second load's addEventListener would double-bind the change listener.
+  if (input.dataset.previewBound === 'true') {
+    return;
+  }
+  input.dataset.previewBound = 'true';
+
   var lastObjectUrl = null;
 
   input.addEventListener('change', function () {

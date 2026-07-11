@@ -158,6 +158,30 @@ describe('AC3: taken-down handling', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #362 fix 3 — feed.neighbors()'s { found: false } contract must be
+// honored: a race where the pivot is taken down between detail() and
+// neighbors() must not leak an undefined-id nav link (href="/p/undefined").
+// ---------------------------------------------------------------------------
+describe('#362: neighbors() found:false renders no /p/undefined nav link', () => {
+  it('a stubbed { found: false } response yields no href="/p/undefined" in the page', async () => {
+    // Required lazily (after loadApp() in the outer beforeAll has already
+    // set DATA_DIR/DB_PATH) per this file's REQUIRE ORDER note.
+    const feed = require('../src/services/feed');
+    const spy = vi.spyOn(feed, 'neighbors').mockReturnValue({ found: false });
+
+    try {
+      const res = await agent.get('/p/' + idB);
+      expect(res.status).toBe(200);
+      expect(res.text).not.toContain('href="/p/undefined"');
+      expect(res.text).not.toContain('js-photo-prev');
+      expect(res.text).not.toContain('js-photo-next');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC4 — nonexistent and non-numeric ids → 404
 // ---------------------------------------------------------------------------
 describe('AC4: 404 for nonexistent and non-numeric ids', () => {

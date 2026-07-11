@@ -228,6 +228,73 @@ describe('AC3: submitting the task form disables the button', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #362 fix 2: initPreview() must also be idempotent — task.ejs and
+// me-edit.ejs load upload.js twice (direct tag + footer's pageScript), same
+// as the submit binding covered by AC3 above.
+// ---------------------------------------------------------------------------
+describe('#362: initPreview is idempotent across a double script load', () => {
+  it('two loads + one file selection creates exactly one preview object URL', async () => {
+    const dom = new JSDOM(
+      `<input type="file" id="photo" />
+       <img id="upload-preview" hidden />`,
+      { url: 'http://localhost/' }
+    );
+    const keys = ['window', 'document', 'navigator'];
+    const saved = {};
+    keys.forEach((key) => {
+      saved[key] = Object.getOwnPropertyDescriptor(global, key);
+      const value = key === 'window' ? dom.window : dom.window[key];
+      Object.defineProperty(global, key, { value, configurable: true, writable: true });
+    });
+
+    const savedCreate = global.URL.createObjectURL;
+    const savedRevoke = global.URL.revokeObjectURL;
+    let createCalls = 0;
+    global.URL.createObjectURL = () => {
+      createCalls += 1;
+      return 'blob:fake-' + createCalls;
+    };
+    global.URL.revokeObjectURL = () => {};
+
+    try {
+      // Mirrors task.ejs/me-edit.ejs: the same script tag runs twice per page load.
+      delete require.cache[require.resolve('../src/public/js/upload.js')];
+      require('../src/public/js/upload.js');
+      delete require.cache[require.resolve('../src/public/js/upload.js')];
+      require('../src/public/js/upload.js');
+
+      // jsdom's readyState transition is async even for a static HTML
+      // string, so init() (bound via DOMContentLoaded) may not have run yet
+      // — wait for it before dispatching (same pattern as the AC3 tests).
+      if (dom.window.document.readyState === 'loading') {
+        await new Promise((resolve) => {
+          dom.window.document.addEventListener('DOMContentLoaded', resolve, { once: true });
+        });
+      }
+
+      const input = dom.window.document.getElementById('photo');
+      const file = new dom.window.File(['fake image bytes'], 'photo.jpg', { type: 'image/jpeg' });
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      input.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+      // If the listener were double-bound, one change event would fire two
+      // createObjectURL calls instead of one.
+      expect(createCalls).toBe(1);
+    } finally {
+      global.URL.createObjectURL = savedCreate;
+      global.URL.revokeObjectURL = savedRevoke;
+      keys.forEach((key) => {
+        if (saved[key]) {
+          Object.defineProperty(global, key, saved[key]);
+        } else {
+          delete global[key];
+        }
+      });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC4 + AC5: the pure downscale logic, with an injected fake image/canvas
 // env (no canvas backend under vitest+jsdom — see the implementer handoff).
 // ---------------------------------------------------------------------------

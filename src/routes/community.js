@@ -4,15 +4,15 @@
 const express = require('express');
 const config = require('../../config');
 const { db } = require('../db');
-const { attachGuest, requireGuest } = require('../middleware/session');
+const { requireGuest } = require('../middleware/session');
 const scoring = require('../services/scoring');
 const feed = require('../services/feed');
 
 const router = express.Router();
 
-// Community pages are public, but we still attach the guest (when signed in)
-// so the leaderboard can highlight the viewer's own row.
-router.use(attachGuest);
+// Community pages are public. res.locals.guest (when signed in) is supplied
+// by the global app.use(session.attachGuest) mount in src/app.js, which runs
+// on every request — no router-level mount needed here.
 
 /**
  * Parse a guest's social_links JSON string into a safe array of links.
@@ -596,10 +596,10 @@ router.get('/p/:submissionId', (req, res) => {
     return res.status(404).render('404', { title: 'Not found' });
   }
 
-  // neighbors() re-derives visibility from the id, so this is safe even
-  // though we already have `photo` — the pivot is guaranteed visible because
-  // detail() above already 404'd on a missing/taken-down id.
-  const { newer, older } = feed.neighbors(submissionId);
+  // neighbors() re-derives visibility from the id rather than trusting
+  // `photo` above — the pivot can be taken down in the gap between the
+  // detail() call and this one, so `found` must still be checked here.
+  const result = feed.neighbors(submissionId);
 
   // The template expects next/prev as { submission_id } (or null), truthy-checked.
   // prev = newer (earlier in the newest-first order); next = older.
@@ -607,8 +607,8 @@ router.get('/p/:submissionId', (req, res) => {
     title: photo.task_title,
     pageScript: 'photo.js',
     photo,
-    next: older !== null ? { submission_id: older } : null,
-    prev: newer !== null ? { submission_id: newer } : null,
+    next: result.found && result.older !== null ? { submission_id: result.older } : null,
+    prev: result.found && result.newer !== null ? { submission_id: result.newer } : null,
   });
 });
 
