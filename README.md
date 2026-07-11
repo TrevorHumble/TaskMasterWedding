@@ -12,7 +12,7 @@ It runs on a small rented Linux host with a persistent disk, reachable over HTTP
 - **Leaderboard + gallery.** A public ranking and one shared photo gallery with a lightbox.
 - **Feed, likes, comments.** A live `/feed` shows recent photos; guests can like and comment on any photo.
 - **Profiles.** Avatar, name, badges, submissions, and optional social links. Guests can view each other's profiles.
-- **Admin panel.** Create guests and QR codes, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, work a bug-report queue, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
+- **Admin panel.** Create guests and QR codes, view and edit a guest's contact and re-entry PIN, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, work a bug-report queue, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
 
 ## Quickstart
 
@@ -142,8 +142,8 @@ src/
     community.js          /gallery, /feed, GET /p/:submissionId, /p/:submissionId/like,
                            /p/:submissionId/comments, /p/:submissionId/comments/:commentId/delete,
                            /leaderboard, /u/:guestId
-    admin.js              /admin dashboard, guests + bulk create, qrsheet, tasks, awards, takedown,
-                           export, /admin/bugs
+    admin.js              /admin dashboard, guests + bulk create, guests/:id/identity (contact/PIN),
+                           qrsheet, tasks, awards, takedown, export, /admin/bugs
   services/
     photos.js             multer disk storage, sharp thumbnails/avatars, takedown/delete
     scoring.js            points, auto badges (5/10/15), special badges, leaderboard
