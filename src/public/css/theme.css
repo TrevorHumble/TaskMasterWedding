@@ -648,10 +648,6 @@ p {
   font-size: var(--fs-small);
   color: transparent;
 }
-.task-body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 .task-title {
   font-weight: 600;
   margin: 0;

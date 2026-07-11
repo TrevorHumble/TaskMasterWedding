@@ -47,9 +47,11 @@ const { loadApp } = require('./helpers/testApp');
 const THEME_CSS_PATH = path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css');
 const FEED_EJS_PATH = path.join(__dirname, '..', 'src', 'views', 'feed.ejs');
 const FEED_JS_PATH = path.join(__dirname, '..', 'src', 'public', 'js', 'feed.js');
+const COMMUNITY_ROUTE_PATH = path.join(__dirname, '..', 'src', 'routes', 'community.js');
 const THEME_CSS_SOURCE = fs.readFileSync(THEME_CSS_PATH, 'utf8');
 const FEED_EJS_SOURCE = fs.readFileSync(FEED_EJS_PATH, 'utf8');
 const FEED_JS_SOURCE = fs.readFileSync(FEED_JS_PATH, 'utf8');
+const COMMUNITY_ROUTE_SOURCE = fs.readFileSync(COMMUNITY_ROUTE_PATH, 'utf8');
 
 let app;
 let db;
@@ -572,6 +574,29 @@ describe('AC8: comment POST answers JSON in place, redirect for plain posts', ()
       .prepare(`SELECT COUNT(*) AS n FROM comments WHERE submission_id = ?`)
       .get(submissionId).n;
     expect(count).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #362 fix 1 — the duplicate router.use(attachGuest) mount was removed
+// from community.js; the global app.js mount must still supply res.locals.guest.
+// ---------------------------------------------------------------------------
+describe('#362: res.locals.guest still populated after removing the duplicate mount', () => {
+  it('a signed-in guest hitting GET /feed sees their own comment composer (proves guest is set)', async () => {
+    const author = await signedInGuest('card-362-author', 'Three Six Two Guest');
+    seedSubmission(author.guestId, { photoPath: 'i362.jpg', thumbPath: 'i362t.jpg' });
+
+    const res = await author.agent.get('/feed');
+    expect(res.status).toBe(200);
+    // The composer only renders `<% if (guest) { %>` (feed.ejs) — its
+    // "Add a comment" placeholder proves res.locals.guest was set, which
+    // now comes solely from the global app.js mount.
+    expect(res.text).toContain('placeholder="Add a comment"');
+    expect(res.text).toContain('Three Six Two Guest');
+  });
+
+  it('community.js no longer mounts attachGuest at the router level', () => {
+    expect(COMMUNITY_ROUTE_SOURCE).not.toMatch(/router\.use\(attachGuest\)/);
   });
 });
 
