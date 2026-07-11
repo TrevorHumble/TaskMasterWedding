@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
+    branches-ignore: ['gh-readonly-queue/**']
   pull_request:
+  merge_group:
 
 permissions:
   contents: read
@@ -81,10 +83,9 @@ jobs:
   # Empirical smoke gate (#197): boots the real app against a seeded throwaway
   # DB and probes behavior (hot paths, hostile input, referenced assets).
   # Deliberately a separate job from `test` so a smoke failure reads distinctly
-  # from a unit failure. NOT a required status check yet: the gate correctly
-  # fails while #187 (onboarding crash) and #193 (missing badge art) are open
-  # on main. Promote once green on main: tools/apply-branch-protection.ps1
-  # -RequireSmoke. See DESIGN.md "Empirical smoke gate (#197)".
+  # from a unit failure. IS a required status check on main (promoted via
+  # tools/apply-branch-protection.ps1 -RequireSmoke once #187/#193 closed).
+  # See DESIGN.md "Empirical smoke gate (#197)" and "Merge queue (#404)".
   smoke:
     runs-on: ubuntu-latest
     steps:
