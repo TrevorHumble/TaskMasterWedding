@@ -116,6 +116,11 @@ const config = {
   // <ROOT>/data, i.e. outside data/, not a subfolder of it. Override with the
   // BACKUP_DIR env var to point at a second disk/location entirely.
   BACKUP_DIR: process.env.BACKUP_DIR || path.join(DATA_DIR, '..', 'backups'),
+  // How many snapshot folders under BACKUP_DIR a scheduled backup run keeps
+  // (issue #287). 0 (the default) means keep everything -- a host must opt in
+  // to pruning by setting this once it has a schedule running; a laptop doing
+  // occasional manual backups should never lose one to an unset env var.
+  BACKUP_RETENTION_COUNT: parseInt(process.env.BACKUP_RETENTION_COUNT, 10) || 0,
 
   // Static source directories (css / js / badges, and EJS views)
   PUBLIC_DIR: path.join(ROOT, 'src', 'public'),
@@ -214,6 +219,7 @@ config.thumbsDir = config.THUMBS_DIR;
 config.exportsDir = config.EXPORTS_DIR;
 config.adminHashPath = config.ADMIN_HASH_PATH;
 config.backupDir = config.BACKUP_DIR;
+config.backupRetentionCount = config.BACKUP_RETENTION_COUNT;
 config.publicDir = config.PUBLIC_DIR;
 config.viewsDir = config.VIEWS_DIR;
 config.maintenance = config.MAINTENANCE;

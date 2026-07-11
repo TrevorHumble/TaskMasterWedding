@@ -31,6 +31,8 @@ Before classifying any red-flag finding, consult the matching worked example in 
 
 A finding that matches a named red flag in `standards/design-philosophy.md` is classified at least `major` and is never downgraded to minor or nit, regardless of context or apparent scope.
 
+**Coverage-first instruction for `sonnet-only` runs.** When this review is conducted as part of a `sonnet-only` run, report every finding identified — including low-confidence and low-severity ones — tagged with its own severity and confidence. Do not silently drop a finding judged minor; the orchestrator, not the reviewer, decides what to act on. This instruction does not promise a downstream filtering step (on the common single-round PASS path none runs) — it exists because Sonnet follows "be conservative / only report serious issues" phrasing literally and under-reports as a result, so non-suppression is the rule and severity-tagging is the triage mechanism. This is scoped to the `sonnet-only` run only; it does not override the standing "retract your own over-flags" bar for Opus reviews in `standards/adversarial-review-protocol.md`.
+
 ## Bias check
 
 If the spawning prompt names what the artifact is supposed to accomplish, or expresses an expected outcome, halt immediately and return `FAIL` with the finding: "Spawner injected intent — reviewer bias risk."

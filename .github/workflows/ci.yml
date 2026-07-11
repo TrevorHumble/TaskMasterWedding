@@ -116,3 +116,13 @@ jobs:
           name: coverage
           path: coverage/
           if-no-files-found: warn
+
+  # Hosted-deploy image build (issue #286, DESIGN.md § Hosted deployment).
+  # Independent of the other jobs (no `needs:`) so it runs in parallel; Docker
+  # is preinstalled on ubuntu-latest runners.
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build -t taskmasterwedding-ci-probe .

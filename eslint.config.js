@@ -16,6 +16,11 @@ module.exports = [
       // of the whole tree; a leftover sandbox must never fail lint.
       '.stryker-tmp/**',
       'reports/**',
+      // Leftover build-session worktrees (#319): a nested worktree under
+      // .claude/worktrees/ holds its own full source copy on its own branch;
+      // linting it duplicates (and can misattribute) findings that belong to
+      // that worktree's own `npm run lint`, not this checkout's.
+      '.claude/worktrees/**',
     ],
   },
   js.configs.recommended,
