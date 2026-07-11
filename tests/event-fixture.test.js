@@ -463,6 +463,83 @@ describe('AC2 (#320): guest delete leaves every surviving avatar resolvable on d
   });
 });
 
+describe('#450 AC1: social "normal" seeds likes/comments with no self-likes', () => {
+  beforeAll(() => {
+    eventFixture.seedEvent(db, { guests: 10, seed: 1, social: 'normal' });
+  });
+
+  it('inserts at least one like, and no like belongs to its own submission owner', () => {
+    const likeCount = db.prepare('SELECT COUNT(*) AS n FROM likes').get().n;
+    expect(likeCount).toBeGreaterThan(0);
+
+    const selfLikes = db
+      .prepare(
+        `SELECT COUNT(*) AS n
+           FROM likes l
+           JOIN submissions s ON s.id = l.submission_id
+          WHERE l.guest_id = s.guest_id`
+      )
+      .get().n;
+    expect(selfLikes).toBe(0);
+  });
+});
+
+describe('#450 AC2: social "extreme" tops one submission up to the maximum likes and 50 comments', () => {
+  beforeAll(() => {
+    eventFixture.seedEvent(db, { guests: 10, seed: 1, social: 'extreme' });
+  });
+
+  it('the most-liked submission has exactly guests - 1 (9) likes, and the most-commented has exactly 50', () => {
+    const maxLikes = db
+      .prepare(
+        'SELECT COALESCE(MAX(n), 0) AS n FROM (SELECT COUNT(*) AS n FROM likes GROUP BY submission_id)'
+      )
+      .get().n;
+    expect(maxLikes).toBe(9);
+
+    const maxComments = db
+      .prepare(
+        'SELECT COALESCE(MAX(n), 0) AS n FROM (SELECT COUNT(*) AS n FROM comments GROUP BY submission_id)'
+      )
+      .get().n;
+    expect(maxComments).toBe(50);
+  });
+});
+
+describe('#450 AC3: topTie extends the unique-top scorer into a top-of-leaderboard tie', () => {
+  let guestIds;
+
+  beforeAll(() => {
+    ({ guestIds } = eventFixture.seedEvent(db, { guests: 5, seed: 1, topTie: true }));
+  });
+
+  it('guest 0 and guest 1 share an equal points total, strictly above guest 2', () => {
+    // Consumes scoring.leaderboard() — the one owner of the points formula —
+    // exactly like AC3's existing "mid-pack tie" block above, instead of
+    // re-deriving it here.
+    const byId = new Map(scoring.leaderboard().map((row) => [row.id, row.points]));
+
+    const p0 = byId.get(guestIds[0]);
+    const p1 = byId.get(guestIds[1]);
+    const p2 = byId.get(guestIds[2]);
+
+    expect(p1).toBe(p0);
+    expect(p0).toBeGreaterThan(p2);
+    expect(p1).toBeGreaterThan(p2);
+  });
+});
+
+describe('#450 AC4: default seedEvent (no social, no topTie) seeds zero likes/comments', () => {
+  beforeAll(() => {
+    eventFixture.seedEvent(db, { guests: 10, seed: 1 });
+  });
+
+  it('likes and comments stay empty when the caller opts into neither option', () => {
+    expect(db.prepare('SELECT COUNT(*) AS n FROM likes').get().n).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM comments').get().n).toBe(0);
+  });
+});
+
 describe('input validation', () => {
   it('seedEvent rejects a non-positive or non-integer guest count instead of coercing it', () => {
     expect(() => eventFixture.seedEvent(db, { guests: 0 })).toThrow(/positive integer/);
