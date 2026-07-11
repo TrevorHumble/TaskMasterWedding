@@ -1,0 +1,17 @@
+# .dockerignore
+# Mirrors .gitignore's state/secret entries (never bake live event data or
+# secrets into an image layer) plus build scratch that only bloats the image.
+# scripts/ is deliberately NOT listed here — set-admin-password.js, seed.js,
+# and backup.js all run inside the container.
+node_modules
+data
+backups
+.env
+coverage
+reports
+.stryker-tmp
+review-context
+.git
+.review_state
+.run_state
+data-demo

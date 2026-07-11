@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, makeAdminAgent } = require('./helpers/testApp');
 
 // ---------------------------------------------------------------------------
 // Realistic stored filenames (must match allowlist regex).
@@ -151,6 +151,24 @@ it('AC2e: malformed %ZZ in uploads path → 404 not 500', async () => {
 it('AC2e: malformed %ZZ in thumbs path → 404 not 500', async () => {
   const res = await request(app).get('/thumbs/%ZZ');
   expect(res.status).toBe(404);
+});
+
+// ---------------------------------------------------------------------------
+// Issue #191: an authenticated admin bypasses the takedown 404 — same rows
+// as AC1/AC2 above, so a future refactor of the guard is checked against
+// both the "blocked for everyone else" property and the "admin sees it"
+// property in one file.
+// ---------------------------------------------------------------------------
+it('#191: admin → taken-down original 200', async () => {
+  const admin = await makeAdminAgent(app);
+  const res = await admin.get('/uploads/' + PHOTO_NAME);
+  expect(res.status).toBe(200);
+});
+
+it('#191: admin → taken-down thumbnail 200', async () => {
+  const admin = await makeAdminAgent(app);
+  const res = await admin.get('/thumbs/' + THUMB_NAME);
+  expect(res.status).toBe(200);
 });
 
 // ---------------------------------------------------------------------------

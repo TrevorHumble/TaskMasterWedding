@@ -96,6 +96,39 @@ async function backupData({ dbPath, uploadsDir, thumbsDir, adminHashPath, backup
   return destDir;
 }
 
+/**
+ * Delete all but the last `keep` snapshot folders under `backupDir` (issue
+ * #287). Only entries that are directories AND whose name matches
+ * makeTimestamp()'s exact format (`YYYYMMDD-HHMMSS`) are treated as
+ * snapshots -- an operator's own `keep-me` folder or a stray `notes.txt`
+ * is never a deletion candidate. Ascending name sort is safe because the
+ * timestamp format sorts lexicographically the same as chronologically, so
+ * "keep the last `keep` entries" always keeps the newest ones, including the
+ * snapshot this same run just wrote.
+ *
+ * @param {object} options
+ * @param {string} options.backupDir - absolute path to the backup root
+ * @param {number} options.keep - number of newest snapshots to retain
+ * @returns {string[]} names of the snapshot folders that were deleted
+ */
+function pruneBackups({ backupDir, keep }) {
+  if (!Number.isFinite(keep) || keep <= 0) return [];
+  if (!fs.existsSync(backupDir)) return [];
+
+  const SNAPSHOT_NAME = /^\d{8}-\d{6}$/;
+  const snapshots = fs
+    .readdirSync(backupDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && SNAPSHOT_NAME.test(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+
+  const toDelete = snapshots.length > keep ? snapshots.slice(0, snapshots.length - keep) : [];
+  for (const name of toDelete) {
+    fs.rmSync(path.join(backupDir, name), { recursive: true, force: true });
+  }
+  return toDelete;
+}
+
 if (require.main === module) {
   const config = require('../config');
   // backupData deliberately takes five SEPARATE resolved paths rather than a
@@ -115,6 +148,22 @@ if (require.main === module) {
   })
     .then((destDir) => {
       console.log(`Backup complete: ${destDir}`);
+      // Prune AFTER a successful backup only, so a failed backup never loses
+      // an old snapshot in exchange for the one that didn't get made. A
+      // pruning failure (e.g. a locked file mid-delete on Windows) is logged
+      // but does not flip the exit code -- the backup itself already
+      // succeeded and is not corrupted by a prune that partially failed.
+      try {
+        const deleted = pruneBackups({
+          backupDir: config.BACKUP_DIR,
+          keep: config.BACKUP_RETENTION_COUNT,
+        });
+        if (deleted.length > 0) {
+          console.log(`Pruned ${deleted.length} old snapshot(s): ${deleted.join(', ')}`);
+        }
+      } catch (err) {
+        console.error('Pruning old backups failed (backup itself succeeded):', err);
+      }
     })
     .catch((err) => {
       console.error('Backup failed:', err);
@@ -122,4 +171,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { backupData };
+module.exports = { backupData, pruneBackups };
