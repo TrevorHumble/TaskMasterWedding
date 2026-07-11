@@ -2000,15 +2000,15 @@ body:has(dialog[open]) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-input);
-  background: var(--green-50);
-  border: var(--border-hairline);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  border: 2px solid var(--color-bg);
+  font-family: var(--font-display);
   font-size: var(--fs-small);
   font-weight: 600;
-  color: var(--color-text-muted);
+  color: var(--white);
   position: relative;
   z-index: 1;
 }

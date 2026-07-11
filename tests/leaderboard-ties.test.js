@@ -430,6 +430,31 @@ describe('podium tied-names sizing and wrap (#361)', () => {
     expect(classCount(rank1NamesRule[0])).toBeGreaterThan(classCount(rank1NameRule[0]));
   });
 
+  test('AC3: the .podium-stack-more marker is a filled 44px circle matching .podium-stack-avatar', () => {
+    // Anchor to a line that STARTS with `.podium-stack-more {` — the
+    // combinator rule `.podium-stack-avatar + .podium-stack-more { … }`
+    // (the -10px overlap rule, ~line 1981) also contains the substring
+    // ".podium-stack-more {" but not at the start of its line, so an
+    // unanchored search would match that rule first instead of the standalone
+    // one under test.
+    const match = css.match(/^\.podium-stack-more\s*\{([\s\S]*?)\}/m);
+    expect(match).not.toBeNull();
+    const block = match[1];
+
+    expect(block).toContain('border-radius: 50%');
+
+    const width = block.match(/width:\s*([^;]+);/);
+    expect(width).not.toBeNull();
+    expect(width[1].trim()).toBe('44px');
+
+    const height = block.match(/height:\s*([^;]+);/);
+    expect(height).not.toBeNull();
+    expect(height[1].trim()).toBe('44px');
+
+    expect(block).toContain('background: var(--color-primary)');
+    expect(block).toContain('color: var(--white)');
+  });
+
   test('AC2: a three-way tie with names >=12 chars each renders all three inside .podium-names', async () => {
     resetField();
     // A unique 1st place keeps this a partial (not all-guest) tie, so the
