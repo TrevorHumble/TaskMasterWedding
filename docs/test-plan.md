@@ -147,6 +147,46 @@ Expected: The badge appears on their profile immediately, alongside any auto bad
 
 - [ ] Pass/fail
 
+### B6. Upload button shows the right label at each stage
+
+Steps: On a task you haven't completed yet, open the upload form and look at the submit button before choosing a photo.
+
+Expected: The button reads "Upload & complete". Choose a photo and tap the button.
+
+Expected: While the upload is in progress, the button's label changes to "Uploading…". Once it finishes, you land back on the task page as normal (per B1).
+
+Steps (continued): Go to that same now-completed task again and open the upload form.
+
+Expected: This time the button reads "Replace photo" instead of "Upload & complete", since a submission already exists.
+
+- [ ] Pass/fail
+
+### B7. Large photos are downscaled before upload
+
+Steps: Upload a large photo (over roughly 2000 pixels on its longest side — most phone camera photos qualify) to a task.
+
+Expected: The upload succeeds without a slow wait or a failure. The app resizes the image in your browser (down to a 2000px-long-edge maximum) before sending it, so you don't need to compress the photo yourself first.
+
+- [ ] Pass/fail
+
+### B8. Tasks page shows a running "to do" count
+
+Steps: As a signed-in guest with at least one task still incomplete, go to `/tasks`.
+
+Expected: A chip near the top reads "To do ·" followed by a number, and that number matches how many tasks on the page are still not completed. Complete one more task and reload `/tasks`.
+
+Expected: The number in the chip goes down by one.
+
+- [ ] Pass/fail
+
+### B9. Tied podium spots show a "points each" note
+
+Steps: Go to `/leaderboard`. Look at the top-3 podium display (not the full standings list below it) for a spot where two or more guests are tied — the seed data should produce at least one tie near the top; if not, award bonus points in the admin window (C4) until two guests share a podium spot.
+
+Expected: A tied podium spot shows a stack of the tied guests' avatars — up to three, with a "+N" badge if more than three guests are tied — and a subline reading something like "2nd place · 12 pts each" — the literal phrase "pts each" appears under a tied group, unlike a single winner's spot, which just shows their name.
+
+- [ ] Pass/fail
+
 ---
 
 ## Goal C — The hosts run the show
@@ -225,6 +265,16 @@ Expected: A page listing every guest's name (or a placeholder like "Guest #N" if
 
 - [ ] Pass/fail
 
+### C10. Hide and restore a comment
+
+Steps: In the admin window, go to `/admin/comments`. If no comments exist yet, post one from a guest window first (see D9 below). Find a comment in the list and click **Hide**.
+
+Expected: A "Comment hidden." confirmation message appears, and the comment is marked HIDDEN in the admin list. As a guest, reload `/feed` — the hidden comment no longer appears anywhere on its photo's card, including inside the full comment-thread dialog. Then click **Restore** on the same comment.
+
+Expected: A "Comment restored." message appears, and the comment reappears on `/feed` for guests.
+
+- [ ] Pass/fail
+
 ---
 
 ## Goal D — One shared record, kept
@@ -251,7 +301,11 @@ Expected: Photos are grouped under their task titles, newest first within each g
 
 Steps: Go to `/gallery?view=user`.
 
-Expected: Photos are grouped under each guest's name, newest first within each group.
+Expected: Photos are grouped under each guest's name, newest first within each group. Each group shows **at most 6** preview tiles, even for a guest who has submitted more than 6 photos.
+
+Steps (continued): In the admin window, go to `/admin/guests` and pin a guest using the **pinned** checkbox (this is meant for the couple's own "our section"). Reload `/gallery?view=user` as a guest.
+
+Expected: The pinned guest's section now leads — it appears first in the grouped list, ahead of every other guest's section, regardless of who posted most recently.
 
 - [ ] Pass/fail
 
@@ -287,19 +341,41 @@ Expected: Shows their name, avatar, badges, points, and their own photo submissi
 
 - [ ] Pass/fail
 
-### D8. Admin export produces a ZIP and a spreadsheet
+### D8. Give and remove a like on a feed photo
 
-Steps: In the admin window, go to `/admin/export`. Let the download finish, then open the downloaded ZIP file.
+Steps: As a signed-in guest, go to `/feed`. On any photo, tap the heart button.
 
-Expected: The browser downloads a `.zip` file. Inside it: a `summary.xlsx` spreadsheet at the top level, and one folder per guest containing their submitted photos.
+Expected: The heart fills in and the like count next to it goes up by one. Tap the same heart again.
+
+Expected: The heart un-fills and the count drops back down by one — liking a photo you've already liked removes your like rather than adding a second one.
 
 - [ ] Pass/fail
 
-### D9. Taken-down photos are excluded from the gallery but included in the export
+### D9. Add a comment on a feed photo; confirm no reply thread or notification; confirm hidden content stays hidden
 
-Steps: Take down a photo (as in C6) if you haven't already. Confirm it is gone from `/gallery`. Then run `/admin/export` again and check the ZIP.
+Steps: On `/feed`, open a photo's comment dialog (tap the comment bubble). Type a short message into the box (placeholder text reads "Add a comment") and tap **Post**.
 
-Expected: The taken-down photo does not appear anywhere in `/gallery`, but the same photo's file IS present inside the exported guest folder in the ZIP, and its row in `summary.xlsx`'s Submissions sheet is marked "Taken Down: YES". This confirms the rule that a taken-down photo is excluded from the gallery but included in the export — nothing is ever permanently lost by a takedown.
+Expected: Your comment appears in the thread immediately, and the comment count next to the bubble goes up by one. Look for any way to reply to a specific comment, and for any notification or alert sent to another guest about the new comment — there should be **none**; this app has no reply threads and no comment notifications.
+
+Steps (continued): In the admin window, hide the comment you just posted (see C10 above). Sign in as a different guest: open a fresh private/incognito window and go to `/j/event-guest-token-<a different number 0–99 than the commenter>` (the same token scheme as A1). Then reload `/feed` in that window.
+
+Expected: The hidden comment does not appear anywhere on that photo's card or inside its comment dialog to the second guest.
+
+- [ ] Pass/fail
+
+### D10. Admin export produces a ZIP and a spreadsheet
+
+Steps: In the admin window, go to `/admin/export`. Let the download finish, then open the downloaded ZIP file.
+
+Expected: The browser downloads a `.zip` file. Inside it: a `summary.xlsx` spreadsheet at the top level with four sheets — Guests, Submissions, Badges, and Comments — and one folder per guest containing their submitted photos. Any guest who has set an avatar has an `avatar.<ext>` file (e.g. `avatar.jpg`) inside their folder too.
+
+- [ ] Pass/fail
+
+### D11. Taken-down and hidden content is excluded from guest views but included, and labelled, in the export
+
+Steps: Take down a photo (as in C6) and hide a comment (as in C10) if you haven't already. Confirm the photo is gone from `/gallery` and the comment is gone from `/feed`. Then run `/admin/export` again and check the ZIP.
+
+Expected: Neither the taken-down photo nor the hidden comment appears anywhere in the live `/gallery` or `/feed`. But in the export: the photo's file IS present inside its guest folder, and its row in `summary.xlsx`'s Submissions sheet reads "Taken Down: YES"; the comment's row on the Comments sheet reads "Hidden: YES". This confirms the rule that taken-down/hidden content is excluded from what guests see but never lost — it's included in the export, just labelled.
 
 - [ ] Pass/fail
 
