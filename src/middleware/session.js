@@ -84,16 +84,25 @@ function requireGuest(req, res, next) {
 }
 
 /**
- * Gate for admin-only pages. The signed `admin` cookie must equal "1".
- * Otherwise send the visitor to the admin login form.
+ * The single owner of "is this request an authenticated admin" — a valid
+ * signed `admin` cookie equal to "1". requireAdmin (below) and the
+ * taken-down file guards in services/photos.js (issue #191) both need this
+ * exact predicate; both import it from here rather than re-testing the
+ * cookie in more than one place.
+ */
+function isAdminRequest(req) {
+  return !!(req.signedCookies && req.signedCookies.admin === '1');
+}
+
+/**
+ * Gate for admin-only pages. Otherwise send the visitor to the admin login form.
  */
 function requireAdmin(req, res, next) {
-  const flag = req.signedCookies && req.signedCookies.admin;
-  if (flag === '1') {
+  if (isAdminRequest(req)) {
     return next();
   }
   res.redirect('/admin/login');
   return undefined;
 }
 
-module.exports = { attachGuest, requireGuest, requireAdmin, setFlash };
+module.exports = { attachGuest, requireGuest, requireAdmin, setFlash, isAdminRequest };
