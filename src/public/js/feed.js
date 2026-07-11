@@ -28,6 +28,17 @@
 //      comment-button badge, the "See all <N>" line, and the card's 4
 //      preview rows, then clears and re-shrinks the textarea. Any failure
 //      falls back to the plain form POST (redirect), also the no-JS path.
+//   5. Comment delete (#338): each own-comment row's ⋯ menu is a native
+//      <details>/<summary> disclosure that opens/closes with no JS. The
+//      `.comment-delete-form` inside it (`[data-delete-comment]` button)
+//      carries the same data-confirm attribute the app's admin pages use
+//      (src/public/js/admin.js) — this page has no admin.js, so this file
+//      re-runs that exact check (window.confirm, cancel -> preventDefault,
+//      stop) before fetching the delete route with Accept: application/json.
+//      On success the row (menu included) is removed from the dialog thread
+//      and the card preview/badge/See-all line are refreshed in place; on
+//      failure (or no fetch support) the plain form POST runs, which is also
+//      the no-JS path. Any other open menu is closed on an outside tap.
 'use strict';
 
 (function () {
@@ -46,6 +57,18 @@
     } else if (form.classList.contains('comments-dialog-form')) {
       event.preventDefault();
       postComment(form);
+    } else if (form.classList.contains('comment-delete-form')) {
+      // Same data-confirm convention as src/public/js/admin.js's submit
+      // handler (this page never loads admin.js, so the check is repeated
+      // here): a message and a declined confirm cancels the submit outright,
+      // before any fetch runs.
+      var confirmMsg = form.getAttribute('data-confirm');
+      if (confirmMsg && !window.confirm(confirmMsg)) {
+        event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      deleteComment(form);
     }
   });
 
@@ -169,6 +192,12 @@
     ) {
       target.close();
     }
+
+    // Outside tap closes any open ⋯ menu (#338): the native <details> only
+    // closes on a second tap of its own <summary>, so a tap elsewhere in the
+    // thread (another row, the composer, the dialog header) is handled here.
+    var insideMenu = event.target.closest && event.target.closest('.comment-menu');
+    closeCommentMenus(insideMenu);
   });
 
   // Auto-grow + Post-mute tracking as the guest types.
@@ -197,6 +226,59 @@
     p.appendChild(a);
     p.appendChild(document.createTextNode(' ' + comment.body));
     return p;
+  }
+
+  /**
+   * Build one dialog-thread row for a just-posted comment: the shared
+   * commentNode() <p>, plus its own ⋯ actions menu (native <details>) with
+   * the Delete control inside — mirroring the .feed-comment-item /
+   * .comment-menu markup src/views/feed.ejs renders server-side (issue #338,
+   * revised to the kebab pattern 2026-07-10). A comment this client just
+   * posted is always the signed-in guest's own, so the menu is unconditional
+   * here (the ownership check that decides whether to render it at all lives
+   * once, server-side, in feed.ejs's `c.guest_id === guest.id`) — this only
+   * builds markup for a comment already known to be self-authored.
+   */
+  function commentItemNode(comment, submissionId) {
+    var wrap = document.createElement('div');
+    wrap.className = 'feed-comment-item';
+    wrap.appendChild(commentNode(comment));
+
+    var menu = document.createElement('details');
+    menu.className = 'comment-menu';
+
+    var summary = document.createElement('summary');
+    summary.className = 'comment-menu-trigger';
+    summary.setAttribute('aria-label', 'Comment actions');
+    summary.textContent = '⋯';
+    menu.appendChild(summary);
+
+    var form = document.createElement('form');
+    form.method = 'post';
+    form.action = '/p/' + submissionId + '/comments/' + comment.id + '/delete';
+    form.className = 'comment-delete-form';
+    form.setAttribute('data-confirm', "Delete this comment? This can't be undone.");
+
+    var button = document.createElement('button');
+    button.type = 'submit';
+    button.className = 'comment-delete';
+    button.setAttribute('data-delete-comment', String(comment.id));
+    button.textContent = 'Delete';
+    form.appendChild(button);
+
+    menu.appendChild(form);
+    wrap.appendChild(menu);
+    return wrap;
+  }
+
+  /** Close every open .comment-menu <details> except (optionally) one. */
+  function closeCommentMenus(except) {
+    var openMenus = document.querySelectorAll('.comment-menu[open]');
+    Array.prototype.forEach.call(openMenus, function (menu) {
+      if (menu !== except) {
+        menu.removeAttribute('open');
+      }
+    });
   }
 
   /**
@@ -287,7 +369,7 @@
           if (empty && empty.parentNode) {
             empty.parentNode.removeChild(empty);
           }
-          threadEl.appendChild(commentNode(data.comment));
+          threadEl.appendChild(commentItemNode(data.comment, submissionId));
           threadEl.scrollTop = threadEl.scrollHeight;
         }
         refreshCardPreview(form.closest('.feed-item'), dialog, submissionId, data.commentCount);
@@ -302,6 +384,56 @@
       .catch(function () {
         // Network hiccup or unexpected response — let the ordinary form POST
         // do its redirect-based round trip instead.
+        form.submit();
+      });
+  }
+
+  // ------------------------------------------------------------------
+  // Comment delete (#338): confirm is handled by the submit listener above
+  // before this ever runs.
+  // ------------------------------------------------------------------
+  function deleteComment(form) {
+    var action = form.getAttribute('action');
+    // The submission id comes from the form's POST target
+    // (/p/<submissionId>/comments/<commentId>/delete), a route contract —
+    // not from any DOM id's presentation format (same rule postComment
+    // follows for its own id extraction above).
+    var idMatch = /\/p\/(\d+)\/comments\/\d+\/delete/.exec(action);
+    var submissionId = idMatch ? idMatch[1] : null;
+    var item = form.closest('.feed-comment-item');
+    var dialog = form.closest('dialog');
+    var article = form.closest('.feed-item');
+
+    fetch(action, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          throw new Error('comment delete failed: ' + res.status);
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        if (item && item.parentNode) {
+          item.parentNode.removeChild(item);
+        }
+        if (dialog) {
+          var threadEl = dialog.querySelector('.comments-dialog-thread');
+          if (threadEl && threadEl.querySelectorAll('.feed-comment').length === 0) {
+            var empty = document.createElement('p');
+            empty.className = 'muted comments-dialog-empty';
+            empty.textContent = 'No comments yet.';
+            threadEl.appendChild(empty);
+          }
+        }
+        refreshCardPreview(article, dialog, submissionId, data.commentCount);
+      })
+      .catch(function () {
+        // Network hiccup or unexpected response (e.g. a stale 403/404) — let
+        // the ordinary form POST do its redirect-based round trip instead,
+        // the same fallback toggleLike/postComment use above.
         form.submit();
       });
   }
