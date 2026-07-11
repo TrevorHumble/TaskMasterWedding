@@ -75,6 +75,33 @@ describe('initials() helper', () => {
   it('AF is not FA (order matters)', () => {
     expect(initials('Ava Fenwick')).not.toBe('FA');
   });
+
+  it('emoji as first character is not split into a broken surrogate', () => {
+    // '😀' is a surrogate pair (U+1F600). Indexing name[0] would grab only
+    // the high surrogate half, producing an invalid lone surrogate.
+    expect(initials('😀scar Wilde')).toBe('😀W');
+  });
+
+  it('non-BMP letter (e.g. mathematical script) as first character stays intact', () => {
+    // '𝔊' (U+1D50A, MATHEMATICAL FRAKTUR CAPITAL G) is also a surrogate pair.
+    expect(initials('𝔊andalf Grey')).toBe('𝔊G');
+  });
+
+  it('single-word non-BMP name returns the full character, not half of it', () => {
+    expect(initials('😀scar')).toBe('😀');
+  });
+
+  it('does not return a lone surrogate (invalid UTF-16 unit)', () => {
+    // Regression guard: a lone surrogate would fail this codePointAt check
+    // because it isn't part of a valid pair.
+    const result = initials('😀scar Wilde');
+    const codePoint = result.codePointAt(0);
+    expect(codePoint).toBeGreaterThan(0xffff); // confirms it's a full astral code point
+  });
+
+   it('emoji as first character of the last word is not split either', () => {
+    expect(initials('Ava 😀scar')).toBe('A😀');
+  });
 });
 
 // ---------------------------------------------------------------------------
