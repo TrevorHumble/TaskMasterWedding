@@ -140,3 +140,4 @@
 {"schema":"gl1-governance","pr":443,"merged_sha":"415ea0fde4da741223a3d3bf7f76fc6e84dd3a30","ts":"2026-07-11T10:27:07Z","files":["skills/session-brief.md","tools/check-deps-parity.ps1"]}
 {"schema":"gl1","pr":444,"issue":null,"merged_sha":"476c00a18f18484116fc8911fae20f298bd2278b","ts":"2026-07-11T10:32:34Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1","pr":435,"issue":190,"merged_sha":"60df63f2f74fc09c9783c276d55be1a861f5b8de","ts":"2026-07-11T19:07:55Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":445,"issue":null,"merged_sha":"dffd887d91b007dbd80adb8d04c7b841ef3d8f0e","ts":"2026-07-11T19:27:33Z","reviews":[],"labels":[],"freeze":false}
