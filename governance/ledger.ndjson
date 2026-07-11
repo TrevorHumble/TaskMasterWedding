@@ -125,3 +125,4 @@
 {"schema":"gl1","pr":384,"issue":281,"merged_sha":"fc082f2b250b0e85fb21ccb7aa626eea29083fcf","ts":"2026-07-11T04:31:31Z","reviews":[],"labels":[],"freeze":false}
 {"schema":"gl1-governance","pr":384,"merged_sha":"fc082f2b250b0e85fb21ccb7aa626eea29083fcf","ts":"2026-07-11T04:31:31Z","files":["DESIGN.md"]}
 {"schema":"gl1","pr":420,"issue":null,"merged_sha":"d4f79905cf95bf0d3dc6fd9eb5d36c804bbee567","ts":"2026-07-11T04:37:51Z","reviews":[],"labels":[],"freeze":false}
+{"schema":"gl1","pr":425,"issue":191,"merged_sha":"cf91633cd9ef74636fdf1b04b2fee1bc6db0a5b5","ts":"2026-07-11T08:31:56Z","reviews":[],"labels":[],"freeze":false}
