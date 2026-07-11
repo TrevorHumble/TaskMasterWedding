@@ -12,7 +12,18 @@
     <p class="task-detail-desc center"><%= task.description %></p>
   <% } %>
 
-  <% if (submission) { %>
+  <% if (submission && submission.taken_down) { %>
+    <!-- Issue #190: a host takedown is sticky. Do not show the photo (not
+         required by AC2) and do not present the task as not-done — that is
+         what invited a silent resubmit-reverses-the-takedown loop before. -->
+    <section class="existing-submission">
+      <h2 class="section-title">Your photo is with the hosts</h2>
+      <p class="muted">
+        Your photo for this task is with the hosts right now. It'll show up again once
+        they take a look — no need to resubmit, but you're welcome to replace it below.
+      </p>
+    </section>
+  <% } else if (submission) { %>
     <section class="existing-submission">
       <h2 class="section-title">Your photo</h2>
       <img src="/uploads/<%= submission.photo_path %>"

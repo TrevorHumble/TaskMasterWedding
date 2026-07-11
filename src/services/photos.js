@@ -1054,6 +1054,10 @@ function absThumbPath(thumbPath) {
 
 const _getSubmissionGuest = db.prepare('SELECT guest_id FROM submissions WHERE id = ?');
 const _setTakenDown = db.prepare('UPDATE submissions SET taken_down = ? WHERE id = ?');
+// Cleared only on restore (issue #190) — see restoreSubmission below. hide
+// leaves resubmitted exactly as it was: a takedown does not, by itself, say
+// anything about whether a resubmit is pending.
+const _clearResubmitted = db.prepare('UPDATE submissions SET resubmitted = 0 WHERE id = ?');
 
 /**
  * Flip a submission's taken_down flag and recompute the owning guest's
@@ -1062,12 +1066,18 @@ const _setTakenDown = db.prepare('UPDATE submissions SET taken_down = ? WHERE id
  * callers can guard on that the same way they guarded a raw UPDATE before).
  * @param {number} submissionId
  * @param {0|1} takenDown
+ * @param {boolean} clearResubmitted - true only for restore (issue #190): a
+ *        restored row is no longer "resubmitted behind a takedown", so the
+ *        flag clears in the same transaction as the taken_down flip.
  * @returns {number|undefined} the submission's guest_id, or undefined if not found.
  */
-const _setTakenDownAndRecount = db.transaction((submissionId, takenDown) => {
+const _setTakenDownAndRecount = db.transaction((submissionId, takenDown, clearResubmitted) => {
   const row = _getSubmissionGuest.get(submissionId);
   if (!row) return undefined;
   _setTakenDown.run(takenDown, submissionId);
+  if (clearResubmitted) {
+    _clearResubmitted.run(submissionId);
+  }
   // One recompute seam runs the per-guest auto/metric pass and the global
   // transferable pass in order (issue #80) — a takedown/restore can change
   // who holds a transferable badge like MOSTPHOTOS, not just this guest's own
@@ -1082,23 +1092,26 @@ const _setTakenDownAndRecount = db.transaction((submissionId, takenDown) => {
  * Hide a submission (admin photo takedown). Keeps the file on disk for export.
  * Recomputes the guest's auto-badges in the same transaction as the flag flip,
  * so a dropped visible-submission count immediately revokes any auto badge
- * whose threshold is no longer met.
+ * whose threshold is no longer met. Leaves resubmitted untouched (issue #190)
+ * — hiding a currently-visible photo is never itself a resubmit.
  * @param {number} submissionId
  * @returns {number|undefined} the submission's guest_id, or undefined if not found.
  */
 function hideSubmission(submissionId) {
-  return _setTakenDownAndRecount(submissionId, 1);
+  return _setTakenDownAndRecount(submissionId, 1, false);
 }
 
 /**
  * Restore a previously hidden submission. Recomputes the guest's auto-badges
  * in the same transaction as the flag flip, so a restored submission
- * immediately re-grants any auto badge whose threshold is met again.
+ * immediately re-grants any auto badge whose threshold is met again. Also
+ * clears resubmitted in that same transaction (issue #190): once the host has
+ * restored the row, there is no pending resubmit decision left to flag.
  * @param {number} submissionId
  * @returns {number|undefined} the submission's guest_id, or undefined if not found.
  */
 function restoreSubmission(submissionId) {
-  return _setTakenDownAndRecount(submissionId, 0);
+  return _setTakenDownAndRecount(submissionId, 0, true);
 }
 
 // ---------------------------------------------------------------------------

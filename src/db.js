@@ -387,6 +387,35 @@ function ensureBadgeCatalog() {
 
 ensureBadgeCatalog();
 
+// --- Guarded migration: submissions.resubmitted (issue #190) ---
+/**
+ * Add submissions.resubmitted if it is not already present.
+ *
+ * Same guard shape as ensurePhotoBonusColumn above: the submissions CREATE
+ * TABLE deliberately omits resubmitted, so the column is absent on BOTH a
+ * fresh DB and an existing pre-change app.db; ALTER TABLE ... ADD COLUMN adds
+ * it on the first boot, gated on PRAGMA table_info so a repeat call (or a
+ * later boot) is a no-op and never throws "duplicate column".
+ *
+ * Meaning of the flag: set to 1 when a guest replaces a submission that is
+ * currently taken_down (submissions.js's sticky-takedown replace path,
+ * issue #190) — the host takedown stays sticky, but this flag tells
+ * /admin/photos a new photo is waiting behind it. Cleared back to 0 only by
+ * photos.restoreSubmission, in the same transaction as the taken_down flip.
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureResubmittedColumn() {
+  const cols = db.prepare(`PRAGMA table_info(submissions)`).all();
+  if (!cols.some((col) => col.name === 'resubmitted')) {
+    db.exec(`ALTER TABLE submissions ADD COLUMN resubmitted INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
+// Run once at module load, before submissions.js/admin.js prepare any
+// statement that reads/writes resubmitted — db.js fully evaluates this
+// module-load code before any other module's `require('../db')` call returns.
+ensureResubmittedColumn();
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -427,6 +456,7 @@ module.exports = {
   ensureGuestIdentityColumns,
   ensureTaskIdNullable,
   ensureBadgeCatalog,
+  ensureResubmittedColumn,
   getGuestByToken,
   getGuestById,
   getGuestByContact,
