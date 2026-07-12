@@ -298,10 +298,16 @@ p {
   gap: var(--space-1);
   margin-top: var(--space-2);
 }
+/* flex-wrap (issue #388): at >=430px (the #252-approved width) each row's two
+   links already fit on one line, so wrap never triggers there — this only
+   engages below that width, where the unwrappable row was forcing the whole
+   page to scroll sideways (#388 AC1/AC2). It never narrows the row itself,
+   so it cannot force a wrap that didn't already happen at 430px (AC3). */
 .site-nav-row {
   display: flex;
   gap: var(--space-6);
   justify-content: center;
+  flex-wrap: wrap;
 }
 .nav-link {
   display: inline-block;
@@ -315,6 +321,16 @@ p {
   transition:
     color var(--dur-fast) var(--ease-soft),
     border-color var(--dur-fast) var(--ease-soft);
+}
+/* Guest-nav-only override (issue #388): a single guest nav-link label (e.g.
+   "MY PROFILE") is allowed to wrap onto a second line rather than clip, on
+   the rare narrow viewport where letter-spacing pushes even one label past
+   the content width. Scoped to .site-nav-guest so the shared admin masthead
+   (.site-nav .nav-link, no -guest class) keeps its original nowrap/no-wrap
+   single-line treatment untouched. */
+.site-nav-guest .nav-link {
+  white-space: normal;
+  text-align: center;
 }
 .nav-link:hover {
   color: var(--color-primary);
@@ -760,6 +776,15 @@ p {
   justify-content: center;
   font-size: 10px;
   line-height: 1;
+}
+
+/* Spacing between the last task row and the standalone "Share a memory"
+   button below it (issue #471) — .task-share-memory previously had no rule
+   at all, so the button sat flush against the list with no visible gap.
+   Mirrors the .section { margin-bottom: var(--space-6) } precedent used
+   elsewhere on this page for this same kind of section separation. */
+.task-share-memory {
+  margin-top: var(--space-6);
 }
 
 /* ---- Task filter chips + section furniture ---- */
