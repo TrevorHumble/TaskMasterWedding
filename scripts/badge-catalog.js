@@ -85,6 +85,15 @@ const BADGES = [
     description:
       'Holds the most visible photo submissions right now. Steal-able — catch up to take it.',
   },
+  {
+    code: 'MOSTLIKED',
+    name: 'Most Liked',
+    type: 'transferable',
+    threshold: null,
+    art_path: '/badges/most-liked.svg',
+    description:
+      'Holds the most likes across their photos right now. Steal-able — earn more likes to take it.',
+  },
 ];
 
 /**

@@ -104,7 +104,7 @@ describe('#193 AC4: one catalog, not two', () => {
     expect(readScript('seed-event.js')).not.toMatch(/const BADGES\s*=\s*\[/);
   });
 
-  it('the shared catalog holds all nine badge codes', () => {
+  it('the shared catalog holds all ten badge codes', () => {
     const { BADGES } = require('../scripts/badge-catalog');
     expect(BADGES.map((b) => b.code)).toEqual([
       'BLOOM',
@@ -116,6 +116,7 @@ describe('#193 AC4: one catalog, not two', () => {
       'CHOICE',
       'COMPLETIONIST',
       'MOSTPHOTOS',
+      'MOSTLIKED',
     ]);
   });
 });

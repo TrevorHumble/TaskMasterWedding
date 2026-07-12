@@ -423,6 +423,13 @@ router.post('/p/:submissionId/like', requireGuest, (req, res) => {
     liked = true;
   }
 
+  // A like/unlike can move the MOSTLIKED holder set (issue #484), so
+  // recompute the transferable badges here — once, after the toggle mutation
+  // and before either response branch below — the same "recompute right
+  // after the data that feeds it changes" rule submissions.js/photos.js
+  // follow via recomputeAfterSubmissionChange.
+  scoring.recomputeTransferableBadges();
+
   if (req.accepts(['html', 'json']) === 'json') {
     const likeCount = db
       .prepare(`SELECT COUNT(*) AS n FROM likes WHERE submission_id = ?`)
