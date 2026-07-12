@@ -4,8 +4,8 @@
 //   AC1 — a signed-in guest's submission inserts a bug_reports row (body,
 //         guest_id, page = referring path, resolved=0) and shows the
 //         required thank-you flash
-//   AC2 — a signed-out visitor GETting /bug-report gets the existing
-//         "Private Link Needed" gate, not the form
+//   AC2 — a signed-out visitor GETting /bug-report is redirected (302) to
+//         /join, not shown the form
 //   AC3 — GET /admin/bugs renders an unresolved report's body, the
 //         reporting guest's name, and a resolve form posting to the right URL
 //   AC4 — POST /admin/bugs/:id/resolve flips resolved to 1 and the report

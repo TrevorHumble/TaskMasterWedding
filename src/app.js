@@ -121,8 +121,8 @@ const authRouter = require('./routes/auth'); // mounts at '/'  (public links, on
 app.use('/', authRouter);
 
 // admin.js MUST be before guest.js: guest.js applies requireGuest to every
-// path under '/', which would otherwise intercept /admin and bounce admins
-// to the "private link needed" page.
+// path under '/', which would otherwise intercept /admin and redirect
+// signed-out admins to /join.
 const adminRouter = require('./routes/admin'); // mounts at '/admin'
 app.use('/admin', adminRouter);
 
