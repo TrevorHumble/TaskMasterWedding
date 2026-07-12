@@ -16,31 +16,18 @@ const path = require('path');
 const config = require('../config');
 const { MANIFEST } = require('../tests/helpers/demo-fixture');
 const photos = require('../src/services/photos');
-
-// The bundled sample images this script round-robins across the 18 manifest
-// pairs. Kept as filenames (not full paths) so the source directory is the
-// single place that changes if more samples are added later.
-const SAMPLE_FILES = [
-  'sample-01.jpg',
-  'sample-02.jpg',
-  'sample-03.jpg',
-  'sample-04.jpg',
-  'sample-05.jpg',
-  'sample-06.jpg',
-  'sample-07.jpg',
-];
-
-const AVATAR_FILES = ['avatar-01.jpg', 'avatar-02.jpg'];
-
-const SAMPLES_DIR = path.join(config.ROOT, 'fixtures', 'sample-photos');
+const { resolveSamplePool } = require('./sample-photo-pool');
 
 /**
- * Copy one bundled sample into UPLOADS_DIR under `destName`, then generate
- * its thumbnail via photos.makeThumb so THUMBS_DIR/<destName>.jpg exists too
+ * Copy one sample photo into UPLOADS_DIR under `destName`, then generate its
+ * thumbnail via photos.makeThumb so THUMBS_DIR/<destName>.jpg exists too
  * (makeThumb derives the thumb name from the copied original's filename, so
  * thumb_path = photo_path + '.jpg' always matches what the MANIFEST expects).
  *
- * @param {string} sourceFile - filename under fixtures/sample-photos/
+ * @param {string} sourceDir - directory `sourceFile` lives under (the
+ *   bundled fixtures/sample-photos/, or LOCAL_PHOTOS_DIR — see
+ *   scripts/sample-photo-pool.js's resolveSamplePool()).
+ * @param {string} sourceFile - filename under `sourceDir`.
  * @param {string} destName - conforming original filename to write under UPLOADS_DIR
  * @param {string} [expectedThumbName] - when given (photo pairs only; avatars
  *   have no thumb_path), the MANIFEST's thumb_path for this pair. Asserted
@@ -48,12 +35,12 @@ const SAMPLES_DIR = path.join(config.ROOT, 'fixtures', 'sample-photos');
  *   makeThumb's naming rule is caught here at install time, not silently.
  * @returns {Promise<void>}
  */
-async function installOne(sourceFile, destName, expectedThumbName) {
-  const src = path.join(SAMPLES_DIR, sourceFile);
+async function installOne(sourceDir, sourceFile, destName, expectedThumbName) {
+  const src = path.join(sourceDir, sourceFile);
   if (!fs.existsSync(src)) {
     throw new Error(
       `Demo seed source photo missing: expected sample file at "${src}" ` +
-        `(fixtures/sample-photos/ renamed or absent?)`
+        `(source directory renamed, moved, or emptied?)`
     );
   }
   const dest = path.join(config.UPLOADS_DIR, destName);
@@ -72,26 +59,30 @@ async function installOne(sourceFile, destName, expectedThumbName) {
 }
 
 /**
- * Install every MANIFEST photo pair (round-robin over the bundled samples)
- * plus the manifest's avatar files, into config.UPLOADS_DIR / config.THUMBS_DIR.
- * Idempotent: re-running simply overwrites the same conforming filenames.
+ * Install every MANIFEST photo pair (round-robin over resolveSamplePool()'s
+ * sample pool — the bundled CC0 photos, or LOCAL_PHOTOS_DIR when set) plus
+ * the manifest's avatar files (always the bundled pool), into
+ * config.UPLOADS_DIR / config.THUMBS_DIR. Idempotent: re-running simply
+ * overwrites the same conforming filenames.
  *
  * @returns {Promise<{ installedPhotos: number, installedAvatars: number }>}
  */
 async function installSamplePhotos() {
+  const pool = resolveSamplePool();
+
   let installedPhotos = 0;
   for (let i = 0; i < MANIFEST.photos.length; i++) {
     const { photo_path, thumb_path } = MANIFEST.photos[i];
-    const sourceFile = SAMPLE_FILES[i % SAMPLE_FILES.length];
-    await installOne(sourceFile, photo_path, thumb_path);
+    const sourceFile = pool.sampleFiles[i % pool.sampleFiles.length];
+    await installOne(pool.samplesDir, sourceFile, photo_path, thumb_path);
     installedPhotos += 1;
   }
 
   let installedAvatars = 0;
   for (let i = 0; i < MANIFEST.avatars.length; i++) {
     const avatarName = MANIFEST.avatars[i];
-    const sourceFile = AVATAR_FILES[i % AVATAR_FILES.length];
-    await installOne(sourceFile, avatarName);
+    const sourceFile = pool.avatarFiles[i % pool.avatarFiles.length];
+    await installOne(pool.avatarsDir, sourceFile, avatarName);
     installedAvatars += 1;
   }
 

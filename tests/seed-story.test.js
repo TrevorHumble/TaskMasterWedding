@@ -38,11 +38,13 @@ beforeAll(() => {
  * blocks use — DATA_DIR/DB_PATH are read once at require-time and cached, so
  * a genuinely separate directory needs a genuinely separate process).
  * @param {string} story
+ * @param {Record<string, string>} [extraEnv] - additional env vars for the
+ *   spawned process (e.g. LOCAL_PHOTOS_DIR — #457 AC5).
  * @returns {{ tmp: string, stdout: string }}
  */
-function runStory(story) {
+function runStory(story, extraEnv = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `gpp-seed-story-${story}-`));
-  const env = { ...process.env, DATA_DIR: tmp, DB_PATH: path.join(tmp, 'test.db') };
+  const env = { ...process.env, DATA_DIR: tmp, DB_PATH: path.join(tmp, 'test.db'), ...extraEnv };
   const stdout = execFileSync('node', ['scripts/seed-story.js', '--story', story], {
     cwd: config.ROOT,
     env,
@@ -77,6 +79,33 @@ describe('#450 AC6: --story extreme installs every referenced photo/thumb on dis
       storyDb.close();
     }
   }, 120000);
+});
+
+describe('#457 AC5: LOCAL_PHOTOS_DIR flows through seed-story.js to installed submission photos', () => {
+  it('every installed submission photo is byte-identical to the one local source image', () => {
+    // A real, already-valid image (one of the bundled CC0 samples) stands in
+    // for "the operator's real photo" — it just needs to be a genuine image
+    // sharp's makeThumb can decode, not literally a personal photo.
+    const sourceBytes = fs.readFileSync(
+      path.join(config.ROOT, 'fixtures', 'sample-photos', 'sample-01.jpg')
+    );
+    const photosDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gpp-local-photos-src-'));
+    fs.writeFileSync(path.join(photosDir, 'only-photo.jpg'), sourceBytes);
+
+    const { tmp } = runStory('normal', { LOCAL_PHOTOS_DIR: photosDir });
+
+    const storyDb = new Database(path.join(tmp, 'test.db'), { readonly: true });
+    try {
+      const rows = storyDb.prepare('SELECT DISTINCT photo_path FROM submissions').all();
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        const installedBytes = fs.readFileSync(path.join(tmp, 'uploads', row.photo_path));
+        expect(installedBytes.equals(sourceBytes)).toBe(true);
+      }
+    } finally {
+      storyDb.close();
+    }
+  }, 90000);
 });
 
 describe('#450 AC7: .gitignore covers the story/demo data directories', () => {
