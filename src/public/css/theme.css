@@ -712,6 +712,12 @@ p {
   font-size: var(--fs-h3);
   color: var(--color-text-muted);
 }
+/* Separate the "Share a memory" button from the task list above it so it
+   reads as its own action, not an extra list row. Matches the .section
+   separation used between the page's other major blocks. */
+.task-share-memory {
+  margin-top: var(--space-6);
+}
 .task-body {
   flex: 1 1 auto;
   /* min-width: 0 lets the flex body shrink so long titles/descriptions
