@@ -39,7 +39,7 @@ If the spawning prompt names what the artifact is supposed to accomplish, or exp
 
 ## Input / output contract
 
-**Input:** the absolute path to the implementation artifact under review. Read that file, `standards/design-philosophy.md`, and `standards/adversarial-review-protocol.md`. Read nothing else unless a specific file:line must be confirmed for a red-flag finding.
+**Input:** the absolute path to the implementation artifact under review. Read that file, `standards/design-philosophy.md`, and `standards/adversarial-review-protocol.md`. Read nothing else unless a specific file:line must be confirmed for a red-flag finding. The spawn prompt also assigns this reviewer instance a distinct `reviewerId` (e.g. `reviewer-design-philosophy-1`) — use that exact value in the JSON block below; do not invent one.
 
 **Output:**
 
@@ -51,6 +51,16 @@ PASS  (or)  FAIL
 ```
 
 One token verdict followed by the numbered defect list. Every principle in `standards/design-philosophy.md` must have an explicit finding (passed or failed). A PASS with any open blocker or major is not a PASS. If no defects are found, state "0 defects found" and the evidence that each principle check passed.
+
+**In addition to** the prose review above — not instead of it — emit a single trailing fenced ```json block conforming to `tools/review-verdict.schema.md`. It is a complete object: `reviewerId` (the id the spawn prompt assigned), `verdict` (`PASS` or `FAIL`, matching the prose token), and `defects` (an array mirroring the numbered defect list above; each entry carries `severity` — one of `blocker`/`major`/`minor`/`nit` — `text`, and, when the finding cites a location, `file` and 1-based `line`). Example:
+
+```json
+{
+  "reviewerId": "reviewer-design-philosophy-1",
+  "verdict": "PASS",
+  "defects": []
+}
+```
 
 ## Checklist
 

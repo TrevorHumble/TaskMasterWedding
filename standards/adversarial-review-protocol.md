@@ -63,9 +63,11 @@ reviewer verifies before emitting a citation; the orchestrator's "The spawner mu
 never" #5 below is the other half, verifying on receipt. Neither half substitutes for
 the other. `tools/review-runner.ps1` (#128) is the mechanical enforcement of this same
 rule for the JSON-verdict path — it rejects any out-of-range or nonexistent `file:line`
-citation before a verdict can be recorded. Prose verdicts have no such mechanical
-backstop yet, so the reviewer's own self-check is the only guard until a verdict moves
-to the runner.
+citation before a verdict can be recorded. The PR-path reviewers (`reviewer-pr`,
+`reviewer-design-philosophy`) now emit that JSON block per #474, but the runner does
+not yet sit in the pipeline to consume it — that lands with #455. Until then, and for
+the issue-stage reviewers (`reviewer-issue`, `reviewer-architecture`) that stay on
+prose, the reviewer's own self-check is the only guard.
 
 ---
 
