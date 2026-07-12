@@ -2,6 +2,35 @@
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
 
+  <% if (typeof taskComplete !== 'undefined' && taskComplete) { %>
+    <!-- Success card (issue #255): the reward moment for a just-created
+         completion. Supersedes the plain flash for this case — the route
+         (src/routes/guest.js) writes a one-shot taskComplete payload instead
+         of setFlash when result.status === 'created', so res.locals.flash is
+         null here and header.ejs's flash bar does not also render. -->
+    <section class="success-card" role="status">
+      <svg class="success-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <h2 class="success-heading">Task complete!</h2>
+      <p class="success-points">
+        +1 point &mdash; you're at <%= taskComplete.points %> point<%= taskComplete.points === 1 ? '' : 's' %>
+      </p>
+      <p class="success-memory-prompt">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
+      <% if (taskComplete.newBadges.length > 0) { %>
+        <ul class="success-badge-list">
+          <% taskComplete.newBadges.forEach(function (b) { %>
+            <li class="success-badge-item">
+              <img src="<%= b.art_path %>" alt="<%= b.name %> badge" class="success-badge-art" />
+              <span class="success-badge-name"><%= b.name %></span>
+              <span class="success-badge-caption">A new bloom in your garden.</span>
+            </li>
+          <% }); %>
+        </ul>
+      <% } %>
+    </section>
+  <% } %>
+
   <p class="back-link"><a href="/tasks">&#8592; All tasks</a></p>
   <p class="back-link"><a href="/gallery?task=<%= task.id %>">See photos for this task</a></p>
 
@@ -33,7 +62,12 @@
         <p class="submission-caption"><%= submission.caption %></p>
       <% } %>
       <p class="muted">This task is complete. You can replace your photo below.</p>
-      <p class="muted">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
+      <% if (!(typeof taskComplete !== 'undefined' && taskComplete)) { %>
+        <%# The success card above already carries this prompt for a fresh
+            'created' completion (issue #255) — only repeat it here for a
+            return visit / replace, so it never prints twice on one page. %>
+        <p class="muted">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
+      <% } %>
     </section>
   <% } %>
 

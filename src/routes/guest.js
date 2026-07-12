@@ -13,7 +13,7 @@ const { db } = require('../db');
 // redirects visitors who have no valid guest link. setFlash is the shared
 // one-shot flash writer (also in section 03), the single owner of the signed
 // `flash` cookie's shape.
-const { requireGuest, setFlash } = require('../middleware/session');
+const { requireGuest, setFlash, setTaskCompleteReward } = require('../middleware/session');
 
 // isValidPin (issue #243) — the SAME 4-digit-shape rule signup (routes/auth.js)
 // and the admin identity route (routes/admin.js) already share from
@@ -324,10 +324,26 @@ router.get('/tasks/:id', function (req, res) {
     )
     .get(guest.id, taskId);
 
+  // Success card (issue #255): resolve the one-shot taskComplete reward (read
+  // and cleared by attachGuest, src/middleware/session.js) into what task.ejs
+  // needs — the points total plus each new badge's display fields. Badge
+  // codes are resolved against the guest's CURRENT held badges rather than
+  // trusted as-is, so a badge id that no longer resolves (defensive; not
+  // expected to happen within the same redirect) is silently dropped instead
+  // of rendering a blank badge entry.
+  let taskComplete = null;
+  if (res.locals.taskCompleteReward) {
+    const reward = res.locals.taskCompleteReward;
+    const heldBadges = scoring.getGuestBadges(guest.id);
+    const newBadges = heldBadges.filter((b) => reward.newBadgeIds.includes(b.code));
+    taskComplete = { points: reward.points, newBadges: newBadges };
+  }
+
   res.render('task', {
     title: task.title,
     task: task,
     submission: submission, // null if none yet
+    taskComplete: taskComplete, // null unless a 'created' submit just redirected here
     pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/
   });
 });
@@ -381,16 +397,24 @@ router.post('/tasks/:id/submit', function (req, res) {
       return res.redirect('/tasks/' + taskId);
     }
 
+    // created (issue #255): the success card supersedes the plain flash for
+    // this case, so a one-shot taskComplete payload is written instead of
+    // setFlash — task.ejs renders the card on the redirected GET and header.ejs
+    // never gets a flash to also print, avoiding a double-render of the same
+    // moment.
+    //
     // replaced_hidden (issue #190): the resubmit landed on a still-taken-down
     // row, so it does not go live — tell the guest that plainly rather than
-    // claiming "Photo replaced!" for something that isn't visible yet.
-    let flashMsg = 'Task complete! +1 point.';
-    if (result.status === 'replaced') {
-      flashMsg = 'Photo replaced!';
+    // claiming "Photo replaced!" for something that isn't visible yet. These
+    // two statuses keep their existing plain flash (AC4).
+    if (result.status === 'created') {
+      setTaskCompleteReward(res, { points: result.pointsTotal, newBadgeIds: result.newBadgeIds });
     } else if (result.status === 'replaced_hidden') {
-      flashMsg = 'Photo received — it will appear once the hosts approve it.';
+      setFlash(res, 'success', 'Photo received — it will appear once the hosts approve it.');
+    } else {
+      // status === 'replaced'
+      setFlash(res, 'success', 'Photo replaced!');
     }
-    setFlash(res, 'success', flashMsg);
     return res.redirect('/tasks/' + taskId);
   });
 });
