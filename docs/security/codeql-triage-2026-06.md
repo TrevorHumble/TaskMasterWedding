@@ -286,3 +286,45 @@ the flagged line.
 **Disposition.** Alert #70 dismissed in code scanning via `gh api` (reason
 `false positive`). This entry is the durable written record; the GitHub
 alert itself was already dismissed at the time of writing.
+
+---
+
+## 2026-07-11 — alert #71 (issue #338 comment routes)
+
+## js/missing-rate-limiting
+
+**Verdict:** won't fix
+
+**Alerts:** 1 — `src/routes/community.js:527`.
+
+**Data flow.**
+The flagged handler is `POST /p/:submissionId/comments/:commentId/delete`
+(lines 527–577), added by issue #338 alongside its sibling
+`POST /p/:submissionId/comments` (lines 456–499). Both routes are gated by
+`requireGuest`, which 403s an anonymous caller before either handler body
+runs — the same auth-gated shape the original `js/missing-rate-limiting`
+disposition above already covers for "most guest and admin routes." This is
+not a new code defect; it is a fresh instance of that already-accepted rule
+class, surfaced because CodeQL scores each new route independently rather
+than recognizing it as the same shape as the routes already dispositioned.
+
+The delete handler adds nothing that changes the calculus: it does one
+indexed lookup (`SELECT id, guest_id FROM comments WHERE id = ? AND
+submission_id = ?`), one ownership check, and one `DELETE ... WHERE id = ?
+AND guest_id = ?` scoped to the caller's own `guest_id`. There is no
+unbounded write, no cross-guest side effect, and no path an unauthenticated
+caller can reach at all.
+
+The current disposition for this rule class is **superseded** by #283 (see
+the `## 2026-07 re-triage: hosted deployment` section above) — the app is
+now hosted for weeks at a stable public hostname, not hours behind a
+rotating tunnel URL, and #283 adds `express-rate-limit` with a `trust proxy`
+setting derived from the real reverse proxy, plus persistent admin-lockout
+storage. Alert #71 follows the same superseded-by-#283 path as alert #42
+and the main-entry disposition: not reclassified as exploitable, just
+carried by the fix already tracked and scheduled there rather than
+re-litigated here.
+
+**Disposition.** Alert #71 dismissed in code scanning via `gh api` (reason
+`won't fix`), with a dismissal comment referencing #283. This entry is the
+durable written record.
