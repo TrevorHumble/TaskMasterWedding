@@ -437,48 +437,237 @@ p {
   font-size: var(--fs-small);
   color: var(--color-text-muted);
 }
-.success-badge-list {
-  list-style: none;
-  margin: var(--space-4) 0 0;
-  padding: var(--space-4) 0 0;
-  border-top: 1px solid var(--color-hairline);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
+
+/* -------------------- Badge-earned modal (#255) -------------------- */
+/* A native <dialog> matching the #248 comments dialog (.comments-dialog
+   above): same width/radius/shadow/::backdrop tokens, centered by the UA,
+   background made inert by showModal(). Opened/closed by
+   src/public/js/badge-moment.js. Fires only for submission-earned badges
+   (BLOOM/BOUQUET/GARDEN/COMPLETIONIST/MOSTPHOTOS); admin-awarded 'special'
+   badges never go through this modal. No points language belongs in here —
+   points live only in .success-card above. */
+/* EVERY rule below is scoped under .badge-dialog on purpose: `.badge-art` and
+   `.badge-name` are GLOBAL classes owned by the profile badge grids (their
+   60px art / small name live later in this file), so an unscoped modal rule
+   would lose the cascade to them and the modal badge would shrink to 60px.
+   Scoping raises specificity so the modal owns its own art/title, and nothing
+   here leaks back onto the grids. */
+.badge-dialog {
+  width: min(360px, 100vw - 32px);
+  margin: auto;
+  padding: 0;
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-raise);
+  background: var(--white);
+  color: var(--color-text);
+  overflow: hidden;
 }
-.success-badge-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
+.badge-dialog[open] {
+  display: block;
 }
-.success-badge-art {
-  width: 64px;
-  height: 64px;
+/* badge-moment.js moves focus to the dialog itself (tabindex=-1) on open so
+   the auto-focus ring never lands on the Continue button; the container needs
+   no visible ring of its own. */
+.badge-dialog:focus {
+  outline: none;
 }
-.success-badge-name {
-  font-family: var(--font-display);
-  font-size: var(--fs-h3);
-  font-weight: 600;
-  color: var(--color-primary);
+.badge-dialog::backdrop {
+  background: rgba(20, 30, 24, 0.55);
 }
-.success-badge-caption {
-  font-size: var(--fs-small);
+
+.badge-dialog .badge-card {
+  padding: 32px 28px 28px;
+  text-align: center;
+}
+
+/* 1 — Eyebrow. Type comes from the shared .eyebrow class (serif, tracked,
+   uppercase — the masthead-names treatment); this only nudges it a touch
+   larger and sets the modal's muted color + spacing. */
+.badge-dialog .badge-eyebrow {
+  font-size: 14px;
   color: var(--color-text-muted);
+  margin: 0 0 8px;
 }
-/* Grow-in only when motion is not reduced (AC5) — same gating pattern as
-   .like-button-pop .like-heart / @keyframes heart-pop above. */
+
+/* 2 — Title: the badge NAME (plus a celebratory !) in the display face. */
+.badge-dialog .badge-title {
+  font-family: var(--font-display);
+  font-size: 32px;
+  line-height: 1.15;
+  color: var(--color-primary);
+  margin: 0 0 18px;
+}
+
+/* 3 — Stage: the (large) badge art, its glow ring, and the sparkle burst.
+   Art size lives HERE, outside the reduced-motion block, so a reduced-motion
+   guest still gets a large badge — just without the pop/sway/sparkle. */
+.badge-dialog .badge-stage {
+  position: relative;
+  width: 190px;
+  height: 190px;
+  margin: 0 auto 13px;
+}
+.badge-dialog .badge-ring {
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(70, 112, 88, 0.16) 0%, rgba(70, 112, 88, 0) 70%);
+}
+.badge-dialog .badge-sway {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.badge-dialog .badge-art {
+  width: 168px;
+  height: 168px;
+  display: block;
+}
+
+/* Sparkles/petals radiating from the badge center. Each starts invisible
+   (opacity 0) — the reduced-motion-gated `spark` keyframe is the only thing
+   that ever reveals one, so reduced-motion guests see no sparkle. Each span
+   carries its own --dx/--dy/--rot/--sd inline vars (task.ejs). */
+.badge-dialog .spark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.badge-dialog .spark.gold {
+  color: #d8b26a;
+}
+.badge-dialog .spark.sage {
+  color: #6e8478;
+}
+.badge-dialog .spark.mint {
+  color: #aebbb2;
+}
+
+/* 4 — Subtitle: the badge's own catalog description, body face, muted. Sized
+   with --fs-body (NOT --fs-small) so it reads a step larger than, and is
+   decoupled from, the button's font. */
+.badge-dialog .badge-sub {
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  margin: 0 0 16px;
+  padding: 0 6px;
+}
+
+/* 5 — Action: the shared .btn component (markup carries `btn`), no extra
+   sizing. Its keyboard focus ring is the app's shared :focus-visible outline
+   group (search "focus-visible" — .badge-dialog .badge-done is a member), so
+   it matches every other control and never shows the stray UA black outline. */
+
+/* The bloom: a springy scale-up with overshoot (badge-pop), a staggered
+   sparkle burst (spark), a soft glow ring (badge-ring), then a settle into a
+   gentle continuous breeze sway (badge-sway) — plus a text rise-in for the
+   eyebrow/heading/name/sub/button. Every rule here is scoped under
+   .playing, the class src/public/js/badge-moment.js adds right after
+   showModal() — so nothing plays until the script runs, and it plays exactly
+   once per page load. Timings/easing match the owner-approved prototype
+   (src/public/demo-255.html) exactly. Gated under
+   prefers-reduced-motion: no-preference (AC5) — under reduced motion the
+   badge and its text simply appear via the unconditional base rules above. */
 @media (prefers-reduced-motion: no-preference) {
-  .success-badge-art {
-    animation: badge-bloom 300ms ease-out;
+  /* Reveal order: eyebrow, then title, THEN the badge blooms as the payoff,
+     then the description and button settle in. */
+  .playing .badge-eyebrow {
+    animation: rise 560ms ease-out 120ms both;
   }
-  @keyframes badge-bloom {
+  .playing .badge-title {
+    animation: rise 560ms ease-out 240ms both;
+  }
+  .playing .badge-art {
+    animation: badge-pop 1050ms cubic-bezier(0.22, 1, 0.36, 1) 360ms both;
+  }
+  .playing .badge-ring {
+    animation: badge-ring 1000ms ease-out 360ms both;
+  }
+  /* Sparkles ripple outward alongside the pop — each spark's own --sd staggers
+     its start, offset to fire with the (delayed) bloom. */
+  .playing .spark {
+    animation: spark 1150ms ease-out both;
+    animation-delay: calc(var(--sd, 140ms) + 320ms);
+  }
+  /* gentle breeze sway begins once the pop fully settles */
+  .playing .badge-sway {
+    animation: badge-sway 4.2s ease-in-out 1500ms infinite;
+  }
+  .playing .badge-sub {
+    animation: rise 620ms ease-out 1180ms both;
+  }
+  .playing .badge-done {
+    animation: rise 620ms ease-out 1320ms both;
+  }
+
+  @keyframes badge-pop {
     0% {
-      transform: scale(0.6);
+      transform: scale(0) rotate(-26deg);
+      opacity: 0;
+    }
+    50% {
+      transform: scale(1.18) rotate(9deg);
+      opacity: 1;
+    }
+    68% {
+      transform: scale(0.93) rotate(-5deg);
+    }
+    84% {
+      transform: scale(1.05) rotate(2deg);
     }
     100% {
-      transform: scale(1);
+      transform: scale(1) rotate(0);
+    }
+  }
+  @keyframes badge-sway {
+    0%,
+    100% {
+      transform: rotate(-2.6deg);
+    }
+    50% {
+      transform: rotate(2.6deg);
+    }
+  }
+  @keyframes badge-ring {
+    0% {
+      transform: scale(0.35);
+      opacity: 0.75;
+    }
+    100% {
+      transform: scale(1.7);
+      opacity: 0;
+    }
+  }
+  @keyframes spark {
+    0% {
+      transform: translate(-50%, -50%) scale(0) rotate(0);
+      opacity: 0;
+    }
+    25% {
+      opacity: 1;
+    }
+    100% {
+      transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1)
+        rotate(var(--rot, 90deg));
+      opacity: 0;
+    }
+  }
+  @keyframes rise {
+    0% {
+      transform: translateY(9px);
+      opacity: 0;
+    }
+    100% {
+      transform: translateY(0);
+      opacity: 1;
     }
   }
 }
@@ -1602,7 +1791,8 @@ textarea {
 .comment-delete:focus-visible,
 .comment-menu-trigger:focus-visible,
 .comments-dialog-close:focus-visible,
-.comments-dialog-thread .feed-comment a:focus-visible {
+.comments-dialog-thread .feed-comment a:focus-visible,
+.badge-dialog .badge-done:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }

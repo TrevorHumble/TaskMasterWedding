@@ -289,6 +289,12 @@ router.post('/bug-report', function (req, res) {
   return res.redirect('/');
 });
 
+// When one submission earns more than one new badge (rare — e.g. an auto
+// badge plus COMPLETIONIST at once), the modal celebrates a single PRIMARY
+// badge by this fixed priority (design, #255). The rest are still awarded
+// and appear on the guest's profile — one modal, one badge (v1).
+const BADGE_MOMENT_PRIORITY = ['GARDEN', 'BOUQUET', 'BLOOM', 'COMPLETIONIST', 'MOSTPHOTOS'];
+
 // ---------------------------------------------------------------------------
 // GET /tasks/:id  — one task's detail + the upload form. If the guest has
 // already submitted, show their photo (or, if a host took it down, the
@@ -324,19 +330,52 @@ router.get('/tasks/:id', function (req, res) {
     )
     .get(guest.id, taskId);
 
-  // Success card (issue #255): resolve the one-shot taskComplete reward (read
-  // and cleared by attachGuest, src/middleware/session.js) into what task.ejs
-  // needs — the points total plus each new badge's display fields. Badge
-  // codes are resolved against the guest's CURRENT held badges rather than
-  // trusted as-is, so a badge id that no longer resolves (defensive; not
+  // Success card + badge modal (issue #255): resolve the one-shot
+  // taskComplete reward (read and cleared by attachGuest,
+  // src/middleware/session.js) into what task.ejs needs. Points live ONLY on
+  // the inline card (taskComplete.points); a newly-earned badge gets its own
+  // separate badgeMoment, which task.ejs renders as an auto-opening modal.
+  //
+  // Badge codes are resolved against the guest's CURRENT held badges rather
+  // than trusted as-is, so a badge id that no longer resolves (defensive; not
   // expected to happen within the same redirect) is silently dropped instead
   // of rendering a blank badge entry.
   let taskComplete = null;
+  let badgeMoment = null;
   if (res.locals.taskCompleteReward) {
     const reward = res.locals.taskCompleteReward;
-    const heldBadges = scoring.getGuestBadges(guest.id);
-    const newBadges = heldBadges.filter((b) => reward.newBadgeIds.includes(b.code));
-    taskComplete = { points: reward.points, newBadges: newBadges };
+    taskComplete = { points: reward.points };
+
+    if (reward.newBadgeIds.length > 0) {
+      const heldBadges = scoring.getGuestBadges(guest.id);
+      const earnedBadges = heldBadges.filter((b) => reward.newBadgeIds.includes(b.code));
+
+      // Pick the primary badge by fixed priority; if none of the earned
+      // badges appear in the priority list (a future code not yet added to
+      // it), fall back to the first earned badge rather than showing none.
+      let primary = null;
+      for (const code of BADGE_MOMENT_PRIORITY) {
+        primary = earnedBadges.find((b) => b.code === code);
+        if (primary) {
+          break;
+        }
+      }
+      if (!primary) {
+        primary = earnedBadges[0] || null;
+      }
+
+      if (primary) {
+        // Use the badge's OWN catalog data — its name is the title, its
+        // description is the subtitle (scripts/badge-catalog.js). No invented
+        // per-badge copy: the modal shows only what the badge actually carries.
+        badgeMoment = {
+          code: primary.code,
+          name: primary.name,
+          art_path: primary.art_path,
+          description: primary.description,
+        };
+      }
+    }
   }
 
   res.render('task', {
@@ -344,6 +383,7 @@ router.get('/tasks/:id', function (req, res) {
     task: task,
     submission: submission, // null if none yet
     taskComplete: taskComplete, // null unless a 'created' submit just redirected here
+    badgeMoment: badgeMoment, // null unless that submit also earned a new badge
     pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/
   });
 });

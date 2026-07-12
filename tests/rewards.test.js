@@ -1,17 +1,28 @@
 // tests/rewards.test.js
-// Issue #255: the task-complete success card. Covers:
-//   AC1 — the redirected task page contains "Task complete!", "+1 point", and
-//         the guest's fresh total ("5 points" for a guest at 4 points completing one task)
-//   AC2 — crossing a badge threshold (BLOOM at 5 completions) shows the badge
-//         name and "A new bloom in your garden."; a non-threshold completion
-//         shows neither
+// Issue #255: the task-complete success card + badge-earned MODAL. Covers:
+//   AC1 — a completion that earns NO new badge: the inline card contains
+//         "Task complete!", "+1 point", and the guest's fresh total ("5
+//         points" for a guest at 4 points completing one task), AND the page
+//         contains no `badge-dialog` element
+//   AC2 — crossing a badge threshold (BLOOM at 5 completions) renders a
+//         `<dialog class="badge-dialog">` whose text includes the badge name
+//         "First Bloom", the title "First Bloom!", and the catalog
+//         description "Completed 5 tasks.", with NO points language inside
+//         that dialog; the inline card still shows "+1 point". A following
+//         non-threshold completion shows neither the name nor the dialog.
 //   AC3 — submissions.submitPhoto's return value carries the newly-earned
 //         badge id(s) on the crossing call, then an empty list on the next
 //         (unit-level, direct calls, no HTTP)
 //   AC4 — a replace (status 'replaced'/'replaced_hidden') keeps the existing
-//         plain flash, not the success card
-//   AC5 — the badge-bloom grow keyframes are gated under
+//         plain flash — neither the inline success card nor the badge dialog
+//   AC5 — the badge-pop/sway/ring/spark bloom keyframes are gated under
 //         prefers-reduced-motion: no-preference (structural, CSS source check)
+//   AC6 — the modal is a native <dialog> opened via showModal() (structural:
+//         src/views/task.ejs and src/public/js/badge-moment.js source check)
+//   AC7 — src/public/js/upload.js submits with fetch(..., { redirect: 'manual' })
+//         and navigates via form.getAttribute('action') rather than relying on
+//         a followed redirect, so the one-shot reward cookie is not silently
+//         consumed by a discarded fetch response (structural, JS source check)
 //
 // REQUIRE ORDER: config / db / services are required only AFTER loadApp() sets
 // DATA_DIR / DB_PATH, matching tests/submission-intake.test.js and
@@ -29,6 +40,7 @@ let app;
 let db;
 let config;
 let submissions;
+let scoring;
 let uploadsDir;
 let validJpeg;
 
@@ -47,6 +59,7 @@ beforeAll(async () => {
 
   config = require('../config');
   submissions = require('../src/services/submissions');
+  scoring = require('../src/services/scoring');
   uploadsDir = config.UPLOADS_DIR;
 });
 
@@ -90,13 +103,38 @@ function writeOriginal(filename) {
   return { filename, path: absPath };
 }
 
+// Pull just the badge-earned dialog's own markup out of a full page body, or
+// null if it isn't present — lets a test assert on text INSIDE the dialog
+// (e.g. "no points language") without a stray match elsewhere on the page
+// (the inline success card legitimately says "+1 point" on the same page).
+function extractBadgeDialog(html) {
+  const match = html.match(/<dialog class="badge-dialog"[\s\S]*?<\/dialog>/);
+  return match ? match[0] : null;
+}
+
 // ---------------------------------------------------------------------------
 // AC1
 // ---------------------------------------------------------------------------
-it('AC1: guest at 4 points completing one task sees "Task complete!", "+1 point", and "5 points"', async () => {
+it('AC1: a completion earning NO new badge shows "Task complete!" / "+1 point" / "5 points", and no badge-dialog', async () => {
+  // A "leader" guest with more visible task submissions than this test's
+  // guest will ever reach (2), so the transferable MOSTPHOTOS badge (issue
+  // #80 — awarded to whoever holds the strict-most visible submissions,
+  // including ties) never transfers to the guest under test. Without this, a
+  // fresh guest's first submission TIES the leaderless max (1) and
+  // non-deterministically earns MOSTPHOTOS, turning this "no new badge"
+  // scenario into a badge-earning one. Same guard AC3 already uses below.
+  const leaderGuestId = insertGuest(`rewards-ac1-leader-${crypto.randomUUID()}`);
+  seedCompletedTasks(leaderGuestId, 3, 'ac1-leader');
+
   const token = `rewards-ac1-${crypto.randomUUID()}`;
   const guestId = insertGuest(token);
-  seedCompletedTasks(guestId, 4, 'ac1');
+  // 4 BONUS points (no seeded completions) puts the guest at 4 points WITHOUT
+  // crossing BLOOM — the auto-badge threshold is 5 COMPLETED TASKS, not 5
+  // points, so the one completion under test brings completed-task count to
+  // only 1, nowhere near the threshold. Getting to "4 points" via seeded
+  // completions instead (as AC2 does) would earn BLOOM on this very
+  // submission and silently turn this "no new badge" scenario into AC2's.
+  scoring.addBonusPoints(guestId, 4);
   const taskId = insertTask('AC1 task under test');
 
   const agent = await signInGuestAgent(token);
@@ -108,16 +146,18 @@ it('AC1: guest at 4 points completing one task sees "Task complete!", "+1 point"
   const page = await agent.get(res.headers.location);
   expect(page.text).toContain('Task complete!');
   expect(page.text).toContain('+1 point');
-  // Bound to the guest's fresh total (4 + this completion = 5), not a stray
-  // "5" elsewhere on the page — an inversion-sensitive check: a stale/wrong
-  // total (e.g. still "4 points") would fail this.
+  // Bound to the guest's fresh total (1 completion + 4 bonus = 5), not a
+  // stray "5" elsewhere on the page — an inversion-sensitive check: a
+  // stale/wrong total (e.g. still "4 points") would fail this.
   expect(page.text).toContain('5 points');
+  // AC1's other half: no badge modal at all for a no-badge completion.
+  expect(page.text).not.toContain('badge-dialog');
 });
 
 // ---------------------------------------------------------------------------
 // AC2
 // ---------------------------------------------------------------------------
-it('AC2: crossing the BLOOM threshold shows the badge name + bloom line; a non-threshold submission shows neither', async () => {
+it('AC2: crossing the BLOOM threshold renders a badge-dialog with the name + heading and no points inside it; a non-threshold submission shows neither', async () => {
   const token = `rewards-ac2-${crypto.randomUUID()}`;
   const guestId = insertGuest(token);
   seedCompletedTasks(guestId, 4, 'ac2'); // guest is at 4 completions
@@ -130,13 +170,24 @@ it('AC2: crossing the BLOOM threshold shows the badge name + bloom line; a non-t
   expect([302, 303]).toContain(fifthRes.status);
 
   const fifthPage = await agent.get(fifthRes.headers.location);
-  expect(fifthPage.text).toContain('First Bloom');
-  expect(fifthPage.text).toContain('A new bloom in your garden.');
+  // The inline card still carries the point (points live ONLY there).
+  expect(fifthPage.text).toContain('+1 point');
 
-  // A SIXTH completion crosses no new threshold (BOUQUET is at 10) — these
-  // strings must be ABSENT. Inversion check: if the before/after diff were
-  // dropped in favor of "list every badge the guest holds," BLOOM would
-  // wrongly still show up here too.
+  const dialog = extractBadgeDialog(fifthPage.text);
+  expect(dialog).not.toBeNull();
+  expect(dialog).toContain('First Bloom');
+  expect(dialog).toContain('First Bloom!');
+  expect(dialog).toContain('Completed 5 tasks.');
+  // No points language belongs inside the badge dialog (AC2) — an
+  // inversion-sensitive check: if the inline card's markup were nested
+  // inside the dialog by mistake, this would catch it.
+  expect(dialog).not.toContain('+1 point');
+  expect(dialog).not.toContain('points');
+
+  // A SIXTH completion crosses no new threshold (BOUQUET is at 10) — neither
+  // the badge name nor a badge-dialog element must appear. Inversion check:
+  // if the before/after diff were dropped in favor of "list every badge the
+  // guest holds," BLOOM would wrongly still show up here too.
   const sixthTaskId = insertTask('AC2 sixth task');
   const sixthRes = await agent
     .post(`/tasks/${sixthTaskId}/submit`)
@@ -145,7 +196,7 @@ it('AC2: crossing the BLOOM threshold shows the badge name + bloom line; a non-t
 
   const sixthPage = await agent.get(sixthRes.headers.location);
   expect(sixthPage.text).not.toContain('First Bloom');
-  expect(sixthPage.text).not.toContain('A new bloom in your garden.');
+  expect(sixthPage.text).not.toContain('badge-dialog');
 });
 
 // ---------------------------------------------------------------------------
@@ -210,6 +261,7 @@ it('AC4: a replace (not a new completion) keeps the plain "Photo replaced!" flas
 
   const page = await agent.get(replaceRes.headers.location);
   expect(page.text).not.toContain('Task complete!');
+  expect(page.text).not.toContain('badge-dialog');
   expect(page.text).toContain('Photo replaced!');
 });
 
@@ -237,33 +289,80 @@ it('AC4b: replaced_hidden (resubmit onto a taken-down row) keeps its plain flash
 
   const page = await agent.get(resubmitRes.headers.location);
   expect(page.text).not.toContain('Task complete!');
+  expect(page.text).not.toContain('badge-dialog');
   expect(page.text).toContain('Photo received — it will appear once the hosts approve it.');
 });
 
 // ---------------------------------------------------------------------------
 // AC5 (structural: CSS source, not rendered output)
 // ---------------------------------------------------------------------------
-it('AC5: @keyframes badge-bloom is nested inside a prefers-reduced-motion: no-preference media block', () => {
-  const css = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css'),
+it.each(['badge-pop', 'badge-sway', 'badge-ring', 'spark'])(
+  'AC5: @keyframes %s is nested inside a prefers-reduced-motion: no-preference media block',
+  (keyframeName) => {
+    const css = fs.readFileSync(
+      path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css'),
+      'utf8'
+    );
+
+    const keyframeIndex = css.indexOf(`@keyframes ${keyframeName}`);
+    expect(keyframeIndex).toBeGreaterThan(-1);
+
+    const mediaIndex = css.lastIndexOf(
+      '@media (prefers-reduced-motion: no-preference)',
+      keyframeIndex
+    );
+    expect(mediaIndex).toBeGreaterThan(-1);
+
+    // If a fully-closed media block sat between the query and the keyframes
+    // rule, the brace counts in that slice would balance (equal opens/closes)
+    // — proving the keyframe is NOT actually nested inside THIS query, just
+    // sitting unguarded after it. An unbalanced (more opens than closes)
+    // count is what nesting looks like.
+    const between = css.slice(mediaIndex, keyframeIndex);
+    const opens = (between.match(/\{/g) || []).length;
+    const closes = (between.match(/\}/g) || []).length;
+    expect(opens).toBeGreaterThan(closes);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// AC6 (structural: the modal is a native <dialog> opened via showModal())
+// ---------------------------------------------------------------------------
+it('AC6: task.ejs renders a <dialog class="badge-dialog"> and badge-moment.js calls showModal()', () => {
+  const viewSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'views', 'task.ejs'),
+    'utf8'
+  );
+  expect(viewSource).toMatch(/<dialog\s+class="badge-dialog"/);
+
+  const scriptSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'public', 'js', 'badge-moment.js'),
+    'utf8'
+  );
+  expect(scriptSource).toContain('.showModal()');
+});
+
+// ---------------------------------------------------------------------------
+// AC7 (structural: the submit fetch must not let the browser transparently
+// follow the server's redirect, or the one-shot reward cookie gets consumed
+// by a discarded response before the real page navigation ever sees it)
+// ---------------------------------------------------------------------------
+it("AC7: upload.js submits with fetch(..., { redirect: 'manual' }) and navigates via form.getAttribute('action')", () => {
+  const scriptSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'public', 'js', 'upload.js'),
     'utf8'
   );
 
-  const bloomIndex = css.indexOf('@keyframes badge-bloom');
-  expect(bloomIndex).toBeGreaterThan(-1);
+  // Inversion-sensitive: a plain `fetch(form.action, {...})` with no
+  // redirect option (the browser default 'follow') would silently eat the
+  // reward cookie on the discarded intermediate response — this asserts the
+  // literal opt-out is present, not just that fetch is called somewhere.
+  expect(scriptSource).toMatch(/redirect:\s*'manual'/);
 
-  const mediaIndex = css.lastIndexOf('@media (prefers-reduced-motion: no-preference)', bloomIndex);
-  expect(mediaIndex).toBeGreaterThan(-1);
-
-  // If a fully-closed media block sat between the query and the keyframes
-  // rule, the brace counts in that slice would balance (equal opens/closes)
-  // — proving badge-bloom is NOT actually nested inside THIS query, just
-  // sitting unguarded after it. An unbalanced (more opens than closes) count
-  // is what nesting looks like.
-  const between = css.slice(mediaIndex, bloomIndex);
-  const opens = (between.match(/\{/g) || []).length;
-  const closes = (between.match(/\}/g) || []).length;
-  expect(opens).toBeGreaterThan(closes);
+  // The real navigation must be driven from the form's own action attribute
+  // (with the /submit suffix stripped), not by trusting a followed redirect
+  // response the code above explicitly declines to follow.
+  expect(scriptSource).toContain("form.getAttribute('action').replace(/\\/submit$/, '')");
 });
 
 // ---------------------------------------------------------------------------

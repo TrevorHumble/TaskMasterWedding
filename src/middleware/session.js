@@ -10,24 +10,35 @@ const config = require('../../config');
  * and cleared by attachGuest below and rendered by partials/header.ejs. kind is
  * 'success' (→ type 'ok') or 'error' (→ type 'err'); text is the message.
  */
-function setFlash(res, kind, text) {
-  const type = kind === 'success' ? 'ok' : 'err';
-  res.cookie('flash', JSON.stringify({ type: type, msg: text }), {
+// The single owner of the one-shot signed-cookie policy shared by every
+// short-lived redirect cookie this app sets (flash, taskComplete): httpOnly
+// (no JS access), sameSite lax (survives the submit→redirect top-level
+// navigation), Secure per config, signed (tamper-evident), site-wide path, and
+// a 30s lifetime — long enough to outlive one redirect. Both writers below call
+// this so the policy can never drift between them; each supplies only its own
+// cookie name and JSON value.
+function oneShotCookieOptions() {
+  return {
     httpOnly: true,
     sameSite: 'lax',
     secure: config.COOKIE_SECURE,
     signed: true,
     path: '/',
-    maxAge: 30 * 1000, // 30 seconds is plenty to survive one redirect
-  });
+    maxAge: 30 * 1000,
+  };
+}
+
+function setFlash(res, kind, text) {
+  const type = kind === 'success' ? 'ok' : 'err';
+  res.cookie('flash', JSON.stringify({ type: type, msg: text }), oneShotCookieOptions());
 }
 
 /**
  * Write a one-shot task-complete reward payload (issue #255): the fresh points
  * total and any newly-earned badge codes from a `created` task submission.
- * Follows setFlash's exact cookie pattern (signed, httpOnly, 30s maxAge) as a
- * PARALLEL cookie rather than folding into the `flash` shape, so the success
- * card's richer payload never has to be shoehorned through {type, msg}. This
+ * A PARALLEL cookie to `flash` rather than folding into the `{type, msg}` flash
+ * shape, so the success card's richer payload never has to be shoehorned through
+ * it. Shares the one-shot cookie policy via oneShotCookieOptions() above. This
  * is the single canonical writer of the signed `taskComplete` cookie; attachGuest
  * below is the single reader/clearer, same division as setFlash/flash.
  *
@@ -35,14 +46,7 @@ function setFlash(res, kind, text) {
  * @param {{points: number, newBadgeIds: string[]}} payload
  */
 function setTaskCompleteReward(res, payload) {
-  res.cookie('taskComplete', JSON.stringify(payload), {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.COOKIE_SECURE,
-    signed: true,
-    path: '/',
-    maxAge: 30 * 1000, // 30 seconds is plenty to survive one redirect
-  });
+  res.cookie('taskComplete', JSON.stringify(payload), oneShotCookieOptions());
 }
 
 /**
