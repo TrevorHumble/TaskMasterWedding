@@ -38,6 +38,9 @@ let guestB; // nameless — taken-down photo, also a liker/commenter
 let taskA;
 let taskB;
 let subA; // guestA/taskA — real file on disk, photo_bonus 4
+let memoryGuest; // issue #462 — has one task photo + two memories (task_id NULL)
+let memory1;
+let memory2;
 
 beforeAll(async () => {
   const result = loadApp();
@@ -130,6 +133,34 @@ beforeAll(async () => {
     `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
      VALUES (?, ?, ?, ?, 0)`
   ).run(extGuest, extTaskNone, 'noext', 'noext.jpg');
+
+  // Issue #462 fixture: a guest with two memories (task_id IS NULL) plus one
+  // task photo, all real files on disk so all three land in the archive.
+  memoryGuest = db
+    .prepare('INSERT INTO guests (token, name) VALUES (?, ?)')
+    .run('memoryguesttoken000000000000a', 'Memory Guest').lastInsertRowid;
+
+  fs.writeFileSync(path.join(uploadsDir, 'mem-task.jpg'), TINY_PNG);
+  db.prepare(
+    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+     VALUES (?, ?, ?, ?, 0)`
+  ).run(memoryGuest, taskA, 'mem-task.jpg', 'mem-task.jpg.jpg');
+
+  fs.writeFileSync(path.join(uploadsDir, 'mem-1.jpg'), TINY_PNG);
+  memory1 = db
+    .prepare(
+      `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+       VALUES (?, NULL, ?, ?, 0)`
+    )
+    .run(memoryGuest, 'mem-1.jpg', 'mem-1.jpg.jpg').lastInsertRowid;
+
+  fs.writeFileSync(path.join(uploadsDir, 'mem-2.jpg'), TINY_PNG);
+  memory2 = db
+    .prepare(
+      `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+       VALUES (?, NULL, ?, ?, 0)`
+    )
+    .run(memoryGuest, 'mem-2.jpg', 'mem-2.jpg.jpg').lastInsertRowid;
 });
 
 // Binary-safe response parser: accumulate raw Buffer chunks rather than
@@ -144,6 +175,44 @@ function binaryParser(res, callback) {
 async function fetchZip() {
   const res = await adminAgent.get('/admin/export').buffer(true).parse(binaryParser);
   return res;
+}
+
+// Minimal ZIP central-directory reader: walks the End Of Central Directory
+// record backward from the end of the buffer, then reads each central
+// directory file header from there (issue #462 AC1 needs the true archive-wide
+// entry-name list, not a substring guess — two entries with the same name
+// collapse to one on extraction, which a plain buffer.includes() can't see).
+// Spec: PKZIP APPNOTE.TXT sections 4.3.6 (central directory) / 4.3.16 (EOCD).
+function centralDirectoryNames(buf) {
+  const EOCD_SIG = 0x06054b50;
+  let eocdOffset = -1;
+  // EOCD is fixed 22 bytes + an optional comment; this archive has no
+  // comment, so scanning back a small window from the end is enough.
+  for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 65535; i--) {
+    if (buf.readUInt32LE(i) === EOCD_SIG) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset === -1) throw new Error('EOCD record not found in ZIP buffer');
+
+  const totalEntries = buf.readUInt16LE(eocdOffset + 10);
+  const cdOffset = buf.readUInt32LE(eocdOffset + 16);
+
+  const names = [];
+  let ptr = cdOffset;
+  const CD_SIG = 0x02014b50;
+  for (let i = 0; i < totalEntries; i++) {
+    if (buf.readUInt32LE(ptr) !== CD_SIG)
+      throw new Error(`bad central directory signature at ${ptr}`);
+    const nameLen = buf.readUInt16LE(ptr + 28);
+    const extraLen = buf.readUInt16LE(ptr + 30);
+    const commentLen = buf.readUInt16LE(ptr + 32);
+    const name = buf.toString('utf8', ptr + 46, ptr + 46 + nameLen);
+    names.push(name);
+    ptr += 46 + nameLen + extraLen + commentLen;
+  }
+  return names;
 }
 
 describe('GET /admin/export — headers', () => {
@@ -200,6 +269,45 @@ describe('GET /admin/export — ZIP entries', () => {
     const res = await fetchZip();
     expect(res.body.includes(Buffer.from('task-2-Ext-Task-Upper.png'))).toBe(true);
     expect(res.body.includes(Buffer.from('task-3-Ext-Task-None.jpg'))).toBe(true);
+  });
+});
+
+describe('GET /admin/export — memory entries (issue #462)', () => {
+  it('AC1: three distinct entry names for the memory guest, and no name repeats anywhere in the archive', async () => {
+    const res = await fetchZip();
+    const names = centralDirectoryNames(res.body);
+
+    const folder = `${safeName('Memory Guest', 'guest')}-${memoryGuest}`;
+    const guestEntries = names.filter((n) => n.startsWith(`${folder}/`));
+
+    // One task-photo entry plus the two memory entries, all distinct.
+    expect(guestEntries.length).toBe(3);
+    expect(new Set(guestEntries).size).toBe(3);
+
+    // Archive-wide: no entry name occurs more than once (the actual #462 bug
+    // — two memories both named "task-0-task-null.jpg" — would fail this).
+    const counts = new Map();
+    for (const n of names) counts.set(n, (counts.get(n) || 0) + 1);
+    const duplicates = [...counts.entries()].filter(([, c]) => c > 1);
+    expect(duplicates).toEqual([]);
+  });
+
+  it('AC2: memory entry names contain "memory" and neither "task-null" nor "undefined"', async () => {
+    const res = await fetchZip();
+    const names = centralDirectoryNames(res.body);
+
+    const folder = `${safeName('Memory Guest', 'guest')}-${memoryGuest}`;
+    const expectedMemory1 = `${folder}/memory-${memory1}.jpg`;
+    const expectedMemory2 = `${folder}/memory-${memory2}.jpg`;
+
+    expect(names).toContain(expectedMemory1);
+    expect(names).toContain(expectedMemory2);
+
+    const guestEntries = names.filter((n) => n.startsWith(`${folder}/`));
+    for (const n of guestEntries) {
+      expect(n).not.toMatch(/task-null/);
+      expect(n).not.toMatch(/undefined/);
+    }
   });
 });
 
@@ -274,6 +382,32 @@ describe('buildSummaryBuffer — workbook contents', () => {
     expect(hidden).toBeTruthy();
     expect(hidden[0]).toBe('Lilly & Axel #1!');
     expect(hidden[5]).toBe('YES');
+  });
+
+  it('AC3: a memory row (task_id NULL) renders its Task column as "Memory", not "Task #null"', async () => {
+    const buf = await buildSummaryBuffer();
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+
+    const subsSheet = wb.getWorksheet('Submissions');
+    const headerRow = subsSheet.getRow(1).values.slice(1);
+    const taskCol = headerRow.indexOf('Task') + 1;
+
+    const guestRows = [];
+    subsSheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      if (row.values[1] === memoryGuest) guestRows.push(row.getCell(taskCol).value);
+    });
+
+    // memoryGuest has 3 submissions: one task photo + two memories.
+    expect(guestRows.length).toBe(3);
+
+    const memoryRows = guestRows.filter((v) => v !== 'Find the Cake');
+    expect(memoryRows.length).toBe(2);
+    for (const value of memoryRows) {
+      expect(value).toBe('Memory');
+      expect(value).not.toBe('Task #null');
+    }
   });
 
   it('Badges sheet: one row per badge; a null threshold renders as "" not null', async () => {
