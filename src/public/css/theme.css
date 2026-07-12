@@ -2807,27 +2807,6 @@ body:has(dialog[open]) {
   color: var(--color-text-muted);
 }
 
-.guest-link-row {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-}
-.guest-link-row input {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: var(--fs-eyebrow);
-  color: var(--color-text-muted);
-  padding: 10px 8px;
-  border: var(--border-hairline);
-  border-radius: var(--radius-input);
-  background: var(--white);
-  cursor: text;
-}
-.copy-confirm {
-  color: var(--ok-ink);
-  font-size: var(--fs-small);
-}
-
 .guest-card-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2974,37 +2953,6 @@ body:has(dialog[open]) {
   color: var(--color-primary);
 }
 
-/* ----------------------- QR sheet (admin print) ----------------------- */
-.qr-sheet {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-4);
-}
-.qr-card {
-  border: var(--border-hairline);
-  border-radius: var(--radius-card);
-  padding: var(--space-4);
-  text-align: center;
-  background: var(--white);
-  break-inside: avoid;
-}
-.qr-card img {
-  width: 180px;
-  height: 180px;
-  margin: 0 auto;
-}
-.qr-card .qr-name {
-  font-family: var(--font-display);
-  font-size: var(--fs-h2);
-  font-weight: 600;
-  margin-top: var(--space-2);
-  color: var(--color-primary);
-}
-.qr-card .qr-hint {
-  font-size: var(--fs-eyebrow);
-  color: var(--color-text-muted);
-}
-
 /* ---- Admin alert / lead helpers (admin pages use these) ---- */
 .lead {
   font-size: var(--fs-body);
@@ -3040,7 +2988,7 @@ body:has(dialog[open]) {
   outline: none;
   border-color: var(--color-primary);
 }
-/* btn--primary is used in admin-login.ejs and onboard.ejs */
+/* btn--primary is used in admin-login.ejs, join.ejs, and login.ejs */
 .btn--primary {
   background: var(--color-primary);
   color: var(--color-on-primary);
@@ -3202,6 +3150,43 @@ body:has(dialog[open]) {
   line-height: var(--lh-snug);
 }
 
+/* ----------------------- Admin poster (QR sign-up sheet, issue #244) ---- */
+.poster-toolbar {
+  margin: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+.poster-toolbar .btn {
+  width: 100%;
+  box-sizing: border-box;
+}
+.poster-card {
+  max-width: 480px;
+  margin: var(--space-4) auto;
+  border: 1px dashed var(--green-300);
+  border-radius: var(--radius-card);
+  padding: var(--space-5);
+  text-align: center;
+}
+.poster-card img {
+  width: 280px;
+  height: 280px;
+  margin: 0 auto;
+}
+.poster-card .poster-heading {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  margin: var(--space-3) 0 var(--space-2);
+  color: var(--color-primary);
+}
+.poster-card .poster-url {
+  font-size: var(--fs-body);
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+
 @media print {
   .site-header,
   .site-footer,
@@ -3216,12 +3201,15 @@ body:has(dialog[open]) {
     max-width: none;
     padding: 0;
   }
-  .qr-sheet {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+  /* One clean printed sheet for the poster: the toolbar is already hidden via
+     .no-print above; only the card's own margin needs resetting to sit
+     flush on the page. */
+  .poster-card {
+    border: 1px dashed var(--green-300);
+    margin: 0 auto;
   }
-  .qr-card {
-    border-color: var(--green-300);
+  @page {
+    margin: 1cm;
   }
 }
 
@@ -3229,9 +3217,6 @@ body:has(dialog[open]) {
 @media (min-width: 620px) {
   .badge-grid {
     grid-template-columns: repeat(4, 1fr);
-  }
-  .qr-sheet {
-    grid-template-columns: repeat(3, 1fr);
   }
   .site-header-inner {
     max-width: 680px;

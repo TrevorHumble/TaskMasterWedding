@@ -5,8 +5,12 @@
 //   AC2 — the CTA href points at the guest's lowest-sort_order undone task,
 //         or falls back to /tasks when nothing is undone (including zero
 //         tasks posted at all)
-//   AC3 — POST /onboard redirects to /how-to-play?first=1, which shows
-//         "Skip for now"; a plain GET /how-to-play does not
+//   AC3 — ?first=1 shows "Skip for now"; a plain GET /how-to-play does not.
+//         (Issue #244 retired the separate POST /onboard step that used to
+//         redirect here with ?first=1 after signup — nothing currently lands
+//         on this page with that query string automatically, so this now
+//         only pins the query-param behavior itself, plus a regression check
+//         that POST /onboard is the 302-to-/join redirect #244 made it.)
 //   AC4 — the required literal copy is present
 //   AC5 — a signed-out visitor is redirected (302) to /join, not shown the card
 //
@@ -15,7 +19,7 @@
 'use strict';
 
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -53,10 +57,8 @@ function markDone(guestId, taskId) {
   ).run(guestId, taskId);
 }
 
-async function signedInAgent(token) {
-  const agent = request.agent(app);
-  await agent.get('/j/' + token);
-  return agent;
+function signedInAgent(token) {
+  return signInGuest(app, token);
 }
 
 describe('AC1: taskCount is a live count of active tasks', () => {
@@ -129,24 +131,28 @@ describe('AC2: CTA href is the first undone task, or /tasks as a fallback', () =
   });
 });
 
-describe('AC3: post-onboard redirect and the Skip link', () => {
-  test('POST /onboard redirects to /how-to-play?first=1, which shows "Skip for now"', async () => {
+describe('AC3: the ?first=1 Skip link, and the retired /onboard redirect', () => {
+  test('GET /how-to-play?first=1 shows "Skip for now"', async () => {
+    resetTables();
+    const token = 'ac3-first-token';
+    insertGuest(token, true);
+
+    const agent = signedInAgent(token);
+    const res = await agent.get('/how-to-play?first=1');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Skip for now');
+  });
+
+  test('regression: POST /onboard is a 302 to /join, not to /how-to-play (issue #244)', async () => {
     resetTables();
     const token = 'ac3-onboard-token';
     insertGuest(token, false);
 
-    const agent = request.agent(app);
-    // Signing in an un-onboarded guest normally redirects to /onboard; we
-    // only need the cookie set, so do not follow that redirect here.
-    await agent.get('/j/' + token);
-
+    const agent = signedInAgent(token);
     const onboardRes = await agent.post('/onboard').field('name', 'Fresh Guest');
     expect(onboardRes.status).toBe(302);
-    expect(onboardRes.headers.location).toBe('/how-to-play?first=1');
-
-    const rulesRes = await agent.get(onboardRes.headers.location);
-    expect(rulesRes.status).toBe(200);
-    expect(rulesRes.text).toContain('Skip for now');
+    expect(onboardRes.headers.location).toBe('/join');
   });
 
   test('a plain GET /how-to-play (no ?first=1) does not show "Skip for now"', async () => {

@@ -42,7 +42,7 @@ const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
 const { JSDOM } = require('jsdom');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 const THEME_CSS_PATH = path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css');
 const FEED_EJS_PATH = path.join(__dirname, '..', 'src', 'views', 'feed.ejs');
@@ -72,7 +72,7 @@ async function signedInGuest(token, name) {
     .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
     .run(token, name).lastInsertRowid;
   const agent = request.agent(app);
-  await agent.get('/j/' + token);
+  signInGuest(app, token, agent);
   return { guestId, agent };
 }
 

@@ -1,25 +1,30 @@
 // tests/onboard-avatar.test.js
-// Issue #187: a corrupt or non-image avatar during onboarding must never kill
-// the process. POST /onboard used to await saveAvatar() with no try/catch;
+// Issue #187: a corrupt or non-image avatar during signup must never kill the
+// process. POST /onboard used to await saveAvatar() with no try/catch;
 // Express 4 does not catch async-handler rejections, so one undecodable file
 // (bytes labelled image/jpeg that sharp cannot read) crashed the whole server
-// for every guest. A fileFilter rejection (e.g. a PDF) fell through to the
-// global 500 handler instead of re-rendering the form.
+// for every guest.
 //
-// AC1: corrupt bytes with Content-Type image/jpeg -> 400, and the server still
-//      answers the next request (process alive).
-// AC2: that 400 re-renders onboarding with the submitted name pre-filled and
-//      an error containing "could not use that photo".
-// AC3: retrying with only a name (no avatar) completes onboarding.
-// AC4: a non-image type (application/pdf) gets the same friendly re-render,
-//      writes nothing to UPLOADS_DIR, and the process stays alive.
+// Issue #244 retired /onboard — signup and avatar intake both happen in one
+// POST /join now (issue #240), and #240 made a deliberate product choice this
+// file's original assertions no longer match: /join never blocks or
+// re-renders on a bad avatar (routes/auth.js's comment: "A rejected avatar...
+// is not itself a reason to block signup"). trySaveAvatar's try/catch just
+// drops the bad file and lets signup succeed with no avatar — there is no 400
+// re-render left to assert on. What issue #187 actually needs protected —
+// corrupt bytes never crashing the process — still holds and is what these
+// tests now check against /join.
+//
+// AC1: corrupt bytes with Content-Type image/jpeg -> signup still succeeds
+//      (302 to /), the guest has no avatar_path, and the server survives.
+// AC2: a non-image type (application/pdf) gets the same silent-drop
+//      treatment, writes nothing to UPLOADS_DIR, and the process stays alive.
 //
 // REQUIRE ORDER: loadApp() must run before any require of config, db, or
 // photos (see tests/helpers/testApp.js "REQUIRE ORDER MATTERS").
 'use strict';
 
 const fs = require('fs');
-const crypto = require('crypto');
 const request = require('supertest');
 const { loadApp } = require('./helpers/testApp');
 
@@ -36,100 +41,68 @@ beforeAll(() => {
   config = require('../config');
 });
 
-function insertGuest() {
-  const token = `onboard-avatar-${crypto.randomUUID()}`;
-  const id = db
-    .prepare('INSERT INTO guests (token, name, onboarded) VALUES (?, ?, 0)')
-    .run(token, '').lastInsertRowid;
-  return { id, token };
-}
-
-async function makeGuestAgent(token) {
-  const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
-  return agent;
-}
-
 const CORRUPT_JPEG = Buffer.from('this is not a real jpeg');
-const FRIENDLY_ERROR = 'could not use that photo';
 
-describe('AC1 + AC2: corrupt avatar bytes do not kill the process', () => {
-  it('responds 400 with the friendly error and the submitted name, and the server survives', async () => {
-    const guest = insertGuest();
-    const agent = await makeGuestAgent(guest.token);
-
+describe('AC1: corrupt avatar bytes do not block signup or kill the process', () => {
+  it('signup succeeds with no avatar_path, and the server survives', async () => {
+    const agent = request.agent(app);
     const res = await agent
-      .post('/onboard')
+      .post('/join')
       .field('name', 'Crash Test Guest')
+      .field('contact', 'crash-test-jpeg@example.com')
+      .field('pin', '1234')
       .attach('avatar', CORRUPT_JPEG, { filename: 'fake.jpg', contentType: 'image/jpeg' });
 
-    // AC1: a 400 re-render, not a dead socket or a 500 page.
-    expect(res.status).toBe(400);
+    // Signup is not blocked by a bad avatar — straight home, not a 400 re-render.
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/');
 
-    // AC2: friendly copy + the submitted name pre-filled in the form.
-    expect(res.text).toContain(FRIENDLY_ERROR);
-    expect(res.text).toContain('Crash Test Guest');
+    const row = db
+      .prepare('SELECT name, avatar_path, onboarded FROM guests WHERE contact = ?')
+      .get('crash-test-jpeg@example.com');
+    expect(row).toBeTruthy();
+    expect(row.name).toBe('Crash Test Guest');
+    expect(row.avatar_path).toBeNull();
+    expect(row.onboarded).toBe(1);
 
-    // The guest is NOT marked onboarded by a failed attempt.
-    const row = db.prepare('SELECT onboarded FROM guests WHERE id = ?').get(guest.id);
-    expect(row.onboarded).toBe(0);
-
-    // AC1: the server answers the next request on the same session.
+    // The server answers the next request (same session) — the corrupt
+    // decode never crashed it.
     const home = await agent.get('/');
     expect(home.status).toBe(200);
   });
 });
 
-describe('AC3: onboarding still completes without an avatar', () => {
-  it('redirects to / and marks the guest onboarded on a name-only retry', async () => {
-    const guest = insertGuest();
-    const agent = await makeGuestAgent(guest.token);
-
-    // First attempt fails on a corrupt avatar…
-    const bad = await agent
-      .post('/onboard')
-      .field('name', 'Retry Guest')
-      .attach('avatar', CORRUPT_JPEG, { filename: 'fake.jpg', contentType: 'image/jpeg' });
-    expect(bad.status).toBe(400);
-
-    // …then the retry with only a name succeeds.
-    const retry = await agent.post('/onboard').field('name', 'Retry Guest');
-    expect([301, 302, 303]).toContain(retry.status);
-    // Issue #246: onboarding success now lands on the how-to-play rules card
-    // (with the first-time Skip link) instead of straight home.
-    expect(retry.headers.location).toBe('/how-to-play?first=1');
-
-    const row = db.prepare('SELECT name, onboarded FROM guests WHERE id = ?').get(guest.id);
-    expect(row.onboarded).toBe(1);
-    expect(row.name).toBe('Retry Guest');
-  });
-});
-
-describe('AC4: non-image types are rejected with the friendly re-render', () => {
+describe('AC2: non-image types are silently dropped, nothing written to disk', () => {
   it('rejects application/pdf without writing a file and stays alive', async () => {
-    const guest = insertGuest();
-    const agent = await makeGuestAgent(guest.token);
-
     const uploadsBefore = fs.readdirSync(config.UPLOADS_DIR).sort();
 
+    const agent = request.agent(app);
     const res = await agent
-      .post('/onboard')
+      .post('/join')
       .field('name', 'PDF Guest')
+      .field('contact', 'pdf-guest@example.com')
+      .field('pin', '4321')
       .attach('avatar', Buffer.from('%PDF-1.4 not an image'), {
         filename: 'doc.pdf',
         contentType: 'application/pdf',
       });
 
-    // The friendly re-render, not the global 500 page.
-    expect(res.status).toBe(400);
-    expect(res.text).toContain(FRIENDLY_ERROR);
-    expect(res.text).toContain('PDF Guest');
+    // Straight home, same as any other signup — a rejected file type is not
+    // itself a signup error.
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/');
+
+    const row = db
+      .prepare('SELECT name, avatar_path FROM guests WHERE contact = ?')
+      .get('pdf-guest@example.com');
+    expect(row).toBeTruthy();
+    expect(row.avatar_path).toBeNull();
 
     // Nothing was written to UPLOADS_DIR.
     const uploadsAfter = fs.readdirSync(config.UPLOADS_DIR).sort();
     expect(uploadsAfter).toEqual(uploadsBefore);
 
-    // The process is alive and the guest can continue.
+    // The process is alive and the next guest can still sign up (same session).
     const home = await agent.get('/');
     expect(home.status).toBe(200);
   });

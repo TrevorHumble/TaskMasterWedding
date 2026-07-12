@@ -17,7 +17,7 @@ const path = require('path');
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 // Set BEFORE loadApp() requires config, so config.HEIC_DECODE_RATE_MAX picks it up.
 const TEST_HEIC_DECODE_MAX = 2;
@@ -55,7 +55,7 @@ function insertTask(title) {
 
 async function makeGuestAgent(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
+  signInGuest(app, token, agent);
   return agent;
 }
 

@@ -20,7 +20,7 @@
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp, makeAdminAgent } = require('./helpers/testApp');
+const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -43,7 +43,7 @@ beforeAll(async () => {
 
 /**
  * Insert a guest row with the given token and return { guestId, agent } where
- * agent is a supertest agent already signed in as that guest (via GET /j/<token>,
+ * agent is a supertest agent already signed in as that guest (via signInGuest,
  * the same pattern tests/photo-comments.test.js uses).
  */
 async function signedInGuest(token, name) {
@@ -51,7 +51,7 @@ async function signedInGuest(token, name) {
     .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
     .run(token, name).lastInsertRowid;
   const agent = request.agent(app);
-  await agent.get('/j/' + token);
+  signInGuest(app, token, agent);
   return { guestId, agent };
 }
 

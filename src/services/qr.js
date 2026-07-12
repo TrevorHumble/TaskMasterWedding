@@ -7,7 +7,7 @@ const QRCode = require('qrcode');
  * Turn a full URL into a PNG "data URL" suitable for an <img src="...">.
  * The returned string looks like: data:image/png;base64,iVBORw0KGgo...
  *
- * @param {string} url  The full link to encode, e.g. https://x.trycloudflare.com/j/<token>
+ * @param {string} url  The full link to encode, e.g. https://x.trycloudflare.com/join
  * @returns {Promise<string>} a data URL string
  */
 async function qrDataUrl(url) {

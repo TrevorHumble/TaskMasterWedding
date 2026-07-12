@@ -10,7 +10,7 @@
 
   <p class="page-actions">
     <a href="/admin">&larr; Dashboard</a>
-    <a class="btn btn-secondary btn-sm" href="/admin/qrsheet">Print QR place-cards</a>
+    <a class="btn btn-secondary btn-sm" href="/admin/poster">Print entry poster</a>
   </p>
 
   <input type="search" id="guest-search" class="form-input guest-search"
@@ -54,14 +54,6 @@
           <button type="submit" class="btn btn-sm btn-secondary">Update</button>
         </form>
 
-        <div class="guest-link-row">
-          <input type="text" readonly value="<%= g.link %>" onclick="this.select();"
-                 aria-label="Private sign-in link" />
-          <button type="button" class="btn btn-sm btn-secondary copy-link"
-                  data-link="<%= g.link %>">Copy</button>
-          <span class="copy-confirm" hidden>Copied!</span>
-        </div>
-
         <div class="guest-card-actions">
           <form action="/admin/guests/<%= g.id %>/points" method="post" class="guest-points-form">
             <label class="guest-points-label">Bonus
@@ -99,32 +91,10 @@
   </div>
 
   <p class="muted">
-    Each guest has a private sign-in link. Give it to them by printing the QR
-    sheet, or copy a link above.
+    Guests join themselves at the shared entry link — print the poster from
+    the button above, or share the join page's URL directly. New signups
+    appear here automatically.
   </p>
-
-  <details class="setup-details">
-    <summary>Add one guest</summary>
-    <form action="/admin/guests" method="post" class="inline-form">
-      <label>
-        Name (optional)
-        <input type="text" name="name" placeholder="e.g. Aunt Marigold" />
-      </label>
-      <button type="submit" class="btn btn-primary">Add guest</button>
-    </form>
-  </details>
-
-  <details class="setup-details">
-    <summary>Bulk create</summary>
-    <form action="/admin/guests/bulk" method="post" class="inline-form"
-          data-confirm="Create this many new blank guests?">
-      <label>
-        How many?
-        <input type="number" name="count" min="1" max="500" value="10" />
-      </label>
-      <button type="submit" class="btn btn-primary">Create blanks</button>
-    </form>
-  </details>
 
   <details class="setup-details">
     <summary>Create a custom badge</summary>

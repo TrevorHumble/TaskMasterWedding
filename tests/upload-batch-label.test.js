@@ -24,7 +24,7 @@
 
 const crypto = require('crypto');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 const { uploadSelectionText } = require('../src/public/js/upload-filename');
 
 let app;
@@ -64,7 +64,7 @@ function insertGuestAndTask() {
 
 async function makeGuestAgent(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
+  signInGuest(app, token, agent);
   return agent;
 }
 

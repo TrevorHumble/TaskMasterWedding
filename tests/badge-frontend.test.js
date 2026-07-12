@@ -5,8 +5,7 @@
 // leaderboard, and the public profile keeps working unchanged.
 'use strict';
 
-const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -41,10 +40,8 @@ function submit(guestId, taskId) {
   ).run(guestId, taskId, `p${subSeq}.jpg`, `t${subSeq}.jpg`);
 }
 
-async function signIn(token) {
-  const agent = request.agent(app);
-  await agent.get('/j/' + token);
-  return agent;
+function signIn(token) {
+  return signInGuest(app, token);
 }
 
 describe('AC1/AC5: home progress bar is re-based on task completion, not badge thresholds', () => {

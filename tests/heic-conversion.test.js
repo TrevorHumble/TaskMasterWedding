@@ -20,7 +20,7 @@ const path = require('path');
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 const { craftHeicHeader } = require('./helpers/heic-fixtures');
 
 let app;
@@ -62,7 +62,7 @@ function insertGuestAndTask(prefix) {
 
 async function makeGuestAgent(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
+  signInGuest(app, token, agent);
   return agent;
 }
 

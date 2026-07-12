@@ -18,7 +18,7 @@
 // supertest, so no other module needs to be required directly here.
 'use strict';
 
-const { loadApp, seed } = require('./helpers/testApp');
+const { loadApp, seed, signInGuest } = require('./helpers/testApp');
 const request = require('supertest');
 
 let agent;
@@ -84,7 +84,7 @@ beforeAll(async () => {
   ).run(guestHidden, taskSweet);
 
   agent = request.agent(app);
-  await agent.get('/j/seedtoken');
+  signInGuest(app, 'seedtoken', agent);
 });
 
 // ---------------------------------------------------------------------------

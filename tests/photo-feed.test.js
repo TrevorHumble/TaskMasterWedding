@@ -17,7 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let agent;
 let db;
@@ -34,7 +34,7 @@ beforeAll(async () => {
   // Community routes are behind requireGuest — sign in before testing.
   db.prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`).run('feedtoken', 'Feed Guest');
   agent = request.agent(app);
-  await agent.get('/j/feedtoken');
+  signInGuest(app, 'feedtoken', agent);
 
   const guestRow = db.prepare(`SELECT id FROM guests WHERE token = ?`).get('feedtoken');
   const guestId = guestRow.id;

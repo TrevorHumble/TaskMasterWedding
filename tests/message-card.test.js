@@ -1,16 +1,20 @@
 // tests/message-card.test.js
 // Issue #120: one shared "message card" partial replaces five hand-duplicated
 // brand-card pages.
-// AC1: GET /j/<unknown-token> -> 404, body renders the shared card.
 // AC2: signed-out GET /tasks (guest-gated) -> 302 to /join (issue #241
 //      retired the "private link needed" card in favor of a redirect to the
 //      shared entry point).
 // Also confirms the maintenance (503) and 404 (unmatched route) paths still
 // render through the shared partial with their original copy intact.
+//
+// The old /j/<token> coverage (a bad/unknown token rendering this shared card
+// as a 404) is gone: issue #244 retired /j/:token entirely, so it no longer
+// looks a token up or renders anything — see tests/retire-token-entry.test.js
+// AC1 for its current (unconditional-redirect) behavior.
 'use strict';
 
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let config;
@@ -23,27 +27,6 @@ beforeAll(() => {
 
 afterAll(() => {
   config.MAINTENANCE = false;
-});
-
-describe('AC1: unknown guest token', () => {
-  it('GET /j/<unknown-token> returns 404', async () => {
-    const res = await request(app).get('/j/this-token-does-not-exist');
-    expect(res.status).toBe(404);
-  });
-
-  it('GET /j/<unknown-token> body renders the shared card with the "Link Not Recognized" copy', async () => {
-    const res = await request(app).get('/j/this-token-does-not-exist');
-    expect(res.text).toContain('message-card');
-    expect(res.text).toContain('Link Not Recognized');
-    expect(res.text).toContain(
-      'We could not find that private link. Double-check you scanned the QR code'
-    );
-  });
-
-  it('does not sign in a cookie for an unknown token', async () => {
-    const res = await request(app).get('/j/this-token-does-not-exist');
-    expect(res.headers['set-cookie']).toBeUndefined();
-  });
 });
 
 describe('AC2: signed-out visitor on a guest-gated page', () => {
@@ -76,19 +59,17 @@ describe('regression: maintenance (503) still renders through the shared partial
 // true 404 handler (app.js section 7) we sign in as a real guest first, same
 // as a returning guest hitting a stale/mistyped URL would.
 describe('regression: unmatched route (404) still renders through the shared partial', () => {
-  async function signedInAgent() {
+  function signedInAgent() {
     const { db } = require('../src/db');
     db.prepare('INSERT OR IGNORE INTO guests (token, name) VALUES (?, ?)').run(
       'signed-in-token',
       'Signed In Guest'
     );
-    const agent = request.agent(app);
-    await agent.get('/j/signed-in-token');
-    return agent;
+    return signInGuest(app, 'signed-in-token');
   }
 
   it('GET /this-route-does-not-exist returns 404 with the URL escaped in a <code> tag', async () => {
-    const agent = await signedInAgent();
+    const agent = signedInAgent();
     const res = await agent.get('/this-route-does-not-exist');
     expect(res.status).toBe(404);
     expect(res.text).toContain('Page Not Found');

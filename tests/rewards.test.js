@@ -34,7 +34,7 @@ const path = require('path');
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -89,8 +89,12 @@ function seedCompletedTasks(guestId, n, labelPrefix) {
 }
 
 async function signInGuestAgent(token) {
+  // The old per-guest /j/:token magic link was retired (routes/auth.js) — it
+  // now just redirects to /join and signs no one in. signInGuest crafts the
+  // signed gsid cookie directly, the same way the other route tests
+  // authenticate (tests/helpers/testApp.js).
   const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
+  signInGuest(app, token, agent);
   return agent;
 }
 

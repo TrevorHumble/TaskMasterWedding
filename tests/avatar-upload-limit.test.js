@@ -7,14 +7,21 @@
 //
 // auth.js now reads photos.MAX_UPLOAD_BYTES directly (see src/routes/auth.js),
 // so avatars and task submissions share exactly one numeric ceiling. This test
-// pins that: it drives the real POST /onboard route (not a unit check of
+// pins that: it drives the real POST /join route (not a unit check of
 // photos.js in isolation) with a buffer just OVER the shared limit and one
-// just UNDER it, and asserts the app accepts/rejects accordingly.
+// just UNDER it, and asserts the app accepts/rejects the FILE accordingly.
 //
-// If auth.js ever reverts to a separate or hard-coded limit (e.g. the old
-// 12 MB config value), the "just under photos.MAX_UPLOAD_BYTES" case would
-// start failing here even though it is comfortably under photos.js's own
-// number — that is what catches the divergence.
+// Issue #244 retired the separate /onboard step this file used to drive —
+// avatar intake happens during signup now (#240). That also changed what
+// "rejects" means here: /join never blocks signup on a bad/oversized avatar
+// (routes/auth.js's `avatarRejected` branch) — it silently drops the file and
+// still creates the guest. So the over-limit case below asserts the FILE is
+// rejected (no avatar_path stored) while signup itself still succeeds; the
+// under-limit case asserts the file is accepted and stored. If auth.js ever
+// reverts to a separate or hard-coded limit (e.g. the old 12 MB config
+// value), the "just under photos.MAX_UPLOAD_BYTES" case would start failing
+// here even though it is comfortably under photos.js's own number — that is
+// what catches the divergence.
 //
 // REQUIRE ORDER: loadApp() must run before any require of config, db, or app
 // (see tests/helpers/testApp.js).
@@ -76,16 +83,6 @@ async function buildPaddedJpeg(totalBytes) {
   return Buffer.concat([soi, ...segments, rest]);
 }
 
-/**
- * Sign in as a fresh guest via their private link and return an agent that
- * carries the resulting gsid cookie.
- */
-async function makeGuestAgent(token) {
-  const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
-  return agent;
-}
-
 beforeAll(() => {
   const loaded = loadApp();
   app = loaded.app;
@@ -101,48 +98,52 @@ beforeAll(() => {
 });
 
 describe('avatar upload limit shares photos.MAX_UPLOAD_BYTES — issue #118', () => {
-  it('rejects an avatar buffer just OVER photos.MAX_UPLOAD_BYTES', async () => {
-    const token = 'limit-over-token';
-    db.prepare('INSERT INTO guests (token, name) VALUES (?, ?)').run(token, 'Over Limit Guest');
-    const agent = await makeGuestAgent(token);
-
+  it('drops an avatar buffer just OVER photos.MAX_UPLOAD_BYTES but still signs the guest up', async () => {
     const oversizedBuffer = Buffer.alloc(OVER_LIMIT_SIZE, 1);
-    const res = await agent
-      .post('/onboard')
+    const res = await request(app)
+      .post('/join')
       .field('name', 'Over Limit Guest')
+      .field('contact', 'limit-over@example.com')
+      .field('pin', '1111')
       .attach('avatar', oversizedBuffer, { filename: 'big.jpg', contentType: 'image/jpeg' });
 
-    // A successful onboard redirects to "/". Multer's fileSize limit rejection
-    // must NOT produce that redirect — if auth.js used a smaller limit than
-    // photos.MAX_UPLOAD_BYTES this would already fail to redirect for a
-    // different reason, but pairing it with the "just under" case below is
-    // what actually pins the shared value (see that test).
-    expect([301, 302, 303]).not.toContain(res.status);
+    // /join never blocks signup on a rejected avatar (routes/auth.js's
+    // avatarRejected branch) — it still redirects home. If auth.js used a
+    // smaller limit than photos.MAX_UPLOAD_BYTES this would already reject
+    // for a different reason, but pairing it with the "just under" case below
+    // is what actually pins the shared value (see that test).
+    expect([301, 302, 303]).toContain(res.status);
 
-    const guest = db.prepare('SELECT onboarded FROM guests WHERE token = ?').get(token);
-    expect(guest.onboarded).toBe(0);
+    const guest = db
+      .prepare('SELECT onboarded, avatar_path FROM guests WHERE contact = ?')
+      .get('limit-over@example.com');
+    expect(guest.onboarded).toBe(1);
+    // The oversized file itself was rejected by multer's fileSize limit and
+    // never saved — this is the actual "over the limit" assertion.
+    expect(guest.avatar_path).toBeNull();
   });
 
   it('accepts an avatar buffer just UNDER photos.MAX_UPLOAD_BYTES', async () => {
-    const token = 'limit-under-token';
-    db.prepare('INSERT INTO guests (token, name) VALUES (?, ?)').run(token, 'Under Limit Guest');
-    const agent = await makeGuestAgent(token);
-
     const underSizedBuffer = await buildPaddedJpeg(UNDER_LIMIT_SIZE);
     expect(underSizedBuffer.length).toBe(UNDER_LIMIT_SIZE);
 
-    const res = await agent
-      .post('/onboard')
+    const res = await request(app)
+      .post('/join')
       .field('name', 'Under Limit Guest')
+      .field('contact', 'limit-under@example.com')
+      .field('pin', '2222')
       .attach('avatar', underSizedBuffer, { filename: 'ok.jpg', contentType: 'image/jpeg' });
 
     // A real, sharp-decodable JPEG under the shared limit must succeed all
-    // the way through: onboard redirects to "/" and flips onboarded=1. If
+    // the way through: signup redirects to "/" and stores the file. If
     // auth.js reverted to a smaller hard-coded limit (e.g. the old 12 MB),
     // this 15 MB-sized buffer would be rejected here and the test would fail.
     expect([301, 302, 303]).toContain(res.status);
 
-    const guest = db.prepare('SELECT onboarded FROM guests WHERE token = ?').get(token);
+    const guest = db
+      .prepare('SELECT onboarded, avatar_path FROM guests WHERE contact = ?')
+      .get('limit-under@example.com');
     expect(guest.onboarded).toBe(1);
+    expect(guest.avatar_path).toMatch(/\.jpg$/);
   });
 });

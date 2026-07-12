@@ -24,7 +24,7 @@
 const request = require('supertest');
 const fs = require('fs');
 const path = require('path');
-const { loadApp, makeAdminAgent } = require('./helpers/testApp');
+const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -79,11 +79,11 @@ describe('AC1: GET /me/edit shows the signed-in guest their own PIN', () => {
       'No Pin Guest'
     );
 
-    // Sign in via the guest's private /j/:token link (sets the signed gsid
-    // cookie) — this guest has no pin/contact, so POST /login is not an
-    // available path in for them.
+    // Sign in directly via signInGuest (mints the signed gsid cookie) — this
+    // guest has no pin/contact, so POST /login is not an available path in
+    // for them.
     const agent = request.agent(app);
-    await agent.get('/j/' + token).redirects(1);
+    signInGuest(app, token, agent);
 
     const res = await agent.get('/me/edit');
     expect(res.status).toBe(200);
