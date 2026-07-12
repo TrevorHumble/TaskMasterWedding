@@ -41,7 +41,11 @@ The admin ("Task Master") authenticates with one password, hashed with bcryptjs 
 
 ### COOKIE_SECRET must be fixed for the event
 
-If `COOKIE_SECRET` is unset, `config.js` generates a random secret at boot and warns. That invalidates every signed cookie on restart, signing everyone out. For the deployment the secret is fixed in the host's environment (`.env` or the platform's secret store) so restarts do not disrupt guests. The fallback exists only so a fresh clone still boots.
+`config.js` now enforces this at boot instead of only advising it (#242): with `NODE_ENV=production` and no `COOKIE_SECRET`, the process throws before the config object is exported, so a misconfigured deployment fails to start rather than silently booting with a secret that regenerates on every restart. Outside production (dev/test) the original fallback remains — a random secret is generated and a warning printed — so a fresh clone still boots without any setup. For the deployment the secret is fixed in the host's environment (`.env` or the platform's secret store); the production hard-failure exists precisely so that requirement cannot be skipped by accident.
+
+### Guest sessions are rolling and long-lived, admin is not (#242)
+
+The guest `gsid` cookie lasts 400 days (`config.GUEST_COOKIE_MAX_AGE_MS`) — the longest Max-Age Chrome will honor — and is re-issued with a fresh `maxAge` on every authenticated request by `attachGuest` (`src/middleware/session.js`), so an active guest's session clock keeps resetting rather than counting down from sign-up. Staying signed in is the primary experience; the PIN re-entry flow (#241) is the fallback for an inactive guest whose cookie did lapse, or a new device. The admin cookie is a separate, unchanged 14-day lifetime (`config.ADMIN_COOKIE_MAX_AGE_MS`) with no rolling refresh — `cookieOpts()` (now the single owner of both cookies' shared attributes, exported from `src/middleware/session.js`) takes `maxAgeMs` as a parameter precisely so the two lifetimes can never drift onto the same literal by accident.
 
 ### Photos: multer intake, sharp normalization, takedown over delete
 

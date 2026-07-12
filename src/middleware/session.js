@@ -5,6 +5,28 @@ const { db } = require('../db');
 const config = require('../../config');
 
 /**
+ * The single owner of the signed-cookie attribute shape shared by the guest
+ * `gsid` cookie and the admin `admin` cookie (issue #242). Only `maxAge`
+ * differs between the two; every other attribute is identical, so both
+ * src/routes/auth.js (sign-in / admin login) and attachGuest below (the
+ * rolling guest-cookie refresh) call this one factory rather than each
+ * building its own options object -- which would let the two drift apart.
+ * Returns fresh options each call so config.COOKIE_SECURE is read at request
+ * time, not at module-load time; that keeps the value correct when the app
+ * starts before NODE_ENV is known, and lets tests toggle the flag.
+ */
+function cookieOpts(maxAgeMs) {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.COOKIE_SECURE,
+    signed: true,
+    maxAge: maxAgeMs,
+    path: '/',
+  };
+}
+
+/**
  * Write a one-shot flash message. This is the single canonical writer of the
  * signed `flash` cookie, whose shape ({ type: 'ok' | 'err', msg }) is read back
  * and cleared by attachGuest below and rendered by partials/header.ejs. kind is
@@ -35,6 +57,16 @@ function attachGuest(req, res, next) {
   const token = req.signedCookies && req.signedCookies.gsid;
   if (typeof token === 'string' && token.length > 0) {
     guest = db.prepare('SELECT * FROM guests WHERE token = ?').get(token) || null;
+    // Rolling refresh (issue #242, AC2): a valid guest re-issues the SAME
+    // signed value with a fresh maxAge on every authenticated request, so the
+    // 400-day clock restarts on every visit instead of counting down from
+    // sign-in. Same cookie options as sign-in (cookieOpts above) so no
+    // attribute can drift between the two writers. Only ever the gsid cookie
+    // -- this never touches the admin cookie (AC3; requireAdmin/isAdminRequest
+    // below are the only readers of that one, and neither is invoked here).
+    if (guest) {
+      res.cookie('gsid', token, cookieOpts(config.GUEST_COOKIE_MAX_AGE_MS));
+    }
   }
   req.guest = guest;
   res.locals.guest = guest;
@@ -105,4 +137,4 @@ function requireAdmin(req, res, next) {
   return undefined;
 }
 
-module.exports = { attachGuest, requireGuest, requireAdmin, setFlash, isAdminRequest };
+module.exports = { attachGuest, requireGuest, requireAdmin, setFlash, isAdminRequest, cookieOpts };
