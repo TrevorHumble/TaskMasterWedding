@@ -116,6 +116,13 @@ const config = {
   // <ROOT>/data, i.e. outside data/, not a subfolder of it. Override with the
   // BACKUP_DIR env var to point at a second disk/location entirely.
   BACKUP_DIR: process.env.BACKUP_DIR || path.join(DATA_DIR, '..', 'backups'),
+  // Optional override (issue #457): when set, scripts/sample-photo-pool.js
+  // draws every seed script's gallery/submission photo pool from this
+  // directory instead of the bundled CC0 placeholders in
+  // fixtures/sample-photos/ -- lets an operator seed a demo with real photos
+  // without ever risking one landing in this PUBLIC repo's git history.
+  // Empty by default; never resolves to a path inside this repo's own tree.
+  LOCAL_PHOTOS_DIR: process.env.LOCAL_PHOTOS_DIR || '',
   // How many snapshot folders under BACKUP_DIR a scheduled backup run keeps
   // (issue #287). 0 (the default) means keep everything -- a host must opt in
   // to pruning by setting this once it has a schedule running; a laptop doing
@@ -219,6 +226,7 @@ config.thumbsDir = config.THUMBS_DIR;
 config.exportsDir = config.EXPORTS_DIR;
 config.adminHashPath = config.ADMIN_HASH_PATH;
 config.backupDir = config.BACKUP_DIR;
+config.localPhotosDir = config.LOCAL_PHOTOS_DIR;
 config.backupRetentionCount = config.BACKUP_RETENTION_COUNT;
 config.publicDir = config.PUBLIC_DIR;
 config.viewsDir = config.VIEWS_DIR;
