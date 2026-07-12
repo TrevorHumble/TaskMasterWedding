@@ -193,7 +193,7 @@ async function buildSummaryBuffer() {
     subsSheet.addRow({
       guestId: s.guest_id,
       guest: neutralizeCell(g ? g.name || '(no name yet)' : `#${s.guest_id}`),
-      task: neutralizeCell(t ? t.title : `Task #${s.task_id}`),
+      task: neutralizeCell(s.task_id === null ? 'Memory' : t ? t.title : `Task #${s.task_id}`),
       caption: neutralizeCell(s.caption || ''),
       date: fmtDate(s.created_at),
       takenDown: s.taken_down === 1 ? 'YES' : 'no',
@@ -267,6 +267,7 @@ async function buildSummaryBuffer() {
  * Layout inside the ZIP:
  *   summary.xlsx
  *   <SafeName>-<id>/task-<sortorder>-<safeTaskTitle>.<ext>
+ *   <SafeName>-<id>/memory-<submissionId>.<ext>   (issue #247, task_id IS NULL)
  *   ...
  *
  * ALL originals are included (taken-down photos too) so nothing is lost.
@@ -329,13 +330,21 @@ async function streamExportZip(res) {
         continue;
       }
 
-      const task = taskById.get(s.task_id);
-      const sortOrder = task ? task.sort_order : 0;
-      const titlePart = safeName(task ? task.title : `task-${s.task_id}`, `task-${s.task_id}`);
       const ext = extOf(s.photo_path);
 
-      // e.g. Lily-Sckeiky-3/task-2-Find-the-cake.jpg
-      const entryName = `${folder}/task-${sortOrder}-${titlePart}${ext}`;
+      // A memory (issue #247, task_id IS NULL) has no task to derive a name
+      // from — name it by submission id instead, which is unique per row, so
+      // memory entries never collide with each other or with any task entry.
+      let entryName;
+      if (s.task_id === null) {
+        entryName = `${folder}/memory-${s.id}${ext}`;
+      } else {
+        const task = taskById.get(s.task_id);
+        const sortOrder = task ? task.sort_order : 0;
+        const titlePart = safeName(task ? task.title : `task-${s.task_id}`, `task-${s.task_id}`);
+        // e.g. Lily-Sckeiky-3/task-2-Find-the-cake.jpg
+        entryName = `${folder}/task-${sortOrder}-${titlePart}${ext}`;
+      }
 
       archive.append(fs.createReadStream(sourcePath), { name: entryName });
     }
