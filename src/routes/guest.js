@@ -176,10 +176,11 @@ router.get('/tasks', function (req, res) {
 });
 
 // ---------------------------------------------------------------------------
-// GET /how-to-play  — the one-screen rules card (issue #246). Shown once
-// automatically right after onboarding (POST /onboard redirects here with
-// ?first=1) and reachable forever after from the profile menu (a plain GET,
-// no query string).
+// GET /how-to-play  — the one-screen rules card (issue #246). Reachable from
+// the profile menu (a plain GET, no query string). ?first=1 (still honored
+// via req.query.first below) shows the "Skip for now" link for a guest
+// mid-first-run; nothing currently redirects here with it since #244 retired
+// the separate /onboard step that used to.
 //
 // taskCount is the LIVE count of active tasks (owner directive: never a
 // hard-coded number, so the copy tracks admin changes to the task list).

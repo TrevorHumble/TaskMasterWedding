@@ -1,18 +1,18 @@
 # Garden Party Pastels — Wedding Scavenger Hunt
 
-A photo scavenger-hunt web app for the wedding of **Axel Fenwick & Lily Sckeiky**. Around 100 guests, each on their own phone, scan a per-guest QR code on their place-card, sign in with no password, and complete tasks by uploading photos. Each completed task earns a point, badges unlock automatically, and there is a public leaderboard and a shared photo gallery. A password-protected admin (the "Task Master") manages tasks, awards bonus points and special badges, hides photos, and exports everything at the end.
+A photo scavenger-hunt web app for the wedding of **Axel Fenwick & Lily Sckeiky**. Around 100 guests, each on their own phone, scan one shared QR code on a poster, sign up with no password, and complete tasks by uploading photos. Each completed task earns a point, badges unlock automatically, and there is a public leaderboard and a shared photo gallery. A password-protected admin (the "Task Master") manages tasks, awards bonus points and special badges, hides photos, and exports everything at the end.
 
 It runs on a small rented Linux host with a persistent disk, reachable over HTTPS through the host's reverse proxy at a stable domain the QR codes point to; see [`docs/deploy.md`](docs/deploy.md) for the full deploy runbook. It originally ran on a laptop behind a temporary Cloudflare tunnel.
 
 ## What it does
 
-- **QR sign-in, no guest passwords.** Each guest has a unique link carrying a random token, printed as a QR code. Scanning it signs the guest in on that device.
+- **QR sign-up, no guest passwords.** One shared QR code, printed once on a poster, opens `/join` for every guest, who signs up with a name, contact, and a self-chosen 4-digit PIN. A returning guest re-enters at `/login` with that same contact + PIN on any device.
 - **Photo tasks.** One photo per task per guest marks that task done and adds +1 point.
 - **Badges.** Auto badges unlock at 5 / 10 / 15 completed tasks; special badges are hand-awarded by the admin; metric and transferable badges are computed by the badge engine from live data (e.g. a "most photos" badge that can change hands); and the admin can create further `custom` badges. Not a fixed set.
 - **Leaderboard + gallery.** A public ranking and one shared photo gallery with a lightbox.
 - **Feed, likes, comments.** A live `/feed` shows recent photos; guests can like and comment on any photo.
 - **Profiles.** Avatar, name, badges, submissions, and optional social links. Guests can view each other's profiles.
-- **Admin panel.** Create guests and QR codes, view and edit a guest's contact and re-entry PIN, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, work a bug-report queue, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
+- **Admin panel.** View and edit a guest's contact and re-entry PIN (or delete a guest), print the shared entry poster, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, work a bug-report queue, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
 
 ## Quickstart
 
@@ -52,9 +52,9 @@ Then open <http://localhost:3000>.
 
 ## How it is used
 
-**Guests** scan their QR code, which opens `/j/:token` and signs them in (a signed `gsid` cookie). First sign-in goes through `/onboard` to set a name and avatar, then a one-time `/how-to-play` rules card before landing on the home page. From the home page they browse `/tasks`, open a task, upload a photo to complete it, view `/gallery`, `/feed` (where they can like and comment on photos), `/leaderboard`, and profiles at `/u/:guestId`, and can revisit `/how-to-play` or send in `/bug-report` from the profile menu.
+**Guests** scan one shared QR code (printed once, on the poster) which opens `/join`, where they sign up with a name, an email or phone, an optional avatar, and a self-chosen 4-digit PIN — one form does signup and onboarding together, and signs them in immediately (a signed `gsid` cookie). A guest who already has an account is sent to `/login` to re-enter with that same contact + PIN, on any device. From the home page they browse `/tasks`, open a task, upload a photo to complete it, view `/gallery`, `/feed` (where they can like and comment on photos), `/leaderboard`, and profiles at `/u/:guestId`, and can revisit `/how-to-play` or send in `/bug-report` from the profile menu.
 
-**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to guest creation and bulk create, the printable QR sheet at `/admin/qrsheet`, task CRUD, awarding points and badges, comment moderation at `/admin/comments`, the bug-report queue at `/admin/bugs`, photo takedown, and `/admin/export`.
+**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to the guest table (rename, delete, and set/read a guest's contact + PIN), the printable entry poster at `/admin/poster`, task CRUD, awarding points and badges, comment moderation at `/admin/comments`, the bug-report queue at `/admin/bugs`, photo takedown, and `/admin/export`.
 
 ## Going live
 
@@ -152,14 +152,14 @@ src/
   db.js                   better-sqlite3 connection, schema, shared helpers
   middleware/session.js   attachGuest, requireGuest, requireAdmin, one-shot flash
   routes/
-    auth.js               /j/:token sign-in, /onboard, /login (re-entry), /admin/login, /admin/logout
+    auth.js               /join (signup), /login (re-entry), /admin/login, /admin/logout
     guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /me/edit,
                            /how-to-play, /bug-report
     community.js          /gallery, /feed, GET /p/:submissionId, /p/:submissionId/like,
                            /p/:submissionId/comments, /p/:submissionId/comments/:commentId/delete,
                            /leaderboard, /u/:guestId
-    admin.js              /admin dashboard, guests + bulk create, guests/:id/identity (contact/PIN),
-                           qrsheet, tasks, awards, takedown, export, /admin/bugs
+    admin.js              /admin dashboard, guests (rename/delete/identity), poster,
+                           tasks, awards, takedown, export, /admin/bugs
   services/
     photos.js             multer disk storage, sharp thumbnails/avatars, takedown/delete
     scoring.js            points, auto badges (5/10/15), special badges, leaderboard

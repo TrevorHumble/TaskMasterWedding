@@ -12,7 +12,7 @@
 
 const crypto = require('crypto');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 const captionState = require('../src/public/js/memory-caption');
 
 let app;
@@ -38,7 +38,7 @@ function insertGuest() {
 
 async function makeGuestAgent(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
+  signInGuest(app, token, agent);
   return agent;
 }
 

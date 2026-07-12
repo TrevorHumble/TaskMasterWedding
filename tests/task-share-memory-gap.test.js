@@ -16,7 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -63,7 +63,7 @@ function seedOneTodoTask() {
 
 async function signedInAgent(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token);
+  signInGuest(app, token, agent);
   return agent;
 }
 

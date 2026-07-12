@@ -121,11 +121,11 @@ server {
 ## First-boot checklist
 
 1. Set the admin password (`scripts/set-admin-password.js`).
-2. Create tasks and guests through the admin UI.
-3. Confirm `BASE_URL` is the final public domain — QR codes bake it in.
+2. Create tasks through the admin UI. Guests need no admin setup — they join themselves at `/join`.
+3. Confirm `BASE_URL` is the final public domain — the poster's QR code bakes it in.
 4. Restart the app so `BASE_URL` takes effect if it was changed after first boot.
-5. Print the QR sheet (`/admin/qrsheet`).
-6. Run one end-to-end test from a phone: scan a QR code, sign in, complete a task, view the leaderboard.
+5. Print the entry poster (`/admin/poster`) — one page, shared by every guest.
+6. Run one end-to-end test from a phone: scan the poster's QR code, sign up, complete a task, view the leaderboard.
 
 ## Logs
 

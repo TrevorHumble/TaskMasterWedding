@@ -11,7 +11,7 @@
 'use strict';
 
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let agent;
 let db;
@@ -29,7 +29,7 @@ beforeAll(async () => {
   // Community routes are behind requireGuest — sign in before testing.
   db.prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`).run('detailtoken', 'Detail Guest');
   agent = request.agent(app);
-  await agent.get('/j/detailtoken');
+  signInGuest(app, 'detailtoken', agent);
 
   // guestId is needed for submission inserts; read it back after sign-in.
   const guestRow = db.prepare(`SELECT id FROM guests WHERE token = ?`).get('detailtoken');

@@ -13,7 +13,7 @@
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -47,7 +47,7 @@ function insertGuest(name, opts = {}) {
 
 async function agentFor(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token);
+  signInGuest(app, token, agent);
   return agent;
 }
 

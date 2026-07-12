@@ -17,7 +17,7 @@ const path = require('path');
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let db;
 let config;
@@ -306,7 +306,7 @@ describe('POST /tasks/:id/submit — status to response mapping (issue #106)', (
   // 'task_inactive' and 'thumb_failed' assert on routeGuestId's row state.
   async function makeGuestAgent() {
     const agent = request.agent(app);
-    await agent.get(`/j/${routeGuestToken}`).redirects(1);
+    signInGuest(app, routeGuestToken, agent);
     return agent;
   }
 
@@ -321,7 +321,7 @@ describe('POST /tasks/:id/submit — status to response mapping (issue #106)', (
       'Fresh Route Guest'
     );
     const agent = request.agent(app);
-    await agent.get(`/j/${token}`).redirects(1);
+    signInGuest(app, token, agent);
     return agent;
   }
 

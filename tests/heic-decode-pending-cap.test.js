@@ -28,7 +28,7 @@ const path = require('path');
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 const { craftHeicHeader, HANG_MARKER } = require('./helpers/heic-fixtures');
 
 const TEST_PENDING_CAP = 2;
@@ -68,7 +68,7 @@ function insertTask(title) {
 
 async function makeGuestAgent(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
+  signInGuest(app, token, agent);
   return agent;
 }
 

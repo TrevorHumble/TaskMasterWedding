@@ -11,13 +11,11 @@ const request = require('supertest');
 const { loadApp } = require('./helpers/testApp');
 
 let app;
-let db;
 let config;
 
 beforeAll(() => {
   const result = loadApp();
   app = result.app;
-  db = result.db;
 
   // config is now cached with the temp DATA_DIR from loadApp().
   config = require('../config');
@@ -25,9 +23,6 @@ beforeAll(() => {
   // Write a known admin hash so POST /admin/login can succeed.
   fs.mkdirSync(path.dirname(config.ADMIN_HASH_PATH), { recursive: true });
   fs.writeFileSync(config.ADMIN_HASH_PATH, bcrypt.hashSync('CorrectHorse!3', 10), 'utf8');
-
-  // Insert a guest row so /j/:token can sign them in (sets gsid cookie).
-  db.prepare("INSERT INTO guests (token, name) VALUES ('cstest', 'CS Guest')").run();
 });
 
 afterAll(() => {
@@ -65,12 +60,17 @@ describe('COOKIE_SECURE drives admin cookie Secure attribute (AC-1)', () => {
   });
 });
 
+// Issue #244 retired GET /j/:token — it no longer sets any cookie (AC1), so
+// the gsid Set-Cookie assertions below move to the two routes that still set
+// it: POST /join (new-guest signup) and POST /login (re-entry).
 describe('COOKIE_SECURE drives gsid cookie Secure attribute (AC-1)', () => {
-  it('with COOKIE_SECURE true: GET /j/:token Set-Cookie contains Secure', async () => {
+  it('with COOKIE_SECURE true: POST /join Set-Cookie contains Secure', async () => {
     config.COOKIE_SECURE = true;
-    const res = await request(app).get('/j/cstest');
+    const res = await request(app)
+      .post('/join')
+      .type('form')
+      .send({ name: 'CS Guest', contact: 'cs-secure@example.com', pin: '1111' });
 
-    // 302 to /onboard (new guest, not yet onboarded).
     expect(res.status).toBe(302);
     const cookies = [].concat(res.headers['set-cookie'] || []);
     const gsidCookie = cookies.find((c) => c.startsWith('gsid='));
@@ -78,9 +78,19 @@ describe('COOKIE_SECURE drives gsid cookie Secure attribute (AC-1)', () => {
     expect(gsidCookie).toMatch(/;\s*Secure/i);
   });
 
-  it('with COOKIE_SECURE false: GET /j/:token Set-Cookie does NOT contain Secure', async () => {
+  it('with COOKIE_SECURE false: POST /login Set-Cookie does NOT contain Secure', async () => {
+    // Sign up first (with COOKIE_SECURE off) so a known contact/PIN exists to
+    // re-enter with — POST /login is the assertion under test, not signup.
     config.COOKIE_SECURE = false;
-    const res = await request(app).get('/j/cstest');
+    await request(app)
+      .post('/join')
+      .type('form')
+      .send({ name: 'CS Guest Two', contact: 'cs-not-secure@example.com', pin: '2222' });
+
+    const res = await request(app)
+      .post('/login')
+      .type('form')
+      .send({ contact: 'cs-not-secure@example.com', pin: '2222' });
 
     expect(res.status).toBe(302);
     const cookies = [].concat(res.headers['set-cookie'] || []);

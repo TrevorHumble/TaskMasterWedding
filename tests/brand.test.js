@@ -1,16 +1,14 @@
 // tests/brand.test.js
 'use strict';
 
-const { loadApp, seed } = require('./helpers/testApp');
-const request = require('supertest');
+const { loadApp, seed, signInGuest } = require('./helpers/testApp');
 
 let agent;
 
-beforeAll(async () => {
+beforeAll(() => {
   const { app, db } = loadApp();
   seed(db);
-  agent = request.agent(app);
-  await agent.get('/j/seedtoken');
+  agent = signInGuest(app, 'seedtoken');
 });
 
 describe('brand name', () => {

@@ -167,7 +167,10 @@ async function main() {
     const adminLogin = await probe(`${base}/admin/login`);
     check('GET /admin/login → 200', adminLogin.status === 200, `got ${adminLogin.status}`);
 
-    // A real seeded guest token, straight from the DB the app is serving.
+    // A real seeded guest row, straight from the DB the app is serving — this
+    // just audits that seed-event.js actually produced guests; sign-in itself
+    // (below) no longer depends on any particular seeded token (issue #244
+    // retired GET /j/:token, the route this used to sign in through).
     const Database = require('better-sqlite3');
     const db = new Database(process.env.DB_PATH, { readonly: true });
     const guestRow = db.prepare('SELECT token FROM guests ORDER BY id LIMIT 1').get();
@@ -176,12 +179,23 @@ async function main() {
     check('seed produced at least one guest', Boolean(guestRow), 'guests table is empty');
     if (!guestRow) return finish(results, server);
 
-    const join = await probe(`${base}/j/${guestRow.token}`);
-    const cookie = cookieHeaderFrom(join.headers.getSetCookie());
+    // 4. Sign in the real current way: POST /join with a name + contact + PIN
+    //    (no avatar) and capture the gsid cookie from the response's
+    //    Set-Cookie header — the actual signup path every guest now uses
+    //    (issue #240), exercised here end-to-end rather than mocked.
+    const joinRes = await probe(`${base}/join`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        name: 'Smoke Test Guest',
+        contact: `smoke-${Date.now()}@example.com`,
+        pin: '1234',
+      }),
+    });
+    const cookie = cookieHeaderFrom(joinRes.headers.getSetCookie());
     check(
-      'GET /j/<token> signs in (302 + gsid cookie)',
-      join.status === 302 && cookie.includes('gsid='),
-      `status ${join.status}, cookie '${cookie}'`
+      'POST /join signs in (302 + gsid cookie)',
+      joinRes.status === 302 && cookie.includes('gsid='),
+      `status ${joinRes.status}, cookie '${cookie}'`
     );
 
     for (const p of ['/', '/gallery', '/leaderboard', '/feed']) {
@@ -189,11 +203,20 @@ async function main() {
       check(`GET ${p} (signed-in) → 200`, res.status === 200, `got ${res.status}`);
     }
 
-    // 5. Hostile input: a non-image posted as the onboarding avatar (#187's
-    //    regression). The app must answer 4xx, stay alive, and leak no
-    //    unhandled rejection.
+    // 5. Hostile input: a non-image posted as an avatar (#187's regression).
+    //    POST /join itself deliberately does NOT reject a bad avatar (it
+    //    drops it and 302s home — a #240 design choice), so that route no
+    //    longer exercises this regression. POST /me/edit (profile avatar
+    //    edit — still requires the session established above) is the
+    //    surviving avatar-intake route that actually tries to decode the
+    //    bytes (photos.saveAvatar), so it is what we probe here. Its real
+    //    behavior on a bad avatar is a flash + 302 back to /me/edit (NOT a
+    //    4xx render) — assert that actual status, not a guessed one. What
+    //    matters for #187 is that the corrupt decode failure is caught
+    //    (guest.js's try/catch around saveAvatar) instead of escaping as an
+    //    unhandled rejection that kills the process.
     const form = new FormData();
-    form.append('name', 'Smoke Test');
+    form.append('name', 'Smoke Test Guest');
     form.append(
       'avatar',
       new Blob([Buffer.from('this is not a real jpeg')], { type: 'image/jpeg' }),
@@ -202,13 +225,13 @@ async function main() {
     let hostileDetail = '';
     let hostileOk = false;
     try {
-      const hostile = await probe(`${base}/onboard`, {
+      const hostile = await probe(`${base}/me/edit`, {
         method: 'POST',
         headers: { cookie },
         body: form,
       });
-      hostileOk = hostile.status >= 400 && hostile.status < 500;
-      hostileDetail = `got ${hostile.status} (want 4xx)`;
+      hostileOk = hostile.status === 302 && hostile.headers.get('location') === '/me/edit';
+      hostileDetail = `got ${hostile.status} location=${hostile.headers.get('location')} (want 302 -> /me/edit)`;
     } catch (err) {
       hostileDetail = `no response (${err.name}) — handler died mid-request`;
     }
@@ -223,7 +246,7 @@ async function main() {
       () => false
     );
     check(
-      'hostile avatar upload → 4xx, no unhandled rejection, server alive',
+      'hostile avatar upload to /me/edit → 302 (caught, not crashed), no unhandled rejection, server alive',
       hostileOk && alive,
       `${hostileDetail}; server alive after: ${alive}`
     );
