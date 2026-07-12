@@ -4,7 +4,8 @@
 //         span forced 566px-wide pages on 375px phones); asserted against the
 //         shipped CSS since the suite has no browser harness
 //   AC2 — chip labels render computed counts ("To do · 13", "Done · 19") and
-//         every undone title precedes the first done title in the default view
+//         the default (to-do) view shows every to-do title and no done task
+//         (issue #339 dropped the trailing "Done" section from that view)
 //   AC3 — a done row's completion indicator is the guest's own /thumbs/ photo;
 //         no badge-todo / badge-done pills anywhere
 //   AC4 — to-do rows carry "+1 pt" and no "See photos" anchor
@@ -97,33 +98,23 @@ describe('tasks page v2 (#250)', () => {
     }
   });
 
-  test('AC2: chips render "To do · 13" / "Done · 19" and all undone titles precede the first done title', async () => {
+  test('AC2: chips render "To do · 13" / "Done · 19" and the default view shows every to-do title and no done title (#339)', async () => {
     const res = await signedInTasks();
 
     expect(res.text).toContain('To do · 13');
     expect(res.text).toContain('Done · 19');
 
-    const firstDoneIdx = res.text.indexOf('Done task');
-    expect(firstDoneIdx).toBeGreaterThan(-1);
+    // The to-do view no longer renders any done tasks or the trailing
+    // "Done" section (#339) — the Done chip is the only place they show up.
+    expect(res.text).not.toContain('Done task');
+    expect(res.text).not.toContain('task-section-label');
     for (let i = 1; i <= TODO_COUNT; i++) {
-      const idx = res.text.indexOf(`Todo task ${i}`);
-      expect(idx).toBeGreaterThan(-1);
-      expect(idx).toBeLessThan(firstDoneIdx);
+      expect(res.text).toContain(`Todo task ${i}`);
     }
   });
 
-  test('default view shows the 3 most recent completions under a DONE section label', async () => {
-    const res = await signedInTasks();
-
-    // Only the newest three done tasks render on the default view.
-    const doneTitles = res.text.match(/Done task \d+/g) || [];
-    expect(new Set(doneTitles)).toEqual(new Set(['Done task 19', 'Done task 18', 'Done task 17']));
-    // The section label between the to-do list and the completions.
-    expect(res.text).toContain('task-section-label');
-  });
-
   test("AC3: a done row shows the guest's /thumbs/ photo and no badge pills exist", async () => {
-    const res = await signedInTasks();
+    const res = await signedInTasks('?view=done');
 
     // Isolate a done row and check its completion indicator is the photo.
     const doneRowStart = res.text.indexOf('task-row task-done');

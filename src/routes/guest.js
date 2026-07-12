@@ -132,7 +132,7 @@ router.get('/tasks', function (req, res) {
 
   // For each active task, join the guest's submission (if any) so we know
   // whether it is done. taken_down submissions do NOT count as done.
-  // s.created_at orders the "most recent completions" strip on the default view.
+  // s.created_at orders the ?view=done list (the default view no longer uses it — see below).
   const tasks = db
     .prepare(
       `SELECT t.id, t.title, t.description, t.sort_order,
@@ -152,8 +152,9 @@ router.get('/tasks', function (req, res) {
   const todoTasks = tasks.filter(function (t) {
     return t.done !== 1;
   });
-  // Done tasks, most recent completion first — the default view shows the top 3
-  // of this list; ?view=done shows all of it.
+  // Done tasks, most recent completion first. The default (to-do) view no
+  // longer renders any of this list (issue #339) — it feeds only the chip
+  // count and the full ?view=done list.
   const doneTasks = tasks
     .filter(function (t) {
       return t.done === 1;
@@ -167,7 +168,6 @@ router.get('/tasks', function (req, res) {
     view: req.query.view === 'done' ? 'done' : 'todo',
     todoTasks: todoTasks,
     doneTasks: doneTasks,
-    recentDone: doneTasks.slice(0, 3),
     doneCount: doneTasks.length,
     todoCount: todoTasks.length,
     totalCount: tasks.length,

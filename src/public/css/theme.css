@@ -1108,19 +1108,6 @@ p {
   margin-left: auto;
   font-size: var(--fs-small);
 }
-.task-section-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: var(--tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  margin: var(--space-6) 0 var(--space-2);
-}
-.task-see-all {
-  font-size: var(--fs-small);
-  margin-top: var(--space-3);
-}
-
 /* ---- Task detail page ---- */
 .back-link {
   font-size: var(--fs-small);
