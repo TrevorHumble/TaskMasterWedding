@@ -2879,6 +2879,48 @@ body:has(dialog[open]) {
   border: var(--border-hairline);
   border-radius: var(--radius-input);
 }
+/* Task badge row (issue #483): full-width row inside each task-admin-card
+   showing the task's own badge art + name, and — only while the badge is
+   still the shared default — an inline upload control. Column layout is the
+   phone-first default; the "wider screens" media query below switches it to
+   a single row. */
+.task-badge-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--green-50);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+.task-badge-row-current {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.task-badge-row .badge-art {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+}
+.task-badge-upload-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.task-badge-upload-form input[type='text'] {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font-body);
+  color: var(--color-text);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
 .task-card-actions {
   display: flex;
   flex-wrap: wrap;
@@ -3208,6 +3250,11 @@ body:has(dialog[open]) {
   .site-header-inner {
     max-width: 680px;
     flex-direction: row;
+    justify-content: space-between;
+  }
+  .task-badge-row {
+    flex-direction: row;
+    align-items: center;
     justify-content: space-between;
   }
 }

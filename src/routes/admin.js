@@ -11,6 +11,7 @@
 //   GET  /admin/tasks                    task list + add form
 //   POST /admin/tasks                    create a task
 //   POST /admin/tasks/:id/edit           edit a task title/description
+//   POST /admin/tasks/:id/badge          set a task's badge name/art
 //   POST /admin/tasks/:id/delete         delete a task (cascades submissions)
 //   POST /admin/tasks/:id/active         toggle is_active
 //   POST /admin/tasks/reorder            move a task up/down (sort_order)
@@ -36,6 +37,7 @@ const { requireAdmin } = require('../middleware/session');
 const qr = require('../services/qr');
 const scoring = require('../services/scoring');
 const photos = require('../services/photos');
+const taskBadges = require('../services/task-badges');
 const { streamExportZip } = require('../services/export');
 const { normalizeContact, isValidPin } = require('../services/identity');
 
@@ -471,16 +473,30 @@ router.get('/tasks', (req, res) => {
   const subStmt = db.prepare(
     'SELECT COUNT(*) AS n FROM submissions WHERE task_id = ? AND taken_down = 0'
   );
-  const rows = tasks.map((t, idx) => ({
-    id: t.id,
-    title: t.title,
-    description: t.description || '',
-    sort_order: t.sort_order,
-    is_active: t.is_active,
-    submissions: subStmt.get(t.id).n,
-    isFirst: idx === 0,
-    isLast: idx === tasks.length - 1,
-  }));
+  const rows = tasks.map((t, idx) => {
+    // resolveTaskBadge lazily inserts the task's own badge row (default
+    // ribbon art) the first time a task's card is rendered (issue #483) —
+    // every task always has a badge to show, never a missing-badge branch.
+    const badge = taskBadges.resolveTaskBadge(t.id);
+    return {
+      id: t.id,
+      title: t.title,
+      description: t.description || '',
+      sort_order: t.sort_order,
+      is_active: t.is_active,
+      submissions: subStmt.get(t.id).n,
+      isFirst: idx === 0,
+      isLast: idx === tasks.length - 1,
+      badge: {
+        name: badge.name,
+        art_path: badge.art_path,
+        // "Still the default" drives whether the upload control shows
+        // (AC10) — compared by path, not by a separate stored flag, so it
+        // can never desync from what art_path actually renders.
+        isDefault: badge.art_path === taskBadges.DEFAULT_RIBBON_ART_PATH,
+      },
+    };
+  });
 
   res.render('admin-tasks', {
     title: 'Tasks',
@@ -531,6 +547,51 @@ router.post('/tasks/:id/edit', (req, res) => {
     id
   );
   redirectWithMsg(res, '/admin/tasks', 'Task updated.', 'task-' + id);
+});
+
+// POST /admin/tasks/:id/badge  — set a task's badge name and/or art (issue
+// #483). Runs photos.uploadBadgeArt directly with an explicit callback (same
+// pattern POST /join uses for photos.uploadAvatar), so a fileFilter/size
+// rejection surfaces as a flash message instead of an uncaught rejection
+// (Express 4 does not catch async-handler rejections; issue #187). Body:
+// name (optional — blank leaves the existing name unchanged); the "badge_art"
+// file field is optional too — a name-only or art-only submit is valid, and
+// setTaskBadge (src/services/task-badges.js) leaves whichever field is
+// blank/absent unchanged rather than clearing it.
+router.post('/tasks/:id/badge', (req, res, next) => {
+  const id = parseInt(req.params.id, 10);
+  photos.uploadBadgeArt(req, res, async (err) => {
+    if (err) {
+      return redirectWithMsg(
+        res,
+        '/admin/tasks',
+        err.message || 'That badge art could not be uploaded.',
+        'task-' + id
+      );
+    }
+
+    const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
+    if (!task) {
+      return redirectWithMsg(res, '/admin/tasks', 'Task not found.');
+    }
+
+    const name = (req.body.name || '').trim();
+    try {
+      let artPath;
+      if (req.file && req.file.buffer && req.file.buffer.length) {
+        // saveBadgeArt returns a bare filename (relative to UPLOADS_DIR, like
+        // every other photos.js upload); build the public path the same way
+        // avatars do at render time, via urlForOriginal, rather than
+        // hand-concatenating "/uploads/" here — one owner of that URL shape.
+        const filename = await photos.saveBadgeArt(req.file.buffer);
+        artPath = photos.urlForOriginal(filename);
+      }
+      taskBadges.setTaskBadge(id, { name, artPath });
+      redirectWithMsg(res, '/admin/tasks', 'Badge updated.', 'task-' + id);
+    } catch (saveErr) {
+      next(saveErr);
+    }
+  });
 });
 
 // POST /admin/tasks/:id/delete  — delete a task and its photo files.

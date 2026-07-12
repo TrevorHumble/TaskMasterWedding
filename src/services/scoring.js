@@ -23,6 +23,10 @@
 // crashes at load time on the first prepared statement below.
 const { db } = require('../db');
 const { METRIC_BADGES, TRANSFERABLE_BADGES } = require('./badges');
+// TASK_BADGE_CODE_PREFIX is defined once in task-badges.js (the single owner
+// of the 'TASK-' literal — see that module's doc comment); createCustomBadge
+// below imports it rather than hard-coding a second copy that could drift.
+const { TASK_BADGE_CODE_PREFIX } = require('./task-badges');
 
 // ---------------------------------------------------------------------------
 // Canonical auto-badge thresholds. These MUST match the seeded `badges` rows
@@ -108,6 +112,26 @@ const stmtPhotoBonusSum = db.prepare(
   'SELECT COALESCE(SUM(photo_bonus), 0) AS pb FROM submissions WHERE guest_id = ? AND taken_down = 0'
 );
 
+// Sum a guest's task-badge AWARD points (guest_badges.points, issue #483)
+// over awards whose earning photo is currently VISIBLE. A system/auto/
+// metric/transferable/special grant (written by stmtGrantBadge, never by
+// task-badges.awardTaskBadge) always carries submission_id IS NULL and
+// points = 0 (column defaults), so the LEFT JOIN's ON clause passes those
+// rows through unconditionally (they contribute 0 either way) while a
+// task-badge award's row is counted ONLY while its submission is
+// taken_down = 0 — the same visibility guard stmtPhotoBonusSum applies to
+// photo_bonus, mirrored here so a taken-down earning photo drops its award
+// points from the score exactly like a taken-down photo drops its bonus
+// (AC6), and a restore re-adds them. COALESCE(..., 0) covers the
+// no-awards case, where SUM would otherwise return SQL NULL.
+const stmtAwardPointsSum = db.prepare(
+  `SELECT COALESCE(SUM(gb.points), 0) AS ap
+     FROM guest_badges gb
+     LEFT JOIN submissions s ON s.id = gb.submission_id
+    WHERE gb.guest_id = ?
+      AND (gb.submission_id IS NULL OR s.taken_down = 0)`
+);
+
 // Look up a badge row by its code (e.g. 'BLOOM', 'EARLYBIRD').
 const stmtBadgeByCode = db.prepare('SELECT * FROM badges WHERE code = ?');
 
@@ -163,9 +187,12 @@ function getCompletedCount(guestId) {
  * point, issue #247)
  *   + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
  *     submissions, task or memory — issue #89, preserved by #247)
- *   + admin guests.bonus_points.
- * bonus_points is stored clamped at >= 0, and photo_bonus is a non-negative
- * admin-set absolute value, so total points are always >= 0.
+ *   + admin guests.bonus_points
+ *   + task-badge AWARD points (SUM of guest_badges.points, issue #483),
+ *     counted only while the award's earning photo is visible (AC6).
+ * bonus_points is stored clamped at >= 0, photo_bonus is a non-negative
+ * admin-set absolute value, and award points are coerced non-negative at
+ * write time (task-badges.awardTaskBadge), so total points are always >= 0.
  * @param {number} guestId
  * @returns {number}
  */
@@ -174,7 +201,8 @@ function getPoints(guestId) {
   const photoBonus = stmtPhotoBonusSum.get(guestId).pb;
   const bonusRow = stmtBonusPoints.get(guestId);
   const bonus = bonusRow ? bonusRow.bonus_points : 0;
-  return completed * POINTS_PER_PHOTO + photoBonus + bonus;
+  const awardPoints = stmtAwardPointsSum.get(guestId).ap;
+  return completed * POINTS_PER_PHOTO + photoBonus + bonus + awardPoints;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,15 +390,21 @@ function removeSpecialBadge(guestId, code) {
 /**
  * Admin creates a new host-defined CUSTOM badge in the catalog.
  * Refuses to create a badge whose type is 'metric' or 'transferable'
- * (system-owned types — AC5): no row is written and the function returns
- * null. `code` must be unique (the DB's UNIQUE constraint enforces this;
- * a duplicate throws SqliteError like any other catalog insert would).
+ * (system-owned types — AC5), or whose code begins with the reserved
+ * 'TASK-' prefix (issue #483 AC8 — that prefix is reserved for the per-task
+ * badges task-badges.js manages, which never go through this function):
+ * either way no row is written and the function returns null. `code` must
+ * otherwise be unique (the DB's UNIQUE constraint enforces this; a
+ * duplicate throws SqliteError like any other catalog insert would).
  *
  * @param {{code: string, name: string, type: string, artPath: string, description?: string}} params
- * @returns {object|null} the inserted badge row, or null if the type was refused
+ * @returns {object|null} the inserted badge row, or null if refused
  */
 function createCustomBadge({ code, name, type, artPath, description }) {
   if (!ADMIN_AWARDABLE_TYPES.has(type)) {
+    return null;
+  }
+  if (typeof code === 'string' && code.startsWith(TASK_BADGE_CODE_PREFIX)) {
     return null;
   }
   const info = db
@@ -412,15 +446,19 @@ function addBonusPoints(guestId, delta) {
  * (issue #247: a memory contributes no base point)
  * + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
  * submissions, task or memory — issue #89, preserved by #247's design)
- * + guests.bonus_points. Each row carries the guest's earned badge codes
- * (auto + special).
+ * + guests.bonus_points
+ * + task-badge AWARD points (SUM of guest_badges.points, issue #483),
+ * counted only while the award's earning photo is visible (AC6) — see the
+ * awardPoints subquery note below. Each row carries the guest's earned badge
+ * codes (auto + special).
  *
  * The completed-count here uses the SAME canonical rule as getCompletedCount
  * (section 1a, Decision A; amended by #247): visible TASK submissions only
  * (taken_down = 0 AND task_id IS NOT NULL), with no is_active filter, so
  * leaderboard points always match a guest's own "X complete" home-page count.
- * bonus_points is clamped >= 0 and photo_bonus is a non-negative admin-set
- * value, so points >= 0.
+ * bonus_points is clamped >= 0, photo_bonus is a non-negative admin-set
+ * value, and award points are coerced non-negative at write time
+ * (task-badges.awardTaskBadge), so points >= 0.
  *
  * @returns {Array<{
  *   id: number,
@@ -447,6 +485,21 @@ function leaderboard() {
   // task completion, so it must not add a base point. photo_bonus stays
   // summed over EVERY visible row (task or memory), unchanged from #89 — a
   // memory's admin-awarded bonus still counts (AC10).
+  //
+  // awardPoints (issue #483) is a CORRELATED SUBQUERY in the SELECT list,
+  // NOT an extra JOIN guest_badges added to the outer FROM/GROUP BY above —
+  // that outer query is already grouped by g.id over a one-row-per-guest
+  // LEFT JOIN submissions; adding a second one-to-many JOIN guest_badges
+  // there would fan out (a guest with 2 photos x 1 award = 2 grouped rows
+  // before aggregation), inflating BOTH COALESCE(SUM(s.photo_bonus), 0) and
+  // the award sum by the fan-out factor. The subquery below runs once per
+  // guest row, independent of how many submissions that guest has, so it
+  // cannot fan out anything — mirroring stmtAwardPointsSum's guest_badges
+  // LEFT JOIN submissions above (same expression, evaluated per-guest there
+  // vs. once per leaderboard row here; see the Duplicated-ownership note in
+  // this issue's handoff for why the two live as separate query shapes
+  // rather than one shared statement, the same pattern already used for the
+  // completed-count/photo-bonus terms above).
   const rows = db
     .prepare(
       `SELECT
@@ -455,7 +508,14 @@ function leaderboard() {
          g.avatar_path   AS avatar_path,
          g.bonus_points  AS bonus_points,
          COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END)                                          AS completed,
-         COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END) * ${POINTS_PER_PHOTO} + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points AS points,
+         COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END) * ${POINTS_PER_PHOTO} + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points +
+         COALESCE((
+           SELECT SUM(gb.points)
+             FROM guest_badges gb
+             LEFT JOIN submissions gbs ON gbs.id = gb.submission_id
+            WHERE gb.guest_id = g.id
+              AND (gb.submission_id IS NULL OR gbs.taken_down = 0)
+         ), 0) AS points,
          MAX(s.created_at)                                    AS last_submission_at
        FROM guests g
        LEFT JOIN submissions s
