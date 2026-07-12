@@ -41,10 +41,20 @@ function loadDotEnv() {
 loadDotEnv();
 
 // ---- Resolve the cookie secret --------------------------------------------
-// Prefer the value from the environment. If it is missing, generate a random
-// one so the app still boots, and warn that sessions will reset on restart.
+// Prefer the value from the environment. In production a missing secret is a
+// hard boot failure (issue #242): a regenerated secret invalidates every
+// signed cookie on restart, silently signing out every guest and admin at
+// once, mid-event. Everywhere else (dev/test), generate a random one so the
+// app still boots, and warn that sessions will reset on restart.
 let cookieSecret = process.env.COOKIE_SECRET;
 if (!cookieSecret || cookieSecret.trim() === '') {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '[config] COOKIE_SECRET is not set. Refusing to boot in production: without a fixed ' +
+        'secret, every restart would generate a new one and silently sign every guest and ' +
+        'admin out at once. Set COOKIE_SECRET in the environment (or .env) before starting.'
+    );
+  }
   cookieSecret = crypto.randomBytes(32).toString('hex');
   console.warn(
     '[config] WARNING: COOKIE_SECRET is not set. Generated a temporary random ' +
@@ -99,6 +109,24 @@ const config = {
   // True when cookies must carry the Secure flag. On by default in production
   // and when COOKIE_SECURE=true; off in test/dev so plain-HTTP supertest works.
   COOKIE_SECURE: cookieSecure,
+
+  // Cookie lifetimes, in milliseconds (issue #242). The single owner of both
+  // numbers -- src/middleware/session.js's cookieOpts() reads these rather
+  // than either cookie carrying its own literal, so the guest and admin
+  // lifetimes cannot drift apart by editing the wrong call site.
+  //
+  // GUEST_COOKIE_MAX_AGE_MS: 400 days -- the longest Max-Age Chrome will honor
+  // (it caps/truncates anything longer rather than erroring, so 400 is a
+  // ceiling, not a round default). Guests sign up as early as invitations go
+  // out, weeks before the event pays it off (Goal A); attachGuest re-issues
+  // this cookie on every authenticated request (a rolling refresh), so an
+  // active guest never approaches the ceiling -- it only bounds an inactive one.
+  GUEST_COOKIE_MAX_AGE_MS: parseInt(process.env.GUEST_COOKIE_MAX_AGE_MS, 10) || 34560000000,
+  // ADMIN_COOKIE_MAX_AGE_MS: 14 days -- unchanged from the single
+  // COOKIE_MAX_AGE_MS both cookies shared before #242 split them. The admin
+  // cookie is not rolling-refreshed and has no reason to be as sticky as the
+  // guest cookie.
+  ADMIN_COOKIE_MAX_AGE_MS: parseInt(process.env.ADMIN_COOKIE_MAX_AGE_MS, 10) || 1209600000,
 
   // Project root
   ROOT: ROOT,

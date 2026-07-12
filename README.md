@@ -48,7 +48,7 @@ Then open <http://localhost:3000>.
 - `node scripts/set-admin-password.js <password>` writes a bcrypt hash to `data/admin.hash`. Run it again any time to change the password; the old one stops working immediately.
 - `node scripts/seed.js` creates the SQLite schema and seeds badges plus sample tasks/guests. The badge catalog itself is also healed on every app boot (`src/db.js`, issue #314) — INSERT-OR-IGNORE, so it backfills any badge added since a database was first seeded, even on an already-played `app.db`, without touching sample tasks/guests or anything an admin has edited.
 - `npm run seed-event -- --guests 100 --seed 1` generatively seeds a realistic ~100-guest event (dense leaderboard, earned and special badges, moderated photos, real image files on disk) for pre-wedding testing at true scale. It must be pointed at a non-live `DATA_DIR` (e.g. `data-demo`) — set the `DATA_DIR` environment variable first, since it deletes and replaces its own fixture data on every run and refuses to touch a directory holding real guests.
-- Copy `.env.example` to `.env` and set a fixed `COOKIE_SECRET` before the event. Without it the app generates a random secret on each boot and signs everyone out on every restart.
+- Copy `.env.example` to `.env` and set a fixed `COOKIE_SECRET` before the event. In production, the app refuses to boot without one (issue #242) — a regenerated secret would silently sign out every guest and admin at once, mid-event. In dev/test, a missing secret just generates a random one on each boot and signs everyone out on every restart.
 
 ## How it is used
 
