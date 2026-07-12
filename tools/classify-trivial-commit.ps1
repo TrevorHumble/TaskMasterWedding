@@ -260,25 +260,60 @@ foreach ($k in $headDev.Keys) {
 }
 $changedNames = @($changedNames | Sort-Object -Unique)
 
-# A real npm `packages` object keys its root project entry "" -- and Windows
-# PowerShell 5.1's ConvertFrom-Json THROWS on any JSON object carrying an
-# empty-string property name (confirmed: every real lockfile would silently
-# fail to parse and force `standard` via the fail-closed path below, which
-# would neuter this condition for every legitimate trivial bump too, not just
-# the malicious ones it targets). Get-GitJson (used for package.json, which
-# never has an empty key) stays ConvertFrom-Json-based; the lockfile is read
-# through the .NET JavaScriptSerializer instead, which returns plain
-# Dictionary<string,object> objects and has no such restriction.
-Add-Type -AssemblyName System.Web.Extensions
+# A real npm `packages` object keys its root project entry "" -- and this
+# runs on TWO PowerShell editions with different JSON limitations, so the
+# lockfile parser is edition-aware:
+#
+#   * Windows PowerShell 5.1 (Desktop, the wedding event laptop): its
+#     ConvertFrom-Json THROWS on any JSON object carrying an empty-string
+#     property name, so every real lockfile would fail to parse and force
+#     `standard` via the fail-closed path below -- neutering this condition
+#     for every legitimate trivial bump, not just the malicious ones. The
+#     .NET Framework JavaScriptSerializer has no such restriction and returns
+#     Dictionary<string,object> objects; it is used only here.
+#   * PowerShell 7 Core (the Linux CI runner, `pwsh`): JavaScriptSerializer /
+#     System.Web.Extensions is a .NET Framework API that does NOT exist on
+#     .NET Core, so the Desktop path would throw -> caught -> $null -> every
+#     lockfile wrongly `standard`. But PS7's ConvertFrom-Json does NOT have
+#     the empty-key limitation, and `-AsHashtable` returns objects with the
+#     same .ContainsKey()/.Keys/indexer interface the condition-4 code below
+#     already uses. (Plain ConvertFrom-Json without -AsHashtable returns a
+#     PSCustomObject that has no .ContainsKey and whose "" property is
+#     unreachable, so -AsHashtable is required, not optional.)
+#
+# Both branches return an object exposing .ContainsKey(), .Keys, $x[$key]
+# indexing, and round-trips through `| ConvertTo-Json -Depth 100 -Compress`.
+# Head vs. staged are always parsed within the SAME edition inside one run, so
+# any key-ordering difference between editions is irrelevant to the diff.
+#
+# Get-GitJson (used for package.json, which never has an empty key) stays on
+# ConvertFrom-Json unchanged.
+$IsCoreEdition = ($PSVersionTable.PSEdition -eq 'Core')
+if (-not $IsCoreEdition) {
+  # Desktop-only .NET Framework assembly; never load it on Core (it would error).
+  Add-Type -AssemblyName System.Web.Extensions
+}
 function Get-GitJsonDict {
   param([string]$Ref)
   try {
     $raw = & git show $Ref 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $raw) { return $null }
-    $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
-    $ser.MaxJsonLength = [int]::MaxValue
-    $ser.RecursionLimit = 1000
-    return $ser.DeserializeObject($raw -join "`n")
+    $text = $raw -join "`n"
+    if ($IsCoreEdition) {
+      $parsed = ($text | ConvertFrom-Json -AsHashtable -ErrorAction Stop)
+    } else {
+      $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+      $ser.MaxJsonLength = [int]::MaxValue
+      $ser.RecursionLimit = 1000
+      $parsed = $ser.DeserializeObject($text)
+    }
+    # A valid lockfile's top level is a JSON object -> IDictionary on both
+    # editions (Dictionary<string,object> on Desktop, Hashtable/OrderedHashtable
+    # on Core). A top-level array/scalar parses without error but is not a
+    # lockfile; treat it as unreadable (fail closed) rather than letting the
+    # caller's .ContainsKey() throw on a non-dictionary.
+    if ($null -eq $parsed -or -not ($parsed -is [System.Collections.IDictionary])) { return $null }
+    return $parsed
   } catch {
     return $null
   }
