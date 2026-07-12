@@ -9,6 +9,12 @@ data/
 # Same sensitivity as data/ above -- irreplaceable event data must stay untracked.
 backups/
 
+# Ad-hoc/manual demo database + uploads + admin hash (same sensitivity as
+# data/ above), and any scripts/seed-story.js DATA_DIR target (#450), e.g.
+# data-stories/normal/, data-story-extreme/.
+data-demo/
+data-stor*/
+
 # Environment secrets
 .env
 

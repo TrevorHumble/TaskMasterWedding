@@ -33,15 +33,37 @@ Standards live in `standards/`. Agent definitions live in `agents/`. Both are po
 
 Every spawned agent sets its `model` explicitly. Never rely on a default that may escalate silently.
 
-| Role         | Model                                            |
-| ------------ | ------------------------------------------------ |
-| Orchestrator | Opus                                             |
-| Implementer  | Sonnet                                           |
-| Reviewers    | Opus, and a different model from the implementer |
+| Role         | Model                                                                                  |
+| ------------ | -------------------------------------------------------------------------------------- |
+| Orchestrator | Opus                                                                                   |
+| Implementer  | Sonnet                                                                                 |
+| Reviewers    | Opus, and a different model from the implementer — except the `sonnet-only` tier below |
 
-Reviewers run on a different model than the implementer so they do not inherit the implementer's correlated blind spots. A reviewer must never review its own output.
+Reviewers run on a different model than the implementer so they do not inherit the implementer's correlated blind spots, on every tier except the `sonnet-only` tier. A reviewer must never review its own output.
 
 **Fable review patterns — retired 2026-07-06 (#274).** The #203/#207 patterns governed work authored by the Fable model, which is no longer available; they applied through 2026-07-06 and no current implementer qualifies for them. **Every implementer now goes through the standard independent adversarial review per the table above.** The historical record (patterns, rationale, mechanism) is preserved in `standards/adversarial-review-protocol.md` § "Fable review patterns" and `DESIGN.md` § "Fable full self-certification exception".
+
+## Sonnet-only run tier (#427)
+
+An issue carrying the `sonnet-only` GitHub label runs its whole pipeline — orchestrator, implementer, and every reviewer that fires — on Sonnet, instead of the standard Opus reviewer policy above. `tools/classify-issue-run.ps1` is the authoritative rule engine; the summary here is a human-readable restatement, not a second copy of the logic.
+
+An issue qualifies only if all three gates hold — failing any one classifies `opus`:
+
+- **Routine tier** — `Touches` paths do not match the system-level governing-artifact surface (`.githooks/`, `tools/`, `standards/`, `agents/`, `skills/`, `.github/`, `.claude/`, `DESIGN.md`, `CLAUDE.md`, `AGENTS.md`, `docs/north-star.md`), and the issue is not security-flagged or orchestrator-escalated.
+- **Off the wedding-critical guest paths** — `Touches` paths do not touch join/auth, upload, moderation, or gallery/export core.
+- **Small and reversible** — no schema change, no data migration.
+
+**Wedding-critical guest surfaces** (a bad change on `sonnet-only` review rigor breaks a core guest path): join/auth — `src/routes/auth.js`, `src/middleware/session.js`, `src/services/identity.js`, `src/services/qr.js`; upload — `src/services/photos.js`, `src/services/heic-worker.js`, `src/services/submissions.js`; moderation — `src/routes/admin.js`; gallery/export core — `src/services/export.js`, `src/services/feed.js`. This list mirrors the security-lens dispatch row ("Upload/intake, auth, file-serving, admin routes") in `standards/adversarial-review-protocol.md` § "Which reviews does this change need?" — update both together when a guest-critical surface moves.
+
+Borderline cases default to `opus`. Anything that trips these gates mid-run escalates the remaining run to the standard Opus policy — see `agents/orchestrator.md` § "Model policy".
+
+Run the classifier against an issue's touched paths to determine its tier:
+
+```powershell
+powershell -File tools/classify-issue-run.ps1 -TouchesPaths 'src/services/scoring.js'
+```
+
+Output is the single token `sonnet-only` or `opus`, exit 0.
 
 ## Adversarial review, in brief
 

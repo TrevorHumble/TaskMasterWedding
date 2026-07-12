@@ -75,6 +75,20 @@ describe('initials() helper', () => {
   it('AF is not FA (order matters)', () => {
     expect(initials('Ava Fenwick')).not.toBe('FA');
   });
+
+  // #423: a name whose first character is a surrogate pair (emoji) must be
+  // taken whole by code point, not split into a lone high surrogate.
+  it('emoji first word + ASCII last word returns whole emoji + last initial', () => {
+    const result = initials('👰 Fenwick');
+    expect(result).toBe('👰F');
+    expect(result.isWellFormed()).toBe(true);
+  });
+
+  it('single emoji word returns the whole emoji unchanged', () => {
+    const result = initials('👰');
+    expect(result).toBe('👰');
+    expect(result.isWellFormed()).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
