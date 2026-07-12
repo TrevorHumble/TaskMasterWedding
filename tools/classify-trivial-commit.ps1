@@ -31,6 +31,20 @@
 #      version string is byte-identical on both sides is not touched, so an
 #      UNCHANGED dep carrying a non-normalizable range (e.g. a git URL) does
 #      not force `standard`.
+#   4. package-lock.json's CONTENT, not just its path, is bounded to the same
+#      dep set condition 3 already proved safe (#467). Every key
+#      added/removed/changed in the lockfile's top-level `packages` object
+#      must be `node_modules/<name>` (or nested under it) for a `<name>` that
+#      actually changed in package.json, or the root `""` entry, whose own
+#      diff must in turn be confined to non-dependency-field equality plus
+#      changed-dep-only version strings in its dependency stanzas. Anything
+#      else -- a repin of an untouched package, a swapped `resolved`/
+#      `integrity`, a new transitive package -- is `standard`, fail closed.
+#      A `packages` object missing on either side, or JSON that fails to
+#      parse, is `standard` (unrecognized/unreadable lockfile shape). This
+#      deliberately REJECTS transitive-dependency drift: a bump that moves a
+#      transitive pin routes to the ordinary reviewed path or Dependabot, not
+#      this waiver.
 #
 # The subject-prefix eligibility condition -- the commit subject must start
 # 'chore(deps): ' -- is checked by the hooks themselves at commit-msg time
@@ -76,8 +90,10 @@ foreach ($p in $stagedPaths) {
 }
 if ($stagedPaths -notcontains 'package.json') { Write-Standard 'package.json not staged (lockfile-only diff)' }
 
-# --- read HEAD's and the staged package.json ---
-function Get-ManifestJson {
+# --- read HEAD's and the staged package.json (and, for condition 4,
+# package-lock.json) -- one generic git-show+parse helper, reused for both
+# files rather than duplicated per file.
+function Get-GitJson {
   param([string]$Ref)
   try {
     $raw = & git show $Ref 2>$null
@@ -88,8 +104,8 @@ function Get-ManifestJson {
   }
 }
 
-$headManifest = Get-ManifestJson -Ref 'HEAD:package.json'
-$stagedManifest = Get-ManifestJson -Ref ':package.json'
+$headManifest = Get-GitJson -Ref 'HEAD:package.json'
+$stagedManifest = Get-GitJson -Ref ':package.json'
 if ($null -eq $headManifest -or $null -eq $stagedManifest) {
   Write-Standard 'package.json unreadable at HEAD or in the staged index'
 }
@@ -226,6 +242,133 @@ Test-ChangedDepsAllAuto -Head $devOnly -Staged $stagedDevOnly -DepType 'dev' -An
 
 if (-not $anyBumpSeen) {
   Write-Standard 'no dependency version actually changed'
+}
+
+# --- condition 4: package-lock.json content must be confined to the
+# manifest-changed dep set (#467). Conditions 1-3 only ever looked at
+# package.json; the lockfile's path was allowed but its content was never
+# examined, so a staged lockfile could carry an unrelated repin, a swapped
+# resolved/integrity, or a new package while the manifest showed one auto-tier
+# bump. Recompute the changed-dep set directly from the manifest maps already
+# validated above (key sets are proven identical by Assert-SameKeySet).
+$changedNames = New-Object System.Collections.Generic.List[string]
+foreach ($k in $headProd.Keys) {
+  if ([string]$headProd[$k] -ne [string]$stagedProd[$k]) { $changedNames.Add($k) }
+}
+foreach ($k in $headDev.Keys) {
+  if ([string]$headDev[$k] -ne [string]$stagedDev[$k]) { $changedNames.Add($k) }
+}
+$changedNames = @($changedNames | Sort-Object -Unique)
+
+# A real npm `packages` object keys its root project entry "" -- and Windows
+# PowerShell 5.1's ConvertFrom-Json THROWS on any JSON object carrying an
+# empty-string property name (confirmed: every real lockfile would silently
+# fail to parse and force `standard` via the fail-closed path below, which
+# would neuter this condition for every legitimate trivial bump too, not just
+# the malicious ones it targets). Get-GitJson (used for package.json, which
+# never has an empty key) stays ConvertFrom-Json-based; the lockfile is read
+# through the .NET JavaScriptSerializer instead, which returns plain
+# Dictionary<string,object> objects and has no such restriction.
+Add-Type -AssemblyName System.Web.Extensions
+function Get-GitJsonDict {
+  param([string]$Ref)
+  try {
+    $raw = & git show $Ref 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $raw) { return $null }
+    $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+    $ser.MaxJsonLength = [int]::MaxValue
+    $ser.RecursionLimit = 1000
+    return $ser.DeserializeObject($raw -join "`n")
+  } catch {
+    return $null
+  }
+}
+
+$headLock = Get-GitJsonDict -Ref 'HEAD:package-lock.json'
+$stagedLock = Get-GitJsonDict -Ref ':package-lock.json'
+if ($null -eq $headLock -or $null -eq $stagedLock) {
+  Write-Standard 'package-lock.json unreadable at HEAD or in the staged index'
+}
+if (-not $headLock.ContainsKey('packages') -or -not $stagedLock.ContainsKey('packages')) {
+  Write-Standard "package-lock.json has no top-level 'packages' object (unrecognized lockfile shape)"
+}
+$headPackages = $headLock['packages']
+$stagedPackages = $stagedLock['packages']
+
+# Non-dependency fields of a `packages` entry (name, version, resolved,
+# integrity, bin, ...), sorted for a deterministic canonical string -- same
+# technique as Get-NonDepCanonical above, applied per lockfile entry.
+function Get-EntryNonDepCanonical {
+  param($Entry)
+  $rest = [ordered]@{}
+  if ($null -ne $Entry) {
+    $names = @($Entry.Keys |
+        Where-Object { $_ -ne 'dependencies' -and $_ -ne 'devDependencies' } |
+        Sort-Object)
+    foreach ($n in $names) { $rest[$n] = $Entry[$n] }
+  }
+  return ($rest | ConvertTo-Json -Depth 100 -Compress)
+}
+
+# The lockfile root ("") entry mirrors package.json's dependencies /
+# devDependencies -- but is a SEPARATE copy the manifest check above never
+# looked at, so it must pass the same two rules on its own: no non-dependency
+# field may differ, and every changed dependency-stanza version must belong
+# to $changedNames.
+function Test-RootLockEntryConfined {
+  param($HeadEntry, $StagedEntry, [string[]]$ChangedNames)
+
+  if ((Get-EntryNonDepCanonical -Entry $HeadEntry) -ne (Get-EntryNonDepCanonical -Entry $StagedEntry)) {
+    Write-Standard "package-lock.json root entry changes a non-dependency field"
+  }
+
+  foreach ($section in @('dependencies', 'devDependencies')) {
+    $headMap = @{}
+    if ($HeadEntry -and $HeadEntry.ContainsKey($section)) {
+      foreach ($k in $HeadEntry[$section].Keys) { $headMap[$k] = [string]$HeadEntry[$section][$k] }
+    }
+    $stagedMap = @{}
+    if ($StagedEntry -and $StagedEntry.ContainsKey($section)) {
+      foreach ($k in $StagedEntry[$section].Keys) { $stagedMap[$k] = [string]$StagedEntry[$section][$k] }
+    }
+    $allNames = @(@($headMap.Keys) + @($stagedMap.Keys) | Sort-Object -Unique)
+    foreach ($name in $allNames) {
+      $h = $null
+      if ($headMap.ContainsKey($name)) { $h = $headMap[$name] }
+      $s = $null
+      if ($stagedMap.ContainsKey($name)) { $s = $stagedMap[$name] }
+      if ($h -eq $s) { continue }
+      if ($ChangedNames -notcontains $name) {
+        Write-Standard "package-lock.json root $section changes '$name', outside the manifest-changed dependency set"
+      }
+    }
+  }
+}
+
+$allLockKeys = @(@($headPackages.Keys) + @($stagedPackages.Keys) | Sort-Object -Unique)
+foreach ($key in $allLockKeys) {
+  $headEntry = $null
+  if ($headPackages.ContainsKey($key)) { $headEntry = $headPackages[$key] }
+  $stagedEntry = $null
+  if ($stagedPackages.ContainsKey($key)) { $stagedEntry = $stagedPackages[$key] }
+
+  $headCanon = ($headEntry | ConvertTo-Json -Depth 100 -Compress)
+  $stagedCanon = ($stagedEntry | ConvertTo-Json -Depth 100 -Compress)
+  if ($headCanon -eq $stagedCanon) { continue }
+
+  if ($key -eq '') {
+    Test-RootLockEntryConfined -HeadEntry $headEntry -StagedEntry $stagedEntry -ChangedNames $changedNames
+    continue
+  }
+
+  $matched = $false
+  foreach ($name in $changedNames) {
+    $prefix = "node_modules/$name"
+    if ($key -eq $prefix -or $key.StartsWith("$prefix/")) { $matched = $true; break }
+  }
+  if (-not $matched) {
+    Write-Standard "package-lock.json changes '$key', outside the manifest-changed dependency set"
+  }
 }
 
 Write-Output 'trivial'

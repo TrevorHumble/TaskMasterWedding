@@ -113,7 +113,7 @@ function makeRepo() {
     devDependencies: {},
   };
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
-  fs.writeFileSync(path.join(dir, 'package-lock.json'), '{}\n');
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), makeLockfileForExpress('4.21.2'));
   fs.writeFileSync(path.join(dir, 'README.md'), 'seed\n');
   run(['add', '-A']);
   const seed = run(['commit', '-q', '-m', 'seed']);
@@ -124,6 +124,35 @@ function makeRepo() {
   return { dir, run };
 }
 
+// A real npm lockfileVersion-3 `packages` map, confined to a single express
+// entry -- #467's classify-trivial-commit.ps1 now examines the lockfile's
+// CONTENT (not just its staged path), so the seed/staged fixture pair must be
+// a real, mutually-consistent lockfile shape for the AC6/hotfix-bypass cases
+// below to still classify 'trivial': the placeholder '{}' / '{"changed":true}'
+// pair this file used before #467 has no `packages` object, which condition 4
+// now (correctly) fails closed on.
+function makeLockfileForExpress(version) {
+  return (
+    JSON.stringify(
+      {
+        name: 'fixture',
+        version: '1.0.0',
+        lockfileVersion: 3,
+        packages: {
+          '': { name: 'fixture', version: '1.0.0', dependencies: { express: `^${version}` } },
+          'node_modules/express': {
+            version,
+            resolved: `https://registry.npmjs.org/express/-/express-${version}.tgz`,
+            integrity: `sha512-fixture-${version}`,
+          },
+        },
+      },
+      null,
+      2
+    ) + '\n'
+  );
+}
+
 function stageTrivialBump(dir, run) {
   const manifest = {
     name: 'fixture',
@@ -132,7 +161,7 @@ function stageTrivialBump(dir, run) {
     devDependencies: {},
   };
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
-  fs.writeFileSync(path.join(dir, 'package-lock.json'), '{"changed":true}\n');
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), makeLockfileForExpress('4.22.2'));
   run(['add', 'package.json', 'package-lock.json']);
 }
 
