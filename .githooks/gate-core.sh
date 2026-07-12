@@ -38,6 +38,37 @@ event_mode_state() {
   fi
 }
 
+# classifier_says_trivial <root>: prints "true" when the STAGED tree
+# classifies 'trivial' under tools/classify-trivial-commit.ps1 (#448) --
+# a manifest-only dependency bump whose changed deps all classify 'auto'
+# under the shared tools/classify-dep-pr-core.ps1 tier rules. Prints "false"
+# on any other classification, AND on any failure to run the classifier at
+# all (missing powershell, missing script, non-zero exit, unexpected output)
+# -- fail CLOSED, mirroring event_mode_state's collapse-to-INACTIVE posture.
+# The commit-subject "chore(deps): " prefix is NOT checked here (this probe
+# only recomputes the staged-tree half of eligibility); the hooks below check
+# the prefix themselves once they can read the commit message.
+classifier_says_trivial() {
+  _tcroot="$1"
+  _tcps="$(command -v powershell 2>/dev/null)" || _tcps=""
+  if [ -z "$_tcps" ]; then
+    echo "false"
+    return 0
+  fi
+  _tcscript="$_tcroot/tools/classify-trivial-commit.ps1"
+  if [ ! -f "$_tcscript" ]; then
+    echo "false"
+    return 0
+  fi
+  _tcresult="$(powershell -NoProfile -ExecutionPolicy Bypass -File "$_tcscript" 2>/dev/null)" || _tcresult=""
+  _tcresult="$(printf '%s' "$_tcresult" | tr -d '[:space:]')"
+  if [ "$_tcresult" = "trivial" ]; then
+    echo "true"
+  else
+    echo "false"
+  fi
+}
+
 # evidence_gate <root>: the commit gate formerly inlined in .githooks/pre-commit.
 # Blocks (exits the calling hook non-zero) unless a review verdict bound to the
 # EXACT to-be-committed tree says PASS and validate-verdict.ps1 confirms the

@@ -13,9 +13,18 @@
 //                  governance/ledger.ndjson into the working copy so the
 //                  harvester appends to the real current ledger.
 //   --push         no-op (exit 0) when the working-copy ledger equals the
-//                  remote branch copy; otherwise commit the file onto branch
-//                  `ledger` (based on the remote tip, or HEAD when the branch
-//                  is new) and push it. Never touches main.
+//                  remote branch copy AND no rendered BUILDLOG.md is present
+//                  to add/change; otherwise commit onto branch `ledger`
+//                  (based on the remote tip, or HEAD when the branch is new)
+//                  and push it. Never touches main.
+//
+// BUILDLOG.md (#447): when scripts/buildlog-render.js has written a rendered
+// BUILDLOG.md into the working copy (a workflow step run before --push),
+// --push includes it in the SAME commit as governance/ledger.ndjson — the
+// browsable per-merge log and the data it is rendered from can never be
+// observed out of sync with each other on the ledger branch. Absent that
+// file (e.g. a caller that never ran the renderer, or these tests), push()
+// behaves exactly as before #447: ledger-only.
 //
 // Repo dir and remote are injectable (env LEDGER_REPO_DIR / LEDGER_REMOTE)
 // so tests can drive a scratch repo with a local bare remote.
@@ -26,6 +35,7 @@ const fs = require('fs');
 const path = require('path');
 
 const LEDGER_FILE = 'governance/ledger.ndjson';
+const RENDERED_BUILDLOG_FILE = 'BUILDLOG.md';
 const LEDGER_BRANCH = 'ledger';
 
 function makeGit(repoDir) {
@@ -50,12 +60,16 @@ function fetchLedgerBranch(git, remote) {
   }
 }
 
-function remoteLedgerContent(git, remote) {
+function remoteFileContent(git, remote, filePath) {
   try {
-    return git(['show', `refs/remotes/${remote}/${LEDGER_BRANCH}:${LEDGER_FILE}`]);
+    return git(['show', `refs/remotes/${remote}/${LEDGER_BRANCH}:${filePath}`]);
   } catch {
     return null;
   }
+}
+
+function remoteLedgerContent(git, remote) {
+  return remoteFileContent(git, remote, LEDGER_FILE);
 }
 
 // --materialize: make the working copy start from the branch's current rows.
@@ -88,9 +102,21 @@ function push(repoDir, remote) {
   }
   const working = fs.readFileSync(filePath, 'utf8');
 
+  const buildlogPath = path.join(repoDir, RENDERED_BUILDLOG_FILE);
+  const buildlogPresent = fs.existsSync(buildlogPath);
+  const buildlogWorking = buildlogPresent ? fs.readFileSync(buildlogPath, 'utf8') : null;
+
   const branchExists = fetchLedgerBranch(git, remote);
   const remoteContent = branchExists ? remoteLedgerContent(git, remote) : null;
-  if (remoteContent !== null && remoteContent === working) {
+  const remoteBuildlogContent = branchExists
+    ? remoteFileContent(git, remote, RENDERED_BUILDLOG_FILE)
+    : null;
+
+  const ledgerUnchanged = remoteContent !== null && remoteContent === working;
+  const buildlogUnchanged =
+    !buildlogPresent ||
+    (remoteBuildlogContent !== null && remoteBuildlogContent === buildlogWorking);
+  if (ledgerUnchanged && buildlogUnchanged) {
     console.log('ledger-push: no new rows, nothing to commit.');
     return;
   }
@@ -101,13 +127,27 @@ function push(repoDir, remote) {
     ? git(['rev-parse', `refs/remotes/${remote}/${LEDGER_BRANCH}`]).trim()
     : git(['rev-parse', 'HEAD']).trim();
 
-  // Tree = parent's tree with only the ledger blob replaced, via a temp index.
+  // Tree = parent's tree with the ledger blob replaced, plus the rendered
+  // BUILDLOG.md blob replaced when present in the working copy (#447 AC5),
+  // via a temp index.
   const tmpIndex = path.join(repoDir, '.git-ledger-index');
   const env = { ...process.env, GIT_INDEX_FILE: tmpIndex };
   try {
     git(['read-tree', parent], { env });
     const blob = git(['hash-object', '-w', '--', LEDGER_FILE]).trim();
     git(['update-index', '--add', '--cacheinfo', `100644,${blob},${LEDGER_FILE}`], { env });
+    if (buildlogPresent) {
+      const buildlogBlob = git(['hash-object', '-w', '--', RENDERED_BUILDLOG_FILE]).trim();
+      git(
+        [
+          'update-index',
+          '--add',
+          '--cacheinfo',
+          `100644,${buildlogBlob},${RENDERED_BUILDLOG_FILE}`,
+        ],
+        { env }
+      );
+    }
     const tree = git(['write-tree'], { env }).trim();
     const commitEnv = {
       ...env,

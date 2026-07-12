@@ -116,9 +116,23 @@ A new reviewer lens (e.g. design-language, security) enters the pipeline as **AD
 
 ---
 
+## Trivial dep-bump path (base-tier waiver)
+
+**Not a dispatch-table row.** Every row in `## Which reviews does this change need?` below is additive to the base review for the change's risk tier — a lens never replaces the PR reviewer or the design-philosophy gate. This section is different in kind: a **base-tier waiver**, the one case where the base review itself does not run, because the change class already merges with no review at all when Dependabot authors the identical diff (`CLAUDE.md` § "Dependency updates (Dependabot)"). Keeping a hand-built commit of the same class inside the base review would cost more ceremony for the identical change purely because of who typed it.
+
+**Eligibility (all three, recomputed from the staged tree — never attested):**
+
+1. The staged paths are exactly a non-empty subset of `{package.json, package-lock.json}`, and `package.json` is among them (a lockfile-only diff stays `standard`, fail closed).
+2. Every direct dependency whose version differs between `HEAD:package.json` and the staged copy classifies `auto` under the shared tier logic (`tools/classify-dep-pr-core.ps1`) — wedding-critical deps and prod majors can never qualify.
+3. The commit subject starts with the fixed prefix `chore(deps): `.
+
+**When all three hold, green CI alone gates the merge** — no PR reviewer, no design-philosophy reviewer, no issue-review — mechanically enforced by `tools/classify-trivial-commit.ps1` plus the `.githooks/pre-commit` / `.githooks/commit-msg` exemption branches. Any other condition takes the full gate for that risk tier, unchanged. Full design, the version-adapter fail-closed rules, and the ledger consequence (a merge with no `governance-ledger` comment harvests as `reviews: []`, exactly like a Dependabot auto-merge already does): `DESIGN.md` § "Trivial dep-bump gate (#448)".
+
+---
+
 ## Which reviews does this change need?
 
-Path-based and mechanical — no judgment calls. Every row whose paths the change touches applies; a change matching multiple rows runs every matched lens, and any kernel path takes the whole change to the kernel bar.
+Path-based and mechanical — no judgment calls. Every row whose paths the change touches applies; a change matching multiple rows runs every matched lens, and any kernel path takes the whole change to the kernel bar. **A manifest-only dependency bump may instead qualify for the `## Trivial dep-bump path (base-tier waiver)` above, which waives the base review entirely rather than adding a lens to it — check that section first for `package.json`/`package-lock.json`-only changes.**
 
 | Change touches                                                                                                                                                                                       | Reviews that run                                                                                           |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |

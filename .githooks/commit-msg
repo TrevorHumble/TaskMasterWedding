@@ -12,13 +12,21 @@
 # If ANY staged path is not a doc -> CODE: resolve the issue, require PASS.
 # If every staged path is a doc -> doc-only: allowed (advisory CI check covers merge).
 #
-# There is NO [no-issue] bypass for code. A code commit with no resolvable reviewed
-# issue is always blocked. --no-verify bypasses this hook (same as pre-commit); CI
-# is the backstop.
+# A code commit with no resolvable reviewed issue is blocked, with three
+# narrowly scoped, never-silent exemptions -- each checked explicitly below,
+# never a blanket skip: the ledger appender (#219, the sole staged path is
+# governance/ledger.ndjson and the message starts "ledger: "), the event-mode
+# hotfix (#220, an ACTIVE governance/event-mode.json flag plus a
+# "hotfix: "-prefixed subject), and the trivial dep-bump path (#448, a staged
+# manifest-only bump that classifies 'trivial' under
+# tools/classify-trivial-commit.ps1 plus a "chore(deps): "-prefixed subject).
+# Everything else takes the full gate. --no-verify bypasses this hook (same
+# as pre-commit); CI is the backstop.
 set -e
 
 msg_file="$1"
 root="$(git rev-parse --show-toplevel)"
+. "$root/.githooks/gate-core.sh"
 
 # Sanctioned ledger-appender exemption (#219): the governance ledger's ONLY
 # writer is the CI job in .github/workflows/ledger.yml (a ledger row is never
@@ -32,6 +40,39 @@ if [ "$staged_paths" = "governance/ledger.ndjson" ]; then
   case "$(head -1 "$msg_file")" in
     "ledger: "*) exit 0 ;;
   esac
+fi
+
+# Trivial dep-bump exemption (#448): pre-commit deferred its evidence gate
+# here whenever the staged tree classifies 'trivial' (it cannot read the
+# commit message). This hook re-classifies the SAME staged tree -- it does
+# not change between pre-commit and commit-msg within one `git commit` -- and:
+#   - trivial AND "chore(deps): "-prefixed subject -> bypass BOTH gates below
+#     (the evidence gate AND the issue-reference gate), matching the
+#     Dependabot-equivalent policy this path recomputes, never attests.
+#   - trivial but any other subject -> run the evidence gate right here
+#     (pre-commit deferred it to this hook), then fall through to the issue
+#     gate below like an ordinary commit -- EXCEPT during an ACTIVE event-mode
+#     window, where the gate is left to the event-mode block just below so its
+#     'hotfix: ' bypass is still reachable. Without that carve-out a
+#     'hotfix: ' commit whose staged tree happens to be a manifest-only
+#     trivial bump would be blocked here and never reach the documented
+#     event-mode exemption -- a silent narrowing of it. Deferring (not
+#     running) the gate here is still fail-closed: the event-mode block below
+#     runs the identical evidence_gate for every non-'hotfix: ' commit while a
+#     flag file is present, so the gate is never skipped, only relocated one
+#     block down (idempotent, same as the event-mode/pre-commit deferral).
+#   - not trivial -> unaffected; behaves exactly as before #448.
+# See DESIGN.md "Trivial dep-bump gate (#448)".
+if [ "$(classifier_says_trivial "$root")" = "true" ]; then
+  case "$(head -1 "$msg_file")" in
+    "chore(deps): "*)
+      echo "commit-msg: staged tree classifies 'trivial' and the subject carries the 'chore(deps): ' prefix -- bypassing the evidence gate and the issue-reference gate (tools/classify-trivial-commit.ps1)." >&2
+      exit 0
+      ;;
+  esac
+  if [ "$(event_mode_state "$root")" != "ACTIVE" ]; then
+    evidence_gate "$root"
+  fi
 fi
 
 # Event mode (#220): while governance/event-mode.json is a valid em1 flag with a
@@ -52,7 +93,6 @@ fi
 # merge commits (which git never passes through pre-commit) meet the evidence
 # gate while a flag file exists -- new coverage, strictly fail-closed.
 # See DESIGN.md "Event mode (#220)".
-. "$root/.githooks/gate-core.sh"
 if [ -f "$root/governance/event-mode.json" ]; then
   if [ "$(event_mode_state "$root")" = "ACTIVE" ]; then
     case "$(head -1 "$msg_file")" in

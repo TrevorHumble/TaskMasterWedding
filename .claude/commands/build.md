@@ -56,11 +56,11 @@ After the issue review PASSes (step 3), record the issue-review evidence so the 
 powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS
 ```
 
-Then `git commit -F data/commitmsg-*.txt` with `(#N)` in the message. **Two gates run:** `pre-commit` checks the staged tree has a PASS review; `commit-msg` checks the issue has a recorded review PASS. Both must pass. If `commit-msg` blocks with "issue N has no recorded review PASS", the fix is to record the issue review above — never to forge a verdict. Append one line to `BUILDLOG.md`.
+Then `git commit -F data/commitmsg-*.txt` with `(#N)` in the message. **Two gates run:** `pre-commit` checks the staged tree has a PASS review; `commit-msg` checks the issue has a recorded review PASS. Both must pass. If `commit-msg` blocks with "issue N has no recorded review PASS", the fix is to record the issue review above — never to forge a verdict.
 
 **7 — Ship: push → PR → CI → merge on green.** Push the branch and open a pull request:
 
-Then push and open the PR: `"C:\Program Files\GitHub CLI\gh.exe" pr create --body-file data/<body-file>`. Watch CI to green. Then:
+Then push and open the PR: `"C:\Program Files\GitHub CLI\gh.exe" pr create --body-file data/<body-file>`. Watch CI to green. Before merging, post the pre-merge `<!-- buildlog-entry -->` PR comment (the entry narrative this change would previously have hand-appended to `BUILDLOG.md`) alongside the `<!-- governance-ledger -->` comment — see `agents/orchestrator.md` § step 7 for the exact mechanics (marker, last-comment-wins refresh, and how `scripts/ledger-harvest.js` harvests it post-merge into the rendered `BUILDLOG.md` on the `ledger` branch). Then:
 
 - **Non-visual change types — bug fix, security fix, refactor, correctness, tests:** merge once the adversarial review has passed and CI is green. The owner does not perform merges; owner control is upstream (issue-speccing) and downstream (revert via git history).
 - **Visual and product-direction changes:** merge once the step-4a visual-approval loop has reached explicit owner approval AND the adversarial review has passed and CI is green. The visual-approval loop is the owner's pre-merge control for this change type; issue-speccing and revert remain available as well.
