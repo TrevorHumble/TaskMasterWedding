@@ -71,30 +71,6 @@
           <% }); %>
         </ul>
       <% } %>
-
-      <% if (doneTasks.length > 0) { %>
-        <h2 class="task-section-label">Done</h2>
-        <ul class="task-list">
-          <% recentDone.forEach(function (t) { %>
-            <li class="task-row task-done">
-              <a class="task-link" href="/tasks/<%= t.id %>">
-                <span class="task-thumb-wrap">
-                  <% if (t.thumb_path) { %>
-                    <img src="/thumbs/<%= t.thumb_path %>" alt="" class="task-thumb" width="40" height="40" />
-                  <% } %>
-                  <span class="task-thumb-check" aria-label="Completed">&#10003;</span>
-                </span>
-                <span class="task-body">
-                  <span class="task-title-text"><%= t.title %></span>
-                </span>
-              </a>
-            </li>
-          <% }); %>
-        </ul>
-        <% if (doneTasks.length > 3) { %>
-          <p class="task-see-all"><a href="/tasks?view=done">See all <%= doneCount %> done</a></p>
-        <% } %>
-      <% } %>
     <% } %>
   <% } %>
 
