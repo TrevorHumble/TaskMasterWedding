@@ -64,10 +64,42 @@ never" #5 below is the other half, verifying on receipt. Neither half substitute
 the other. `tools/review-runner.ps1` (#128) is the mechanical enforcement of this same
 rule for the JSON-verdict path — it rejects any out-of-range or nonexistent `file:line`
 citation before a verdict can be recorded. The PR-path reviewers (`reviewer-pr`,
-`reviewer-design-philosophy`) now emit that JSON block per #474, but the runner does
-not yet sit in the pipeline to consume it — that lands with #455. Until then, and for
-the issue-stage reviewers (`reviewer-issue`, `reviewer-architecture`) that stay on
-prose, the reviewer's own self-check is the only guard.
+`reviewer-design-philosophy`) emit that JSON block per #474; #455 wired the runner into
+the pipeline to consume it, via `tools/capture-reviewer-verdict.ps1` (see "PR-review
+recording: capture → runner (#455)" below) — a PR-review verdict is now recorded
+mechanically from the reviewer's own returned text, not transcribed by hand. For the
+issue-stage reviewers (`reviewer-issue`, `reviewer-architecture`), which stay on prose,
+the reviewer's own self-check remains the only guard.
+
+---
+
+## PR-review recording: capture → runner (#455)
+
+A PR-review verdict is recorded by capturing each PR-path reviewer's own emitted JSON
+block and feeding it through `tools/review-runner.ps1` — never by a hand
+`tools/persist-review.ps1` call. For each PR-path reviewer (`reviewer-pr`,
+`reviewer-design-philosophy`, per #474), `tools/capture-reviewer-verdict.ps1
+-RawReturnFile <f> -RunDir <dir>` extracts the trailing fenced ```json verdict block
+from that reviewer's raw return text and writes it, verbatim, to `<dir>/<reviewerId>.json`
+— fail-closed (exits non-zero, writes nothing) if no such block exists, the block does
+not parse as JSON, or it has no non-empty `reviewerId`. Once every reviewer in the round
+is captured into the same `<dir>`, `tools/review-runner.ps1 -RunDir <dir> -TreeOid <T>
+-Mode <both-pass|unanimous>` citation-validates every defect and, only on a fully clean
+pass, calls `tools/persist-review.ps1` per reviewer and `tools/review_verdict.ps1` to
+bind the tree-level PASS.
+
+This closes the residual `DESIGN.md` § "Commit gate: review evidence bound to the staged
+tree" named as still open: the actor that could invent a PASS by hand (the orchestrator,
+running `persist-review.ps1` directly with a free-text reviewer id) is no longer the
+actor recording it for the PR-review path — the evidence is mechanically derived from
+the reviewer agent's own returned bytes. The orchestrator's "The spawner must never" #5
+post-hoc verification (confirm every citation, every item in scope has a finding) is now
+performed by the runner's citation validation before any evidence is written, not by the
+orchestrator reading the verdict and deciding to trust it.
+
+The issue-review path (`tools/persist-issue-review.ps1`, step 2 of
+`agents/orchestrator.md`) is unchanged by this wiring — it remains a direct,
+hand-invoked call, since #455 scopes only the PR-review recording path.
 
 ---
 
