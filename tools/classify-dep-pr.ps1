@@ -3,12 +3,10 @@
 #   auto   - safe to merge on green CI with no additional review
 #   review - held for a tracked decision before merge
 #
-# Precedence (evaluated top-down, first match wins):
-#   1. github-actions bumps -> auto
-#   2. dev-dependency bumps -> auto (CI catches a broken build)
-#   3. wedding-critical prod dep (any semver) -> review
-#   4. prod major bump -> review
-#   5. everything else -> auto
+# Thin CLI over the shared classification core in tools/classify-dep-pr-core.ps1
+# (#448) — tools/classify-trivial-commit.ps1 dot-sources that same core, so the
+# tier rules have exactly one copy. This file's CLI contract (path, params,
+# stdout, exit code) is unchanged by the refactor.
 #
 # Compatible with Windows PowerShell 5.1 and pwsh 7+ on Linux/macOS.
 # No ternary, no &&/||, no null-coalescing -- WinPS 5.1 constraints.
@@ -33,24 +31,9 @@ param(
     [string]$DepType
 )
 
-# Wedding-critical prod dependencies — a bad bump breaks a core guest path.
-# Single source of truth: do not duplicate this list; CLAUDE.md mirrors it.
-$WeddingCritical = @('multer', 'sharp', 'ejs', 'better-sqlite3', 'bcryptjs', 'archiver')
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptDir 'classify-dep-pr-core.ps1')
 
-if ($Ecosystem -eq 'github-actions') {
-    Write-Output 'auto'
-}
-elseif ($DepType -eq 'dev') {
-    Write-Output 'auto'
-}
-elseif ($WeddingCritical -contains $DepName) {
-    Write-Output 'review'
-}
-elseif ($SemverBump -eq 'major') {
-    Write-Output 'review'
-}
-else {
-    Write-Output 'auto'
-}
+Write-Output (Get-DepPrTier -Ecosystem $Ecosystem -DepName $DepName -SemverBump $SemverBump -DepType $DepType)
 
 exit 0

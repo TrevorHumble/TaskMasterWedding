@@ -118,7 +118,11 @@ maybeDescribe('classify-dep-pr', () => {
 // Drift-guard: tools/classify-dep-pr.ps1 is the single source of truth for the
 // wedding-critical list. CLAUDE.md and .github/dependabot.yml must mirror it exactly.
 describe('wedding-critical drift guard', () => {
-  const scriptPath = path.join(__dirname, '..', 'tools', 'classify-dep-pr.ps1');
+  // #448: the $WeddingCritical array literal moved into the dot-sourceable
+  // core (tools/classify-dep-pr-core.ps1) so tools/classify-trivial-commit.ps1
+  // can share it without a second copy. classify-dep-pr.ps1's CLI contract
+  // (path, params, stdout, exit code) is unchanged.
+  const scriptPath = path.join(__dirname, '..', 'tools', 'classify-dep-pr-core.ps1');
   const claudePath = path.join(__dirname, '..', 'CLAUDE.md');
   const dependabotPath = path.join(__dirname, '..', '.github', 'dependabot.yml');
 
@@ -128,7 +132,7 @@ describe('wedding-critical drift guard', () => {
     // Match the array literal: $WeddingCritical = @( ... )
     const arrayMatch = src.match(/\$WeddingCritical\s*=\s*@\(([^)]+)\)/);
     if (!arrayMatch)
-      throw new Error('Could not locate $WeddingCritical array in classify-dep-pr.ps1');
+      throw new Error('Could not locate $WeddingCritical array in classify-dep-pr-core.ps1');
     const arrayLiteral = arrayMatch[1];
     // Extract each single-quoted token.
     const names = [];

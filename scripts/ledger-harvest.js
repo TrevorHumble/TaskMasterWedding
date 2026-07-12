@@ -51,6 +51,26 @@ function extractLedgerComment(comments) {
   return found;
 }
 
+// Find the last PR comment carrying the `<!-- buildlog-entry -->` marker and
+// return the narrative text that follows it, verbatim (leading/trailing
+// whitespace trimmed). The LAST such comment wins, same rule as
+// extractLedgerComment above (a re-posted entry supersedes earlier ones).
+// Returns null when no comment carries the marker — an honestly-visible gap
+// (buildlog-render.js renders it as "(no buildlog-entry comment on PR #N)"),
+// never a fabricated entry (#447).
+const BUILDLOG_MARKER = '<!-- buildlog-entry -->';
+function extractBuildlogComment(comments) {
+  let found = null;
+  for (const c of comments || []) {
+    const body = c && c.body ? c.body : '';
+    const idx = body.indexOf(BUILDLOG_MARKER);
+    if (idx !== -1) {
+      found = body.slice(idx + BUILDLOG_MARKER.length).trim();
+    }
+  }
+  return found;
+}
+
 // Resolve the issue a PR closes, from title/body/branch. Returns a number or
 // null (recorded as null in the row — a visible gap, not a guess).
 function resolveIssueNumber(pr) {
@@ -79,7 +99,9 @@ function hasFreezeCommit(commitMessages) {
 // One gl1 row per merged PR (schema v1). `comments` is the PR's issue-comment
 // list; the reviews array is taken VERBATIM from the governance-ledger comment,
 // or [] when none exists. `commitMessages` is the PR's commit-subject list,
-// used only to derive freeze (see hasFreezeCommit above).
+// used only to derive freeze (see hasFreezeCommit above). `buildlog` is the
+// narrative from the last `<!-- buildlog-entry -->` comment, verbatim, or
+// null when no such comment exists — additive field, #447.
 function buildRow(pr, comments, commitMessages) {
   const report = extractLedgerComment(comments);
   return {
@@ -91,6 +113,7 @@ function buildRow(pr, comments, commitMessages) {
     reviews: report && Array.isArray(report.reviews) ? report.reviews : [],
     labels: (pr.labels || []).map((l) => l.name),
     freeze: hasFreezeCommit(commitMessages),
+    buildlog: extractBuildlogComment(comments),
   };
 }
 
@@ -236,7 +259,9 @@ async function main() {
 }
 
 module.exports = {
+  BUILDLOG_MARKER,
   extractLedgerComment,
+  extractBuildlogComment,
   resolveIssueNumber,
   buildRow,
   buildGovernanceRow,

@@ -52,5 +52,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/ledger-harvest.js
+      - name: Render the per-merge BUILDLOG.md from the ledger (#447)
+        run: node scripts/buildlog-render.js
       - name: Commit and push appended rows to the ledger branch
         run: node scripts/ledger-push.js --push
