@@ -19,7 +19,7 @@
 const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -127,7 +127,7 @@ describe('AC2: submissions spread across tasks/people; taken-down hidden from ga
     // depend on insert order.
     const guest = db.prepare('SELECT token FROM guests WHERE name = ?').get('Ava Martinez');
     const agent = request.agent(app);
-    await agent.get(`/j/${guest.token}`);
+    signInGuest(app, guest.token, agent);
 
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);

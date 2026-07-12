@@ -15,7 +15,7 @@ flowchart TD
     subgraph server["app server"]
         express["Express app (src/app.js)<br/>localhost:3000"]
         express --> mw["Middleware<br/>signed cookies, body parsing,<br/>attachGuest"]
-        mw --> auth["routes/auth.js<br/>/j/:token, /onboard, /login, /admin/login"]
+        mw --> auth["routes/auth.js<br/>/join, /login, /admin/login"]
         mw --> guest["routes/guest.js<br/>/, /tasks, /tasks/:id/submit, /me/edit,<br/>/how-to-play, /bug-report"]
         mw --> community["routes/community.js<br/>/gallery, /feed, GET /p/:submissionId,<br/>/p/:submissionId/like, /p/:submissionId/comments,<br/>/p/:submissionId/comments/:commentId/delete,<br/>/leaderboard, /u/:guestId"]
         mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, awards, export,<br/>/admin/comments, /admin/badges, /admin/bugs"]
@@ -64,7 +64,7 @@ erDiagram
 
     guests {
         int id PK
-        text token UK "unique sign-in token"
+        text token UK "internal session credential, never distributed"
         text name
         text avatar_path
         text social_links "JSON"
@@ -158,13 +158,11 @@ If the admin later takes the photo down, the row's `taken_down` flips to 1: the 
 
 ## Walkthrough: a sign-in
 
-1. A guest scans the QR code on their place-card, which opens `GET /j/:token` (the token is the random value from `guests.token`).
-2. `routes/auth.js` looks up the guest by token (`getGuestByToken` in `src/db.js`). On a match it sets the signed `gsid` cookie carrying the token.
-3. If the guest has not finished onboarding (`onboarded = 0`), they are sent to `/onboard` to set a name and avatar, which on completion redirects to a one-time `/how-to-play?first=1` rules card (issue #246) before the guest home; an already-onboarded guest lands on the guest home at `/` directly.
-4. On every later request, `attachGuest` reads and verifies the signed `gsid` cookie, loads the guest, and exposes it to routes and views. The cookie signature (via `cookie-parser` and `COOKIE_SECRET`) is what makes the token tamper-evident.
+Every guest gets the SAME link — one QR poster (`GET /admin/poster`), printed once instead of a hundred personal place-cards — pointing at `GET /join` (issue #240; issue #244 retired the older per-guest personal-link scheme entirely).
+
+1. A guest scans the poster's QR code, landing on `GET /join`. The form collects a name, an email-or-phone contact, and a self-chosen 4-digit re-entry PIN, plus an optional avatar — signup IS onboarding here, there is no separate onboarding step afterward.
+2. `POST /join` normalizes the contact and validates the PIN shape (`services/identity.js`), checks `getGuestByContact` for an existing account under that contact so the same person cannot create a second guest row, and otherwise inserts a new `guests` row with `onboarded = 1` and a fresh token from `makeUniqueToken()` (also in `services/identity.js`). The token is written straight into the signed `gsid` cookie and never shown to the guest — it is an internal session credential, not a link anyone reads or copies. The guest lands on `/` directly.
+3. A contact that already has an account is redirected to `/login` (issue #241) to re-enter with their contact + PIN on any device instead — `POST /login` looks the guest up by contact, checks the PIN, and on a match sets the same signed `gsid` cookie.
+4. On every later request, `attachGuest` reads and verifies the signed `gsid` cookie, loads the guest by token, and exposes it to routes and views. The cookie signature (via `cookie-parser` and `COOKIE_SECRET`) is what makes the token tamper-evident.
 
 The admin sign-in is parallel: `POST /admin/login` checks the submitted password against the bcrypt hash in `data/admin.hash`, and on success sets the signed `admin` cookie that `requireAdmin` checks for every `/admin` route.
-
-### Shared entry link: self-serve signup at /join
-
-Issue #240 adds a second, guest-facing way in that does not depend on a private per-guest token at all. Every guest gets the SAME link (QR poster, email, or place card) pointing at `GET /join`. The form collects a name, an email-or-phone contact, and a self-chosen 4-digit re-entry PIN, plus an optional avatar — signup IS onboarding here, so there is no separate `/onboard` step afterward. `POST /join` normalizes the contact and validates the PIN shape (`services/identity.js`), checks `getGuestByContact` for an existing account under that contact so the same person cannot create a second guest row, and otherwise inserts a new `guests` row with `onboarded = 1` and a fresh token from `makeUniqueToken()` (also in `services/identity.js`, shared with the admin guest-creation forms), sets the signed `gsid` cookie, and sends the guest straight to `/`. A contact that already has an account is redirected to `/login` (issue #241) to re-enter with their PIN instead.

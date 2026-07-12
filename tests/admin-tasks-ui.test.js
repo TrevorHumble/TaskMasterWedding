@@ -15,8 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { loadApp, makeAdminAgent } = require('./helpers/testApp');
-const request = require('supertest');
+const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 
 const THEME_CSS = fs.readFileSync(
   path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css'),
@@ -165,8 +164,7 @@ describe('AC5: guest /tasks reflects move-to-top', () => {
       .type('form')
       .send({ id: target, direction: 'top' });
 
-    const guestAgent = request.agent(app);
-    await guestAgent.get('/j/guesttoken');
+    const guestAgent = signInGuest(app, 'guesttoken');
     const res = await guestAgent.get('/tasks');
     expect(res.status).toBe(200);
 

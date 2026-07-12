@@ -17,7 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -73,7 +73,7 @@ function seedField() {
 
 async function signedInTasks(query = '') {
   const agent = request.agent(app);
-  await agent.get('/j/' + TOKEN);
+  signInGuest(app, TOKEN, agent);
   const res = await agent.get('/tasks' + query);
   expect(res.status).toBe(200);
   return res;

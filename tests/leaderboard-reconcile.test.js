@@ -11,7 +11,7 @@
 'use strict';
 
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -75,7 +75,7 @@ function rankLabels(html) {
 
 async function signedInBoard(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token);
+  signInGuest(app, token, agent);
   const res = await agent.get('/leaderboard');
   expect(res.status).toBe(200);
   return res;

@@ -4,8 +4,7 @@
 // no-avatar guest at GET /u/:id returns the correct two-letter fallback.
 'use strict';
 
-const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 // One shared app + db for the whole file — the Node module cache means a
 // second loadApp() would return the same cached modules. Set everything up once.
@@ -33,8 +32,7 @@ beforeAll(async () => {
     .run('initials-cher-token', 'Cher').lastInsertRowid;
 
   // Sign in as the viewer so requireGuest in guest.js lets requests through.
-  agent = request.agent(app);
-  await agent.get('/j/initials-viewer-token');
+  agent = signInGuest(app, 'initials-viewer-token');
 });
 
 // ---------------------------------------------------------------------------

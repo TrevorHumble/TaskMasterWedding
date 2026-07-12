@@ -1,7 +1,7 @@
 // src/public/js/upload.js
 //
 // Serves two forms: the task-photo upload (#photo on task.ejs) and the
-// profile-edit avatar upload (#avatar on me-edit.ejs / onboard.ejs). Only one
+// profile-edit avatar upload (#avatar on me-edit.ejs / join.ejs). Only one
 // is present per page. This file owns:
 //   1. Live filename-independent image preview for whichever input is present
 //      (pre-existing behavior, unchanged).

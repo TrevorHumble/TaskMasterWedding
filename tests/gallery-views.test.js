@@ -6,7 +6,7 @@
 //   #251 AC6 — "Show more" pagination replaces "Older →"
 'use strict';
 
-const { loadApp, seed, makeAdminAgent } = require('./helpers/testApp');
+const { loadApp, seed, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 const request = require('supertest');
 
 let app;
@@ -58,7 +58,7 @@ beforeAll(async () => {
 
   agent = request.agent(app);
   // Sign in as guestId1 (seedtoken) so guest routes are available.
-  await agent.get('/j/seedtoken');
+  signInGuest(app, 'seedtoken', agent);
 });
 
 // ---------------------------------------------------------------------------

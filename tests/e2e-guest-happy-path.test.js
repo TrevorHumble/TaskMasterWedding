@@ -1,7 +1,12 @@
 // tests/e2e-guest-happy-path.test.js
-// Issue #125: drives the real guest journey end-to-end (scan link -> onboard
-// -> submit a photo -> see points and a badge) against the assembled app, plus
-// a concurrency smoke covering many guests submitting to the same task at once.
+// Issue #125: drives the real guest journey end-to-end (sign up -> submit a
+// photo -> see points and a badge) against the assembled app, plus a
+// concurrency smoke covering many guests submitting to the same task at once.
+//
+// Issue #244 retired the "scan a private link -> separate /onboard form"
+// two-step this file originally drove: signup now happens in one POST /join
+// (issue #240 folded name/avatar collection into it already), so AC1/AC2
+// below sign up with one call instead of two.
 //
 // REQUIRE ORDER: loadApp() sets DATA_DIR/DB_PATH before config/db/services are
 // required, matching tests/submission-intake.test.js and tests/gallery.test.js.
@@ -19,7 +24,7 @@
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -48,11 +53,10 @@ beforeAll(async () => {
 // --- Small seeding helpers (local to this file; distinct random tokens/titles
 // per call so suites never collide with each other's rows) --------------------
 
-// A guest row seeded before POST /onboard has ever run: the DB requires a
-// name, but the real onboarding flow doesn't supply one until the guest
-// submits it. Empty until POST /onboard sets it.
-const PRE_ONBOARD_NAME = '';
-
+// AC3 (concurrency) seeds guest rows directly and signs each one in without
+// ever calling POST /join — requireGuest only checks the signed gsid cookie,
+// not any signup state, so the race under test stays isolated to the submit
+// step itself. AC1/AC2 sign up for real through POST /join instead (below).
 function insertGuest(name) {
   const token = `e2e-${crypto.randomUUID()}`;
   const id = db
@@ -90,34 +94,33 @@ async function submitPhoto(agent, taskId, filename) {
 // AC1: happy path — scan link -> onboard -> submit -> points + completed task
 // shown on GET /.
 // ===========================================================================
-describe('AC1: guest happy path (scan link -> onboard -> submit -> see points)', () => {
+describe('AC1: guest happy path (sign up -> submit -> see points)', () => {
   it('shows 1 point and the completed task title on GET / after one submission', async () => {
-    const guest = insertGuest(PRE_ONBOARD_NAME);
     const title = `Happy Path Task ${crypto.randomUUID()}`;
     const taskId = insertTask(title);
 
     const agent = request.agent(app);
 
-    // 1. Scan the private link. Guest is not onboarded, so this redirects to
-    // /onboard and sets the signed gsid cookie the agent will resend.
-    const scanRes = await agent.get(`/j/${guest.token}`);
-    expect(scanRes.status).toBe(302);
-    expect(scanRes.headers.location).toBe('/onboard');
+    // 1. Sign up: name + contact + PIN in one step, signs the guest in
+    // immediately (POST /join sets the signed gsid cookie the agent resends).
+    const joinRes = await agent
+      .post('/join')
+      .type('form')
+      .send({
+        name: 'Priya Shah',
+        contact: `priya-${crypto.randomUUID()}@example.com`,
+        pin: '4815',
+      });
+    expect(joinRes.status).toBe(302);
+    expect(joinRes.headers.location).toBe('/');
 
-    // 2. Onboard: name only, no avatar. Body is urlencoded; the global body
-    // parser populates req.body and multer passes the non-multipart request
-    // through untouched.
-    const onboardRes = await agent.post('/onboard').type('form').send({ name: 'Priya Shah' });
-    expect(onboardRes.status).toBe(302);
-    // Issue #246: onboarding success now lands on the how-to-play rules card
-    // (with the first-time Skip link) instead of straight home.
-    expect(onboardRes.headers.location).toBe('/how-to-play?first=1');
+    const guest = db.prepare('SELECT id FROM guests WHERE name = ?').get('Priya Shah');
 
-    // 3. Submit a photo for the seeded active task.
+    // 2. Submit a photo for the seeded active task.
     const submitRes = await submitPhoto(agent, taskId, 'ac1-photo.jpg');
     expect([302, 303]).toContain(submitRes.status);
 
-    // 4. GET / shows the updated points and the completed task.
+    // 3. GET / shows the updated points and the completed task.
     const homeRes = await agent.get('/');
     expect(homeRes.status).toBe(200);
     expect(homeRes.text).toContain('<strong>1</strong> point');
@@ -139,14 +142,16 @@ describe('AC1: guest happy path (scan link -> onboard -> submit -> see points)',
 describe('AC2: BLOOM badge appears only after the 5th distinct completed task', () => {
   it('is absent after 4 submissions and present after the 5th', async () => {
     const bloomBadgeId = seedBloomBadge();
-    const guest = insertGuest(PRE_ONBOARD_NAME);
     const tasks = Array.from({ length: 5 }, (_unused, i) =>
       insertTask(`Badge Task ${i}-${crypto.randomUUID()}`)
     );
 
     const agent = request.agent(app);
-    await agent.get(`/j/${guest.token}`);
-    await agent.post('/onboard').type('form').send({ name: 'Sam Rivera' });
+    await agent
+      .post('/join')
+      .type('form')
+      .send({ name: 'Sam Rivera', contact: `sam-${crypto.randomUUID()}@example.com`, pin: '9163' });
+    const guest = db.prepare('SELECT id FROM guests WHERE name = ?').get('Sam Rivera');
 
     // Submit to the first 4 distinct tasks.
     for (let i = 0; i < 4; i++) {
@@ -196,15 +201,12 @@ describe('AC3: 20 concurrent guests submitting to one task', () => {
 
     // Establish one logged-in agent per guest BEFORE firing the concurrent
     // submissions, so the race under test is the submit step itself.
-    // POST /onboard is intentionally NOT called here (unlike AC1/AC2):
-    // requireGuest only checks the signed gsid cookie set by GET /j/:token,
-    // not the onboarded=1 flag, so a guest can submit without ever onboarding.
-    const agents = [];
-    for (const guest of guests) {
-      const agent = request.agent(app);
-      await agent.get(`/j/${guest.token}`);
-      agents.push(agent);
-    }
+    // POST /join is intentionally NOT called here (unlike AC1/AC2):
+    // requireGuest only checks the signed gsid cookie, not any signup state,
+    // so a guest can submit without ever having signed up through the form —
+    // signInGuest mints that cookie directly (issue #244; GET /j/:token no
+    // longer sets it).
+    const agents = guests.map((guest) => signInGuest(app, guest.token));
 
     const responses = await Promise.all(
       agents.map((agent, i) => submitPhoto(agent, concurrencyTaskId, `concurrent-${i}.jpg`))

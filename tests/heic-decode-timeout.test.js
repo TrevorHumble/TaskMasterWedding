@@ -28,7 +28,7 @@
 const path = require('path');
 const crypto = require('crypto');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 const { craftHeicHeader, HANG_MARKER } = require('./helpers/heic-fixtures');
 
 // MUST be set before loadApp() requires config/photos (module-level, runs
@@ -63,7 +63,7 @@ function insertGuestAndTask(prefix) {
 
 async function makeGuestAgent(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
+  signInGuest(app, token, agent);
   return agent;
 }
 

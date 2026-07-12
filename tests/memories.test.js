@@ -20,7 +20,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp, makeAdminAgent } = require('./helpers/testApp');
+const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 
 // Set BEFORE loadApp() (which requires config) so config.MEMORY_RATE_MAX picks
 // this up. Module-level, so it runs before the beforeAll that calls loadApp().
@@ -69,7 +69,7 @@ function insertTask(title, isActive = 1) {
 
 async function agentFor(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token);
+  signInGuest(app, token, agent);
   return agent;
 }
 

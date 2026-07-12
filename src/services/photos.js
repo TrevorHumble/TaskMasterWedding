@@ -879,7 +879,7 @@ function uploadMemoryBatch(req, res, cb) {
 
 // ---------------------------------------------------------------------------
 // multer configuration: MEMORY storage for avatar intake (issue #122).
-// Shared by onboarding (auth.js POST /onboard) and profile-edit (guest.js
+// Shared by signup (auth.js POST /join) and profile-edit (guest.js
 // POST /me/edit) so avatar bytes always arrive as req.file.buffer through the
 // SAME mechanism — no route reads a file back off disk to get a Buffer.
 // Field name is "avatar" (e.g. <input type="file" name="avatar">). Reuses the

@@ -19,7 +19,7 @@
 'use strict';
 
 const request = require('supertest');
-const { loadApp, makeAdminAgent } = require('./helpers/testApp');
+const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -45,10 +45,8 @@ function insertGuest(token, name) {
     .run(token, name || 'Guest ' + token).lastInsertRowid;
 }
 
-async function signedInAgent(token) {
-  const agent = request.agent(app);
-  await agent.get('/j/' + token);
-  return agent;
+function signedInAgent(token) {
+  return signInGuest(app, token);
 }
 
 describe('AC1: a valid submission inserts a row and thanks the guest', () => {

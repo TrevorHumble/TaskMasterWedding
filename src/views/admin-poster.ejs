@@ -1,0 +1,24 @@
+<!-- src/views/admin-poster.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+<% if (joinUrl.indexOf('localhost') !== -1) { %>
+  <p class="flash flash-err">
+    Warning: BASE_URL is localhost. Set BASE_URL to your trycloudflare.com URL
+    and restart before printing, or this QR code will not work on guests'
+    phones.
+  </p>
+<% } %>
+
+<div class="poster-toolbar no-print">
+  <a class="btn" href="/admin">&larr; Dashboard</a>
+  <button type="button" class="btn btn-primary" onclick="window.print();">Print this poster</button>
+</div>
+
+<div class="poster-card">
+  <img src="<%= qr %>" alt="QR code linking to the sign-up page" />
+  <p class="poster-heading">Scan to join the hunt</p>
+  <p class="poster-url"><%= joinUrl %></p>
+</div>
+
+<%- include('partials/footer') %>

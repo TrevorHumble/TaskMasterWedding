@@ -23,15 +23,17 @@ Tradeoff: synchronous DB calls block the event loop. Acceptable at this scale; w
 
 Pages render on the server with EJS. The client side is plain JavaScript in `src/public/js/`. No bundler, no framework, no transpile step means nothing to build on the server, no toolchain to break days before the wedding.
 
-### Per-guest token in a signed cookie for guest auth
+### guests.token: an internal session credential, never distributed (#244)
 
-A guest is identified by a random token. The token travels in the QR link (`/j/:token`), and sign-in stores it in a signed `gsid` cookie. No guest passwords, no account creation. The signature (via `cookie-parser` and `COOKIE_SECRET`) stops cookie forgery; possession of the link is the credential, which fits physical place-cards handed to invited guests.
+A guest is identified by a random token, but it is purely internal machinery now: `guests.token` is an internal session credential, carried only inside the signed `gsid` cookie that `attachGuest` reads back on every request, and it is never distributed — never printed on a place-card, never put in a link, never shown to a guest at all. It started life as the opposite: issue #240's shared-signup redesign made the per-guest personal link redundant (every guest now enters through the same `GET /join` poster, described below), and issue #244 finished the retirement — the route that used to consume that personal link and sign someone in is now an unconditional redirect to `/join` that never looks the token up or sets a cookie, so an old printed card kept as a keepsake can't quietly still let someone in.
 
-Tradeoff: anyone with a guest's link can act as that guest. For a private wedding this is the intended convenience.
+Sign-in still stores the token in a signed `gsid` cookie (via `cookie-parser` and `COOKIE_SECRET`, which stops cookie forgery), set by `POST /join` (new account) or `POST /login` (re-entry). No guest passwords, no separate account-creation step.
+
+Tradeoff: anyone holding a valid `gsid` cookie can act as that guest — but since the token is never distributed and only ever set server-side after a contact+PIN check, the exposure is the same as any session cookie, not a shareable link.
 
 ### Guest identity: contact as the account key, plaintext re-entry PIN (#239)
 
-The per-guest QR/token entry above is being replaced by one shared entry link plus self-serve identity: a guest signs up with their email or phone number and a self-chosen 4-digit re-entry code. `guests.contact` (normalized via `src/services/identity.js`) is the account key — a partial unique index (`idx_guests_contact`, `WHERE contact IS NOT NULL`) enforces one contact maps to exactly one guest row, while legacy/seed rows with no contact still coexist freely.
+A guest signs up with their email or phone number and a self-chosen 4-digit re-entry code. `guests.contact` (normalized via `src/services/identity.js`) is the account key — a partial unique index (`idx_guests_contact`, `WHERE contact IS NOT NULL`) enforces one contact maps to exactly one guest row, while legacy/seed rows with no contact still coexist freely.
 
 **PIN is stored in plain text** in `guests.pin`, deliberately unhashed. The threat model is guest mischief — a guest fumbling or guessing another guest's 4-digit code — not database compromise: whoever already holds `data/app.db` already holds every plaintext `guests.token` credential and every uploaded photo, so hashing a 4-digit PIN buys no real protection against that actor. What plaintext buys instead is Goal C: the admin recovery panel (#243) can read a guest's PIN back out loud on the spot at the reception, with no reset flow, for a guest locked out on the wrong device.
 
