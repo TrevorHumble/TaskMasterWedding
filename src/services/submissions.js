@@ -107,6 +107,18 @@ function normalizeCaption(caption) {
  *      swallowed — the submission the guest just made must never be lost
  *      because a badge recount had a problem.
  *
+ * After the recompute (successful or swallowed), the guest's held-badge set is
+ * snapshotted again and diffed against the snapshot taken immediately before
+ * the recompute (issue #255): `newBadgeIds` is the set of badge codes present
+ * after but not before, and `pointsTotal` is the guest's fresh points total.
+ * A swallowed recompute failure leaves the after-snapshot identical to the
+ * before-snapshot, so `newBadgeIds` comes out empty — never a throw. Everything
+ * from the submission upsert through this diff runs with no `await` in
+ * between, so on Node's single-threaded event loop no other request's JS can
+ * interleave mid-span; a concurrent submit by the same guest cannot corrupt
+ * this diff (the only `await` in this function, makeThumb, already completed
+ * by this point).
+ *
  * @param {object} params
  * @param {number} params.guestId
  * @param {number} params.taskId
@@ -114,7 +126,7 @@ function normalizeCaption(caption) {
  *        descriptor: filename is the stored original's relative filename,
  *        path is its absolute path on disk (what makeThumb reads from).
  * @param {*} params.caption - raw caption input; normalized internally.
- * @returns {Promise<{status: 'created'|'replaced'|'replaced_hidden'|'task_inactive'|'thumb_failed', submissionId?: number}>}
+ * @returns {Promise<{status: 'created'|'replaced'|'replaced_hidden'|'task_inactive'|'thumb_failed', submissionId?: number, newBadgeIds?: string[], pointsTotal?: number}>}
  */
 async function submitPhoto({ guestId, taskId, file, caption }) {
   const task = stmtActiveTask.get(taskId);
@@ -171,6 +183,11 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
     status = 'created';
   }
 
+  // Snapshot the guest's held-badge codes immediately before the recompute
+  // (issue #255) so the diff below can tell which badges this submission
+  // newly earned, as opposed to badges the guest already held.
+  const beforeBadgeCodes = new Set(scoring.getGuestBadges(guestId).map((b) => b.code));
+
   // Recompute points + badges now that completion may have changed: one seam
   // that runs the per-guest auto/metric pass and the global transferable pass
   // in order (issue #80 — a new submission can both grant this guest a metric
@@ -183,7 +200,20 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
     console.error('recomputeAfterSubmissionChange failed:', err);
   }
 
-  return { status, submissionId };
+  // Diff against the before-snapshot. When the recompute above threw and was
+  // swallowed, the guest's badge set never changed, so this naturally comes
+  // out empty rather than throwing.
+  const newBadgeIds = scoring
+    .getGuestBadges(guestId)
+    .map((b) => b.code)
+    .filter((code) => !beforeBadgeCodes.has(code));
+
+  // Points are driven by completed-task count / bonuses, not by the badges
+  // table, so this total is correct regardless of whether the recompute above
+  // succeeded.
+  const pointsTotal = scoring.getPoints(guestId);
+
+  return { status, submissionId, newBadgeIds, pointsTotal };
 }
 
 /**

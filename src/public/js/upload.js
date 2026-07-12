@@ -287,13 +287,32 @@ function initTaskSubmit() {
         if (finalFile) {
           formData.set('photo', finalFile, finalFile.name || 'photo.jpg');
         }
-        return fetch(form.action, { method: 'POST', body: formData });
+        // redirect:'manual' — do NOT let fetch transparently follow the
+        // server's redirect. The submit endpoint answers success (and its
+        // validation flashes) with a redirect that ALSO sets a ONE-SHOT
+        // cookie: the #255 task-complete reward (success card + badge modal)
+        // or a flash message. If fetch followed the redirect here, that
+        // follow-up GET would consume the one-shot cookie on a response we
+        // then discard, so the real page load below would render with the
+        // cookie already spent — no success card, no badge modal, no flash.
+        // Leaving the redirect unfollowed keeps the cookie unspent; the full
+        // navigation below consumes it in a page context where the page's
+        // scripts (js/badge-moment.js) actually run.
+        return fetch(form.action, { method: 'POST', body: formData, redirect: 'manual' });
       })
       .then(function (response) {
-        if (!response.ok) {
-          throw new Error('That photo could not be uploaded. Please try again.');
+        // The normal outcome (success, replace, or a validation flash) is a
+        // redirect, which redirect:'manual' surfaces as an opaque-redirect
+        // response. Do a real navigation to the task page so the browser
+        // consumes the one-shot cookie and runs badge-moment.js. The redirect
+        // always targets this task's page (form action minus the /submit).
+        if (response.type === 'opaqueredirect') {
+          window.location = form.getAttribute('action').replace(/\/submit$/, '');
+          return;
         }
-        window.location = response.url;
+        // Anything else is an error the endpoint rendered directly (e.g. an
+        // inactive-task 404) — surface it inline without navigating.
+        throw new Error('That photo could not be uploaded. Please try again.');
       })
       .catch(function (err) {
         submitBtn.disabled = false;

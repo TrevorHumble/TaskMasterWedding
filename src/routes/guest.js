@@ -13,7 +13,7 @@ const { db } = require('../db');
 // redirects visitors who have no valid guest link. setFlash is the shared
 // one-shot flash writer (also in section 03), the single owner of the signed
 // `flash` cookie's shape.
-const { requireGuest, setFlash } = require('../middleware/session');
+const { requireGuest, setFlash, setTaskCompleteReward } = require('../middleware/session');
 
 // isValidPin (issue #243) — the SAME 4-digit-shape rule signup (routes/auth.js)
 // and the admin identity route (routes/admin.js) already share from
@@ -290,6 +290,12 @@ router.post('/bug-report', function (req, res) {
   return res.redirect('/');
 });
 
+// When one submission earns more than one new badge (rare — e.g. an auto
+// badge plus COMPLETIONIST at once), the modal celebrates a single PRIMARY
+// badge by this fixed priority (design, #255). The rest are still awarded
+// and appear on the guest's profile — one modal, one badge (v1).
+const BADGE_MOMENT_PRIORITY = ['GARDEN', 'BOUQUET', 'BLOOM', 'COMPLETIONIST', 'MOSTPHOTOS'];
+
 // ---------------------------------------------------------------------------
 // GET /tasks/:id  — one task's detail + the upload form. If the guest has
 // already submitted, show their photo (or, if a host took it down, the
@@ -325,10 +331,60 @@ router.get('/tasks/:id', function (req, res) {
     )
     .get(guest.id, taskId);
 
+  // Success card + badge modal (issue #255): resolve the one-shot
+  // taskComplete reward (read and cleared by attachGuest,
+  // src/middleware/session.js) into what task.ejs needs. Points live ONLY on
+  // the inline card (taskComplete.points); a newly-earned badge gets its own
+  // separate badgeMoment, which task.ejs renders as an auto-opening modal.
+  //
+  // Badge codes are resolved against the guest's CURRENT held badges rather
+  // than trusted as-is, so a badge id that no longer resolves (defensive; not
+  // expected to happen within the same redirect) is silently dropped instead
+  // of rendering a blank badge entry.
+  let taskComplete = null;
+  let badgeMoment = null;
+  if (res.locals.taskCompleteReward) {
+    const reward = res.locals.taskCompleteReward;
+    taskComplete = { points: reward.points };
+
+    if (reward.newBadgeIds.length > 0) {
+      const heldBadges = scoring.getGuestBadges(guest.id);
+      const earnedBadges = heldBadges.filter((b) => reward.newBadgeIds.includes(b.code));
+
+      // Pick the primary badge by fixed priority; if none of the earned
+      // badges appear in the priority list (a future code not yet added to
+      // it), fall back to the first earned badge rather than showing none.
+      let primary = null;
+      for (const code of BADGE_MOMENT_PRIORITY) {
+        primary = earnedBadges.find((b) => b.code === code);
+        if (primary) {
+          break;
+        }
+      }
+      if (!primary) {
+        primary = earnedBadges[0] || null;
+      }
+
+      if (primary) {
+        // Use the badge's OWN catalog data — its name is the title, its
+        // description is the subtitle (scripts/badge-catalog.js). No invented
+        // per-badge copy: the modal shows only what the badge actually carries.
+        badgeMoment = {
+          code: primary.code,
+          name: primary.name,
+          art_path: primary.art_path,
+          description: primary.description,
+        };
+      }
+    }
+  }
+
   res.render('task', {
     title: task.title,
     task: task,
     submission: submission, // null if none yet
+    taskComplete: taskComplete, // null unless a 'created' submit just redirected here
+    badgeMoment: badgeMoment, // null unless that submit also earned a new badge
     pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/
   });
 });
@@ -382,16 +438,24 @@ router.post('/tasks/:id/submit', function (req, res) {
       return res.redirect('/tasks/' + taskId);
     }
 
+    // created (issue #255): the success card supersedes the plain flash for
+    // this case, so a one-shot taskComplete payload is written instead of
+    // setFlash — task.ejs renders the card on the redirected GET and header.ejs
+    // never gets a flash to also print, avoiding a double-render of the same
+    // moment.
+    //
     // replaced_hidden (issue #190): the resubmit landed on a still-taken-down
     // row, so it does not go live — tell the guest that plainly rather than
-    // claiming "Photo replaced!" for something that isn't visible yet.
-    let flashMsg = 'Task complete! +1 point.';
-    if (result.status === 'replaced') {
-      flashMsg = 'Photo replaced!';
+    // claiming "Photo replaced!" for something that isn't visible yet. These
+    // two statuses keep their existing plain flash (AC4).
+    if (result.status === 'created') {
+      setTaskCompleteReward(res, { points: result.pointsTotal, newBadgeIds: result.newBadgeIds });
     } else if (result.status === 'replaced_hidden') {
-      flashMsg = 'Photo received — it will appear once the hosts approve it.';
+      setFlash(res, 'success', 'Photo received — it will appear once the hosts approve it.');
+    } else {
+      // status === 'replaced'
+      setFlash(res, 'success', 'Photo replaced!');
     }
-    setFlash(res, 'success', flashMsg);
     return res.redirect('/tasks/' + taskId);
   });
 });
