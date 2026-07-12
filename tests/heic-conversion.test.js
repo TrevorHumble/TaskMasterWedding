@@ -70,6 +70,16 @@ function heicFilesIn(dir) {
   return fs.readdirSync(dir).filter((name) => name.toLowerCase().endsWith('.heic'));
 }
 
+// Reads a response body as a raw Buffer regardless of content-type — supertest
+// has no built-in parser for image/jpeg, so without this `res.body` would be
+// `{}` (see tests/export-zip.test.js, which uses the identical pattern for
+// application/zip).
+function binaryParser(res, callback) {
+  const chunks = [];
+  res.on('data', (chunk) => chunks.push(chunk));
+  res.on('end', () => callback(null, Buffer.concat(chunks)));
+}
+
 describe('AC1 + AC2: a HEIC submission is converted, stored as JPEG, and thumbnails', () => {
   let submissionRow;
   let sharedAgent;
@@ -211,8 +221,93 @@ describe('AC5: JPEG uploads still work end-to-end', () => {
     expect(row).toBeDefined();
     expect(row.photo_path).toMatch(/\.jpg$/);
 
+    // #463 AC1: the stored original is BYTE-FOR-BYTE identical to what was
+    // uploaded — the real assertion the bounded 12-byte header sniff must not
+    // break. This would fail if resolveUploadedFile ever stored the header
+    // buffer, a truncated read, or otherwise touched the non-HEIC file's bytes.
+    const original = await agent
+      .get('/uploads/' + row.photo_path)
+      .buffer(true)
+      .parse(binaryParser);
+    expect(original.status).toBe(200);
+    expect(Buffer.compare(original.body, realJpeg)).toBe(0);
+
     const thumb = await agent.get('/thumbs/' + row.thumb_path);
     expect(thumb.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #463 AC3 (structural): resolveUploadedFile must sniff only a bounded
+// 12-byte header to decide HEIC-ness, and read the full file ONLY inside the
+// HEIC-confirmed branch. It previously read the WHOLE file unconditionally
+// (up to MAX_UPLOAD_BYTES = 15 MB) on every upload just to sniff a 12-byte
+// marker — pure waste on the dominant non-HEIC path, and a source of
+// main-thread blocking under a reception-night upload burst (see #311).
+//
+// The AC itself is phrased structurally ("Given src/services/photos.js after
+// the change; When read; Then ..."), so this parses the function's own
+// source text rather than spying on fs at runtime. A runtime fs.readFileSync
+// spy was tried and rejected here: this suite runs under vite-node, and
+// tests/config-branches.test.js already documents (see its file-header
+// comment) that a mocked/spied fs.readFileSync in a test file does not
+// reliably intercept a source file's OWN require('fs') across that
+// vite-node/CJS boundary — confirmed empirically while writing this test (the
+// spy recorded zero calls even though the HEIC conversion visibly succeeded).
+// A source-text check is exact and has no such boundary problem.
+// ---------------------------------------------------------------------------
+describe('#463 AC3: bounded header sniff, full read only on the HEIC-confirmed branch', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/services/photos.js'), 'utf8');
+
+  function extractFunction(fnName) {
+    const start = source.indexOf(`async function ${fnName}(`);
+    expect(start, `${fnName} not found in photos.js`).toBeGreaterThanOrEqual(0);
+    // The next top-level "\nasync function " or "\nfunction " marks the start
+    // of the following function — a simple, sufficient bound for this file's
+    // style (one function per top-level declaration, no nesting that deep).
+    const rest = source.slice(start + 1);
+    const nextFn = rest.search(/\n(async )?function /);
+    return nextFn < 0 ? source.slice(start) : source.slice(start, start + 1 + nextFn);
+  }
+
+  // Strip comments so the structural assertions below scan actual CODE, not
+  // prose: the function's doc/inline comments legitimately MENTION
+  // `fs.readFileSync(fd)` when explaining the design, and those mentions must
+  // not be miscounted as calls. resolveUploadedFile contains no `//` inside a
+  // string/regex literal, so a plain block+line comment strip is exact here.
+  function stripComments(src) {
+    return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  }
+
+  const body = stripComments(extractFunction('resolveUploadedFile'));
+
+  it('performs a bounded 12-byte header read via openSync/readSync/closeSync', () => {
+    expect(body).toMatch(/fs\.openSync\(/);
+    expect(body).toMatch(/fs\.readSync\(/);
+    expect(body).toMatch(/fs\.closeSync\(/);
+  });
+
+  it('contains no unconditional full-file readFileSync before the HEIC-confirmed branch', () => {
+    const heicConfirmedAt = body.indexOf('assertHeicDecodeAllowed(guestId)');
+    const firstReadFileSyncAt = body.indexOf('fs.readFileSync(');
+    expect(heicConfirmedAt).toBeGreaterThan(-1);
+    expect(firstReadFileSyncAt).toBeGreaterThan(-1);
+    // The only fs.readFileSync call in this function must appear AFTER the
+    // per-guest HEIC-decode-allowed check, i.e. strictly inside the
+    // HEIC-confirmed branch — not on the shared path every upload takes.
+    expect(firstReadFileSyncAt).toBeGreaterThan(heicConfirmedAt);
+    // And there is exactly one such call in the whole function (no leftover
+    // unconditional read alongside the new confirmed-branch read).
+    expect(body.match(/fs\.readFileSync\(/g).length).toBe(1);
+  });
+
+  it('reads through a single fd — the full read never re-resolves the path (TOCTOU guard, CodeQL js/file-system-race)', () => {
+    // Root fix for the CodeQL check-then-use finding: exactly one openSync, and
+    // the full read is fs.readFileSync(fd) (the same descriptor), never a second
+    // fs.readFileSync(safePath) that would re-resolve the path after the sniff.
+    expect(body.match(/fs\.openSync\(/g).length).toBe(1);
+    expect(body).toMatch(/fs\.readFileSync\(fd\)/);
+    expect(body).not.toMatch(/fs\.readFileSync\(safePath\)/);
   });
 });
 
