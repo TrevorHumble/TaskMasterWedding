@@ -671,65 +671,95 @@ async function resolveUploadedFile(file, guestId) {
     throw err;
   }
 
-  // Read the file exactly ONCE (bounded by MAX_UPLOAD_BYTES = 15 MB), then both
-  // sniff and — if HEIC — convert from those SAME bytes. One filesystem access
-  // to this path closes the check-then-use (TOCTOU) window a separate
-  // open-to-sniff + reopen-to-read would leave. The signature (not the declared
-  // mimetype) decides whether this is HEIC (see the doc comment above).
-  const original = fs.readFileSync(safePath);
-
-  if (!looksLikeHeic(original.subarray(0, 12))) {
-    // Not HEIC. Keep it only if its declared type is one we actually store;
-    // otherwise it is a non-HEIC file that only got this far because fileFilter
-    // accepted its mimetype provisionally (e.g. application/octet-stream).
-    if (ALLOWED_MIME_TO_EXT[file.mimetype]) {
-      return; // already a real, correctly-stored jpeg/png/webp — nothing to do
-    }
-    fs.unlinkSync(safePath);
-    const err = new Error(DISALLOWED_TYPE_MESSAGE);
-    err.code = 'BAD_IMAGE_TYPE';
-    throw err;
-  }
-
-  // HEIC confirmed by signature. Charge the per-guest decode rate limit BEFORE
-  // spending a decode; an over-limit (or unattributable) guest is rejected here
-  // without the file ever reaching the worker. Delete the stored file first so a
-  // rejected upload leaves no residue (same as the reject branches above).
+  // Open the stored file EXACTLY ONCE and do both the bounded 12-byte header
+  // sniff and — only on the HEIC-confirmed branch — the full read through this
+  // SAME file descriptor. Reading through an already-open fd pins both reads to
+  // one inode, so the path is never re-resolved between the check (sniff) and
+  // the use (full read): that closes the check-then-use (TOCTOU) race a
+  // separate open-to-sniff + reopen-to-read would leave (CodeQL
+  // js/file-system-race).
+  //
+  // The dominant case is non-HEIC, where nothing downstream ever needs the rest
+  // of the bytes (sharp re-reads the file from disk for the thumbnail), so a
+  // full-file read on every upload would be pure waste — up to MAX_UPLOAD_BYTES
+  // (15 MB) copied into memory on the main thread for a 12-byte decision. The
+  // full read therefore happens ONLY inside the HEIC-confirmed branch below,
+  // where convertHeicToJpeg actually needs every byte.
+  const header = Buffer.alloc(12);
+  const fd = fs.openSync(safePath, 'r');
   try {
-    assertHeicDecodeAllowed(guestId);
-  } catch (rlErr) {
-    fs.unlinkSync(safePath);
-    throw rlErr;
-  }
+    // Sniff at an EXPLICIT position 0, which leaves the fd's own read offset
+    // UNCHANGED (Node fs semantics, confirmed on this runtime) — so a later
+    // fs.readFileSync(fd) on the HEIC branch still starts at byte 0 and returns
+    // the whole file, leading 12 bytes included.
+    const headerBytesRead = fs.readSync(fd, header, 0, 12, 0);
 
-  let jpegBuffer;
-  try {
-    jpegBuffer = await convertHeicToJpeg(original);
-  } catch (convertErr) {
-    fs.unlinkSync(safePath);
-    // convertHeicToJpeg's own guards throw already-guest-safe, coded errors
-    // (BAD_IMAGE_TYPE for the pixel cap, HEIC_RATE_LIMITED for the global
-    // pending cap) — let those through with their specific message rather than
-    // masking it. Only a genuine decode failure (an uncoded raw libheif error,
-    // a timeout, or a worker-infrastructure error) gets the generic copy.
-    if (GUEST_SAFE_CONVERT_CODES.has(convertErr.code)) {
-      throw convertErr;
+    if (!looksLikeHeic(header.subarray(0, headerBytesRead))) {
+      // Not HEIC. Keep it only if its declared type is one we actually store;
+      // otherwise it is a non-HEIC file that only got this far because fileFilter
+      // accepted its mimetype provisionally (e.g. application/octet-stream).
+      if (ALLOWED_MIME_TO_EXT[file.mimetype]) {
+        return; // already a real, correctly-stored jpeg/png/webp — nothing to do
+      }
+      fs.unlinkSync(safePath);
+      const err = new Error(DISALLOWED_TYPE_MESSAGE);
+      err.code = 'BAD_IMAGE_TYPE';
+      throw err;
     }
-    const err = new Error("Sorry, that photo couldn't be read. Please try a different photo.", {
-      cause: convertErr,
-    });
-    err.code = 'BAD_IMAGE_TYPE';
-    throw err;
+
+    // HEIC confirmed by signature. Charge the per-guest decode rate limit BEFORE
+    // spending a decode; an over-limit (or unattributable) guest is rejected here
+    // without the file ever reaching the worker. Delete the stored file first so a
+    // rejected upload leaves no residue (same as the reject branches above).
+    try {
+      assertHeicDecodeAllowed(guestId);
+    } catch (rlErr) {
+      fs.unlinkSync(safePath);
+      throw rlErr;
+    }
+
+    // Only now — confirmed HEIC — read the full file (bounded by
+    // MAX_UPLOAD_BYTES = 15 MB) from the SAME fd; convertHeicToJpeg and
+    // assertHeicPixelsWithinCap need every byte. Passing the fd (not the path)
+    // is what keeps this pinned to the inode the sniff already validated. This
+    // single read is the only full-file read on this path.
+    const original = fs.readFileSync(fd);
+
+    let jpegBuffer;
+    try {
+      jpegBuffer = await convertHeicToJpeg(original);
+    } catch (convertErr) {
+      fs.unlinkSync(safePath);
+      // convertHeicToJpeg's own guards throw already-guest-safe, coded errors
+      // (BAD_IMAGE_TYPE for the pixel cap, HEIC_RATE_LIMITED for the global
+      // pending cap) — let those through with their specific message rather than
+      // masking it. Only a genuine decode failure (an uncoded raw libheif error,
+      // a timeout, or a worker-infrastructure error) gets the generic copy.
+      if (GUEST_SAFE_CONVERT_CODES.has(convertErr.code)) {
+        throw convertErr;
+      }
+      const err = new Error("Sorry, that photo couldn't be read. Please try a different photo.", {
+        cause: convertErr,
+      });
+      err.code = 'BAD_IMAGE_TYPE';
+      throw err;
+    }
+
+    const newName = randomFilename('.jpg');
+    const newPath = path.join(UPLOADS_DIR, newName);
+    fs.writeFileSync(newPath, jpegBuffer);
+    fs.unlinkSync(safePath);
+
+    file.filename = newName;
+    file.path = newPath;
+    file.mimetype = 'image/jpeg';
+  } finally {
+    // Close the single fd on EVERY exit: the non-HEIC early return, every throw
+    // (bad-type, rate-limit, convert-failure), and the HEIC success path.
+    // fs.readFileSync(fd) does not close a caller-supplied fd, so this is the
+    // sole close and never double-closes.
+    fs.closeSync(fd);
   }
-
-  const newName = randomFilename('.jpg');
-  const newPath = path.join(UPLOADS_DIR, newName);
-  fs.writeFileSync(newPath, jpegBuffer);
-  fs.unlinkSync(safePath);
-
-  file.filename = newName;
-  file.path = newPath;
-  file.mimetype = 'image/jpeg';
 }
 
 const multerInstance = multer({
