@@ -115,6 +115,14 @@ The authoritative tier logic lives in `tools/classify-dep-pr.ps1`; the summary h
 
 **Native-binary members need an on-host smoke test before merge (#304).** Of the wedding-critical list, `sharp` and `better-sqlite3` ship a prebuilt native binary (a `.node` file) per platform. A `review`-tier bump to either must pass an on-host `npm ci` followed by `node -e "require('<dep>')"` (exit 0) on the Windows event laptop before merge — not just green CI. Why: Windows Smart App Control can block a new/unknown unsigned native binary by cloud reputation until its hash accrues one (see `DESIGN.md` § "sharp 0.35.2 SAC block was a reputation-lag, now cleared"), and CI runs on Linux, which cannot reproduce or catch this Windows-only failure mode.
 
+**Trivial dep-bump path for a hand-built commit (#448).** Dependabot remains the preferred author for dependency bumps — this path exists only for a security advisory Dependabot has not filed a PR for yet. The commit gates (`pre-commit`, `commit-msg`) recognize a hand-built commit as `trivial` and let it ship on green CI alone — no review evidence, no reviewed-issue reference — matching the tier Dependabot's own equivalent PR would already merge under, when ALL three hold:
+
+1. The staged paths are exactly a non-empty subset of `{package.json, package-lock.json}`, and `package.json` is among them (a lockfile-only diff stays `standard`).
+2. Every direct dependency whose version differs between `HEAD:package.json` and the staged copy classifies `auto` under the same tier logic as `tools/classify-dep-pr.ps1` above (shared via `tools/classify-dep-pr-core.ps1`, one copy of the rules) — wedding-critical deps and prod majors can never qualify.
+3. The commit subject starts with the fixed prefix `chore(deps): `.
+
+Eligibility is recomputed by `tools/classify-trivial-commit.ps1` from the staged tree itself every time — nothing is attested or forged. Full design, the version-adapter fail-closed rules, and the reconciled "no bypass" self-descriptions: `standards/adversarial-review-protocol.md` § "Trivial dep-bump path (base-tier waiver)" and `DESIGN.md`.
+
 Run the classifier against a PR's metadata to determine its tier:
 
 ```powershell

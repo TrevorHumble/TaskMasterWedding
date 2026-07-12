@@ -1,19 +1,3 @@
-# Build Log
-
-Reverse-chronological record of notable changes to the repo.
-
-## Entry conventions
-
-Three entry types, appended in reverse-chronological order:
-
-- `<sha> — #<n> — <summary>` — a committed issue; counted toward the periodic audit threshold.
-- `[AUDIT] <sha> — <summary>` — full-system architectural audit, run on every 5th counted entry; excluded from the count.
-- `[HALT] #<n> — <reason>` — segment halted at the impasse stop condition; the work is not committed.
-
-The run-time Live-log ledger (per-increment `[HH:MM] elapsed=…` lines) lives in `docs/RESUME-STATE.md`.
-
-**Cutover (2026-07-11, #447):** per-merge entries (`<sha> — #<n> — <summary>`) no longer append to this file. They are harvested from a pre-merge `<!-- buildlog-entry -->` PR comment into `governance/ledger.ndjson`, and rendered as the browsable per-merge changelog — the rendered `BUILDLOG.md` committed on the `ledger` branch, one file per merge, reverse-chronological, prefixed by the frozen history below (see `governance/buildlog-history.md`). This file (`BUILDLOG.md` on `main`) keeps receiving only the exceptional, non-merge entry types: `[HALT]`, `[AUDIT]`, and wave-completion notes — see `agents/orchestrator.md` § "Wave boundary" and § "Stop condition". Offline/worktree fallback for reading the rendered log without a network call: `node scripts/buildlog-render.js`. Every entry below this note predates the cutover and is preserved byte-identical.
-
 ## 2026-07-11
 
 - aac4c11 — #361 — fix(leaderboard): the tied-guest podium display renders correctly on phones. Two gaps from #249's every-tied-guest podium: (1) the joined tied-names line (`.podium-name.podium-names`, `leaderboard.ejs:46`) had no CSS of its own and inherited `.podium-name`'s single-name heading size with no wrap, so a 2+-guest tie overflowed its ~1/3-width column at 375px; (2) the tied-stack `+N` overflow marker (`.podium-stack-more`) was a 24px rounded box that didn't match the 44px avatar circles beside it. Added a body-scale `.podium-name.podium-names` rule with `overflow-wrap: anywhere`, compounding both classes to (0,2,0)/(0,4,0) so it clears the pre-existing rank-1 heading override and a 1st-place tie shrinks too; restyled `.podium-stack-more` to the 44px avatar-circle geometry, filled `var(--color-primary)`/white (the 1st-place avatar fill) so `+N` reads as the stack's final circle, on any tied slot. Scope broadened mid-build to include the chip (issue re-reviewed). Reviews: reviewer-issue PASS ×2 (original + amended); reviewer-pr PASS + reviewer-design-philosophy PASS (0 defects — cleared the shared-token duplication) on final tree `f21cafe8`. `tests/leaderboard-ties.test.js` +4 (wrap, rank-1 specificity, chip circle geometry, 3-way-tie render); suite green. **Visual change — owner approved across three phone form factors, edge cases vetted: ten-guest tie in the narrowest column, +20 two-digit marker (fits the circle), 24-char unbroken names (wrap, no overflow).** Stacked on #360 (shared `theme.css`, disjoint regions); merge-on-green after retarget-to-main + update-branch (PR #434, merge aac4c11).
