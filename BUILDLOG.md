@@ -13,6 +13,7 @@ edited. Format: `<sha> — #<issue> — <narrative>`, or
 Frozen history below: every entry that predates the #447 cutover,
 preserved byte-for-byte from the pre-cutover `BUILDLOG.md` on `main`.
 
+- 66752e687da257571173aaa0e04aca688f1c3655 — #457 — (no buildlog-entry comment on PR #458)
 - 3ad4f07efd4f7c1a4b295b4287e349fb11508038 — #447 — Batch (#447/#448/#449) — cutting fixed governance ceremony on small changes. #447: per-merge BUILDLOG entries are harvested from a pre-merge `<!-- buildlog-entry -->` PR comment into the ledger-branch rendered log; the separate bookkeeping PR is retired and `BUILDLOG.md` on main keeps only [HALT]/[AUDIT]/wave notes (frozen history in governance/buildlog-history.md). #448: a trivial commit-gate path lets a hand-built dep bump the classifier already rates `auto` ship on green CI, recomputed from the staged tree (dep-version-only diff, fail-closed, tier rules single-sourced in classify-dep-pr-core.ps1). #449: the governance-ledger comment is generated from persisted review evidence (emit-ledger-comment.ps1). System-level review PASS on tree 6e5f523a (reviewer-pr x2 + design-philosophy) after fixing a duplicated marker, a package.json-scope hole in the trivial gate, and a CI cross-platform hook-launcher gap.
 - e7262420737442083456d528df35276d5ccba2b5 — #? — (no buildlog-entry comment on PR #452)
 - aac4c113fca03266d62f3b7329dcb273a316706d — #361 — (no buildlog-entry comment on PR #434)
