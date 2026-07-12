@@ -7,28 +7,11 @@ const bcrypt = require('bcryptjs');
 
 const config = require('../../config');
 const { db, getGuestByContact } = require('../db');
-const { setFlash } = require('../middleware/session');
+const { setFlash, cookieOpts } = require('../middleware/session');
 const photos = require('../services/photos');
 const { normalizeContact, isValidPin, makeUniqueToken } = require('../services/identity');
 
 const router = express.Router();
-
-// 14 days in milliseconds — how long a guest/admin stays signed in.
-const COOKIE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
-
-// Returns fresh cookie options each call so config.COOKIE_SECURE is read at
-// request time, not at module-load time. That keeps the value correct when the
-// app starts before NODE_ENV is known, and lets tests toggle the flag.
-function cookieOpts() {
-  return {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.COOKIE_SECURE,
-    signed: true,
-    maxAge: COOKIE_MAX_AGE_MS,
-    path: '/',
-  };
-}
 
 /**
  * Stash the just-typed contact for 30 seconds (same lifetime as setFlash's
@@ -163,7 +146,7 @@ router.post('/join', (req, res, next) => {
         }
       }
 
-      res.cookie('gsid', token, cookieOpts());
+      res.cookie('gsid', token, cookieOpts(config.GUEST_COOKIE_MAX_AGE_MS));
       res.redirect('/');
     } catch (e) {
       // Anything unexpected in this async callback (e.g. a DB write failure)
@@ -266,7 +249,7 @@ router.post('/login', (req, res) => {
   if (pinOk) {
     guestFailedAttempts.delete(key);
     guestLockedUntil.delete(key);
-    res.cookie('gsid', guest.token, cookieOpts());
+    res.cookie('gsid', guest.token, cookieOpts(config.GUEST_COOKIE_MAX_AGE_MS));
     res.redirect('/');
     return;
   }
@@ -344,7 +327,7 @@ router.post('/admin/login', async (req, res) => {
     // Correct password — clear any active lockout and authenticate.
     failedAttempts = 0;
     lockedUntil = 0;
-    res.cookie('admin', '1', cookieOpts());
+    res.cookie('admin', '1', cookieOpts(config.ADMIN_COOKIE_MAX_AGE_MS));
     // Lands on the admin dashboard, mounted at /admin.
     res.redirect('/admin');
     return;
