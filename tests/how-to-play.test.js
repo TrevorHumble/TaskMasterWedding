@@ -8,7 +8,7 @@
 //   AC3 — POST /onboard redirects to /how-to-play?first=1, which shows
 //         "Skip for now"; a plain GET /how-to-play does not
 //   AC4 — the required literal copy is present
-//   AC5 — a signed-out visitor gets the "Private Link Needed" gate, not the card
+//   AC5 — a signed-out visitor is redirected (302) to /join, not shown the card
 //
 // REQUIRE ORDER: config / db / app are required only via loadApp() — see
 // tests/helpers/testApp.js "REQUIRE ORDER MATTERS".
