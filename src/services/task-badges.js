@@ -70,6 +70,23 @@ function resolveTaskBadge(taskId) {
 }
 
 /**
+ * Project a raw `badges` row down to the shape a renderer is allowed to
+ * see: `{name, art_path}`. This is the SINGLE owner of "what a task badge
+ * looks like to a renderer" (issue #486 round 2) — resolveTaskBadge's
+ * return value is the full internal row (id, code, type, threshold,
+ * description, task_id, ...), and every call site that needs to display a
+ * task's badge (the guest task list, the admin task board) must go through
+ * this function rather than hand-picking fields off that row itself, so the
+ * display contract can only ever be defined in one place.
+ *
+ * @param {object} badgeRow a row as returned by resolveTaskBadge
+ * @returns {{name: string, art_path: string}}
+ */
+function toTaskBadgeView(badgeRow) {
+  return { name: badgeRow.name, art_path: badgeRow.art_path };
+}
+
+/**
  * Update task `taskId`'s badge name and/or art, resolving (and lazily
  * inserting) it first so this can be called on a task that has never been
  * customized before. An empty/absent `name` or `artPath` leaves that field
@@ -170,6 +187,7 @@ module.exports = {
   TASK_BADGE_CODE_PREFIX,
   taskBadgeCode,
   resolveTaskBadge,
+  toTaskBadgeView,
   setTaskBadge,
   awardTaskBadge,
   removeTaskAward,
