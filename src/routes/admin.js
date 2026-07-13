@@ -487,14 +487,12 @@ router.get('/tasks', (req, res) => {
       submissions: subStmt.get(t.id).n,
       isFirst: idx === 0,
       isLast: idx === tasks.length - 1,
-      badge: {
-        name: badge.name,
-        art_path: badge.art_path,
+      badge: Object.assign({}, taskBadges.toTaskBadgeView(badge), {
         // "Still the default" drives whether the upload control shows
         // (AC10) — compared by path, not by a separate stored flag, so it
         // can never desync from what art_path actually renders.
         isDefault: badge.art_path === taskBadges.DEFAULT_RIBBON_ART_PATH,
-      },
+      }),
     };
   });
 

@@ -1022,6 +1022,27 @@ p {
   font-weight: 600;
   color: var(--color-primary);
 }
+/* Earnable-badge line (issue #486): the badge the guest earns for this task,
+   shown before the photo is taken. Reuses the shared .badge-art frame (the
+   fixed-size class admin-tasks.ejs already uses for the same badge data) so
+   every badge render on the site shares one sizing rule instead of a raw
+   uncontrolled <img>; scoped narrower here (24px) to fit the task row at
+   phone width alongside the title/description without pushing the layout. */
+.task-earnable-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.task-earnable-badge .badge-art {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.task-earnable-copy {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
 /* Done rows: the guest's own photo is the completion indicator — a 40px
    thumbnail with a small sage check-badge overlapping its corner. No pills,
    no placeholder squares. */
