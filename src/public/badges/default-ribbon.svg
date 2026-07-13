@@ -1,0 +1,10 @@
+<!-- src/public/badges/default-ribbon.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Task badge">
+  <circle cx="60" cy="60" r="56" fill="#ffffff" stroke="#467058" stroke-width="4"/>
+  <circle cx="60" cy="60" r="47" fill="none" stroke="#aebbb2" stroke-width="1.5"/>
+  <path d="M52 46 L40 94 L50 86 L58 94 L58 46 Z" fill="#6e8478"/>
+  <path d="M68 46 L80 94 L70 86 L62 94 L62 46 Z" fill="#6e8478"/>
+  <circle cx="60" cy="50" r="20" fill="#467058"/>
+  <circle cx="60" cy="50" r="20" fill="none" stroke="#2a4335" stroke-width="2"/>
+  <circle cx="60" cy="50" r="7" fill="#f0f4f2"/>
+</svg>
