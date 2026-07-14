@@ -73,7 +73,7 @@ app.use((req, res, next) => {
 //    /thumbs  -> data/thumbs  (thumbnails)
 // ---------------------------------------------------------------------------
 app.use(express.static(config.PUBLIC_DIR));
-app.use('/uploads', photos.blockTakenDownOriginal, express.static(config.UPLOADS_DIR));
+app.use(config.UPLOADS_URL_BASE, photos.blockTakenDownOriginal, express.static(config.UPLOADS_DIR));
 app.use('/thumbs', photos.blockTakenDownThumb, express.static(config.THUMBS_DIR));
 
 // ---------------------------------------------------------------------------

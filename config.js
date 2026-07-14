@@ -136,6 +136,15 @@ const config = {
   DB_PATH: process.env.DB_PATH || path.join(DATA_DIR, 'app.db'),
   UPLOADS_DIR: path.join(DATA_DIR, 'uploads'),
   THUMBS_DIR: path.join(DATA_DIR, 'thumbs'),
+  // Single owner of the public /uploads URL mount prefix (issue #508). Both
+  // the app.js static mount and every URL-shape decision that depends on it
+  // (photos.urlForOriginal building the URL, task-badges.isUploadedArtPath
+  // deciding whether a badge-art file is eligible for deletion) read this
+  // instead of carrying their own '/uploads' literal, so the two can never
+  // silently diverge if the mount ever moves. NO trailing slash — consumers
+  // append '/' + filename themselves, and app.js's express.static mount
+  // string must stay byte-identical to the pre-#508 literal.
+  UPLOADS_URL_BASE: '/uploads',
   EXPORTS_DIR: path.join(DATA_DIR, 'exports'),
   ADMIN_HASH_PATH: path.join(DATA_DIR, 'admin.hash'),
   // Deliberately OUTSIDE DATA_DIR: a backup that lives inside the same
