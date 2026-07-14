@@ -353,3 +353,84 @@ is declared an impasse. The orchestrator tracks the post-gate round count and de
 severity adjudicator only classifies severity per invocation and cannot track elapsed rounds. The segment
 halts and surfaces to the operator; a halt is not an acceptance — the work is not committed. This bound
 guarantees the loop terminates without ever self-exiting by accepting consequential work.
+
+---
+
+## Finding disposition — fix in place, drop, or defer (#514)
+
+The section above answers a narrow question that only fires at the 3-round soft cap: is a
+_remaining_ defect consequential or inconsequential. This section answers a broader question that
+applies at **every** round, from the first finding onward: what happens to a finding once it is
+raised — is it fixed now, dropped, or filed as a new issue. The two share one underlying test — real
+defect vs. taste — this section just applies it to routing from round 1, not only after the cap
+trips.
+
+Every review finding takes exactly one of three dispositions.
+
+**1. Fix in place — mandatory for an in-scope-fixable defect.**
+
+A finding is _in-scope-fixable_ when both hold:
+
+- it is a real defect, not taste (the taste test is disposition 2, below); and
+- fixing it changes only the work under review — its own diff, its touched files, or a direct
+  consequence of the change — and the fix is bounded: not a new feature, not a large refactor.
+
+An in-scope-fixable defect **must** be fixed in the current change before it merges. It may
+**never** be deferred to a new GitHub issue or a `spawn_task` chip. Another review round is the
+accepted cost of a correct fix, and it is cheaper than the issue → issue-review → implement →
+PR-review → CI pipeline a deferral would spawn — a pipeline that also locks the finding's file out
+of concurrent development until it lands. **"I do not want another review round" is never a valid
+reason to defer.** Neither is "it's trivial" — see the anti-pattern below.
+
+**2. Drop — for taste.**
+
+A finding that is a matter of opinion — both the implementer's and the reviewer's choices are
+valid, with no functional, correctness, or comprehension impact — is dropped: not fixed, not filed.
+These are the same criteria as the `## Stop condition — soft cap and severity gate` section's
+`inconsequential` test above, so the two never drift: taste is dropped at round 1 exactly as it is
+dropped at round 4. Taste is never escalated into a new issue merely because nobody wants to argue
+about it further.
+
+**3. Defer to a new issue — only for genuinely separable scope.**
+
+A finding may become a new GitHub issue only if fixing it requires genuinely separable new scope:
+
+- a different feature than the one under review;
+- a large or risky refactor that would itself need its own review cycle; or
+- a pre-existing defect in code this change does not touch.
+
+A `spawn_task` chip is never the vehicle for a review finding — GitHub issues are the single source
+of truth for tracked work. "I do not want another round" is excluded as a reason here exactly as in
+disposition 1 above — deferral is earned by the scope being genuinely separable, never by review
+fatigue.
+
+**Anti-pattern — "trivial" gets filed, not fixed.** The tell: a finding is labelled "trivial" or
+"minor" and then routed to a new issue or a `spawn_task` chip instead of being fixed, on the theory
+that something this small isn't worth another round. This is backwards. A trivial-and-fixable
+finding is the _exact_ case disposition 1 requires be fixed on the spot — the smaller the fix, the
+worse a whole downstream pipeline is as its vehicle for landing it. Severity labels do not decide
+disposition; only in-scope-fixable vs. genuinely-separable-scope does. "Trivial" is evidence for
+fix-in-place, never for defer.
+
+**Floor, not ceiling.** This rule sets a minimum, not a maximum. Fixing more than the
+in-scope-fixable set — e.g. sweeping a related pre-existing defect in a file you are already
+touching — is always allowed and encouraged. The rule only forbids fixing _less_ than the
+in-scope-fixable set by punting part of it elsewhere. A defect in the work under review is in scope
+by definition: fixing it completes the asked work, it is not scope-creep — only genuinely separate
+work is deferred.
+
+**Worked example — fix in place.** A reviewer finds: "this PR's diff moves the upload handler from
+`src/routes/photos.js` to `src/services/photos.js`, but the comment block this same diff adds two
+lines above still says `// see src/routes/photos.js for the multer config` — a reader following the
+comment lands on a file this PR deleted." The cited file's comment is inside the PR's own
+touched-files set and the fix is a one-line path correction. Disposition: fix in place. Filing it as
+a follow-up issue or chip would be the anti-pattern above — a trivial, in-diff fix routed around the
+review instead of made in it.
+
+**Worked example — defer to a new issue.** A reviewer finds: "`src/services/scoring.js`, untouched
+by this PR, computes tie-breaks with a comparator that silently mis-ranks entries sharing a
+timestamp — unrelated to the badge-catalog change under review." The defect lives in code this
+change never touches, and fixing it is a separate correctness fix to a different subsystem with its
+own test surface. Disposition: defer to a new GitHub issue (filed via `skills/capture-system-defect.md`
+if it is a machinery/process defect, or `skills/issue-create.md` for a product defect) — genuinely
+separable scope, not this change's job to carry.

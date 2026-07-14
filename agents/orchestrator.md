@@ -319,6 +319,14 @@ start)/60`. **Never estimate, infer, or carry-forward `elapsed` by feel** — a 
   Log the halt in `BUILDLOG.md` and continue with independent segments. a halt is not an
   acceptance — the work is not committed.
 
+**Disposing of a finding, every round.** A FAIL is never routed to a new GitHub issue or a
+`spawn_task` chip merely to end the current review round — `standards/adversarial-review-protocol.md`
+§ "Finding disposition — fix in place, drop, or defer (#514)" is the single authority for when a
+finding is fixed in place, dropped, or deferred; consult it, do not re-derive it here. This governs a
+finding raised _on the artifact under review_, and is distinct from `## Capturing a system defect
+mid-run` below, which covers a defect in the repo's own machinery noticed while working — a different
+trigger, routed the way that section already describes.
+
 ---
 
 ## Model policy
