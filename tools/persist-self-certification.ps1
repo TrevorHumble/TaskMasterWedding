@@ -1,9 +1,10 @@
-# persist-self-certification.ps1 — write Fable's self-certification evidence,
-# per standards/adversarial-review-protocol.md "## Fable review patterns" (#203,
-# narrowed same-day by #207: routine work self-certifies via a fresh-context
+# persist-self-certification.ps1 — write Fable's self-certification evidence.
+# Dormant mechanism, retained on disk per DESIGN.md § "Fable: available,
+# owner-signal only (#453)": routine work self-certifies via a fresh-context
 # design-philosophy review; system-level / security-flagged / self-modification
 # trees additionally require one independent reviewer PASS, enforced here by
-# the tree-mode -Count cap below).
+# the tree-mode -Count cap below. Not active policy until the owner signals
+# Fable use for a given tree.
 #
 # Dual-mode writer: exactly one of -IssueNumber (issue-review evidence, schema
 # irev1) or -TreeOid (tree/PR evidence, schema rev1) must be given. `-Model` is
