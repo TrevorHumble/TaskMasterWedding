@@ -1396,66 +1396,56 @@ textarea {
 }
 
 /* ----------------------- Badges / pill chips ----------------------- */
+/* badge-item (issue #487): a clean row per badge on guest-home and
+   public-profile — same-size icon on the left, a title (with a conditional
+   "+N pts" suffix) and a description stacked to its right. Replaces the
+   former centered green-tile treatment (the old repeat(3, 1fr) grid /
+   .badge-chip tile, both unused by any view, are removed rather than left
+   shadowed); no background box on the row itself (AC5). The 620px
+   breakpoint no longer needs a column-count override for .badge-grid (see
+   the "Wider screens" media query). */
 .badge-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.badge-chip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-3);
-  background: var(--green-50);
-  border: var(--border-hairline);
-  border-radius: var(--radius-card);
-}
-.badge-chip img {
-  width: 60px;
-  height: 60px;
-}
-.badge-chip .badge-name {
-  font-family: var(--font-display);
-  font-size: var(--fs-small);
-  color: var(--color-primary);
-  font-weight: 600;
-  line-height: var(--lh-snug);
-}
-.badge-chip.locked {
-  opacity: 0.45;
-  filter: grayscale(0.7);
-}
-.badge-chip .badge-by {
-  font-size: var(--fs-eyebrow);
-  color: var(--color-text-muted);
-}
-
-/* badge-item: used in guest-home and public-profile badge grids */
 .badge-item {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  text-align: center;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-3);
-  background: var(--green-50);
-  border: var(--border-hairline);
-  border-radius: var(--radius-card);
+  gap: var(--space-3);
+  text-align: left;
 }
 .badge-art {
-  width: 60px;
-  height: 60px;
+  /* Fixed, equal width/height so a mismatched source image (any badge art
+     upload) can never change the row's height (AC4). */
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.badge-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 .badge-name {
   font-family: var(--font-display);
   font-size: var(--fs-small);
   color: var(--color-primary);
   font-weight: 600;
+  line-height: var(--lh-snug);
+}
+.badge-points {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+.badge-desc {
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
   line-height: var(--lh-snug);
 }
 
@@ -3265,9 +3255,6 @@ body:has(dialog[open]) {
 
 /* ----------------------- Wider screens ----------------------- */
 @media (min-width: 620px) {
-  .badge-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
   .site-header-inner {
     max-width: 680px;
     flex-direction: row;

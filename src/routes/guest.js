@@ -87,7 +87,7 @@ router.get('/', function (req, res) {
 
   // Points and badges from the scoring service (section 06 real exports).
   const points = scoring.getPoints(guest.id);
-  const badges = scoring.getGuestBadges(guest.id); // each: {code,name,art_path,...}
+  const badges = scoring.getGuestBadges(guest.id); // each: {code,name,art_path,description,points,...}
 
   // The guest's own (non-taken-down) submissions, newest first, joined to
   // task title so we can label each thumbnail on the home page. LEFT JOIN
