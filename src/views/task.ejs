@@ -64,6 +64,14 @@
     <p class="task-detail-desc center"><%= task.description %></p>
   <% } %>
 
+  <p class="task-detail-badge center">
+    Earns:
+    <a href="/badge/<%= taskBadge.code %>">
+      <img class="task-badge-icon" src="<%= taskBadge.art_path %>" alt="" width="24" height="24" />
+      <%= taskBadge.name %>
+    </a>
+  </p>
+
   <% if (submission && submission.taken_down) { %>
     <!-- Issue #190: a host takedown is sticky. Do not show the photo (not
          required by AC2) and do not present the task as not-done — that is

@@ -339,6 +339,10 @@ router.get('/tasks/:id', function (req, res) {
     return res.status(404).render('404', { title: 'Not found' });
   }
 
+  // This task's own badge (issue #488 follow-up) — always resolvable, shown
+  // and linked whether or not the guest has completed the task yet.
+  const taskBadge = taskBadges.resolveTaskBadge(taskId);
+
   // The guest's submission for this task, loaded REGARDLESS of taken_down
   // (issue #190): a host takedown must not make the task page fall back to
   // "not done" and invite a resubmit that would have silently reversed the
@@ -403,6 +407,7 @@ router.get('/tasks/:id', function (req, res) {
   res.render('task', {
     title: task.title,
     task: task,
+    taskBadge: taskBadge, // this task's badge — always present, unlike badgeMoment
     submission: submission, // null if none yet
     taskComplete: taskComplete, // null unless a 'created' submit just redirected here
     badgeMoment: badgeMoment, // null unless that submit also earned a new badge

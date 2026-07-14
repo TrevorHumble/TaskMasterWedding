@@ -743,6 +743,39 @@ router.get('/leaderboard', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /badge/:code  — what one badge is for, and who has it (issue #488)
+//
+// Guest-gated: this router is mounted after src/routes/guest.js, whose
+// router.use(requireGuest) (no path filter) runs first and redirects any
+// request without a guest session to /join — so an anonymous visitor never
+// reaches this handler, exactly like GET /u/:id. AC5's 404 is therefore
+// observed by a signed-in guest. Unknown code -> 404 (AC5).
+//
+// scoring.badgeWithHolders(code) already carries every field either rendered
+// shape needs; the ONE thing this route decides — and the ONLY place it is
+// decided — is which of the two shapes this badge gets. The discriminant is
+// task_id, NOT type: a task's own badge (default ribbon or customized) is the
+// only kind that carries per-award points/note/photo, and it is exactly the
+// set with task_id set (src/services/task-badges.js). type='custom' is NOT a
+// safe proxy — POST /admin/badges (src/routes/admin.js) mints host-defined
+// custom badges with type='custom' and task_id NULL, which must render the
+// plain holder list, not empty award rows. The view never re-derives this.
+// ---------------------------------------------------------------------------
+router.get('/badge/:code', (req, res) => {
+  const result = scoring.badgeWithHolders(req.params.code);
+  if (!result) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  return res.render('badge-detail', {
+    title: result.badge.name,
+    badge: result.badge,
+    holders: result.holders,
+    isTaskMaster: result.badge.task_id != null,
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GET /u/:guestId  — public profile for any guest
 // ---------------------------------------------------------------------------
 router.get('/u/:guestId', (req, res, next) => {

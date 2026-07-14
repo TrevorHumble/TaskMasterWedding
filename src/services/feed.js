@@ -428,6 +428,10 @@ module.exports = {
   GALLERY_PAGE_SIZE,
   FEED_PAGE_SIZE,
   GROUP_PREVIEW_SIZE,
+  // The one visibility predicate ("a submission is visible iff taken_down = 0",
+  // aliased `s`). Exported (#488) so other services consume this single owner
+  // instead of re-deriving the literal; #510 migrates the remaining inline sites.
+  VISIBLE_WHERE,
   recentPage,
   feedWindow,
   grouped,

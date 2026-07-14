@@ -89,11 +89,12 @@
 
           <span class="lb-badges">
             <% r.badges.slice(0, badgeCap).forEach(function (b) { %>
-              <img class="lb-badge-icon"
-                   src="<%= b.art_path %>"
-                   alt="<%= b.name %>"
-                   title="<%= b.name %>"
-                   width="24" height="24" />
+              <a href="/badge/<%= b.code %>" title="<%= b.name %>">
+                <img class="lb-badge-icon"
+                     src="<%= b.art_path %>"
+                     alt="<%= b.name %>"
+                     width="24" height="24" />
+              </a>
             <% }); %>
             <% if (r.badges.length > badgeCap) { %>
               <span class="lb-badge-more">+<%= r.badges.length - badgeCap %></span>
