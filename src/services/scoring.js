@@ -560,9 +560,19 @@ function leaderboard() {
 
 // Every badge a guest currently holds, joined to the badge catalog so callers
 // get the display fields directly. Auto badges come first (ordered by their
-// threshold 5 -> 10 -> 15), then special badges by code.
+// threshold 5 -> 10 -> 15), then special badges by code. gb.points (issue
+// #483) is the guest's AWARD points for that specific badge — 0 for every
+// system/auto/metric/transferable/special grant (stmtGrantBadge never sets
+// it), a task-badge judgment amount for an admin task-badge award
+// (task-badges.js awardTaskBadge). gb.created_at and b.id (aliased badge_id)
+// are included only so a caller that needs a different display order (e.g.
+// community.js's leaderboard/profile "oldest award first" order) can re-sort
+// the array it gets back locally instead of re-deriving this join with a
+// second SQL statement (issue #487 design-philosophy review) — this
+// function stays the ONE place the guest_badges/badges join is written.
 const stmtGuestBadgesFull = db.prepare(
-  `SELECT b.code, b.name, b.art_path, b.type, b.description, gb.awarded_by
+  `SELECT b.id AS badge_id, b.code, b.name, b.art_path, b.type, b.description,
+          gb.awarded_by, gb.points, gb.created_at
      FROM guest_badges gb
      JOIN badges b ON b.id = gb.badge_id
     WHERE gb.guest_id = ?
@@ -572,14 +582,26 @@ const stmtGuestBadgesFull = db.prepare(
 );
 
 /**
- * All badges a guest currently holds, each with { code, name, art_path, type,
- * description, awarded_by }. Used by the section 04 home page, the section 07
- * public profile, and the section 08 admin guest view.
+ * All badges a guest currently holds, each with { badge_id, code, name,
+ * art_path, type, description, awarded_by, points, created_at, pointsLabel }.
+ * Used by the section 04 home page, the section 07 public profile (via
+ * community.js's re-sorting wrapper), the leaderboard, and the section 08
+ * admin guest view.
+ *
+ * pointsLabel (issue #487) is the ONE place "show a points suffix only when
+ * the award is worth something" is decided: "+<points> pts" when points > 0,
+ * else '' (falsy, so `<% if (b.pointsLabel) %>` in a template skips it
+ * cleanly for a 0-pt badge — AC1/AC2). Every caller renders this precomputed
+ * value rather than re-testing `points > 0` itself, so the rule can't drift
+ * between the guest-home and public-profile templates.
  * @param {number} guestId
  * @returns {Array<object>}
  */
 function getGuestBadges(guestId) {
-  return stmtGuestBadgesFull.all(guestId);
+  return stmtGuestBadgesFull.all(guestId).map((b) => ({
+    ...b,
+    pointsLabel: b.points > 0 ? `+${b.points} pts` : '',
+  }));
 }
 
 // ---------------------------------------------------------------------------
