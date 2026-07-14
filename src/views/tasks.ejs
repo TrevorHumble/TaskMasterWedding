@@ -36,6 +36,9 @@
         <ul class="task-list">
           <% doneTasks.forEach(function (t) { %>
             <li class="task-row task-done">
+              <a class="task-badge-link" href="/badge/<%= t.badge.code %>" title="<%= t.badge.name %>">
+                <img class="task-badge-icon" src="<%= t.badge.art_path %>" alt="<%= t.badge.name %>" width="24" height="24" />
+              </a>
               <a class="task-link" href="/tasks/<%= t.id %>">
                 <span class="task-thumb-wrap">
                   <% if (t.thumb_path) { %>
@@ -58,6 +61,9 @@
         <ul class="task-list">
           <% todoTasks.forEach(function (t) { %>
             <li class="task-row task-todo">
+              <a class="task-badge-link" href="/badge/<%= t.badge.code %>" title="<%= t.badge.name %>">
+                <img class="task-badge-icon" src="<%= t.badge.art_path %>" alt="<%= t.badge.name %>" width="24" height="24" />
+              </a>
               <a class="task-link" href="/tasks/<%= t.id %>">
                 <span class="task-body">
                   <span class="task-title-text"><%= t.title %></span>

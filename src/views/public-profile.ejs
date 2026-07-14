@@ -61,12 +61,13 @@
       <ul class="badge-grid">
         <% badges.forEach(function (b) { %>
           <li class="badge-item">
-            <img class="badge-art"
-                 src="<%= b.art_path %>"
-                 alt="<%= b.name %>"
-                 title="<%= b.name %>"
-                 width="60" height="60" />
-            <span class="badge-name"><%= b.name %></span>
+            <a href="/badge/<%= b.code %>">
+              <img class="badge-art"
+                   src="<%= b.art_path %>"
+                   alt="<%= b.name %>"
+                   width="60" height="60" />
+              <span class="badge-name"><%= b.name %></span>
+            </a>
           </li>
         <% }); %>
       </ul>

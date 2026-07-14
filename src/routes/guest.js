@@ -38,6 +38,12 @@ const photos = require('../services/photos');
 // Scoring service (section 06) — REAL exports only.
 const scoring = require('../services/scoring');
 
+// Per-task badge resolution (issue #483) — every task owns exactly one badges
+// row (default ribbon, or customized); resolveTaskBadge lazily creates it the
+// first time a task is asked for. Used below so /tasks and /tasks/:id can
+// link each task to its own badge detail page (issue #488 follow-up).
+const taskBadges = require('../services/task-badges');
+
 // Submission-intake service (issue #106) — owns the whole submit-or-replace
 // sequence for POST /tasks/:id/submit: task-active check, thumbnail, upsert,
 // caption normalization, and scoring recompute. This route calls it once and
@@ -148,6 +154,15 @@ router.get('/tasks', function (req, res) {
         ORDER BY t.sort_order ASC, t.id ASC`
     )
     .all(guest.id);
+
+  // Every task links to its own badge (issue #488 follow-up) — resolve
+  // (lazily creating, per the foundation rule in task-badges.js) each
+  // active task's badge row and attach {code, art_path, name} directly onto
+  // the row so tasks.ejs never has to look it up itself.
+  tasks.forEach(function (t) {
+    const badge = taskBadges.resolveTaskBadge(t.id);
+    t.badge = { code: badge.code, art_path: badge.art_path, name: badge.name };
+  });
 
   const todoTasks = tasks.filter(function (t) {
     return t.done !== 1;
@@ -318,6 +333,10 @@ router.get('/tasks/:id', function (req, res) {
     return res.status(404).render('404', { title: 'Not found' });
   }
 
+  // This task's own badge (issue #488 follow-up) — always resolvable, shown
+  // and linked whether or not the guest has completed the task yet.
+  const taskBadge = taskBadges.resolveTaskBadge(taskId);
+
   // The guest's submission for this task, loaded REGARDLESS of taken_down
   // (issue #190): a host takedown must not make the task page fall back to
   // "not done" and invite a resubmit that would have silently reversed the
@@ -382,6 +401,7 @@ router.get('/tasks/:id', function (req, res) {
   res.render('task', {
     title: task.title,
     task: task,
+    taskBadge: taskBadge, // this task's badge — always present, unlike badgeMoment
     submission: submission, // null if none yet
     taskComplete: taskComplete, // null unless a 'created' submit just redirected here
     badgeMoment: badgeMoment, // null unless that submit also earned a new badge

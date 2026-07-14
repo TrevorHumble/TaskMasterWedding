@@ -38,8 +38,10 @@
       <ul class="badge-grid">
         <% badges.forEach(function (b) { %>
           <li class="badge-item">
-            <img src="<%= b.art_path %>" alt="<%= b.name %> badge" class="badge-art" />
-            <span class="badge-name"><%= b.name %></span>
+            <a href="/badge/<%= b.code %>">
+              <img src="<%= b.art_path %>" alt="<%= b.name %> badge" class="badge-art" />
+              <span class="badge-name"><%= b.name %></span>
+            </a>
           </li>
         <% }); %>
       </ul>

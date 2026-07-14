@@ -27,6 +27,10 @@ const { METRIC_BADGES, TRANSFERABLE_BADGES } = require('./badges');
 // of the 'TASK-' literal — see that module's doc comment); createCustomBadge
 // below imports it rather than hard-coding a second copy that could drift.
 const { TASK_BADGE_CODE_PREFIX } = require('./task-badges');
+// VISIBLE_WHERE ('s.taken_down = 0') is owned by feed.js; badgeWithHolders'
+// query below consumes it rather than re-deriving the visibility literal (#488).
+// feed.js requires only '../db', so this import introduces no cycle.
+const { VISIBLE_WHERE } = require('./feed');
 
 // ---------------------------------------------------------------------------
 // Canonical auto-badge thresholds. These MUST match the seeded `badges` rows
@@ -583,6 +587,62 @@ function getGuestBadges(guestId) {
 }
 
 // ---------------------------------------------------------------------------
+// Badge detail page (issue #488): one badge's catalog row + every guest who
+// holds it.
+// ---------------------------------------------------------------------------
+
+// Every holder of one badge, with the fields the badge detail page needs for
+// EITHER of its two rendered shapes (issue #488): a system badge only reads
+// guest_id/guest_name; a Task Master (custom) badge also reads
+// points/note/submission_id/thumb_path per award. One shared query serves
+// both — the view decides what to display, this statement never branches on
+// badge type.
+//
+// The LEFT JOIN's ON clause carries the visibility predicate (not a WHERE
+// filter), so a taken-down or missing earning photo drops submission_id/
+// thumb_path to NULL for that row WITHOUT dropping the guest_badges row itself
+// (AC4) — the award's name/points/note must still render, only the photo
+// disappears.
+//
+// The predicate is `${VISIBLE_WHERE}`, consumed from feed.js's single owner
+// (the submissions table is aliased `s` here, matching VISIBLE_WHERE's `s.`
+// alias) rather than re-deriving the literal. The same rule is still inlined
+// in ~15 other services-layer sites (scoring.js's own stmtCompletedCount/
+// stmtPhotoBonusSum/stmtAwardPointsSum/leaderboard joins, badges.js,
+// task-badges.js); migrating those to this same owner is tracked in #510.
+const stmtBadgeHolders = db.prepare(
+  `SELECT
+     g.id         AS guest_id,
+     g.name       AS guest_name,
+     gb.points    AS points,
+     gb.note      AS note,
+     s.id         AS submission_id,
+     s.thumb_path AS thumb_path
+     FROM guest_badges gb
+     JOIN guests g ON g.id = gb.guest_id
+     LEFT JOIN submissions s ON s.id = gb.submission_id AND ${VISIBLE_WHERE}
+    WHERE gb.badge_id = ?
+    ORDER BY gb.points DESC, g.name ASC, g.id ASC`
+);
+
+/**
+ * One badge's catalog row plus every guest who holds it, for the badge
+ * detail page (`GET /badge/:code`, issue #488).
+ *
+ * @param {string} code
+ * @returns {{badge: object, holders: Array<object>}|null} null when no badge
+ *   with that code exists (the route 404s on this — AC5).
+ */
+function badgeWithHolders(code) {
+  const badge = stmtBadgeByCode.get(code);
+  if (!badge) {
+    return null;
+  }
+  const holders = stmtBadgeHolders.all(badge.id);
+  return { badge, holders };
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 module.exports = {
@@ -593,6 +653,7 @@ module.exports = {
   getCompletedCount,
   getPoints,
   getGuestBadges,
+  badgeWithHolders,
   recomputeBadges,
   recomputeTransferableBadges,
   recomputeAfterSubmissionChange,

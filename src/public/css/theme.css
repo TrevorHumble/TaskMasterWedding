@@ -972,6 +972,8 @@ p {
 
 /* ---- Row variants used by tasks.ejs ---- */
 .task-row {
+  display: flex;
+  align-items: center;
   border-bottom: var(--border-hairline);
 }
 .task-row:first-child {
@@ -986,7 +988,22 @@ p {
 .task-row.task-todo .task-title-text {
   color: var(--color-text);
 }
+/* Each task's own badge (issue #488 follow-up) — a separate link from
+   .task-link below (nesting an <a> inside another <a> is invalid HTML), so
+   it sits beside the row link rather than inside it. */
+.task-badge-link {
+  flex: 0 0 auto;
+  display: flex;
+  padding: var(--space-4) 0 var(--space-4) var(--space-3);
+}
+.task-badge-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
 .task-link {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -1119,6 +1136,26 @@ p {
 }
 .back-link a:hover {
   color: var(--color-primary);
+}
+.task-detail-badge {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-5);
+}
+.task-detail-badge a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
+  vertical-align: middle;
+}
+.task-detail-badge a:hover {
+  text-decoration: underline;
+}
+.task-detail-badge .task-badge-icon {
+  vertical-align: middle;
 }
 .task-detail-desc {
   color: var(--color-text-muted);
@@ -1414,17 +1451,23 @@ textarea {
   color: var(--color-text-muted);
 }
 
-/* badge-item: used in guest-home and public-profile badge grids */
+/* badge-item: used in guest-home and public-profile badge grids. Its
+   content is wrapped in an <a href="/badge/:code"> (issue #488) — the flex
+   layout moves onto the anchor so wrapping it doesn't collapse the column. */
 .badge-item {
+  padding: var(--space-4) var(--space-3);
+  background: var(--green-50);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+}
+.badge-item a {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
   gap: var(--space-2);
-  padding: var(--space-4) var(--space-3);
-  background: var(--green-50);
-  border: var(--border-hairline);
-  border-radius: var(--radius-card);
+  text-decoration: none;
+  color: inherit;
 }
 .badge-art {
   width: 60px;
@@ -2449,6 +2492,11 @@ body:has(dialog[open]) {
   gap: var(--space-1);
   flex-shrink: 0;
 }
+/* Each icon is wrapped in an <a href="/badge/:code"> (issue #488). */
+.lb-badges a {
+  display: inline-flex;
+  line-height: 0;
+}
 .lb-badge-icon {
   width: 24px;
   height: 24px;
@@ -3349,4 +3397,147 @@ body:has(dialog[open]) {
 }
 .join-login-link {
   text-decoration: underline;
+}
+
+/* ----------------------- Badge detail page (issue #488) -----------------------
+   A quiet, editorial layout. Separation is carried by whitespace and the
+   serif hierarchy, NOT by boxing every row: there is no rule under the
+   masthead, no bordered section heading, and only a SINGLE hairline BETWEEN
+   list rows (never above the first or below the last). The art frame sits
+   between the 60px grid tile (.badge-art) and the 168px badge-earned modal
+   (.badge-dialog .badge-art) — large enough to read alone on its own page. */
+.badge-detail-header {
+  text-align: center;
+  margin-bottom: var(--space-7);
+}
+.badge-detail-art {
+  width: 120px;
+  height: 120px;
+  margin: 0 auto var(--space-4);
+  display: block;
+}
+.badge-detail-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin: 0;
+}
+.badge-detail-desc {
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--color-text-muted);
+  margin: var(--space-3) auto 0;
+  max-width: 30rem;
+}
+
+/* Section label above either list — a quiet tracked eyebrow with the count
+   folded in, not a bordered heading. No rule under it; the whitespace above
+   and the rows below give it all the definition it needs. */
+.badge-detail-label {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-3);
+}
+.badge-detail-count {
+  color: var(--color-hairline);
+}
+.badge-detail-count::before {
+  content: '\00B7'; /* middot */
+  margin: 0 var(--space-1);
+  color: var(--color-hairline);
+}
+
+/* Both lists share one reset. */
+.holder-list,
+.award-row-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* The label heads the list, so the first row sits tight beneath it (its
+   own top padding would otherwise float the list away from its heading);
+   the between-rows hairline and each row's bottom padding still carry the
+   internal rhythm. */
+.holder-row:first-child,
+.award-row:first-child {
+  padding-top: 0;
+}
+
+/* System badge: a plain name -> profile per holder. One hairline BETWEEN
+   rows only, so the column reads as a quiet list rather than a stack of
+   banded boxes. */
+.holder-row {
+  padding: var(--space-5) 0;
+}
+.holder-row + .holder-row {
+  border-top: var(--border-hairline);
+}
+.holder-row a {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+/* Task Master badge: one award per row. The name, points, and the host's
+   note sit on the LEFT, always starting at the same left edge whether or not
+   a photo is present; the earning photo (when still visible) anchors the
+   RIGHT. A note-only award (no photo) therefore never rags out of line, and
+   the list keeps the single between-rows hairline of the holder list above. */
+.award-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5) 0;
+}
+.award-row + .award-row {
+  border-top: var(--border-hairline);
+}
+.award-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.award-row-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: var(--space-2);
+}
+.award-row-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.award-row-points {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.award-row-points::before {
+  content: '\00B7'; /* middot between name and points */
+  margin-right: var(--space-2);
+  color: var(--color-hairline);
+}
+.award-row-note {
+  margin: var(--space-1) 0 0;
+  font-style: italic;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.award-row-thumb-link {
+  flex-shrink: 0;
+  display: block;
+}
+.award-row-thumb {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: var(--radius-input);
+  display: block;
 }
