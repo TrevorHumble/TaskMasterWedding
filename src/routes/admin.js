@@ -593,9 +593,10 @@ router.post('/tasks/:id/badge', (req, res, next) => {
 });
 
 // POST /admin/tasks/:id/delete  — delete a task and its photo files.
-// ON DELETE CASCADE removes submission rows, but NOT the files on disk.
-// Hard-delete each submission's files first so no orphaned originals or
-// thumbnails remain (and so direct-URL access is closed — the file is gone).
+// ON DELETE CASCADE removes submission rows AND the task's own badges row,
+// but NOT any files on disk. Hard-delete each submission's files first so no
+// orphaned originals or thumbnails remain (and so direct-URL access is
+// closed — the file is gone).
 router.post('/tasks/:id/delete', (req, res) => {
   const id = parseInt(req.params.id, 10);
 
@@ -608,6 +609,23 @@ router.post('/tasks/:id/delete', (req, res) => {
       // Don't abort the whole delete just because one stray file was already
       // gone; log and continue so the DB row still gets removed.
       console.error('Failed to delete files for submission', sub.id, err);
+    }
+  }
+
+  // Resolve the task's badge art BEFORE the DELETE below — ON DELETE CASCADE
+  // removes the badges row along with the task, and its art_path cannot be
+  // read back afterward (issue #501). Uses the non-lazy getTaskBadge (not
+  // resolveTaskBadge): a task that was never customized (and never had its
+  // admin card rendered) may have no badges row at all, and there is no
+  // reason to insert one here just to unlink nothing and immediately cascade
+  // it away. unlinkUploadedArt no-ops on the shared default ribbon SVG, same
+  // policy as the avatar cleanup above (guest delete).
+  const badge = taskBadges.getTaskBadge(id);
+  if (badge) {
+    try {
+      taskBadges.unlinkUploadedArt(badge.art_path);
+    } catch (err) {
+      console.error('Failed to delete badge art for task', id, err);
     }
   }
 
