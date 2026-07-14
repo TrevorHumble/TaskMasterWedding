@@ -85,19 +85,21 @@ function parseSocialLinks(raw) {
 }
 
 /**
- * Load the badges a guest currently holds, joined to the badge catalog so we
- * have name + art_path for display. Newest awards first.
+ * The badges a guest currently holds, in this route's own display order
+ * (award created_at ascending, badge id as the tiebreak — the order the
+ * leaderboard badge strip and public profile have used since before issue
+ * #487). The guest_badges/badges join itself has exactly one owner,
+ * src/services/scoring.js's getGuestBadges (design-philosophy review of
+ * #487) — this is a thin re-sort over that shared result, not a second copy
+ * of the query.
  */
 function loadGuestBadges(guestId) {
-  return db
-    .prepare(
-      `SELECT b.code, b.name, b.art_path, b.type, gb.awarded_by, gb.created_at
-         FROM guest_badges gb
-         JOIN badges b ON b.id = gb.badge_id
-        WHERE gb.guest_id = ?
-        ORDER BY gb.created_at ASC, b.id ASC`
-    )
-    .all(guestId);
+  return scoring.getGuestBadges(guestId).sort((a, b) => {
+    if (a.created_at !== b.created_at) {
+      return a.created_at < b.created_at ? -1 : 1;
+    }
+    return a.badge_id - b.badge_id;
+  });
 }
 
 /**

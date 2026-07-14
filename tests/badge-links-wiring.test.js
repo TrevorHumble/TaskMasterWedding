@@ -79,24 +79,23 @@ describe('Badge art links to its detail page (guest home, profile, leaderboard)'
   });
 });
 
-describe('Every task links to its own badge (tasks list + task detail)', () => {
-  it('renders an href to /badge/TASK-<id> on GET /tasks and GET /tasks/:id', async () => {
+describe("The task detail page links to the task's own badge", () => {
+  it('renders an href to /badge/TASK-<id> on GET /tasks/:id', async () => {
+    // The tasks LIST itself deliberately does not carry a direct badge link:
+    // issue #486 owns that surface (each row shows "Earn [name] plus extra
+    // points" and the whole row links to the task detail). A task's badge is
+    // reached from there via the task detail's "Earns:" line, asserted here.
     const guest = makeGuest('Marcus');
     const taskId = makeTask();
-    // The task's own badge row (code TASK-<id>) is what both pages must link
-    // to; resolve it through the real production path so the code the pages
-    // render is the code the route actually derived, never an assumed shape.
+    // The task's own badge row (code TASK-<id>); resolve it through the real
+    // production path so the code the page renders is the code the route
+    // actually derived, never an assumed shape.
     const badge = taskBadges.resolveTaskBadge(taskId);
     const expectedHref = `href="/badge/${badge.code}"`;
 
     const agent = await signIn(guest.token);
 
-    // Tasks list (GET /tasks): the To-do view lists this active, undone task.
-    const list = await agent.get('/tasks');
-    expect(list.status).toBe(200);
-    expect(list.text).toContain(expectedHref);
-
-    // Task detail (GET /tasks/:id): the "Earns:" line links the same badge.
+    // Task detail (GET /tasks/:id): the "Earns:" line links the badge.
     const detail = await agent.get(`/tasks/${taskId}`);
     expect(detail.status).toBe(200);
     expect(detail.text).toContain(expectedHref);

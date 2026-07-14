@@ -21,6 +21,14 @@ const { requireGuest, setFlash, setTaskCompleteReward } = require('../middleware
 // than re-encoding the shape rule a third time.
 const { isValidPin } = require('../services/identity');
 
+// Per-task badge resolution (issue #483) — resolveTaskBadge returns the
+// task's own badge row (custom art/name if uploaded, else the shared
+// default-ribbon art), lazily inserting the default row the first time a
+// task is asked for. GET /tasks below is the ONLY other resolveTaskBadge
+// caller outside admin.js; both read the same row, never a second copy of
+// "which badge does this task earn".
+const taskBadges = require('../services/task-badges');
+
 // Photos service (section 05) — REAL exports only.
 // `upload` is the multer DISK-storage middleware ALREADY BOUND to single('photo')
 // — call it directly as `photos.upload(req, res, cb)` (do NOT call .single on it).
@@ -37,12 +45,6 @@ const photos = require('../services/photos');
 
 // Scoring service (section 06) — REAL exports only.
 const scoring = require('../services/scoring');
-
-// Per-task badge resolution (issue #483) — every task owns exactly one badges
-// row (default ribbon, or customized); resolveTaskBadge lazily creates it the
-// first time a task is asked for. Used below so /tasks and /tasks/:id can
-// link each task to its own badge detail page (issue #488 follow-up).
-const taskBadges = require('../services/task-badges');
 
 // Submission-intake service (issue #106) — owns the whole submit-or-replace
 // sequence for POST /tasks/:id/submit: task-active check, thumbnail, upsert,
@@ -85,7 +87,7 @@ router.get('/', function (req, res) {
 
   // Points and badges from the scoring service (section 06 real exports).
   const points = scoring.getPoints(guest.id);
-  const badges = scoring.getGuestBadges(guest.id); // each: {code,name,art_path,...}
+  const badges = scoring.getGuestBadges(guest.id); // each: {code,name,art_path,description,points,...}
 
   // The guest's own (non-taken-down) submissions, newest first, joined to
   // task title so we can label each thumbnail on the home page. LEFT JOIN
@@ -155,22 +157,26 @@ router.get('/tasks', function (req, res) {
     )
     .all(guest.id);
 
-  // Every task links to its own badge (issue #488 follow-up) — resolve
-  // (lazily creating, per the foundation rule in task-badges.js) each
-  // active task's badge row and attach {code, art_path, name} directly onto
-  // the row so tasks.ejs never has to look it up itself.
-  tasks.forEach(function (t) {
+  // Attach each task's own resolved badge (issue #486) so the list can show
+  // "earn [name] plus extra points" before the guest even takes the photo —
+  // the same custom-or-default resolution admin.js's task board already
+  // uses, so a customized badge shows here the moment it is uploaded.
+  // Mapped onto `tasks` BEFORE the todo/done split below so both derived
+  // lists carry the badge without a second resolve pass.
+  const tasksWithBadges = tasks.map(function (t) {
     const badge = taskBadges.resolveTaskBadge(t.id);
-    t.badge = { code: badge.code, art_path: badge.art_path, name: badge.name };
+    return Object.assign({}, t, {
+      badge: taskBadges.toTaskBadgeView(badge),
+    });
   });
 
-  const todoTasks = tasks.filter(function (t) {
+  const todoTasks = tasksWithBadges.filter(function (t) {
     return t.done !== 1;
   });
   // Done tasks, most recent completion first. The default (to-do) view no
   // longer renders any of this list (issue #339) — it feeds only the chip
   // count and the full ?view=done list.
-  const doneTasks = tasks
+  const doneTasks = tasksWithBadges
     .filter(function (t) {
       return t.done === 1;
     })

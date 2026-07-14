@@ -972,8 +972,6 @@ p {
 
 /* ---- Row variants used by tasks.ejs ---- */
 .task-row {
-  display: flex;
-  align-items: center;
   border-bottom: var(--border-hairline);
 }
 .task-row:first-child {
@@ -988,22 +986,13 @@ p {
 .task-row.task-todo .task-title-text {
   color: var(--color-text);
 }
-/* Each task's own badge (issue #488 follow-up) — a separate link from
-   .task-link below (nesting an <a> inside another <a> is invalid HTML), so
-   it sits beside the row link rather than inside it. */
-.task-badge-link {
-  flex: 0 0 auto;
-  display: flex;
-  padding: var(--space-4) 0 var(--space-4) var(--space-3);
-}
+/* Small circular badge icon for the task detail's "Earns:" line (issue #488). */
 .task-badge-icon {
   width: 24px;
   height: 24px;
   border-radius: 50%;
 }
 .task-link {
-  flex: 1 1 auto;
-  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -1038,6 +1027,27 @@ p {
   font-size: 12px;
   font-weight: 600;
   color: var(--color-primary);
+}
+/* Earnable-badge line (issue #486): the badge the guest earns for this task,
+   shown before the photo is taken. Reuses the shared .badge-art frame (the
+   fixed-size class admin-tasks.ejs already uses for the same badge data) so
+   every badge render on the site shares one sizing rule instead of a raw
+   uncontrolled <img>; scoped narrower here (24px) to fit the task row at
+   phone width alongside the title/description without pushing the layout. */
+.task-earnable-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.task-earnable-badge .badge-art {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.task-earnable-copy {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
 }
 /* Done rows: the guest's own photo is the completion indicator — a 40px
    thumbnail with a small sage check-badge overlapping its corner. No pills,
@@ -1412,48 +1422,26 @@ textarea {
 }
 
 /* ----------------------- Badges / pill chips ----------------------- */
+/* badge-item (issue #487): a clean row per badge on guest-home and
+   public-profile — same-size icon on the left, a title (with a conditional
+   "+N pts" suffix) and a description stacked to its right. Replaces the
+   former centered green-tile treatment (the old repeat(3, 1fr) grid /
+   .badge-chip tile, both unused by any view, are removed rather than left
+   shadowed); no background box on the row itself (AC5). The 620px
+   breakpoint no longer needs a column-count override for .badge-grid (see
+   the "Wider screens" media query). */
 .badge-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.badge-chip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-3);
-  background: var(--green-50);
-  border: var(--border-hairline);
-  border-radius: var(--radius-card);
-}
-.badge-chip img {
-  width: 60px;
-  height: 60px;
-}
-.badge-chip .badge-name {
-  font-family: var(--font-display);
-  font-size: var(--fs-small);
-  color: var(--color-primary);
-  font-weight: 600;
-  line-height: var(--lh-snug);
-}
-.badge-chip.locked {
-  opacity: 0.45;
-  filter: grayscale(0.7);
-}
-.badge-chip .badge-by {
-  font-size: var(--fs-eyebrow);
-  color: var(--color-text-muted);
-}
-
-/* badge-item: used in guest-home and public-profile badge grids. Its
-   content is wrapped in an <a href="/badge/:code"> (issue #488) — the flex
-   layout moves onto the anchor so wrapping it doesn't collapse the column. */
+/* badge-item: used in guest-home and public-profile badge grids. Each item's
+   content (issue #486's badge art + name/points/description) is wrapped in an
+   <a href="/badge/:code"> (issue #488), so the flex row layout lives on the
+   anchor. */
 .badge-item {
   padding: var(--space-4) var(--space-3);
   background: var(--green-50);
@@ -1462,22 +1450,40 @@ textarea {
 }
 .badge-item a {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  text-align: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  text-align: left;
   text-decoration: none;
   color: inherit;
 }
 .badge-art {
-  width: 60px;
-  height: 60px;
+  /* Fixed, equal width/height so a mismatched source image (any badge art
+     upload) can never change the row's height (AC4). */
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.badge-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 .badge-name {
   font-family: var(--font-display);
   font-size: var(--fs-small);
   color: var(--color-primary);
   font-weight: 600;
+  line-height: var(--lh-snug);
+}
+.badge-points {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+.badge-desc {
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
   line-height: var(--lh-snug);
 }
 
@@ -3292,9 +3298,6 @@ body:has(dialog[open]) {
 
 /* ----------------------- Wider screens ----------------------- */
 @media (min-width: 620px) {
-  .badge-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
   .site-header-inner {
     max-width: 680px;
     flex-direction: row;
