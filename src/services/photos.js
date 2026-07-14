@@ -1135,10 +1135,10 @@ async function saveBadgeArt(buffer) {
 // absolute disk path, and the public URL served by the static mounts in app.js.
 // ---------------------------------------------------------------------------
 
-/** Public URL for an original photo (or avatar), served by app.use('/uploads', ...). */
+/** Public URL for an original photo (or avatar), served by app.use(config.UPLOADS_URL_BASE, ...). */
 function urlForOriginal(photoPath) {
   if (!photoPath) return '';
-  return '/uploads/' + photoPath;
+  return config.UPLOADS_URL_BASE + '/' + photoPath;
 }
 
 /** Public URL for a thumbnail, served by app.use('/thumbs', ...). */

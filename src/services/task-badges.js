@@ -21,6 +21,7 @@
 'use strict';
 
 const path = require('path');
+const config = require('../../config');
 const { db } = require('../db');
 // NOT required at top level: photos.js requires scoring.js, and scoring.js
 // requires THIS module (for TASK_BADGE_CODE_PREFIX) — a top-level
@@ -43,8 +44,11 @@ const DEFAULT_RIBBON_ART_PATH = '/badges/default-ribbon.svg';
 // output shape — see admin.js's POST /tasks/:id/badge, which builds artPath
 // via urlForOriginal(filename) before calling setTaskBadge). Anything NOT
 // under this prefix is a shared static asset (today, only
-// DEFAULT_RIBBON_ART_PATH) and must never be unlinked.
-const UPLOADS_URL_PREFIX = '/uploads/';
+// DEFAULT_RIBBON_ART_PATH) and must never be unlinked. Read from
+// config.UPLOADS_URL_BASE (issue #508) rather than a local literal — that is
+// the single owner of the /uploads mount prefix; config.js has no require
+// back into services, so this is safe as a top-level require (unlike the
+// lazy require('./photos') below).
 
 // The code prefix every task badge's derived code carries ('TASK-' + taskId).
 // The SINGLE owner of this literal: scoring.js's createCustomBadge imports
@@ -118,7 +122,7 @@ function getTaskBadge(taskId) {
  * @returns {boolean}
  */
 function isUploadedArtPath(artPath) {
-  return typeof artPath === 'string' && artPath.startsWith(UPLOADS_URL_PREFIX);
+  return typeof artPath === 'string' && artPath.startsWith(config.UPLOADS_URL_BASE + '/');
 }
 
 /**
