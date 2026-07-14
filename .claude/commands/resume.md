@@ -21,7 +21,7 @@ This checks the commit gate (wired to `.githooks/pre-commit`), the goal gate, an
 
 Report back:
 
-- Current branch and last `BUILDLOG.md` entry; also report the last **Live-log ledger line** from the `## Live log` section of `docs/RESUME-STATE.md` (that ledger is the per-increment record of where the autonomous run left off).
+- Current branch and the last entry from the **live** per-merge log — the `ledger`-branch rendered `BUILDLOG.md` (`git show ledger:BUILDLOG.md`, or regenerate locally with `node scripts/buildlog-render.js`). Since #447, `main`'s own `BUILDLOG.md` no longer receives a per-merge entry: it carries only the frozen pre-cutover history plus exceptional `[HALT]`/`[AUDIT]`/wave entries, so its tail is not the last merge — do not report it as such. Also report the last **Live-log ledger line** from the `## Live log` section of `docs/RESUME-STATE.md` (that ledger is the per-increment record of where the autonomous run left off).
 - Where the work stands (one sentence from `RESUME-STATE.md`).
 - Gate status from `check-enforcement.ps1`.
 - The next item in the priority backlog.

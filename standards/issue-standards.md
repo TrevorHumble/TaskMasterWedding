@@ -44,6 +44,8 @@ All three fields are required. Missing a field is a FAIL.
 
 A draft's identity is its GitHub issue number, not a locally-minted one: the draft file in `data/wip-issues/` is named `<N>-slug.md`, where `N` is the number GitHub assigned when the issue was created (`gh issue create`), captured before the draft is written. The file's `N`, its `# N —` header, and any self-referential `(#N)` must all equal that GitHub issue number. No FINAL, LAST, or TRULY_FINAL.
 
+A draft with **no** `# N —` header is a **nit** (non-blocking) — GitHub's own issue title is the canonical identity, and the in-file header is a convenience, not the source of truth. A **present-but-wrong** header — `N` or a `(#N)` self-reference disagreeing with the GitHub-assigned number — is a blocking **FAIL**: a wrong number actively misdirects a reader to the wrong issue, which a missing header does not.
+
 ---
 
 ## Issue tiers

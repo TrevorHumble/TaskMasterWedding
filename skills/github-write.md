@@ -22,7 +22,7 @@ The remote is this project's own GitHub repo (set when you created it from the t
 
 ## GitHub is the single source of truth — keep issues in sync
 
-Every issue file `issues/NNNN-title.md` has a matching GitHub issue, and **the GitHub issue owns the
+Every issue file `data/wip-issues/<N>-slug.md` has a matching GitHub issue, and **the GitHub issue owns the
 status** (open/closed/labels). The file is the detail; the board is the state. The pipeline keeps them
 equal — see DESIGN.md "Source of truth". The sync rule:
 
@@ -38,7 +38,7 @@ equal — see DESIGN.md "Source of truth". The sync rule:
   --title "#NNNN Short title" `
   --label "ready" `
   --body @'
-Tracks issues/NNNN-title.md (canonical detail in the repo).
+Tracks data/wip-issues/<N>-slug.md (canonical detail in the repo).
 
 ## Summary
 ...
