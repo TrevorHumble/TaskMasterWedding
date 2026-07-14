@@ -18,7 +18,7 @@ tools: [Read, Write, Edit, Bash, Glob, Grep]
 
 **Input:** (all required)
 
-- Path to the PASS-reviewed issue file (`issues/NNNN-*.md`).
+- Path to the PASS-reviewed issue file (`data/wip-issues/<N>-slug.md`).
 - Paths to every prior-art file referenced in the issue (they must exist on disk).
 - The relevant standard(s) the artifact will be reviewed against.
 

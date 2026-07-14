@@ -130,7 +130,7 @@ The **design-philosophy gate remains required for every implementation artifact*
 
 **Why 1 PR reviewer, not a panel (#201):** across three build sessions (~9 multi-reviewer panels reconstructed), no second or third same-charter panelist ever flipped a verdict — every panel was unanimous PASS. Every FAIL that sent work back came from the differently-chartered design-philosophy reviewer or from a fresh single reviewer on a later round. Panel width bought reassurance, not catches; a different lens bought catches. So routine round 1 pays for one PR reviewer and keeps the different lens, and the "2–5 reviewers" range is retired. The 3-round soft cap and severity adjudicator (`## Stop condition — soft cap and severity gate`) remain unchanged.
 
-**Kernel/experimental split (#218):** reviewer charters — files matching `agents/reviewer-*.md`, including new lens charters — take the **routine** bar above, not the system-level bar. Everything else on the governing-artifact surface (see `DESIGN.md` "System-level change (definition)") stays kernel, explicitly including the rest of `agents/`, all of `standards/`, `tools/`, `.githooks/`, `skills/`, `.github/`, and `.claude/`. Charter iteration is where governance experimentation happens, and the governance ledger (a separate issue in the same overhaul set; not yet landed) will make a weakened charter detectable via falling catch-rates; bar-definitions fail silently when weakened, so they stay kernel. `Get-RequiredBar` in `tools/verdict-core.ps1` enforces the split mechanically. **Fable interaction:** for Fable-authored work, an edit to any `agents/reviewer-*.md` is self-modification and takes Pattern 2 (one independent reviewer — see `## Fable review patterns`) regardless of this bar-1 carve-out; Fable never commits a charter edit on self-certification alone, because a charter reviews the very work Fable produces.
+**Kernel/experimental split (#218):** reviewer charters — files matching `agents/reviewer-*.md`, including new lens charters — take the **routine** bar above, not the system-level bar. Everything else on the governing-artifact surface (see `DESIGN.md` "System-level change (definition)") stays kernel, explicitly including the rest of `agents/`, all of `standards/`, `tools/`, `.githooks/`, `skills/`, `.github/`, and `.claude/`. Charter iteration is where governance experimentation happens, and the governance ledger (a separate issue in the same overhaul set; not yet landed) will make a weakened charter detectable via falling catch-rates; bar-definitions fail silently when weakened, so they stay kernel. `Get-RequiredBar` in `tools/verdict-core.ps1` enforces the split mechanically.
 
 Reviewers remain **Opus** on every tier except the explicitly-scoped `sonnet-only` tier (#427) — model is not a savings lever elsewhere. A reviewer must run on a different, non-weaker model than the implementer; `standards/agent-standards.md` makes Opus required for a gate. Savings otherwise come from reviewer _count_ only. The `sonnet-only` tier is a bounded exception: an issue eligible under `tools/classify-issue-run.ps1` (routine, off the wedding-critical guest paths, small and reversible) runs its implementer and every reviewer that fires on Sonnet, mitigated by the retained design-philosophy lens and a coverage-first instruction on every reviewer charter that can run on that tier — see `standards/agent-standards.md` § "`sonnet-only` tier carve-out" and `agents/orchestrator.md` § "Model policy" for the escalation safety valve.
 
@@ -353,86 +353,3 @@ is declared an impasse. The orchestrator tracks the post-gate round count and de
 severity adjudicator only classifies severity per invocation and cannot track elapsed rounds. The segment
 halts and surfaces to the operator; a halt is not an acceptance — the work is not committed. This bound
 guarantees the loop terminates without ever self-exiting by accepting consequential work.
-
----
-
-## Fable review patterns (#203, narrowed by #207)
-
-**Retired 2026-07-06 (#274).** The Fable model is no longer available to this
-project; its final session ended 2026-07-06 and no current implementer qualifies
-for these patterns. **Every implementer follows the unmodified protocol above —
-the independence rules, reviewer counts, and self-modification bar apply with no
-exception.** The text below is preserved as the historical record of the
-decision and its rationale; it is not live policy.
-
-**Decision lineage.** #203 (2026-07-04) granted Fable full self-certification at
-every risk tier. **#207 (decided by the owner the same day, 2026-07-04) narrows
-that grant to the two patterns below and caps all Fable reviews at one round.**
-Where this section and any record of the original #203 grant disagree, this
-section governs.
-
-**Pattern 1 — routine work: fresh-context self-review.** Fable-authored work that
-is **not** system-level, **not** security-flagged, and **not** self-modification is
-certified by a self-review that Fable runs in a **fresh context**: a clean prompt
-containing the issue, the diff, this protocol's stance, and the design-philosophy
-charter (`standards/design-philosophy.md`) — and none of the implementing
-conversation. Re-reading one's own work inside the implementing context is not a
-review; the independence gained here is context-independence, and the
-design-philosophy charter is the lens because it is the one reviewer role the
-repo's own round-ledger evidence (#201) showed catching every consequential
-defect. Recorded via `tools/persist-self-certification.ps1` (`role: 'self-cert'`).
-
-**Pattern 2 — governance surface: one independent reviewer.** Fable-authored work
-that is **system-level** (the governing-artifact surface defined in `DESIGN.md`),
-**security-flagged**, or **self-modification** takes exactly **one independent
-reviewer** — per the Model policy table (Opus), spawned from a clean prompt with
-no shared context with the implementer. Rationale: an agent that can rewrite the
-machinery that checks it and certify its own rewrite has no remaining independent
-check of any kind; the failure mode is undetectable by construction, so no degree
-of implementer capability substitutes for outside eyes here.
-
-**One-round cap (both patterns).** Every Fable review is exactly one round: the
-reviewer reports, the implementer fixes, and the **same** reviewer confirms the
-fixed artifact once within that round. No fresh-reviewer rounds, no panels, no
-soft-cap loop, no severity-adjudicator invocation. A consequential defect that
-cannot be resolved within the round halts the work and surfaces to the owner — it
-is not merged.
-
-**Scope.** This applies only to Fable. Every other implementer remains bound by the
-rest of this protocol at full strength, unchanged — including the reviewer-count
-precedence order, the bias gate, and the soft-cap severity gate. For Fable-run
-reviews, the bias-gate agent ceremony does not apply; the bias-gate evidence
-artifact is written via `tools/persist-bias-gate.ps1 -SelfCertify`.
-
-**Supersession.** For Fable only, this section supersedes:
-
-- `## Independence` — replaced by Pattern 1 (fresh-context self-review) for routine
-  work and Pattern 2 (one independent reviewer, not two-plus) for the rest.
-- `## Self-modification bar` — the two-independent-reviewer requirement is reduced
-  to Pattern 2's one independent reviewer. It is **not** waived: self-modification
-  never proceeds on self-certification alone.
-
-**Permanence.** Owner-authorized standing policy (decided 2026-07-04, #207) — not
-time-boxed. Any future widening back toward full self-certification is an owner
-decision to be recorded the same way.
-
-**CI is unaffected.** `npm run lint`, `npm run format:check`, and
-`npm run test:coverage` still gate Fable's work exactly as everyone else's, and the
-empirical smoke gate (#197, shipped with this policy) probes the running app on
-every push and PR.
-
-**Mechanism.** Evidence, not hand-waving: `tools/persist-self-certification.ps1`
-writes distinctly-tagged records (`reviewer_id: fable-self-<i>`,
-`role: 'self-cert'`) to `.review_state/issue-reviews/<N>/` (issue mode) or
-`.review_state/reviews/<tree_oid>/` (tree mode). **Tree mode is capped at one
-record (#207).** Because `Reduce-Verdicts` (`tools/verdict-core.ps1`) counts
-distinct `reviewer_id`s with a PASS against `Required`, and a system-level tree
-requires `Required = 2` (`Get-RequiredBar`), the cap makes Pattern 2 mechanical:
-a system-level tree needs at least one PASS recorded by a real independent
-reviewer via `tools/persist-review.ps1` — self-certification alone can never
-satisfy it (`tests/persist-self-certification.test.js` pins both directions).
-
-The `role: 'self-cert'` field keeps Fable's self-certified evidence honestly
-distinguishable from an independent reviewer's PASS in the audit trail — the
-exception is documented and visible in the evidence itself, not hidden behind a
-free-text `reviewer_id` that could be confused with a real reviewer.

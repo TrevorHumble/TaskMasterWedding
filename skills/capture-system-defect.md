@@ -38,7 +38,7 @@ the full tier definitions and required fields for each tier — do not restate t
 
 ## Step 3 — draft the issue
 
-Use `skills/issue-create.md`. File the issue in `issues/NNNN-*.md` with:
+Use `skills/issue-create.md`. File the issue in `data/wip-issues/<N>-slug.md` with:
 
 - a user story naming the agent or human hurt by the defect
 - at least one Given/When/Then acceptance criterion that resolves to a literal string or

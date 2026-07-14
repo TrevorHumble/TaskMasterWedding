@@ -21,7 +21,7 @@ Delegate to `agents/researcher.md`. Do not improvise the research inline.
 
 ## Search order (researcher must follow this)
 
-1. Local repo (`skills/`, `agents/`, `standards/`, `issues/`, `references/`) — glob and grep first.
+1. Local repo (`skills/`, `agents/`, `standards/`, `data/wip-issues/`, `references/`) — glob and grep first.
 2. Domain reference — the project's own documentation and the docs for any dependency in play (if relevant).
 3. Web search — only after local + domain references are exhausted or clearly insufficient.
 

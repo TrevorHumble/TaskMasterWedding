@@ -41,7 +41,7 @@ Every spawned agent sets its `model` explicitly. Never rely on a default that ma
 
 Reviewers run on a different model than the implementer so they do not inherit the implementer's correlated blind spots, on every tier except the `sonnet-only` tier. A reviewer must never review its own output.
 
-**Fable review patterns — retired 2026-07-06 (#274).** The #203/#207 patterns governed work authored by the Fable model, which is no longer available; they applied through 2026-07-06 and no current implementer qualifies for them. **Every implementer now goes through the standard independent adversarial review per the table above.** The historical record (patterns, rationale, mechanism) is preserved in `standards/adversarial-review-protocol.md` § "Fable review patterns" and `DESIGN.md` § "Fable full self-certification exception".
+**Fable (#453).** Fable is an available model, used only on the owner's explicit per-use signal. Absent that signal, every implementer — Fable included — goes through the standard independent adversarial review per the table above; there is no standing Fable-specific review handling until the owner specifies one.
 
 ## Sonnet-only run tier (#427)
 

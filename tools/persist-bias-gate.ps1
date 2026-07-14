@@ -17,11 +17,13 @@
 # shared writer would let one script fabricate another's evidence.
 #
 # -SelfCertify (issue #203): writes a passing bias-gate artifact attributed to
-# fable-self, per standards/adversarial-review-protocol.md "## Fable self-certification
-# (full exception)". A Fable-certified system-level tree does not additionally require
-# an independent bias-gate agent run. The gate_id is fixed to 'fable-self' (not
-# free-text) so the record is honestly distinguishable from an independent gate
-# agent's run in the audit trail. -SelfCertify is mutually exclusive with -GateId /
+# fable-self. Dormant mechanism, retained on disk per DESIGN.md § "Fable:
+# available, owner-signal only (#453)" — not active policy until the owner
+# signals Fable use for a given tree. When active, a Fable-certified
+# system-level tree does not additionally require an independent bias-gate
+# agent run. The gate_id is fixed to 'fable-self' (not free-text) so the
+# record is honestly distinguishable from an independent gate agent's run in
+# the audit trail. -SelfCertify is mutually exclusive with -GateId /
 # -Verdict — it always writes GateId='fable-self', Verdict='PASS'.
 #
 # Windows PowerShell 5.1-compatible: no ternary, no ??, no &&, no ||.

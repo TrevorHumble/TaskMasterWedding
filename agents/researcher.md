@@ -23,7 +23,7 @@ You run a time-boxed prior-art and topic check. You do not build anything. You d
 **Input** (provided by the orchestrator in the task prompt):
 
 - Topic or question (one sentence).
-- Local paths to search (e.g., `skills/`, `agents/`, `standards/`, `issues/`).
+- Local paths to search (e.g., `skills/`, `agents/`, `standards/`, `data/wip-issues/`).
 - Whether a domain-specific reference (project docs, dependency docs) is relevant.
 - Output file path for the findings doc.
 

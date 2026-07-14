@@ -57,4 +57,5 @@ One token verdict (`PASS` or `FAIL`) followed by the numbered defect list. A PAS
 - [ ] Implementation plan is present with at least three numbered steps, each naming a file path or concrete deliverable.
 - [ ] Dependency map contains all three fields: `Depends on`, `Blocks`, `Touches`.
 - [ ] No FINAL, LAST, or TRULY_FINAL in filenames or section headers referenced by this issue.
+- [ ] `# N —` header per `standards/issue-standards.md` § Naming: a **missing** header is a **nit** (non-blocking — GitHub's own issue title is canonical identity); a **present-but-wrong** number (`N` or `(#N)` disagreeing with the GitHub-assigned number) is a blocking **FAIL**.
 - [ ] Independently classify the run tier via `tools/classify-issue-run.ps1`'s eligibility rules; disagreement with the issue's declared `**Run tier:**` value is a blocking FAIL.
