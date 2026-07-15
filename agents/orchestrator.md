@@ -327,6 +327,18 @@ finding raised _on the artifact under review_, and is distinct from `## Capturin
 mid-run` below, which covers a defect in the repo's own machinery noticed while working — a different
 trigger, routed the way that section already describes.
 
+**Spawn accountability on deferral (#517).** When the orchestrator opens a follow-up issue under
+disposition 3 above (defer — genuinely separable scope), it applies the `spawned-in-run` label at
+`gh issue create` time and populates the new issue's `## Spawn justification` block per
+`standards/issue-standards.md` § "Spawn justification": "Spawned by" names the issue/PR under review;
+"Why" states the finding; "Why separable" is drawn directly from the disposition-3 category the
+orchestrator already determined when it decided to defer — `standards/adversarial-review-protocol.md`
+§ "Finding disposition" is the single owner of those three categories' substance, so this section
+points at them rather than restating them; "Why not solved in the spawning session" states the
+concrete blocker. `agents/reviewer-issue.md` FAILs any `spawned-in-run` issue where the block is
+missing or incomplete, so an unpopulated block blocks the follow-up issue's own review, not just this
+one.
+
 ---
 
 ## Model policy
