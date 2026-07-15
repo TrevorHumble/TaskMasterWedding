@@ -15,6 +15,18 @@ const { db } = require('../db');
 // `flash` cookie's shape.
 const { requireGuest, setFlash, setTaskCompleteReward } = require('../middleware/session');
 
+// withUploadSlot (issue #311 AC3) bounds how many concurrent submitPhoto
+// calls run their heavy thumbnail+DB-write pipeline at once -- see
+// src/utils/upload-concurrency.js's file comment for why.
+const { withUploadSlot } = require('../utils/upload-concurrency');
+
+// The one guest-facing "your photo didn't save" copy, shared by every
+// submitPhoto failure mode below -- the thumb_failed status branch AND the
+// caught-throw branch (issue #311 AC1) -- so the two call sites that must say
+// the same thing cannot drift apart (same pattern as photos.js's
+// DISALLOWED_TYPE_MESSAGE).
+const PHOTO_SAVE_FAILED_MESSAGE = 'Sorry, we could not save that photo. Please try again.';
+
 // isValidPin (issue #243) — the SAME 4-digit-shape rule signup (routes/auth.js)
 // and the admin identity route (routes/admin.js) already share from
 // services/identity.js. POST /me/edit below calls this single owner rather
@@ -424,6 +436,15 @@ router.get('/tasks/:id', function (req, res) {
 // recompute — is one call to submissions.submitPhoto (issue #106); this
 // handler only owns what needs req/res: running multer, the multer-error and
 // missing-file branches, and mapping the returned status to a response.
+//
+// Issue #311 AC1/AC3: the submitPhoto call is wrapped in try/catch (its
+// synchronous better-sqlite3 writes are unguarded, so an unexpected throw --
+// a constraint violation, disk-full mid-write, a future regression -- used
+// to escape this async multer callback as an unhandled rejection and, with
+// no process-level guard existing anywhere in src/ before this, crash the
+// whole process) and run through withUploadSlot, which bounds how many of
+// these heavy pipelines run at once under a concurrent-upload burst (see
+// src/utils/upload-concurrency.js).
 // ---------------------------------------------------------------------------
 router.post('/tasks/:id/submit', function (req, res) {
   // Run multer first; it may error (file too big, wrong type, no file).
@@ -449,18 +470,34 @@ router.post('/tasks/:id/submit', function (req, res) {
       return res.redirect('/tasks/' + taskId);
     }
 
-    const result = await submissions.submitPhoto({
-      guestId: guest.id,
-      taskId: taskId,
-      file: req.file,
-      caption: req.body.caption,
-    });
+    let result;
+    try {
+      result = await withUploadSlot(() =>
+        submissions.submitPhoto({
+          guestId: guest.id,
+          taskId: taskId,
+          file: req.file,
+          caption: req.body.caption,
+        })
+      );
+    } catch (submitErr) {
+      // Issue #311 AC1: submitPhoto's DB writes are unguarded synchronous
+      // better-sqlite3 statements. Mirror the thumb_failed branch below
+      // exactly -- from the guest's point of view this is the identical
+      // "your photo didn't save, try again" outcome, whatever the internal
+      // cause. Logging with the `[submit]` prefix is the stderr signal an
+      // operator watching the console needs (the #311 evidence: failures
+      // that never reach here left stdout/stderr completely silent).
+      console.error('[submit] submitPhoto threw for guest', guest.id, 'task', taskId, submitErr);
+      setFlash(res, 'error', PHOTO_SAVE_FAILED_MESSAGE);
+      return res.redirect('/tasks/' + taskId);
+    }
 
     if (result.status === 'task_inactive') {
       return res.status(404).render('404', { title: 'Not found' });
     }
     if (result.status === 'thumb_failed') {
-      setFlash(res, 'error', 'Sorry, we could not save that photo. Please try again.');
+      setFlash(res, 'error', PHOTO_SAVE_FAILED_MESSAGE);
       return res.redirect('/tasks/' + taskId);
     }
 
