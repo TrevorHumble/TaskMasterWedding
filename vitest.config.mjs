@@ -52,6 +52,15 @@ export default defineConfig({
         // scripts above — exclude from the coverage denominator rather than pad
         // with fake tests; the worker's behavior is gated by the integration tests.
         'src/services/heic-worker.js',
+        // check-review-artifact.js (#48) is a CI status-check CLI: its tests spawn
+        // it as a real `node` subprocess (tests/check-review-artifact.test.js drives
+        // every AC1–AC4 path plus the governing-artifact drift-guard through
+        // spawnSync), which the main-process v8 provider cannot instrument, so it
+        // always reports 0% here. Same rationale as heic-worker and the process-
+        // level scripts above — exclude from the coverage denominator rather than
+        // pad with fake in-process tests; its behavior is gated end-to-end by those
+        // subprocess tests and by the live `review-artifact-present` CI job.
+        'scripts/check-review-artifact.js',
       ],
       thresholds: { lines: 80, functions: 84, branches: 79, statements: 80 },
     },
