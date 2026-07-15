@@ -1422,18 +1422,16 @@ textarea {
 }
 
 /* ----------------------- Badges / pill chips ----------------------- */
-/* badge-item (issue #487): a clean row per badge on guest-home and
-   public-profile — same-size icon on the left, a title (with a conditional
-   "+N pts" suffix) and a description stacked to its right. Replaces the
-   former centered green-tile treatment (the old repeat(3, 1fr) grid /
-   .badge-chip tile, both unused by any view, are removed rather than left
-   shadowed); no background box on the row itself (AC5). The 620px
-   breakpoint no longer needs a column-count override for .badge-grid (see
-   the "Wider screens" media query). */
+/* badge-item (issue #487, restyled to a divider row by #518): a clean row
+   per badge on guest-home and public-profile — same-size icon on the left,
+   a title (with a conditional "+N pts" suffix) and a description stacked
+   to its right. No background box on the row itself (AC5); rows are
+   separated by a single hairline BETWEEN them, matching the
+   .holder-row/.award-row treatment on the badge-detail page, so the list
+   reads as a quiet column rather than a stack of tiles. */
 .badge-grid {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1441,12 +1439,16 @@ textarea {
 /* badge-item: used in guest-home and public-profile badge grids. Each item's
    content (issue #486's badge art + name/points/description) is wrapped in an
    <a href="/badge/:code"> (issue #488), so the flex row layout lives on the
-   anchor. */
+   anchor. Vertical padding carries the row's own rhythm; the first row's
+   padding-top is zeroed so the list sits tight beneath its section heading. */
 .badge-item {
-  padding: var(--space-4) var(--space-3);
-  background: var(--green-50);
-  border: var(--border-hairline);
-  border-radius: var(--radius-card);
+  padding: var(--space-4) 0;
+}
+.badge-item + .badge-item {
+  border-top: var(--border-hairline);
+}
+.badge-item:first-child {
+  padding-top: 0;
 }
 .badge-item a {
   display: flex;

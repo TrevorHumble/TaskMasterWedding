@@ -98,6 +98,32 @@ describe('AC1/AC3: a badge with nonzero points shows its title, "+N pts", and de
   });
 });
 
+describe('AC5 (#518): each badge row stays wrapped in its /badge/:code link', () => {
+  it('renders the href on both the guest home page and the public profile', async () => {
+    const guest = makeGuest('Link Guest');
+    const badge = scoring.createCustomBadge({
+      code: `BDTLINK${++codeSeq}`,
+      name: 'Linked Badge',
+      type: 'custom',
+      artPath: '/badges/default-ribbon.svg',
+      description: 'Has a link.',
+    });
+    db.prepare(
+      `INSERT INTO guest_badges (guest_id, badge_id, awarded_by, points) VALUES (?, ?, 'admin', ?)`
+    ).run(guest.id, badge.id, 3);
+
+    const agent = signInGuest(app, guest.token);
+
+    const home = await agent.get('/');
+    const homeRow = extractBadgeRow(home.text, 'Linked Badge');
+    expect(homeRow).toContain(`href="/badge/${badge.code}"`);
+
+    const profile = await agent.get('/u/' + guest.id);
+    const profileRow = extractBadgeRow(profile.text, 'Linked Badge');
+    expect(profileRow).toContain(`href="/badge/${badge.code}"`);
+  });
+});
+
 describe('AC2: a zero-point badge shows its title but never the "pts" suffix', () => {
   it('renders on the guest home page and the public profile', async () => {
     const guest = makeGuest('Zero Points Guest');
