@@ -133,7 +133,7 @@ const stmtAwardPointsSum = db.prepare(
      FROM guest_badges gb
      LEFT JOIN submissions s ON s.id = gb.submission_id
     WHERE gb.guest_id = ?
-      AND (gb.submission_id IS NULL OR s.taken_down = 0)`
+      AND (gb.submission_id IS NULL OR ${VISIBLE_WHERE})`
 );
 
 // Look up a badge row by its code (e.g. 'BLOOM', 'EARLYBIRD').
@@ -523,7 +523,7 @@ function leaderboard() {
          MAX(s.created_at)                                    AS last_submission_at
        FROM guests g
        LEFT JOIN submissions s
-         ON s.guest_id = g.id AND s.taken_down = 0
+         ON s.guest_id = g.id AND ${VISIBLE_WHERE}
        GROUP BY g.id
        -- Tiebreak within an equal-points group by "earliest to reach the
        -- score" (oldest latest-submission first). A guest with no visible
@@ -628,10 +628,14 @@ function getGuestBadges(guestId) {
 //
 // The predicate is `${VISIBLE_WHERE}`, consumed from feed.js's single owner
 // (the submissions table is aliased `s` here, matching VISIBLE_WHERE's `s.`
-// alias) rather than re-deriving the literal. The same rule is still inlined
-// in ~15 other services-layer sites (scoring.js's own stmtCompletedCount/
-// stmtPhotoBonusSum/stmtAwardPointsSum/leaderboard joins, badges.js,
-// task-badges.js); migrating those to this same owner is tracked in #510.
+// alias) rather than re-deriving the literal. stmtAwardPointsSum (above) and
+// the leaderboard main join likewise consume `${VISIBLE_WHERE}` — the two
+// clean `s.`-aliased sites migrated by #510. The remaining literals in this
+// module (the no-alias single-table counts stmtCompletedCount and
+// stmtPhotoBonusSum, and the `gbs`-aliased leaderboard subquery) and in other
+// modules stay inlined BY DESIGN: they can't cleanly consume the `s.`-prefixed
+// constant. See the ownership-boundary comment at feed.js's VISIBLE_WHERE
+// declaration for the why.
 const stmtBadgeHolders = db.prepare(
   `SELECT
      g.id         AS guest_id,

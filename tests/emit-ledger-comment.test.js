@@ -283,4 +283,85 @@ maybeDescribe('emit-ledger-comment.ps1 (#449)', () => {
       tree_oid: 'T7',
     });
   });
+
+  // AC-Cat3 (#517): evidence carrying a populated `categories` object is
+  // projected into the PR entry, alongside the existing `defects` histogram.
+  it('AC-Cat3: evidence with categories -> categories object projected into PR entry', () => {
+    const { reviewsRoot, issueReviewsRoot } = scratchRoots();
+    writeJson(path.join(reviewsRoot, 'T8', 'reviewer-pr-opus.json'), {
+      schema: 'rev1',
+      reviewer_id: 'reviewer-pr-opus',
+      model: 'opus',
+      role: 'pr',
+      verdict: 'FAIL',
+      findings_count: 2,
+      defects: { blocker: 1, major: 1, minor: 0, nit: 0 },
+      categories: {
+        correctness: 1,
+        security: 1,
+        'test-coverage': 0,
+        docs: 0,
+        design: 0,
+        simplification: 0,
+        style: 0,
+      },
+      round: 1,
+      tree_oid: 'T8',
+      ts: '2026-07-14T00:00:00Z',
+    });
+    fs.mkdirSync(path.join(issueReviewsRoot, '14'), { recursive: true });
+    fs.writeFileSync(
+      path.join(issueReviewsRoot, '14', 'reviewer-issue-opus.ledger-entry.txt'),
+      '{"role":"issue","model":"opus","verdict":"PASS","round":1}'
+    );
+
+    const r = runEmit('T8', 14, reviewsRoot, issueReviewsRoot);
+    expect(r.status).toBe(0);
+
+    const parsed = extractLedgerComment([{ body: r.stdout }]);
+    const prEntry = parsed.reviews.find((rv) => rv.role === 'pr');
+    expect(prEntry.categories).toEqual({
+      correctness: 1,
+      security: 1,
+      'test-coverage': 0,
+      docs: 0,
+      design: 0,
+      simplification: 0,
+      style: 0,
+    });
+  });
+
+  // AC-Cat3 (#517): back-compat -- an evidence file with NO `categories`
+  // object (a pre-category merge) still emits, treating the missing object
+  // as all-zero (i.e. omitted entirely), never invalid. Mirrors the
+  // pinned AC1 fixture above, which also carries no `categories` key.
+  it('AC-Cat3: evidence with NO categories object -> still emits, no categories key (back-compat)', () => {
+    const { reviewsRoot, issueReviewsRoot } = scratchRoots();
+    writeJson(path.join(reviewsRoot, 'T9', 'reviewer-pr-opus.json'), {
+      schema: 'rev1',
+      reviewer_id: 'reviewer-pr-opus',
+      model: 'opus',
+      role: 'pr',
+      verdict: 'PASS',
+      findings_count: 0,
+      defects: { blocker: 0, major: 0, minor: 0, nit: 0 },
+      round: 1,
+      tree_oid: 'T9',
+      ts: '2026-07-11T00:00:00Z',
+    });
+    fs.mkdirSync(path.join(issueReviewsRoot, '15'), { recursive: true });
+    fs.writeFileSync(
+      path.join(issueReviewsRoot, '15', 'reviewer-issue-opus.ledger-entry.txt'),
+      '{"role":"issue","model":"opus","verdict":"PASS","round":1}'
+    );
+
+    const r = runEmit('T9', 15, reviewsRoot, issueReviewsRoot);
+    expect(r.status).toBe(0);
+
+    const parsed = extractLedgerComment([{ body: r.stdout }]);
+    const prEntry = parsed.reviews.find((rv) => rv.role === 'pr');
+    expect(prEntry).toBeDefined();
+    expect(prEntry.categories).toBeUndefined();
+    expect(prEntry.defects).toEqual({ blocker: 0, major: 0, minor: 0, nit: 0 });
+  });
 });

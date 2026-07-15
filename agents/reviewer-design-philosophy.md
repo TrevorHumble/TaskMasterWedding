@@ -52,13 +52,21 @@ PASS  (or)  FAIL
 
 One token verdict followed by the numbered defect list. Every principle in `standards/design-philosophy.md` must have an explicit finding (passed or failed). A PASS with any open blocker or major is not a PASS. If no defects are found, state "0 defects found" and the evidence that each principle check passed.
 
-**In addition to** the prose review above — not instead of it — emit a single trailing fenced ```json block conforming to `tools/review-verdict.schema.md`. It is a complete object: `reviewerId` (the id the spawn prompt assigned), `verdict` (`PASS` or `FAIL`, matching the prose token), and `defects` (an array mirroring the numbered defect list above; each entry carries `severity` — one of `blocker`/`major`/`minor`/`nit` — `text`, and, when the finding cites a location, `file` and 1-based `line`). Example:
+**In addition to** the prose review above — not instead of it — emit a single trailing fenced ```json block conforming to `tools/review-verdict.schema.md`. It is a complete object: `reviewerId` (the id the spawn prompt assigned), `verdict` (`PASS` or `FAIL`, matching the prose token), and `defects` (an array mirroring the numbered defect list above; each entry carries `severity` — one of `blocker`/`major`/`minor`/`nit` — `category` — one of `correctness`/`security`/`test-coverage`/`docs`/`design`/`simplification`/`style` (a design-philosophy red-flag finding is always `category: "design"`) — `text`, and, when the finding cites a location, `file` and 1-based `line`). Example:
 
 ```json
 {
   "reviewerId": "reviewer-design-philosophy-1",
-  "verdict": "PASS",
-  "defects": []
+  "verdict": "FAIL",
+  "defects": [
+    {
+      "severity": "major",
+      "category": "design",
+      "text": "shallow module: interface no smaller than implementation",
+      "file": "src/services/photos.js",
+      "line": 88
+    }
+  ]
 }
 ```
 

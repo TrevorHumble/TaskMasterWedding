@@ -98,6 +98,24 @@ function Get-SpawnField {
     return $null
 }
 
+# Renders createdAt identically on Windows PowerShell 5.1 and pwsh 7+.
+# ConvertFrom-Json on PS 5.1 leaves an ISO-8601 date string as a string; on
+# pwsh 7+ it auto-coerces the same string into a [datetime]. Left to a plain
+# `-f` interpolation, the [datetime] case renders culture- and
+# timezone-dependently (e.g. US M/d/yyyy on a Linux CI runner) instead of the
+# canonical UTC ISO-8601 the string case already carries. This normalizes
+# both cases to the same 'yyyy-MM-ddTHH:mm:ssZ' UTC string regardless of
+# edition or runner culture/timezone.
+function Format-CreatedAt {
+    param($Value)
+    if ($Value -is [datetime]) {
+        $dt = $Value
+        if ($dt.Kind -eq [System.DateTimeKind]::Local) { $dt = $dt.ToUniversalTime() }
+        return $dt.ToString('yyyy-MM-ddTHH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture) + 'Z'
+    }
+    return [string]$Value
+}
+
 # --- read: fixture file (offline, testable) or the live board ---
 if ($FixturePath) {
     if (-not (Test-Path -LiteralPath $FixturePath)) {
@@ -147,7 +165,7 @@ foreach ($issue in $issues) {
     if ($sj.Missing.Count -gt 0) {
         $missingList = $sj.Missing -join ', '
         Write-Output ("#{0} | created {1} | MISSING justification (missing: {2})" -f `
-                $issue.number, $issue.createdAt, $missingList)
+                $issue.number, (Format-CreatedAt $issue.createdAt), $missingList)
         continue
     }
 
@@ -160,7 +178,7 @@ foreach ($issue in $issues) {
     $whySeparableCounts[$key] = $whySeparableCounts[$key] + 1
 
     Write-Output ("#{0} | spawned-by: {1} | why: {2} | why-separable: {3} | why-not-solved: {4} | created: {5}" -f `
-            $issue.number, $sj.SpawnedBy, $sj.Why, $sj.WhySeparable, $sj.WhyNotSolved, $issue.createdAt)
+            $issue.number, $sj.SpawnedBy, $sj.Why, $sj.WhySeparable, $sj.WhyNotSolved, (Format-CreatedAt $issue.createdAt))
 }
 
 Write-Output ''

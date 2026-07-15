@@ -3,14 +3,21 @@
 # Windows PowerShell 5.1-compatible: no ternary, no ??, no &&, no ||.
 #
 # Output: per-role review totals (reviews, PASS/FAIL, defects by severity),
-# rounds per issue, and the reversal count. Prints the literal line
-# 'no ledger rows' when the file is absent or holds no parseable rows
-# (tools/snapshot-governance.ps1 captures this output as stats.txt).
+# rounds per issue, findings by category (#517), and the reversal count.
+# Prints the literal line 'no ledger rows' when the file is absent or holds
+# no parseable rows (tools/snapshot-governance.ps1 captures this output as
+# stats.txt).
 param(
   [string]$Ledger = 'governance/ledger.ndjson'
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Category vocabulary (#517) -- an independent histogram riding the same
+# ledger rail as severity. A row/entry with no `categories` object (a
+# pre-category merge, or a `reviews: []` historical row) contributes zero to
+# every bucket here -- never a fabricated count.
+$CATEGORIES = @('correctness', 'security', 'test-coverage', 'docs', 'design', 'simplification', 'style')
 
 $rows = @()
 $badLines = 0
@@ -40,6 +47,8 @@ $roles = @{}
 $issues = @{}
 $reversals = 0
 $glRows = 0
+$catTotals = @{}
+foreach ($cat in $CATEGORIES) { $catTotals[$cat] = 0 }
 
 foreach ($row in $rows) {
   if ($row.schema -eq 'gl1-reversal') {
@@ -65,6 +74,16 @@ foreach ($row in $rows) {
       foreach ($sev in @('blocker', 'major', 'minor', 'nit')) {
         $v = $rev.defects.$sev
         if ($null -ne $v) { $r[$sev] += [int]$v }
+      }
+    }
+    # By-category aggregation (#517), parallel to the severity tally above.
+    # A row/entry with no `categories` object (a pre-category merge, or a
+    # `reviews: []` historical row that never reaches this loop body at all)
+    # contributes zero to every bucket -- null-guarded, never fabricated.
+    if ($rev.categories) {
+      foreach ($cat in $CATEGORIES) {
+        $v = $rev.categories.$cat
+        if ($null -ne $v) { $catTotals[$cat] += [int]$v }
       }
     }
     if ($null -ne $row.issue) {
@@ -104,6 +123,12 @@ if ($issues.Keys.Count -eq 0) {
     $i = $issues[$key]
     Write-Output ("  issue {0}: reviews {1}, max round {2}" -f $key, $i.reviews, $i.maxRound)
   }
+}
+
+Write-Output ''
+Write-Output 'by category:'
+foreach ($cat in $CATEGORIES) {
+  Write-Output ("  {0}: {1}" -f $cat, $catTotals[$cat])
 }
 
 Write-Output ''

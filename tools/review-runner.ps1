@@ -154,11 +154,30 @@ foreach ($f in $verdictFiles) {
   # can be less than findingsCount but never more.
   $sevCounts = @{ blocker = 0; major = 0; minor = 0; nit = 0 }
 
+  # Category tally (#517): a second, independent histogram riding the same
+  # rail as severity above -- only the seven recognized values increment a
+  # bucket. `category` is NOT validated either -- an unrecognized value
+  # still counts toward findingsCount but lands in no bucket, same honesty
+  # posture as severity.
+  $catCounts = @{
+    correctness     = 0
+    security        = 0
+    'test-coverage' = 0
+    docs            = 0
+    design          = 0
+    simplification  = 0
+    style           = 0
+  }
+
   foreach ($d in $defects) {
     if (-not $d) { continue }
     $sev = [string]$d.severity
     if ($sevCounts.ContainsKey($sev)) {
       $sevCounts[$sev]++
+    }
+    $cat = [string]$d.category
+    if ($catCounts.ContainsKey($cat)) {
+      $catCounts[$cat]++
     }
     $file = $d.file
     if ([string]::IsNullOrWhiteSpace($file)) {
@@ -187,13 +206,20 @@ foreach ($f in $verdictFiles) {
   }
 
   $reviewers += [pscustomobject]@{
-    reviewerId    = $reviewerId
-    verdict       = $verdict
-    findingsCount = $findingsCount
-    blocker       = $sevCounts.blocker
-    major         = $sevCounts.major
-    minor         = $sevCounts.minor
-    nit           = $sevCounts.nit
+    reviewerId     = $reviewerId
+    verdict        = $verdict
+    findingsCount  = $findingsCount
+    blocker        = $sevCounts.blocker
+    major          = $sevCounts.major
+    minor          = $sevCounts.minor
+    nit            = $sevCounts.nit
+    correctness    = $catCounts.correctness
+    security       = $catCounts.security
+    testCoverage   = $catCounts.'test-coverage'
+    docs           = $catCounts.docs
+    design         = $catCounts.design
+    simplification = $catCounts.simplification
+    style          = $catCounts.style
   }
 }
 
@@ -222,7 +248,9 @@ foreach ($rv in $reviewers) {
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $scriptDir 'persist-review.ps1'),
     '-TreeOid', $TreeOid, '-ReviewerId', $rv.reviewerId, '-Verdict', $rv.verdict,
     '-FindingsCount', $rv.findingsCount,
-    '-Blocker', $rv.blocker, '-Major', $rv.major, '-Minor', $rv.minor, '-Nit', $rv.nit
+    '-Blocker', $rv.blocker, '-Major', $rv.major, '-Minor', $rv.minor, '-Nit', $rv.nit,
+    '-Correctness', $rv.correctness, '-Security', $rv.security, '-TestCoverage', $rv.testCoverage,
+    '-Docs', $rv.docs, '-Design', $rv.design, '-Simplification', $rv.simplification, '-Style', $rv.style
   )
   if ($ReviewsRoot) { $persistArgs += @('-ReviewsRoot', $ReviewsRoot) }
   & $psExe @persistArgs
