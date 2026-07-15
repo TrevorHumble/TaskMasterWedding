@@ -22,10 +22,13 @@
 # still exists -- the tool must not silently emit a comment missing every PR
 # review.
 #
-# Field whitelist projected onto stdout (evidence-file bookkeeping fields
-# like reviewer_id/tree_oid/ts are deliberately dropped):
-#   PR entries:    {role, model, verdict, defects:{blocker,major,minor,nit}, categories:{...7 category buckets...}, round}
-#   Issue entries: {role, model, verdict, round}
+# Field whitelist projected onto stdout (evidence-file bookkeeping field `ts`
+# is still deliberately dropped -- it has no reader; #48 widened the
+# whitelist below to add tree_oid/reviewer_id/issue_number because
+# scripts/check-review-artifact.js DOES read them, to bind this comment's
+# evidence to the exact PR head tree and issue it is posted against):
+#   PR entries:    {role, model, verdict, tree_oid, reviewer_id, defects:{blocker,major,minor,nit}, categories:{...7 category buckets...}, round}
+#   Issue entries: {role, model, verdict, issue_number, round}
 #
 # `categories` (#517) rides the same rail as `defects` but is NOT required:
 # an evidence file written before this change carries no `categories` key at
@@ -93,6 +96,13 @@ function Test-IssueEntryValid {
   if (-not $e.model) { return $false }
   if ($e.verdict -ne 'PASS' -and $e.verdict -ne 'FAIL') { return $false }
   if ($null -eq $e.round) { return $false }
+  # issue_number (#48): required, not optional -- tools/persist-issue-review.ps1
+  # is the single writer of this sibling file and always supplies it (the
+  # directory layout itself is keyed by issue number), so a ledger-entry.txt
+  # missing it is malformed, not merely an old-shape file. This is what lets
+  # scripts/check-review-artifact.js bind an emitted entry to the exact issue
+  # a PR claims to close.
+  if ($null -eq $e.issue_number) { return $false }
   return $true
 }
 
@@ -127,20 +137,23 @@ $prSorted = @($prValid | Sort-Object @{Expression = { [int]$_.round } }, @{Expre
 $reviews = @()
 foreach ($e in $issueSorted) {
   $reviews += [ordered]@{
-    role    = $e.role
-    model   = $e.model
-    verdict = $e.verdict
-    round   = [int]$e.round
+    role         = $e.role
+    model        = $e.model
+    verdict      = $e.verdict
+    issue_number = [int]$e.issue_number
+    round        = [int]$e.round
   }
 }
 $CATEGORY_LIST = @('correctness', 'security', 'test-coverage', 'docs', 'design', 'simplification', 'style')
 
 foreach ($e in $prSorted) {
   $entry = [ordered]@{
-    role    = $e.role
-    model   = $e.model
-    verdict = $e.verdict
-    defects = [ordered]@{
+    role        = $e.role
+    model       = $e.model
+    verdict     = $e.verdict
+    tree_oid    = $e.tree_oid
+    reviewer_id = $e.reviewer_id
+    defects     = [ordered]@{
       blocker = [int]$e.defects.blocker
       major   = [int]$e.defects.major
       minor   = [int]$e.defects.minor
