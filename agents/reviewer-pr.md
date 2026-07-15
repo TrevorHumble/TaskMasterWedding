@@ -51,15 +51,21 @@ AC2: PASS|FAIL — verified by: …
 
 One token verdict, then one `verified by` line per AC, then the numbered defect list. A `verified by` field is sufficient if it states a concrete input→output pair, a `file:line`, or the specific test checked; it counts as unverified = FAIL only when it has none of those (e.g. just "looks fine"). Verdict maps directly to AC coverage: every AC must have an explicit finding (pass or fail). An AC with no finding is itself a FAIL. A PASS with any open blocker or major is not a PASS.
 
-**In addition to** the prose review above — not instead of it — emit a single trailing fenced ```json block conforming to `tools/review-verdict.schema.md`. It is a complete object: `reviewerId` (the id the spawn prompt assigned), `verdict` (`PASS` or `FAIL`, matching the prose token), and `defects` (an array mirroring the numbered defect list above; each entry carries `severity` — one of `blocker`/`major`/`minor`/`nit` — `text`, and, when the finding cites a location, `file` and 1-based `line`). Example:
+**In addition to** the prose review above — not instead of it — emit a single trailing fenced ```json block conforming to `tools/review-verdict.schema.md`. It is a complete object: `reviewerId` (the id the spawn prompt assigned), `verdict` (`PASS` or `FAIL`, matching the prose token), and `defects` (an array mirroring the numbered defect list above; each entry carries `severity` — one of `blocker`/`major`/`minor`/`nit` — `category` — one of `correctness`/`security`/`test-coverage`/`docs`/`design`/`simplification`/`style` — `text`, and, when the finding cites a location, `file` and 1-based `line`). Example:
 
 ```json
 {
   "reviewerId": "reviewer-pr-1",
   "verdict": "FAIL",
   "defects": [
-    { "severity": "blocker", "text": "unhandled null deref", "file": "src/db.js", "line": 42 },
-    { "severity": "nit", "text": "naming style" }
+    {
+      "severity": "blocker",
+      "category": "correctness",
+      "text": "unhandled null deref",
+      "file": "src/db.js",
+      "line": 42
+    },
+    { "severity": "nit", "category": "style", "text": "naming style" }
   ]
 }
 ```

@@ -80,6 +80,32 @@ A backlog issue is never implemented in place. When its `Graduate after` conditi
 
 ---
 
+## Spawn justification
+
+Any issue an agent creates **during a run** — as opposed to an issue the owner files directly — carries the `spawned-in-run` label and must contain a `## Spawn justification` section in its body. The label is the machine signal that this block is required; an issue without the label is not subject to it.
+
+The block has four required fields, each non-empty:
+
+- **Spawned by** — the spawning issue `#`, PR `#`, or run identifier the finding came from (provenance).
+- **Why** — the defect or gap the new work addresses (the need).
+- **Why separable** — why the work is more work, not absorbed into the spawning change. The value must name one of the three defer categories `standards/adversarial-review-protocol.md` § "Finding disposition" defines — that section is the single owner of the categories' substance; this section only requires citing one of them, it does not restate them.
+- **Why not solved in the spawning session** — the concrete blocker that kept the work out of the spawning change (e.g. needs an owner design decision; outside the spawning change's touched files; would exceed the change's bounded scope).
+
+Example block:
+
+```
+## Spawn justification
+
+- **Spawned by:** #514
+- **Why:** <the defect or gap this issue addresses>
+- **Why separable:** <one of the three § "Finding disposition" defer categories>
+- **Why not solved in the spawning session:** <the concrete blocker>
+```
+
+A `spawned-in-run` issue missing the block, or with any of the four fields empty, fails review — see the Reviewer checklist below.
+
+---
+
 ## Reviewer checklist
 
 ### Ready-tier checklist

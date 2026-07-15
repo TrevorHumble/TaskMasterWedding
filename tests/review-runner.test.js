@@ -501,6 +501,84 @@ maybeDescribe('review-runner (issue #128)', () => {
 
     expect(r.status).toBe(0);
   });
+
+  // AC-Cat3 (#517): two defects of distinct categories tally correctly into
+  // the persisted evidence's `categories` object, mirroring the severity
+  // tally test above. Would fail to catch a bucket miscount or a
+  // category/count mismatch.
+  it('AC-Cat3 (#517): two distinct categories -> evidence categories tallied', () => {
+    const { tmp, treeOid } = makeFixtureRepo('rr-cat-ac3-', 131);
+    const runDir = path.join(tmp, 'run');
+    const reviewsRoot = path.join(tmp, '.review_state', 'reviews');
+    writeVerdict(runDir, 'reviewer-a.json', {
+      reviewerId: 'reviewer-a',
+      verdict: 'PASS',
+      defects: [
+        { severity: 'blocker', category: 'correctness', text: 'null deref' },
+        { severity: 'major', category: 'security', text: 'unsanitized input' },
+      ],
+    });
+    writeVerdict(runDir, 'reviewer-b.json', {
+      reviewerId: 'reviewer-b',
+      verdict: 'PASS',
+      defects: [],
+    });
+
+    const r = runRunner(tmp, runDir, treeOid, 'both-pass', reviewsRoot);
+
+    expect(r.status).toBe(0);
+    const evA = JSON.parse(
+      fs.readFileSync(path.join(reviewsRoot, treeOid, 'reviewer-a.json'), 'utf8')
+    );
+    expect(evA.categories).toEqual({
+      correctness: 1,
+      security: 1,
+      'test-coverage': 0,
+      docs: 0,
+      design: 0,
+      simplification: 0,
+      style: 0,
+    });
+    expect(evA.findings_count).toBe(2);
+  });
+
+  // AC-Cat3 (#517): an unrecognized category still counts toward the total
+  // but is bucketed nowhere -- same honesty posture as unrecognized severity.
+  it('AC-Cat3 (#517): unknown category -> counted in total, bucketed nowhere, exit 0', () => {
+    const { tmp, treeOid } = makeFixtureRepo('rr-cat-ac3b-', 131);
+    const runDir = path.join(tmp, 'run');
+    const reviewsRoot = path.join(tmp, '.review_state', 'reviews');
+    writeVerdict(runDir, 'reviewer-a.json', {
+      reviewerId: 'reviewer-a',
+      verdict: 'PASS',
+      defects: [
+        { severity: 'minor', category: 'style', text: 'style nit' },
+        { severity: 'minor', category: 'bogus-category', text: 'unrecognized category' },
+      ],
+    });
+    writeVerdict(runDir, 'reviewer-b.json', {
+      reviewerId: 'reviewer-b',
+      verdict: 'PASS',
+      defects: [],
+    });
+
+    const r = runRunner(tmp, runDir, treeOid, 'both-pass', reviewsRoot);
+
+    expect(r.status).toBe(0);
+    const evA = JSON.parse(
+      fs.readFileSync(path.join(reviewsRoot, treeOid, 'reviewer-a.json'), 'utf8')
+    );
+    expect(evA.categories).toEqual({
+      correctness: 0,
+      security: 0,
+      'test-coverage': 0,
+      docs: 0,
+      design: 0,
+      simplification: 0,
+      style: 1,
+    });
+    expect(evA.findings_count).toBe(2);
+  });
 });
 
 // AC3 (#417): tools/persist-review.ps1 called directly (not via the runner)
