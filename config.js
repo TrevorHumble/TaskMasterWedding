@@ -246,6 +246,30 @@ const config = {
   // response. Env-overridable if a specific event wants more concurrent-upload
   // headroom.
   MAX_PENDING_HEIC_DECODES: parseInt(process.env.MAX_PENDING_HEIC_DECODES, 10) || 8,
+
+  // Cap on how many photo submissions (src/routes/guest.js POST
+  // /tasks/:id/submit) may run their HEAVY pipeline -- sharp thumbnailing +
+  // the synchronous better-sqlite3 write, submissions.submitPhoto -- at once
+  // (issue #311 AC3). A guest whose submit lands over the cap is QUEUED, not
+  // rejected: src/utils/upload-concurrency.js's Semaphore holds it until a
+  // slot frees, so a peak burst costs a slightly longer wait rather than a
+  // dropped connection.
+  //
+  // Why this exists: the #311 load test recorded 0.1-0.2% of connections
+  // reset at the socket layer under 100 concurrent uploads (0% on a
+  // read-only run at the same concurrency, and zero HTTP 5xx throughout) --
+  // too many of these synchronous heavy pipelines running back-to-back can
+  // occupy the single JS thread long enough that the OS-level accept
+  // backlog sheds a few brand-new incoming connections before Express ever
+  // sees them.
+  //
+  // 6: same order of magnitude as MAX_PENDING_HEIC_DECODES above (this
+  // host's ~2 GB headroom bounds how much concurrent sharp/SQLite work is
+  // safe), while still letting several guests' uploads make real progress
+  // together rather than fully serializing to one-at-a-time, which would be
+  // needlessly slow for the common case of a handful of simultaneous
+  // uploads. Env-overridable per event/host.
+  MAX_CONCURRENT_UPLOADS: parseInt(process.env.MAX_CONCURRENT_UPLOADS, 10) || 6,
 };
 
 // ---- Lowercase aliases (backwards compatibility ONLY) ----------------------

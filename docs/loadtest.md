@@ -106,3 +106,17 @@ PASS: within Goal A thresholds.
 ```
 
 Zero `server5xx` and zero `networkFailures` — the app and this local harness both held up clean at this concurrency/request count. This is a **local** baseline only (see the caveat above); it does not stand in for a documented 100-concurrency run, which remains the harness's default and issue #292's hosted-URL job.
+
+**2026-07-14 — before/after #311 (upload crash safety + peak mitigation):**
+
+_Before_ (the #311 evidence, captured on the event laptop prior to this issue's fix, at `--concurrency 100`, no `--requests`/`--duration` bound given so the default write-up quotes the two runs as recorded in the issue): **25 dropped connections out of 14140 requests**, then on a re-run, **8 dropped out of 12084** — both at the socket layer (`networkFailures`), with `server5xx` at 0 throughout. A **read-only** run at the same concurrency (no uploads in the mix) dropped **0 of 6860**. Root cause per the issue: the synchronous heavy path (multer disk write + sharp thumbnail + synchronous better-sqlite3 insert) blocking the event loop long enough, under simultaneous uploads, that the untuned default `app.listen()` accept backlog sheds a few brand-new incoming connections before Express ever sees them.
+
+_After_ (this run, same host, same seeded `--guests 100` event, same harness): with the #311 fix in place — `src/routes/guest.js`'s try/catch around `submissions.submitPhoto` (closes the crash risk) and the `MAX_CONCURRENT_UPLOADS` semaphore around that same call (`src/utils/upload-concurrency.js`, bounds how many heavy pipelines run at once) — a fresh 100-guest seed at the SAME scale as the worse of the two "before" runs:
+
+```
+node scripts/loadtest.js --base-url http://localhost:3311 --requests 14140 --concurrency 100
+Summary: count=14436 server5xx=0 networkFailures=0 p50=216ms p95=562ms p99=690ms rps=370.5
+PASS: within Goal A thresholds.
+```
+
+Zero `networkFailures` at the identical request count/concurrency that previously dropped 25 -- the upload-concurrency cap (default 6 concurrent heavy pipelines; env-overridable via `MAX_CONCURRENT_UPLOADS`) keeps enough of the accept backlog free that no incoming connection was shed. `server5xx` stayed 0 throughout, matching the before run and confirming the fix did not trade dropped connections for a new failure mode of its own. As with every other recorded run here, this is a **local** measurement (see the caveat above), not a substitute for the documented hosted-URL confirmation (issue #292).
