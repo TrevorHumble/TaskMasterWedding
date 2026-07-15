@@ -101,7 +101,7 @@ maybeDescribe('emit-ledger-comment.ps1 (#449)', () => {
     fs.mkdirSync(path.join(issueReviewsRoot, '9'), { recursive: true });
     fs.writeFileSync(
       path.join(issueReviewsRoot, '9', 'reviewer-issue-opus.ledger-entry.txt'),
-      '{"role":"issue","model":"opus","verdict":"PASS","round":1}'
+      '{"role":"issue","model":"opus","verdict":"PASS","issue_number":9,"round":1}'
     );
 
     const r = runEmit('T', 9, reviewsRoot, issueReviewsRoot);
@@ -113,14 +113,16 @@ maybeDescribe('emit-ledger-comment.ps1 (#449)', () => {
     // test pins, not the launcher's line-ending convention). The tool's
     // ordered-hashtable + -Compress serialization is otherwise deterministic
     // (same pattern already relied on by tools/persist-issue-review.ps1's
-    // ledger-review-entry line).
+    // ledger-review-entry line). tree_oid/reviewer_id (PR entries) and
+    // issue_number (issue entries) are the #48 binding fields the whitelist
+    // used to drop -- see the header comment above.
     const expected =
       '<!-- governance-ledger -->\n' +
       '```json\n' +
       '{"reviews":[' +
-      '{"role":"issue","model":"opus","verdict":"PASS","round":1},' +
-      '{"role":"design-philosophy","model":"opus","verdict":"PASS","defects":{"blocker":0,"major":0,"minor":0,"nit":0},"round":1},' +
-      '{"role":"pr","model":"opus","verdict":"PASS","defects":{"blocker":0,"major":0,"minor":1,"nit":0},"round":1}' +
+      '{"role":"issue","model":"opus","verdict":"PASS","issue_number":9,"round":1},' +
+      '{"role":"design-philosophy","model":"opus","verdict":"PASS","tree_oid":"T","reviewer_id":"reviewer-design-philosophy-opus","defects":{"blocker":0,"major":0,"minor":0,"nit":0},"round":1},' +
+      '{"role":"pr","model":"opus","verdict":"PASS","tree_oid":"T","reviewer_id":"reviewer-pr-opus","defects":{"blocker":0,"major":0,"minor":1,"nit":0},"round":1}' +
       ']}\n' +
       '```\n';
     expect(r.stdout.replace(/\r\n/g, '\n')).toBe(expected);
@@ -143,7 +145,7 @@ maybeDescribe('emit-ledger-comment.ps1 (#449)', () => {
     fs.mkdirSync(path.join(issueReviewsRoot, '10'), { recursive: true });
     fs.writeFileSync(
       path.join(issueReviewsRoot, '10', 'reviewer-issue-opus.ledger-entry.txt'),
-      '{"role":"issue","model":"opus","verdict":"PASS","round":1}'
+      '{"role":"issue","model":"opus","verdict":"PASS","issue_number":10,"round":1}'
     );
 
     const r = runEmit('T2', 10, reviewsRoot, issueReviewsRoot);
@@ -151,11 +153,13 @@ maybeDescribe('emit-ledger-comment.ps1 (#449)', () => {
 
     const parsed = extractLedgerComment([{ body: r.stdout }]);
     expect(parsed.reviews).toEqual([
-      { role: 'issue', model: 'opus', verdict: 'PASS', round: 1 },
+      { role: 'issue', model: 'opus', verdict: 'PASS', issue_number: 10, round: 1 },
       {
         role: 'pr',
         model: 'opus',
         verdict: 'PASS',
+        tree_oid: 'T2',
+        reviewer_id: 'reviewer-pr-opus',
         defects: { blocker: 0, major: 1, minor: 0, nit: 3 },
         round: 2,
       },
@@ -168,7 +172,7 @@ maybeDescribe('emit-ledger-comment.ps1 (#449)', () => {
     fs.mkdirSync(path.join(issueReviewsRoot, '11'), { recursive: true });
     fs.writeFileSync(
       path.join(issueReviewsRoot, '11', 'reviewer-issue-opus.ledger-entry.txt'),
-      '{"role":"issue","model":"opus","verdict":"PASS","round":1}'
+      '{"role":"issue","model":"opus","verdict":"PASS","issue_number":11,"round":1}'
     );
 
     const r = runEmit('T3', 11, reviewsRoot, issueReviewsRoot);
@@ -207,6 +211,71 @@ maybeDescribe('emit-ledger-comment.ps1 (#449)', () => {
     const r = runEmit('T5', 13, reviewsRoot, issueReviewsRoot);
     expect(r.status).not.toBe(0);
     expect(r.stdout.trim()).toBe('');
+  });
+
+  // #48 AC5: PR-review entries carry tree_oid + reviewer_id (the binding
+  // fields scripts/check-review-artifact.js reads), role:"issue" entries
+  // carry issue_number. Asserted independently of the AC1 byte-for-byte pin
+  // above so this requirement reads as its own guarantee, not an incidental
+  // side effect of one fixture's exact text.
+  it('AC5: emitted PR entries carry tree_oid + reviewer_id; the issue entry carries issue_number', () => {
+    const { reviewsRoot, issueReviewsRoot } = scratchRoots();
+    writeJson(path.join(reviewsRoot, 'T16', 'reviewer-pr-1.json'), {
+      schema: 'rev1',
+      reviewer_id: 'reviewer-pr-1',
+      model: 'opus',
+      role: 'pr',
+      verdict: 'PASS',
+      findings_count: 0,
+      defects: { blocker: 0, major: 0, minor: 0, nit: 0 },
+      round: 1,
+      tree_oid: 'T16',
+      ts: '2026-07-14T00:00:00Z',
+    });
+    fs.mkdirSync(path.join(issueReviewsRoot, '16'), { recursive: true });
+    fs.writeFileSync(
+      path.join(issueReviewsRoot, '16', 'reviewer-issue-1.ledger-entry.txt'),
+      '{"role":"issue","model":"opus","verdict":"PASS","issue_number":16,"round":1}'
+    );
+
+    const r = runEmit('T16', 16, reviewsRoot, issueReviewsRoot);
+    expect(r.status).toBe(0);
+
+    const parsed = extractLedgerComment([{ body: r.stdout }]);
+    const issueEntry = parsed.reviews.find((rv) => rv.role === 'issue');
+    const prEntry = parsed.reviews.find((rv) => rv.role === 'pr');
+    expect(issueEntry.issue_number).toBe(16);
+    expect(prEntry.tree_oid).toBe('T16');
+    expect(prEntry.reviewer_id).toBe('reviewer-pr-1');
+  });
+
+  // #48: issue_number is required on a ledger-entry.txt, not merely
+  // projected when present -- a sibling file missing it (e.g. written by a
+  // pre-#48 tools/persist-issue-review.ps1) is malformed and dropped, the
+  // same way a PR-review file missing reviewer_id already was.
+  it('#48: issue ledger-entry.txt missing issue_number -> treated as no valid issue entries', () => {
+    const { reviewsRoot, issueReviewsRoot } = scratchRoots();
+    writeJson(path.join(reviewsRoot, 'T17', 'reviewer-pr-1.json'), {
+      schema: 'rev1',
+      reviewer_id: 'reviewer-pr-1',
+      model: 'opus',
+      role: 'pr',
+      verdict: 'PASS',
+      findings_count: 0,
+      defects: { blocker: 0, major: 0, minor: 0, nit: 0 },
+      round: 1,
+      tree_oid: 'T17',
+      ts: '2026-07-14T00:00:00Z',
+    });
+    fs.mkdirSync(path.join(issueReviewsRoot, '17'), { recursive: true });
+    fs.writeFileSync(
+      path.join(issueReviewsRoot, '17', 'reviewer-issue-1.ledger-entry.txt'),
+      '{"role":"issue","model":"opus","verdict":"PASS","round":1}'
+    );
+
+    const r = runEmit('T17', 17, reviewsRoot, issueReviewsRoot);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/issue/);
   });
 
   it('AC4: persist-review.ps1 -Round 2 writes round:2 alongside the existing defects object', () => {
@@ -312,7 +381,7 @@ maybeDescribe('emit-ledger-comment.ps1 (#449)', () => {
     fs.mkdirSync(path.join(issueReviewsRoot, '14'), { recursive: true });
     fs.writeFileSync(
       path.join(issueReviewsRoot, '14', 'reviewer-issue-opus.ledger-entry.txt'),
-      '{"role":"issue","model":"opus","verdict":"PASS","round":1}'
+      '{"role":"issue","model":"opus","verdict":"PASS","issue_number":14,"round":1}'
     );
 
     const r = runEmit('T8', 14, reviewsRoot, issueReviewsRoot);
@@ -352,7 +421,7 @@ maybeDescribe('emit-ledger-comment.ps1 (#449)', () => {
     fs.mkdirSync(path.join(issueReviewsRoot, '15'), { recursive: true });
     fs.writeFileSync(
       path.join(issueReviewsRoot, '15', 'reviewer-issue-opus.ledger-entry.txt'),
-      '{"role":"issue","model":"opus","verdict":"PASS","round":1}'
+      '{"role":"issue","model":"opus","verdict":"PASS","issue_number":15,"round":1}'
     );
 
     const r = runEmit('T9', 15, reviewsRoot, issueReviewsRoot);

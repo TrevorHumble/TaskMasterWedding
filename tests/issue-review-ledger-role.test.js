@@ -72,9 +72,10 @@ maybeDescribe('persist-issue-review.ps1 ledger bridge (#359 AC1)', () => {
 
     expect(result.status).toBe(0);
     // Real-value assertion: the literal line, not a loose substring match on
-    // "ledger-review-entry" alone -- inverting round or omitting a key would fail this.
+    // "ledger-review-entry" alone -- inverting round, issue_number, or omitting a
+    // key would fail this.
     expect(result.stdout).toContain(
-      'ledger-review-entry: {"role":"issue","model":"opus","verdict":"PASS","round":2}'
+      'ledger-review-entry: {"role":"issue","model":"opus","verdict":"PASS","issue_number":9999,"round":2}'
     );
 
     const evPath = path.join(root, '9999', 'reviewer-issue-opus.json');
@@ -84,18 +85,28 @@ maybeDescribe('persist-issue-review.ps1 ledger bridge (#359 AC1)', () => {
     expect(ev.issue_number).toBe(9999);
   });
 
-  it('sibling .ledger-entry.txt carries no issue_number (commit-msg gate must ignore it)', () => {
+  it('sibling .ledger-entry.txt carries issue_number but stays invisible to the commit-msg gate by extension (#48)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'irev-ledger-'));
     runPersist(root, ['-Round', '2']);
     const entryPath = path.join(root, '9999', 'reviewer-issue-opus.ledger-entry.txt');
     expect(fs.existsSync(entryPath)).toBe(true);
     const entry = JSON.parse(fs.readFileSync(entryPath, 'utf8'));
-    // The real behavioral guard from tools/issue-core.ps1 Read-IssueEvidence: a file
-    // is kept only when its inner issue_number equals the directory. This object
-    // must NOT have that field, or it would silently inflate the commit-msg gate's
-    // evidence count -- inverting this (adding issue_number) would fail the assertion.
-    expect(entry.issue_number).toBeUndefined();
-    expect(entry).toEqual({ role: 'issue', model: 'opus', verdict: 'PASS', round: 2 });
+    // #48: the ledger-bridge sibling now carries issue_number too, so the
+    // server-side review-artifact-present check can bind this entry to the exact
+    // issue a PR claims to close. This is safe because the commit-msg issue gate
+    // (tools/issue-core.ps1 Read-IssueEvidence) never reads this file at all -- it
+    // globs '*.json' only, and this file's extension is .ledger-entry.txt. The
+    // guard that actually matters is the extension, asserted in the *.json glob
+    // test below; inverting issue_number back out of this object would fail this
+    // assertion, but the gate's safety does not depend on that field being absent.
+    expect(entry.issue_number).toBe(9999);
+    expect(entry).toEqual({
+      role: 'issue',
+      model: 'opus',
+      verdict: 'PASS',
+      issue_number: 9999,
+      round: 2,
+    });
   });
 
   it('the *.json glob under the issue dir matches only the real evidence file (#412)', () => {
@@ -115,7 +126,7 @@ maybeDescribe('persist-issue-review.ps1 ledger bridge (#359 AC1)', () => {
     const result = runPersist(root, []);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(
-      'ledger-review-entry: {"role":"issue","model":"opus","verdict":"PASS","round":1}'
+      'ledger-review-entry: {"role":"issue","model":"opus","verdict":"PASS","issue_number":9999,"round":1}'
     );
   });
 });
