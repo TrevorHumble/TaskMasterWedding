@@ -52,10 +52,11 @@ One token verdict (`PASS` or `FAIL`) followed by the numbered defect list. A PAS
 ## Checklist (from `standards/issue-standards.md`)
 
 - [ ] User story names an end-consumer and follows `As a [consumer], I need…` form.
-- [ ] Every acceptance criterion is in Given/When/Then form and resolves to a literal string or structural check.
+- [ ] Every acceptance criterion is in Given/When/Then form and resolves to a literal string/structural check or a behavioral input→output assertion.
 - [ ] At least one acceptance criterion asserts a behavioral output value (input → expected output), not only that a file/section/string exists — an issue whose ACs are all presence-checks cannot catch a wrong implementation, that is a major. (Exempt documentation-only issues — those whose `Touches` paths are all docs, `.md` or under `docs/` — whose ACs may be purely string/structural per `standards/issue-standards.md`.)
 - [ ] Implementation plan is present with at least three numbered steps, each naming a file path or concrete deliverable.
 - [ ] Dependency map contains all three fields: `Depends on`, `Blocks`, `Touches`.
 - [ ] No FINAL, LAST, or TRULY_FINAL in filenames or section headers referenced by this issue.
-- [ ] `# N —` header per `standards/issue-standards.md` § Naming: a **missing** header is a **nit** (non-blocking — GitHub's own issue title is canonical identity); a **present-but-wrong** number (`N` or `(#N)` disagreeing with the GitHub-assigned number) is a blocking **FAIL**.
+- [ ] Naming/identity per `standards/issue-standards.md` § Naming: the draft file's `N`, its `# N —` header, and any self-referential `(#N)` must all equal the GitHub-assigned issue number — with this severity split: a **missing** `# N —` header is a **nit** (non-blocking — GitHub's own issue title is canonical identity), while a **present-but-wrong** number (`N` or `(#N)` disagreeing with the GitHub-assigned number) is a blocking **FAIL**.
 - [ ] Independently classify the run tier via `tools/classify-issue-run.ps1`'s eligibility rules; disagreement with the issue's declared `**Run tier:**` value is a blocking FAIL.
+- [ ] In-license check (all tiers): an issue that requires an `external/paid API`, a `non-Anthropic model key`, or a `hosted third-party service` is `out of license` — return `FAIL`.
