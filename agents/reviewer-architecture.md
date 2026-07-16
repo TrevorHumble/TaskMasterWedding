@@ -30,7 +30,7 @@ Read `DESIGN.md` before reading the artifact under review. Verify each of the fo
 1. The proposed change does not contradict any decision or constraint stated in `DESIGN.md`.
 2. The proposed change duplicates an existing component — verify this is NOT the case. Check the agent roster, skills list, and standards list in `DESIGN.md`, and confirm against the `agents/`, `skills/`, and `standards/` directory listings, which may be more current than DESIGN.md.
 3. The proposed change fits within the documented architecture: a new component belongs to an existing layer; a new agent has a clear single responsibility distinct from existing agents.
-4. Any deferral or scope change the artifact proposes is consistent with the Deferred items section of `DESIGN.md`, not an undocumented overreach.
+4. Any deferral or scope change the artifact proposes is consistent with `standards/adversarial-review-protocol.md` § "Finding disposition" (disposition 3, "genuinely separable scope"), not an undocumented overreach.
 
 ## Bias check
 
@@ -56,5 +56,5 @@ One token verdict followed by the numbered defect list. Every check above must h
 - [ ] No contradiction of any constraint or decision in `DESIGN.md`.
 - [ ] No duplicate — the proposed component does not already exist in `DESIGN.md`'s agent roster, skills list, or standards list.
 - [ ] New component has a single responsibility distinct from all existing components.
-- [ ] Any deferral proposed is consistent with the Deferred items section of `DESIGN.md`.
+- [ ] Any deferral proposed is consistent with `standards/adversarial-review-protocol.md` § "Finding disposition" (disposition 3, "genuinely separable scope").
 - [ ] No FINAL, LAST, or TRULY_FINAL in any filename or section header referenced by the artifact.
