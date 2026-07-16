@@ -24,6 +24,14 @@
 // rate limiter fails OPEN (a restarted server forgets prior attempts), an
 // acceptable trade for an anti-abuse throttle whose only job is to stop one
 // guest looping uploads, not to enforce a hard quota.
+//
+// DISTINCT FROM src/middleware/rate-limit.js (issue #283): that module is a
+// separate FIXED-WINDOW limiter backing POST /join, POST /login, POST
+// /tasks/:id/submit, POST /me/edit, POST /bug-report, POST /p/:id/like, and
+// POST /p/:id/comments. This service keeps owning POST /memories (via
+// recordMemoryAttempt below) and the HEIC-decode throttle
+// (recordHeicDecodeAttempt) — neither route is ever wired through the #283
+// middleware, so the two limiters never double-count the same request.
 
 'use strict';
 

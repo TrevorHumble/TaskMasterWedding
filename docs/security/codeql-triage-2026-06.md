@@ -318,7 +318,7 @@ caller can reach at all.
 The current disposition for this rule class is **superseded** by #283 (see
 the `## 2026-07 re-triage: hosted deployment` section above) — the app is
 now hosted for weeks at a stable public hostname, not hours behind a
-rotating tunnel URL, and #283 adds `express-rate-limit` with a `trust proxy`
+rotating tunnel URL, and #283 adds rate limiting with a `trust proxy`
 setting derived from the real reverse proxy, plus persistent admin-lockout
 storage. Alert #71 follows the same superseded-by-#283 path as alert #42
 and the main-entry disposition: not reclassified as exploitable, just
@@ -328,3 +328,37 @@ re-litigated here.
 **Disposition.** Alert #71 dismissed in code scanning via `gh api` (reason
 `won't fix`), with a dismissal comment referencing #283. This entry is the
 durable written record.
+
+---
+
+## 2026-07-15 — #283 shipped: what actually landed
+
+The three re-triage entries above (main-entry, alert #42, alert #71) each
+said "superseded by #283" while #283 was still open. #283 has now shipped;
+this entry records what actually landed, since the re-triage text above
+speculatively named `express-rate-limit` and the shipped implementation
+differs from that guess.
+
+**Not `express-rate-limit` — a hand-rolled, dependency-free limiter.** The
+issue's own constraint ruled out adding a new npm dependency. `POST /join`
+and `POST /login` are now IP-keyed (each its own counter,
+`config.RATE_LIMIT_IP_MAX`, default 300/10min) through
+`src/middleware/rate-limit.js`, a small fixed-window Map-based limiter with
+an injectable clock, no `setInterval`. `POST /tasks/:id/submit`,
+`POST /me/edit`, `POST /bug-report`, `POST /p/:id/like`, and
+`POST /p/:id/comments` are guest-keyed (`config.RATE_LIMIT_UPLOAD_MAX` /
+`RATE_LIMIT_SOCIAL_MAX`) through the same module — per Goal A, guest actions
+are never IP-keyed, since the whole guest list can share one venue-NAT IP.
+
+**`POST /admin/login` still carries no rate limiter**, by design (a
+pre-auth IP limiter would throttle the real admin's correct password once
+tripped, and admin/attacker can share a NAT IP at the venue) — the fix for
+that route is persistence, not throttling: `src/services/lockout.js` now
+backs the failure counter and lockout timestamp with a SQLite `settings`
+table instead of the module-scoped scalars this triage's "in-memory lockout
+does not survive a restart" gap (above) described. Full design:
+`DESIGN.md` § "Rate limiting and persistent admin lockout (#283)".
+
+No finding above is reclassified — the data-flow reasoning in each still
+holds. This entry only replaces the speculative implementation guess with
+what shipped.
