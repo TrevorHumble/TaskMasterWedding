@@ -28,6 +28,16 @@ No criterion of the form "an agent can understand X" — that is unfalsifiable a
 
 ---
 
+## Acceptance-criteria amendment (bounded, mid-flight)
+
+An issue's acceptance criteria are not frozen the instant the issue passes review — they may be amended mid-flight, but only under two conditions together: **owner approval plus one reviewer** sign off on the amended text before the implementer treats it as the new contract. Neither alone is sufficient — owner approval without a reviewer skips the adversarial check this whole standard exists to force; a reviewer alone cannot authorize spending the owner's scope without the owner's own approval.
+
+The amendment is bounded to the issue's existing footprint: it may only add work **inside files already on the issue's `Touches` list** — put plainly, an amendment never adds a file. The `Touches` list is a hard line set at issue-review time (see #338/#538 context: it is what makes concurrent waves safe, since two agents must never share a file) — an amendment that needs a file outside that list is not an amendment, it is a new issue, filed and reviewed on its own.
+
+Example: an issue touching `src/services/photos.js` may be amended to also validate a file's MIME type inside that same file, with owner + reviewer sign-off. It may not be amended to also touch `src/routes/admin.js` to add a moderation control — that is a new, separately-reviewed issue, even if the owner wants it done "at the same time."
+
+---
+
 ## The Haiku bar
 
 The implementation plan is a clarity heuristic: it must be clear and unambiguous enough that following it would not send a weak model off the rails. It is a thought experiment about plan clarity, not a requirement to inline every fact. The implementer is a Sonnet agent; Opus is used only for review.
@@ -139,3 +149,11 @@ A `spawned-in-run` issue missing the block, or with any of the four fields empty
 ## In-license check (all tiers)
 
 An issue that requires an `external/paid API`, a `non-Anthropic model key`, or a `hosted third-party service` is `out of license` — return `FAIL`.
+
+---
+
+## Definition of Done ownership
+
+`definition-of-done.md` (repo root) lives outside the governing-artifact surface `tools/verdict-core.ps1` `$SYSTEM_PATH_REGEX` matches, so changing it does not take the system-level two-independent-reviewer bar — it takes the routine one-reviewer bar like any other non-kernel change. That placement is deliberate: the DoD needs to stay cheap to amend as the project learns what "done" actually requires.
+
+Cheap to review is not the same as unowned. Changing `definition-of-done.md` requires **owner approval** before it merges — the owner is the one person who can add or loosen a clause that every future PR review will be judged against. This is a recorded rule, not a mechanically enforced one: on this solo-maintainer repo (`required_approving_review_count = 0`), a CODEOWNERS-style gate cannot force owner sign-off, so the check is tamper-evident, not tamper-proof, the same honest posture as the rest of this pipeline (`DESIGN.md` § "Issue-review gate").
