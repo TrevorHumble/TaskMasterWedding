@@ -11,6 +11,7 @@
     "start": "node src/app.js",
     "serve": "node scripts/serve-resilient.js",
     "dev": "node src/app.js",
+    "preview": "node scripts/preview.js",
     "seed": "node scripts/seed.js",
     "seed-event": "node scripts/seed-event.js",
     "set-admin": "node scripts/set-admin-password.js",
