@@ -18,7 +18,8 @@ description: >
 
 ### Acceptance criteria
 
-Each criterion in Given/When/Then form. Each must resolve to a literal string or structural check — an agent verifies it by reading the produced artifact with no semantic interpretation. No criterion of the form "an agent can understand X" (unfalsifiable). Use: "the file contains the phrase `X`" or "section Y exists."
+Each criterion in Given/When/Then form. What a criterion must be is defined in
+`issue-standards.md` § "Acceptance criteria" — read it; do not restate it here.
 
 ### Implementation plan
 

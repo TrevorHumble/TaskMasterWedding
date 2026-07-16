@@ -176,6 +176,8 @@ Path-based and mechanical — no judgment calls. Every row whose paths the chang
 | Upload/intake, auth, file-serving, admin routes                                                                                                                                                      | Security lens (advisory with the escalation exception above; charter: `agents/reviewer-security.md`, #222) |
 | `src/services/` scoring/feed logic                                                                                                                                                                   | The #206 duplicated-ownership self-check gets explicit reviewer attention                                  |
 
+**Note:** "Docs/copy only" above is a review-dispatch question — which lenses run — not the acceptance-criteria question of whether an issue may use purely structural criteria. That is a separate exemption, defined once in `standards/issue-standards.md` § "Acceptance criteria".
+
 Every row is additive to the base review for the change's risk tier (`## Reviewer count by artifact`); a lens never replaces the PR reviewer or the design-philosophy gate.
 
 ---

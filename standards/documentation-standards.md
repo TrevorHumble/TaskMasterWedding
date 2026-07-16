@@ -1,22 +1,16 @@
 # Documentation Standards
 
-**As a reviewer or author of a doc in this repo, I need a single, checkable standard so I can determine whether a doc passes or fails without relying on subjective judgment.**
+**As a reviewer or author of a doc in this repo, I need a single, checkable standard so I can determine whether a doc passes or fails.**
 
 **Scope:** every doc produced or modified in this repo.
 
 ---
 
-## Acceptance criteria must be literal
+## Acceptance criteria
 
-Acceptance criteria for a documentation artifact must be **literal string or
-structural checks** — present/absent phrases, section headers, file paths, token
-counts. They must not depend on a reader agent's nondeterministic answer to a
-question like "can an agent figure out X from this?" Prose criteria that rely on
-comprehension cannot be re-checked deterministically.
-
-Lesson from issue #0001: every AC that said "an agent can answer X" was unfalsifiable.
-Rewrite as: "the file contains the phrase `X`" or "section Y exists with subsections
-A, B, C."
+What a documentation acceptance criterion must be is defined once, in
+`standards/issue-standards.md` § "Acceptance criteria" — read it; do not restate it
+here.
 
 ---
 

@@ -24,9 +24,9 @@ Name the consumer before writing a word. Format: `As a [consumer], I need… so 
 
 Do not mix. Wrong file = wrong reader.
 
-## Acceptance criteria must be literal
+## Acceptance criteria
 
-Every AC for a doc must resolve to a literal string or structural check: present/absent phrase, section header, file path, token count. No criterion of the form "a reader can understand X" — that is unfalsifiable. Rewrite as: "the file contains the phrase `X`" or "section Y exists."
+What an AC for a doc must be is defined in `issue-standards.md` § "Acceptance criteria" — read it; do not restate it here.
 
 ## Anti-bloat
 

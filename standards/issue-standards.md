@@ -12,11 +12,17 @@ Written from the end-consumer POV: the agent, human, or system that will use the
 
 ## Acceptance criteria
 
-Written as Given/When/Then criteria testable by an agent. Each criterion must be mechanically checkable with no semantic interpretation required — either a literal string or structural check (present/absent phrase, section header, file path, token count) verifiable by reading the produced artifact, or a behavioral input→output assertion (a concrete input and its exact expected output) verifiable by reading the recorded output of the artifact's own test.
+Written as Given/When/Then criteria testable by an agent. **An acceptance criterion is a promise: when this is true, we are done.** Criteria exist to align the owner, issue reviewer, implementer, and PR reviewer around one shared picture of what "done" means — not to catch anyone. A criterion must be readable by the product owner: if the owner cannot read a criterion and know what was promised, it is not a contract — the mechanical checking is already done for free by `npm test`, `npm run lint`, and `npm run format:check`.
 
-**A ready-tier issue's criteria must include at least one that asserts a behavioral output value** (input → expected output), so the criteria can catch a wrong implementation — an issue whose criteria are _all_ presence/structural checks cannot, since a broken implementation can satisfy every "file contains X" check. **Documentation-only issues** (those whose `Touches` paths are all docs — `.md` or under `docs/`) are exempt and may use purely string/structural criteria. (Backlog-tier issues capture intent before implementation and need only one deterministic criterion — see Issue tiers.)
+A criterion need only be answerable yes/no by a competent reviewer against real evidence — that bar does not move, but the old requirement that answering it involve no judgment is dropped. In practice, two reviewers may disagree on the same criterion, and that is accepted knowingly: the alternative is criteria shredded into dozens of greppable strings that nobody could hold in the first place.
 
-For a documentation issue, acceptance criteria must reduce to literal string or structural checks (no criterion of the form "an agent can understand X" — that is unfalsifiable). Lesson from issue #0001: every AC that said "an agent can answer X" was unfalsifiable; rewrite as "the file contains the phrase `X`".
+**Write 1–6 criteria — 8 is the ceiling, not a target.** More criteria are not more safety; past the ceiling, nobody can hold them, and a reviewer ends up picking one, citing it, and missing the rest. Blowing the ceiling is at least major severity: #410 carried 34 criteria, and its review spent itself on one of them while the real question went unasked.
+
+**A ready-tier issue's criteria must include at least one that asserts a behavioral output value** (input → expected output), so the criteria can catch a wrong implementation — an issue whose criteria are all presence/structural checks cannot, since a broken implementation can satisfy every "file contains X" check.
+
+**Documentation-only issues** (those whose `Touches` paths are all docs — `.md` or under `docs/`) are exempt from the behavioral-value requirement above and may use purely structural criteria. (Backlog-tier issues capture intent before implementation and need only one such criterion, answerable yes/no by a competent reviewer — see Issue tiers.)
+
+No criterion of the form "an agent can understand X" — that is unfalsifiable and is a FAIL. Lesson from issue #0001: every AC that said "an agent can answer X" was unfalsifiable; rewrite as "the file contains the phrase `X`" or a behavioral input→output assertion.
 
 ---
 
@@ -57,7 +63,7 @@ Issues are filed at one of two tiers. The tier is declared in the issue's `**Typ
 A ready-issue must include all of the following before it can be reviewed:
 
 - **user story** — `As a [consumer], I need… so that….`
-- **Acceptance criteria** — each criterion in **Given/When/Then** form, resolving to a literal string or structural check.
+- **Acceptance criteria** — each criterion in **Given/When/Then** form; see § "Acceptance criteria" above for what a criterion must be.
 - **implementation plan** — at least three numbered steps, each naming a file path or concrete deliverable.
 - **Dependency map** — `Depends on`, `Blocks`, and `Touches` all present.
 - **`**Run tier:**` field** — a `**Run tier:**` line whose value is `sonnet-only` or `opus`. The declared value must equal `tools/classify-issue-run.ps1`'s output for the issue's `Touches` paths and flags (security-flagged, escalated, schema-or-data-migration) — the classifier is the single source of truth for eligibility. A backlog-tier issue defers its run tier to graduation: it carries no `**Run tier:**` field, and the field is filled in when the orchestrator opens the graduated ready-issue.
@@ -69,7 +75,7 @@ The reviewer applies the full checklist to a ready-issue.
 A backlog-issue captures intent before implementation is possible. It requires:
 
 - **user story** — same form as the ready tier.
-- **Acceptance criteria** — at least one deterministic criterion (literal string or structural check).
+- **Acceptance criteria** — at least one criterion, answerable yes/no by a competent reviewer, per § "Acceptance criteria" above.
 - **`Graduate after:`** field — a **deterministic** condition the orchestrator can evaluate without human judgment (e.g., "after issue #NNNN merges"). A `Graduate after` condition that requires human-approval is a FAIL.
 
 A backlog tier omits `Blocks`/`Touches` and omits a full implementation plan. The reviewer does not fail a backlog issue for missing those fields.
@@ -111,8 +117,8 @@ A `spawned-in-run` issue missing the block, or with any of the four fields empty
 ### Ready-tier checklist
 
 - [ ] PASS/FAIL — User story names an end-consumer (not the author) and follows `As a [consumer], I need…` form.
-- [ ] PASS/FAIL — Every acceptance criterion is in Given/When/Then form and resolves to a literal string/structural check or a behavioral input→output assertion.
-- [ ] PASS/FAIL — At least one acceptance criterion asserts a behavioral output value (input → expected output), not only presence/structural checks — except documentation-only issues (`Touches` all docs). An all-presence-check issue a wrong implementation could pass is a FAIL.
+- [ ] PASS/FAIL — Every acceptance criterion is in Given/When/Then form and is answerable yes/no by a competent reviewer, or asserts a behavioral input→output value.
+- [ ] PASS/FAIL — At least one acceptance criterion asserts a behavioral output value (input → expected output), not only presence/structural checks — except documentation-only issues, per the exemption defined in § "Acceptance criteria" above. An all-presence-check issue a wrong implementation could pass is a FAIL.
 - [ ] PASS/FAIL — Implementation plan is present and contains at least three numbered steps, each naming a file path or a concrete deliverable.
 - [ ] PASS/FAIL — Dependency map contains all three fields: `Depends on`, `Blocks`, `Touches`.
 - [ ] PASS/FAIL — No FINAL, LAST, or TRULY_FINAL in filenames or section headers referenced by this issue.
@@ -121,7 +127,7 @@ A `spawned-in-run` issue missing the block, or with any of the four fields empty
 ### Backlog-tier checklist
 
 - [ ] PASS/FAIL — User story is written from the consumer POV and follows `As a [consumer], I need…` form.
-- [ ] PASS/FAIL — At least one acceptance criterion names a testable desired outcome (literal string or structural check).
+- [ ] PASS/FAIL — At least one acceptance criterion names a testable desired outcome, answerable yes/no by a competent reviewer.
 - [ ] PASS/FAIL — `Depends on` field is present.
 - [ ] PASS/FAIL — `Graduate after` field is present and states a deterministic condition (not a human approval).
 - [ ] PASS/FAIL — Tier is declared as `backlog` in the `**Type:**` line.

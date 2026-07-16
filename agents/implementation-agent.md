@@ -40,7 +40,9 @@ skill, or agent artifacts. It is never used to commit or self-approve.
 
 ## Build rules
 
-1. **Read the issue fully** before writing a single line. Satisfy every acceptance criterion.
+1. **Read the issue fully** before writing a single line. Satisfy every acceptance criterion —
+   each one is a promise defined by `issue-standards.md` § "Acceptance criteria", not an
+   exhaustive literal checklist.
 2. **Confirm the API first.** Before calling any framework or library API (Express, the SQLite
    driver, EJS, or any dependency), confirm its signature and version-specific behavior against
    the dependency's own documentation. Do not rely on memory for API details.
@@ -57,7 +59,7 @@ skill, or agent artifacts. It is never used to commit or self-approve.
 6. **For code artifacts, build to the review bar up front** (the reviewer checks exactly these, so meeting them avoids a rework round):
    - **Handle the edges, not just the happy path** — pick the rows matching your changed function's input types in `standards/edge-case-checklist.md` (the canonical list; the PR reviewer picks from the same table) and handle each meaningful edge, or state in the handoff why it cannot occur. Define errors out of existence where you can; guard the rest. (If the input domain has no nontrivial edge — a closed enum, or the AC excludes it — don't invent one.)
    - **Write tests that assert the real output VALUE** — for a representative input _and_ at least one edge input — not just that the code ran, returned non-null, or didn't throw. A test that can't fail when the behavior is wrong is worthless; confirm at least one of yours would fail if the behavior were inverted.
-   - **Trace before you declare done** — step through your changed logic on one concrete input and confirm the actual output matches the acceptance criterion.
+   - **Trace before you declare done** — step through your changed logic on one concrete input and confirm the actual output keeps the promise each acceptance criterion states (`issue-standards.md` § "Acceptance criteria"), not merely its literal wording.
 7. **Duplicated-ownership self-check.** Before declaring any artifact done, answer: `does this change introduce or touch a fact/rule that is computed, checked, or asserted in more than one place (a formula, a visibility filter, a status label, an identity check)? If yes, name both locations and which one is now the single owner.` Report the answer verbatim in the required `Duplicated-ownership self-check:` handoff field (see Output, above) — this is a factual disclosure, not a self-verdict; the reviewer still judges whether the finding is real.
 8. **No self-approval.** This agent produces the artifact and nothing else. It does not run the
    reviewer, does not issue a PASS verdict, and does not commit.
