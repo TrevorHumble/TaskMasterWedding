@@ -7,8 +7,26 @@ const { db } = require('../db');
 const { requireGuest } = require('../middleware/session');
 const scoring = require('../services/scoring');
 const feed = require('../services/feed');
+// Route-level rate limiting (issue #283). DISTINCT from
+// src/services/rate-limit.js (owns POST /memories and the HEIC-decode
+// throttle elsewhere) — see src/middleware/rate-limit.js's file comment for
+// the boundary. Guest-keyed (falls back to an IP bucket for the signed-out
+// case, which requireGuest below would 403 anyway before either handler body
+// runs). One SHARED instance across POST /p/:id/like and POST
+// /p/:id/comments — a guest reacting AND commenting draws from the same
+// budget, config.RATE_LIMIT_SOCIAL_MAX. This is a SEPARATE instance from
+// src/routes/guest.js's POST /bug-report limiter, even though both read the
+// same config value. guestOrIpKey is the single owner of the "guest-keyed,
+// IP fallback when signed out" rule, shared with guest.js.
+const { createRateLimiter, guestOrIpKey } = require('../middleware/rate-limit');
 
 const router = express.Router();
+
+const socialRateLimiter = createRateLimiter({
+  windowMs: () => config.RATE_LIMIT_WINDOW_MS,
+  max: () => config.RATE_LIMIT_SOCIAL_MAX,
+  keyFn: guestOrIpKey,
+});
 
 // Community pages are public. res.locals.guest (when signed in) is supplied
 // by the global app.use(session.attachGuest) mount in src/app.js, which runs
@@ -399,7 +417,7 @@ router.get('/feed', (req, res) => {
 // without re-downloading the feed. The form path is the no-JS fallback; both
 // run the identical toggle.
 // ---------------------------------------------------------------------------
-router.post('/p/:submissionId/like', requireGuest, (req, res) => {
+router.post('/p/:submissionId/like', requireGuest, socialRateLimiter, (req, res) => {
   const submissionId = parseInt(req.params.submissionId, 10);
   if (!Number.isInteger(submissionId) || submissionId < 1) {
     return res.status(404).render('404', { title: 'Not found' });
@@ -462,7 +480,7 @@ router.post('/p/:submissionId/like', requireGuest, (req, res) => {
 // is the no-JS fallback; both run the identical insert. On the JSON path an
 // invalid body answers 400 JSON (a fetch cannot see a "silent" redirect).
 // ---------------------------------------------------------------------------
-router.post('/p/:submissionId/comments', requireGuest, (req, res) => {
+router.post('/p/:submissionId/comments', requireGuest, socialRateLimiter, (req, res) => {
   const submissionId = parseInt(req.params.submissionId, 10);
   if (!Number.isInteger(submissionId) || submissionId < 1) {
     return res.status(404).render('404', { title: 'Not found' });

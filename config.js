@@ -184,6 +184,78 @@ const config = {
   GUEST_LOGIN_MAX_ATTEMPTS: parseInt(process.env.GUEST_LOGIN_MAX_ATTEMPTS, 10) || 5,
   GUEST_LOGIN_LOCKOUT_MS: parseInt(process.env.GUEST_LOGIN_LOCKOUT_MS, 10) || 5 * 60 * 1000,
 
+  // GUEST_LOGIN_TRACKED_MAX: hard cap on how many distinct normalized contacts
+  // src/routes/auth.js's guest-login lockout Map holds at once (issue #464,
+  // absorbed into #283). Sweep-on-write eviction keeps this bounded in the
+  // common case (a stale entry is dropped the next time a NEW contact fails);
+  // this cap is the backstop against a flood of thousands of distinct
+  // made-up contacts each guessed once, which sweeping alone would not catch
+  // inside a single window. A contact currently serving an active lockout is
+  // never evicted to make room (see src/routes/auth.js) — the cap can never
+  // be used to un-lock an account early by flooding.
+  GUEST_LOGIN_TRACKED_MAX: parseInt(process.env.GUEST_LOGIN_TRACKED_MAX, 10) || 5000,
+
+  // Route-level rate limiting (issue #283) via src/middleware/rate-limit.js —
+  // DISTINCT from the per-guest limiters above and from
+  // src/services/rate-limit.js (the #247/#281 service, which keeps owning
+  // POST /memories and the HEIC-decode throttle; this config block backs
+  // POST /join, POST /login, POST /tasks/:id/submit, POST /me/edit,
+  // POST /bug-report, POST /p/:id/like, and POST /p/:id/comments instead —
+  // see each route file's own comment for the wiring).
+  //
+  // RATE_LIMIT_WINDOW_MS: the fixed window every limiter below shares, in
+  // milliseconds. Default 600000 (10 minutes) — the same order of magnitude
+  // as the existing MEMORY_RATE_WINDOW_MS/HEIC_DECODE_RATE_WINDOW_MS windows
+  // above, so an operator tuning "how fast abuse gets throttled" reasons
+  // about one scale across the whole app.
+  RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 600000,
+
+  // RATE_LIMIT_UPLOAD_MAX: per-GUEST cap, shared across POST /tasks/:id/submit
+  // and POST /me/edit (one guest-keyed counter for both — a guest editing
+  // their profile a few times while also working through tasks draws from
+  // the same budget). 20 per RATE_LIMIT_WINDOW_MS comfortably covers a guest
+  // working through every task plus a couple of profile edits in one
+  // sitting, while a scripted flood of either route trips it quickly.
+  RATE_LIMIT_UPLOAD_MAX: parseInt(process.env.RATE_LIMIT_UPLOAD_MAX, 10) || 20,
+
+  // RATE_LIMIT_SOCIAL_MAX: per-GUEST cap on the lighter-weight social writes.
+  // Two SEPARATE counters share this same limit value: POST /bug-report (its
+  // own budget, src/routes/guest.js) and POST /p/:id/like + POST
+  // /p/:id/comments (a second, shared budget, src/routes/community.js). 60
+  // per RATE_LIMIT_WINDOW_MS is generous for real browsing-and-reacting
+  // behavior (liking/commenting through a whole gallery scroll) while still
+  // bounding a comment-spam or bug-report-spam script.
+  RATE_LIMIT_SOCIAL_MAX: parseInt(process.env.RATE_LIMIT_SOCIAL_MAX, 10) || 60,
+
+  // RATE_LIMIT_TRACKED_MAX: hard cap on how many distinct keys ONE limiter
+  // instance from src/middleware/rate-limit.js tracks at a time. The same
+  // bound, for the same reason, as GUEST_LOGIN_TRACKED_MAX above — and it
+  // matters most on the two IP-keyed limiters (POST /join, POST /login),
+  // whose keys come from unauthenticated callers: a flood from many distinct
+  // source IPs mints a new key per IP, and inside a single
+  // RATE_LIMIT_WINDOW_MS nothing has expired for a sweep to reclaim, so
+  // without this cap the map grows without limit AND every new-key insert
+  // pays an O(map size) scan on the single Node process. 5000 keys is far
+  // past any real event (a ~100-guest list, even one phone per guest plus the
+  // hosts' own devices) while bounding both the memory and that per-request
+  // scan. Eviction takes the entry closest to its window expiring, so a
+  // legitimate guest's in-flight count is the last thing dropped.
+  RATE_LIMIT_TRACKED_MAX: parseInt(process.env.RATE_LIMIT_TRACKED_MAX, 10) || 5000,
+
+  // RATE_LIMIT_IP_MAX: per-IP cap on POST /join and POST /login. Each route
+  // gets its OWN counter (src/routes/auth.js) — a signup flood must never
+  // also lock out a returning guest's login attempt from the same
+  // venue-NAT IP, and vice versa. Default 300 per RATE_LIMIT_WINDOW_MS.
+  //
+  // Why 300: the guest list is ~100 people (docs/north-star.md scope) and the
+  // design case this must clear is all of them scanning the shared poster
+  // from ONE venue-NAT IP within one 10-minute window at the reception
+  // opening — 100 signups (or 100 logins) plus a realistic share of honest
+  // retries fits under 300 with roughly 3x headroom, while a scripted flood
+  // (thousands of requests per window) still trips it. This targets scripts,
+  // not the receiving line — see docs/north-star.md Goal A.
+  RATE_LIMIT_IP_MAX: parseInt(process.env.RATE_LIMIT_IP_MAX, 10) || 300,
+
   // Leaderboard display — the maximum number of badge icons rendered on a
   // single leaderboard row. Beyond this the row shows the first N icons plus a
   // "+K" overflow chip, so a guest with a large collection never overflows the
