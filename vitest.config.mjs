@@ -61,6 +61,18 @@ export default defineConfig({
         // pad with fake in-process tests; its behavior is gated end-to-end by those
         // subprocess tests and by the live `review-artifact-present` CI job.
         'scripts/check-review-artifact.js',
+        // scripts/preview.js (#378) spawns the app as a CHILD process (by
+        // design — see its own file header — so it never shares this test
+        // process's config/db module cache with the app it boots). Its
+        // pure helpers (parseArgs, getFreePort) run in-process and ARE
+        // covered by tests/preview.test.js's assertions on startPreview()'s
+        // return value; the child-process boot path itself cannot be
+        // instrumented by the main-process v8 coverage provider, so the
+        // whole file is excluded from the denominator rather than padded —
+        // same rationale as heic-worker.js and the process-level scripts
+        // above. Its behavior is gated end-to-end by tests/preview.test.js,
+        // which drives it both via startPreview() and as a real subprocess.
+        'scripts/preview.js',
       ],
       thresholds: { lines: 80, functions: 84, branches: 79, statements: 80 },
     },

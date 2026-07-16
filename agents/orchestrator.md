@@ -68,9 +68,11 @@ allowed rounds.
    if needed. Do not research what prior art already answers.
 4. **Implementation** — spawn `agents/implementation-agent.md` (Sonnet) with full handoff: the
    passing issue + all prior-art file paths.
-5. **Visual-approval loop** — if the implementation is a **visual change** (see "Visual-approval loop"
-   below for the trigger and full mechanics), run the loop to explicit owner approval **before**
-   step 6. A non-visual change skips this step entirely and proceeds straight to step 6.
+5. **Visual-approval loop** — if the work is a **visual change** (see "Visual-approval loop" below
+   for the trigger and full mechanics), the loop runs **before** an implementer is ever spawned for
+   the visual surface: the orchestrator settles the look live against the owner, freezes it, and
+   only then does step 4's implementation (and its criteria) get written. A non-visual change skips
+   this step entirely and proceeds straight from step 4 to step 6.
 6. **Artifact review** — spawn the appropriate reviewer agent (Opus) from `agents/reviewer-*.md` via `skills/spawn-adversarial-review.md`. Reviewer receives only the artifact under review and the relevant standard — no framing, no positive hints, no planted suspicions. **Reviewer count and cadence follow `standards/adversarial-review-protocol.md` § Reviewer count by artifact** (authoritative; not restated here to avoid drift): routine round 1 uses one PR reviewer plus the design-philosophy reviewer, both-must-PASS; rounds 2+ use one fresh reviewer each (except system-level changes, which require two independent PASSes on the final tree). See `standards/adversarial-review-protocol.md` for the full de-bias and spawning rules. **Assign each PR-path reviewer instance a DISTINCT `reviewerId` in its spawn prompt** (e.g. `reviewer-pr-1`, `reviewer-pr-2`, `reviewer-design-philosophy-1`): per #474 the reviewer emits whatever id its prompt assigns, and if two same-type instances (e.g. two `reviewer-pr` for the system-level both-pass bar) are left to default, both return the charter's example id and step 7's capture collides them on one `<dir>/<reviewerId>.json` file — the runner then sees one distinct reviewer and fails the panel count. **If the diff touches the source surface defined in § "Doc-currency step", dispatch the `doc-currency` step concurrently with this review** — see § "Doc-currency step" below.
 7. **Commit** — once per run, before the first commit, **assert the gate is live**: `powershell -File tools/check-gate.ps1` (if it errors, run `tools/setup-hooks.ps1`; never proceed assuming a gate that isn't on — an unconfigured clone enforces nothing). The gate's introducing commit must also self-certify (record its own verdict first — dogfooding is expected, not a malfunction). On the reviewers' PASS, **record PR-review evidence and bind the verdict via capture → runner (#455)** — this is a mechanical bridge, not a hand transcription: for **each** PR-path reviewer (`reviewer-pr`, `reviewer-design-philosophy`), save its raw return text to a file and run `powershell -File tools/capture-reviewer-verdict.ps1 -RawReturnFile <f> -RunDir <dir>`, which extracts that reviewer's own trailing JSON verdict block (emitted per #474) and writes it, verbatim, to `<dir>/<reviewerId>.json` — fail-closed (writes nothing) if the block is missing, unparseable, or has no `reviewerId`. This depends on step 6 having assigned each reviewer a distinct `reviewerId`: two reviewers sharing an id write to the same `<dir>/<reviewerId>.json` and only one survives, collapsing the panel count. Once every PR-path reviewer's block for this round is captured into the same `<dir>`, run `powershell -File tools/review-runner.ps1 -RunDir <dir> -TreeOid <T> -Mode <both-pass|unanimous>` (mode per `standards/adversarial-review-protocol.md` § Reviewer count by artifact). The runner citation-validates every defect and, only on a fully clean pass, calls the existing `tools/persist-review.ps1` once per reviewer and `tools/review_verdict.ps1` to bind the tree-level PASS — so the commit gate's evidence files are always fed from the reviewers' own returns, never hand-written. Any reviewer `FAIL`, invalid citation, or incomplete panel blocks the runner and writes nothing; fix the underlying finding and re-run the capture → runner pair, never edit an evidence file directly. (Step 2's issue-review evidence, `tools/persist-issue-review.ps1`, is a separate path and unaffected by this wiring.) Then `git commit` with a short message that includes `(#N)` referencing the issue. **Two gates run at commit time:** `pre-commit` checks that the staged tree has a PASS review verdict; `commit-msg` checks that the commit message names a GitHub issue whose issue-review is on file. Both must pass. If `commit-msg` blocks, the fix is to record the issue review: `powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS`. The repo's `pre-commit` gate (`.githooks/pre-commit`, active via `core.hooksPath` — run `tools/setup-hooks.ps1` once per working copy) blocks any commit whose staged tree has no matching PASS verdict, so recording the reviewers' real result is a required, mechanical step. If either gate blocks you, the fix is to run the corresponding review and record its genuine verdict — never to forge one.
    Then **close the GitHub issue** for this work (`gh issue close`, referencing the commit) so the board
@@ -85,56 +87,77 @@ allowed rounds.
 
 ## Visual-approval loop
 
-**Trigger — what counts as a visual change.** A change is **visual** when its diff touches any of:
-`views/**/*.ejs`, `src/public/**` (CSS, client JS, images/icons), badge art or other rendered
+**Trigger — what counts as a visual change.** A change is **visual** when it touches, or will touch,
+any of: `views/**/*.ejs`, `src/public/**` (CSS, client JS, images/icons), badge art or other rendered
 assets, or guest- or admin-facing copy shown in a rendered page. This is the same surface as the
 "Views/CSS/badge assets/guest-or-admin-facing copy" row of `standards/adversarial-review-protocol.md`
-§ "Which reviews does this change need?". A change touching none of those paths is **not** visual —
-it is unaffected by this gate and still merges on adversarial-review PASS + green CI, exactly as
-before.
+§ "Which reviews does this change need?", and the exact surface `tools/visual-surface.ps1` hashes at
+approval (#378). A change touching none of those paths is **not** visual — it is unaffected by this
+gate and still merges on adversarial-review PASS + green CI, exactly as before.
 
-**The three form factors.** Screenshots are captured at:
+**Phase 1 — settle the look live. Nothing commits.** Taste is discovered, not specified: nobody knows
+a decoration is clutter until they see it. So for a visual change, phase 1 runs _before_ an
+implementer is ever spawned for the visual surface and before that surface's acceptance criteria are
+finalized:
 
-- **iPhone SE** — `375 × 667`
-- **iPhone 14 Pro Max** — `430 × 932`
-- **Samsung Galaxy S20 Ultra** — `412 × 915`
+1. Boot this worktree's own app on a scratch, seeded database — `npm run preview`
+   (`scripts/preview.js`, #378) prints one `http://localhost:<port>` line. **give the owner a link**:
+   that URL. The owner keeps it open in a browser tab of his own.
+2. Edit the **real front end** directly in this worktree — `views/**/*.ejs`, `src/public/**`. The
+   orchestrator authors these edits itself; see "Model policy" below for why no implementer is spawned
+   per tweak.
+3. The owner refreshes the open tab and looks. "Arrows are clutter" → two lines gone → refresh → five
+   seconds. Repeat until the owner says **approved**, explicitly.
 
-**Boot the worktree's own app, not the primary checkout.** The app under screenshot is booted from
-the current **worktree**'s own checkout — the worktree-relative `src/app.js`, run with the worktree
-as the working directory, on a local port — so the rendered pages reflect this worktree's edited
-`views/**` and `src/public/**`. This deliberately does **not** use `.claude/launch.json`'s
-`runtimeArgs`, which hardcode the absolute path of the **primary** checkout
-(`C:\wedding-scavenger-hunt\src\app.js`); booting via that config would screenshot the wrong git
-tree and silently approve visuals that were never actually changed. This mirrors how
-`scripts/smoke.js` boots the app relative to its own process rather than any hardcoded path.
+**Nothing commits during phase 1.** The commit gate is unmoved and still fires later, exactly as
+before; phase 1 is entirely the part _before_ the gate, where every edit anyone has ever made already
+lives. No review runs during phase 1, no criteria are checked against it, and no PR opens for it.
 
-**Which session runs the gate.** The loop runs inside the **screenshot-capable `/build` main-loop
-session** — the same session executing this pipeline end to end — never inside a `Task`-spawned
-orchestrator subagent: that subagent's `tools:` frontmatter (top of this file) has no screenshot
-tool, so delegating the gate there would make it un-runnable. The `tools:` frontmatter is not
-edited to add one; the gate simply never runs in that delegated context.
+**Logic may be faked to settle a look, and the fake becomes real work.** If a look needs "top 5, not
+top 10," phase 1 fakes it to settle the look. That faked behavior is then written into phase 2's
+acceptance criteria as real, specified work — `standards/issue-standards.md` § "the approved screen is
+the acceptance criterion" is the single owner of this transcription rule.
 
-**The loop.** For each affected screen: capture the three screenshots, send them to the owner, and
-ask for approval.
+**At approval — freeze the pixels.** The moment the owner says approved, run
+`powershell -File tools/persist-visual-approval.ps1 -Approver <who>`. This hashes the visual-surface
+files (`tools/visual-surface.ps1`) and records the approval **outside** that hashed set, so recording
+it can never itself void it. From this point, `tools/check-visual-approval.ps1` (run at commit time)
+exits non-zero and names the file the moment anything in the visual surface drifts from what was
+approved.
 
-- The owner responds either **approve** or with **requested edits**.
-- On requested edits, send the work back to `agents/implementation-agent.md` to revise, then
-  re-boot the worktree app and re-capture and re-send — the loop repeats until the owner explicitly
-  approves.
-- **Bind to shipped visuals:** approval binds only to the screenshots the owner actually saw. If any
-  later step (an adversarial-review-driven fix, a CI fix) changes what the screen looks like, the
-  prior approval is void and the loop re-runs on the new visuals before merge.
-- Only on explicit owner approval does the visual change proceed to step 6 (Artifact review), the
-  commit gate, CI, and merge.
+**Phase 2 — write it down, then ship.** The acceptance criteria for the visual surface **transcribe**
+what the owner already approved; they do not (re)define it. Only now does issue review run against
+those criteria, step 4 spawns `agents/implementation-agent.md` to add the wiring and tests the
+faked phase-1 behavior needs, and step 6 (artifact review) runs the normal reviewer bar against the
+resulting tree — the freeze protects the owner's pixels from the phase-2 implementer, which can no
+longer quietly redecorate something already blessed.
 
-**Fail-closed — halt, never skip.** If the executing session lacks screenshot capability, the
-orchestrator does not skip the gate or merge the visual change: it halts and surfaces to the owner.
-Absence of explicit owner approval blocks the merge; there is no silent-skip path.
+**When phase 2 wants to move the pixels — two doors, and only two.**
+
+- **Door 1 — it broke.** The look moved by accident (a merge, a refactor, a fix elsewhere touched the
+  same markup). This is a **bug**, not a change request: put it back. The owner is not asked, no issue
+  is reopened, and no criterion is amended.
+- **Door 2 — it cannot be built that way.** A real conflict between the approved look and something
+  phase 2 discovers (a data shape, a performance limit, an accessibility requirement). Whoever hits it
+  — implementer or reviewer — **stops** and brings the owner: the screen, one line of why, one option
+  it believes works. The owner re-enters the **phase 1 loop** — same link, same refresh — and decides.
+  Door 2 never re-enters the adversarial-review pipeline directly; it re-enters the fast phase-1 loop.
+- **There is no third door.** Nobody — implementer, reviewer, or orchestrator — renegotiates the
+  owner's approved look by itself. It is fixed (Door 1), or he is asked (Door 2). **Every Door 2
+  occurrence is recorded in the run report** (`BUILDLOG.md`, or the timed run's Live-log ledger) —
+  nobody knows how often Door 2 fires, so its real frequency is counted, not assumed.
+
+**Bind to shipped visuals.** Approval binds only to the visual-surface hash the owner actually saw at
+approval time. Any subsequent change to `views/**/*.ejs` or `src/public/**` — including a Door 1 or
+Door 2 fix — voids the freeze; a fresh phase-1-loop pass (however short) and a fresh
+`persist-visual-approval.ps1` run are required before merge. Only on an explicit, currently-valid
+owner approval does the visual change proceed to step 6 (Artifact review), the commit gate, CI, and
+merge.
 
 **Not a findings gate.** This loop never carries an adversarial-review defect to the owner — the
 owner still never resolves review findings. It is the "product direction, taste" human-judgment
 carve-out `standards/adversarial-review-protocol.md` § "No human in the loop" reserves, made into an
-explicit pre-merge step for visual changes only.
+explicit pre-implementation step for visual changes only.
 
 ---
 
@@ -343,6 +366,16 @@ one.
 
 ## Model policy
 
+**Phase-1 visual edits are orchestrator-authored, directly (#378).** During the "Visual-approval loop"
+§ phase 1, the orchestrator (Opus) edits `views/**/*.ejs` and `src/public/**` itself rather than
+spawning `agents/implementation-agent.md` for each owner-requested tweak. Reason: the implementer has
+none of the phase-1 conversation — it cannot remember what the owner already rejected two refreshes
+ago, so spawning it per tweak would re-litigate settled taste calls and burn a round trip per five-
+second edit. This is a narrow, named exception to "the orchestrator does not author deliverable
+artifacts" (see Constraints below), scoped to phase-1 visual edits only, while nothing commits. The
+**phase-2 tree — once the criteria are transcribed and an implementer adds wiring/tests — is not
+exempted**: it takes the normal `agents/implementation-agent.md` + reviewer bar below, unchanged.
+
 The orchestrator runs on **Opus**. Implementation agent and non-reviewer spawned agents (researcher,
 etc.) run on **Sonnet**. Reviewers (all `reviewer-*.md` agents, including the adjudicator) run on
 **Opus** — a different model from the implementer, per the independence rule in
@@ -416,7 +449,9 @@ The trigger is the agent noticing. No telemetry or automated detection is requir
 - The orchestrator does not write or approve its own **deliverable** artifacts (skills, agents,
   docs, code). Write/Edit are held for three scoped uses only: authoring issues, appending to
   `BUILDLOG.md`, and updating `CLAUDE.md`/`DESIGN.md`. All other artifact writes are delegated
-  to `agents/implementation-agent.md`.
+  to `agents/implementation-agent.md` — **except phase-1 visual edits** (`views/**/*.ejs`,
+  `src/public/**`, while nothing commits), which the orchestrator authors directly; see "Model
+  policy" above for the full carve-out and its rationale.
 - The agent that produced an artifact must not review it.
 - No human reads code in the critical path; never add an "owner reads the code" step. The
   adversarial reviewers are the code gate — translate any code-review control into a deterministic
@@ -424,9 +459,10 @@ The trigger is the agent noticing. No telemetry or automated detection is requir
   changes are unaffected by any pre-merge human checkpoint: every such PR merges once adversarial
   review passes and CI is green, and owner control there stays upstream (which work is specced, via
   issues) and downstream (revert, via git history). **Visual changes are the one deliberate
-  exception:** they pass the "Visual-approval loop" (below) — rendered screenshots, never code —
-  before the adversarial PR review. See `DESIGN.md` § "Merge policy" and § "Visual-approval loop
-  reinstated" for the rationale.
+  exception:** they pass the "Visual-approval loop" (above) — the owner settles the look live
+  against a seeded preview link, never by reading a diff — before the visual surface's criteria are
+  even written. See `DESIGN.md` § "Merge policy" and § "Visual-approval loop reinstated (#294) --
+  superseded by #378" for the rationale and history.
 - Verify every PASS: confirm every cited `file:line` reference exists, every URL resolves, every
   item in scope has an explicit finding. This check is the orchestrator's responsibility and is
   not delegated to the reviewer.

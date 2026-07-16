@@ -144,15 +144,79 @@ This decision **supersedes** the `agents/orchestrator.md` owner-visual-gate prev
 
 **Superseded-for-visual-changes (2026-07-08, #294):** the decision above is kept as the historical record of why the owner-merge boundary was retired. It still governs non-visual changes unchanged. For **visual** changes specifically, it is superseded by the "Visual-approval loop reinstated" decision immediately below — see that entry for the reinstated mechanism and rationale.
 
-### Visual-approval loop reinstated (active screenshot gate) (#294)
+### Visual-approval loop reinstated (active screenshot gate) (#294) — SUPERSEDED by #378
 
-**Decision (2026-07-08):** the owner reinstates a pre-merge **visual-approval loop** for visual changes only, superseding "Merge policy: owner-merge boundary retired" (2026-07-02) **for visual changes**. A change is visual when its diff touches `views/**/*.ejs`, `src/public/**`, badge art or other rendered assets, or guest-/admin-facing copy shown in a rendered page — the same surface as the "Views/CSS/badge assets/guest-or-admin-facing copy" row of `standards/adversarial-review-protocol.md` § "Which reviews does this change need?". Non-visual changes are unaffected: they still merge on adversarial-review PASS + green CI, exactly as the 2026-07-02 decision states.
+**SUPERSEDED (2026-07-15, #378).** This entry's mechanism — an implemented change screenshotted at
+three phone form factors and sent to the owner for approve/edit — is retired. It is kept below as the
+historical record of what shipped 2026-07-08 and why; it no longer describes how the loop works. The
+current mechanism is "Visual-approval loop, live-preview mechanism (#378)" immediately below.
 
-**Mechanism — active, not passive.** After implementation and before the adversarial PR review, the orchestrator (running in the screenshot-capable `/build` main-loop session) boots the worktree's own app — the current worktree's `src/app.js`, worktree-relative working directory, on a local port — so it serves the worktree's edited `views/**` and `src/public/**` rather than the primary checkout. It then captures an **active screenshot** of the affected screen(s) at three form factors (iPhone SE, iPhone 14 Pro Max, Samsung Galaxy S20 Ultra) and sends them to the owner, driving an approve/edit loop to an explicit yes/no before the visual change proceeds to adversarial PR review, the commit gate, CI, and merge. Full mechanics: `agents/orchestrator.md` § "Visual-approval loop".
+**Why it was retired, not just replaced.** Screenshots were not merely swapped for a cheaper
+alternative — they were found unreliable in practice (2026-07-15 owner evidence): in one session the
+`claude-in-chrome` classifier went intermittently unavailable, `save_to_disk` wrote images the agent
+could not locate, `preview_screenshot` timed out, and Artifact hosting returned `401`. Worse, a
+viewport capture is unfaithful even when it succeeds — it clips exactly the off-screen overflow an
+owner needs to catch (#388's iPhone-SE masthead overflow is the worked example), and fonts do not
+reliably render in a headless capture. Owner: _"no longer want screenshots, is always bad... font not
+render."_ The replacement is not "screenshots but automated better" — it is the owner looking at the
+real, running app himself, which no capture step can misrender or fail to produce.
 
-**Rationale — answers the 2026-07-02 failure mode.** The retired gate failed because it was _passive_: a PR was left open for the owner to merge by hand, so PRs held for manual merge accumulated open and nothing shipped. The reinstated gate is _active_: the orchestrator does the running and screenshotting the owner previously had to do himself, and drives the loop to a decision rather than parking a PR. This removes the "nothing ships" failure mode while restoring the owner's ability to catch "correct but not what I meant" before it is expensive to change.
+**Decision (2026-07-08, historical):** the owner reinstated a pre-merge **visual-approval loop** for visual changes only, superseding "Merge policy: owner-merge boundary retired" (2026-07-02) **for visual changes**. A change is visual when its diff touches `views/**/*.ejs`, `src/public/**`, badge art or other rendered assets, or guest-/admin-facing copy shown in a rendered page — the same surface as the "Views/CSS/badge assets/guest-or-admin-facing copy" row of `standards/adversarial-review-protocol.md` § "Which reviews does this change need?". Non-visual changes are unaffected: they still merge on adversarial-review PASS + green CI, exactly as the 2026-07-02 decision states.
 
-**Not a redesign license.** This gate is a product-taste checkpoint, not authorization for agents to originate design changes — the north-star's "agents do not redesign" still stands.
+**Mechanism as shipped 2026-07-08 (historical, no longer live).** After implementation and before the adversarial PR review, the orchestrator (running in the screenshot-capable `/build` main-loop session) booted the worktree's own app — the current worktree's `src/app.js`, worktree-relative working directory, on a local port — so it served the worktree's edited `views/**` and `src/public/**` rather than the primary checkout. It then captured an active screenshot of the affected screen(s) at three form factors (iPhone SE, iPhone 14 Pro Max, Samsung Galaxy S20 Ultra) and sent them to the owner, driving an approve/edit loop to an explicit yes/no before the visual change proceeded to adversarial PR review, the commit gate, CI, and merge.
+
+**Rationale as shipped 2026-07-08 (historical) — answered the 2026-07-02 failure mode.** The retired 2026-07-02 gate failed because it was _passive_: a PR was left open for the owner to merge by hand, so PRs held for manual merge accumulated open and nothing shipped. The 2026-07-08 gate was _active_: the orchestrator did the running and screenshotting the owner previously had to do himself, and drove the loop to a decision rather than parking a PR. This removed the "nothing ships" failure mode while restoring the owner's ability to catch "correct but not what I meant" before it was expensive to change — a goal the #378 replacement keeps, by a different mechanism (see below).
+
+**Not a redesign license (unchanged).** Neither this retired gate nor its #378 replacement is authorization for agents to originate design changes — the north-star's "agents do not redesign" still stands.
+
+### Visual-approval loop, live-preview mechanism (#378)
+
+**Decision (2026-07-15, owner):** replaces the screenshot mechanism above with a **live seeded-preview
+link + byte-freeze + two-doors** loop. A change is visual under the same trigger as before — its diff
+touches, or will touch, `views/**/*.ejs`, `src/public/**`, badge art or other rendered assets, or
+guest-/admin-facing copy shown in a rendered page (the "Views/CSS/badge assets/guest-or-admin-facing
+copy" row, unchanged). Non-visual changes remain unaffected, exactly as the 2026-07-02 decision states.
+
+**Mechanism.** `scripts/preview.js` (`npm run preview`) seeds a scratch, throwaway database (`DATA_DIR`
+never the real event's — AC2) and boots this worktree's own `src/app.js` on a free port, printing one
+`http://localhost:<port>` line. The orchestrator hands the owner that link and edits the real
+`views/**`/`src/public/**` directly, in this worktree, while the owner keeps the link open and
+refreshes — "arrows are clutter" → two lines gone → refresh → five seconds, repeated until the owner
+says approved. **Nothing commits during this phase**; the commit gate is unmoved, unchanged from
+before. At approval, `tools/persist-visual-approval.ps1` hashes the visual surface
+(`tools/visual-surface.ps1`, the same glob set the row above defines) and records the approval outside
+that hashed set; `tools/check-visual-approval.ps1` (run at commit time) exits non-zero and names the
+file the moment anything in the surface drifts from what was approved. Only then are that surface's
+acceptance criteria written — they **transcribe** what was approved rather than defining it upfront
+(`standards/issue-standards.md` § "the approved screen is the acceptance criterion") — and the normal
+pipeline (issue review, implementation, adversarial PR review, CI, merge) runs on the result. Full
+mechanics: `agents/orchestrator.md` § "Visual-approval loop".
+
+**Two doors, and only two, for a phase-2 change to the approved pixels.** Door 1: the look moved by
+accident — a bug, put it back, the owner is not asked. Door 2: it genuinely cannot be built that way —
+stop, bring the owner the screen, one line of why, one option, and he decides back in the fast
+phase-1 loop. There is no third door; nobody renegotiates the owner's approved look unilaterally.
+Door 2 frequency is unknown, so it is counted in the run report rather than assumed.
+
+**Deliberately not attempted:** no screenshots or PNG capture in any form, no headless browser, no
+pixel/image diffing (the byte-freeze gets most of the same guarantee — "did the file change" — for a
+fraction of the cost and none of the capture fragility above), no CI-required visual check (the freeze
+runs in the pipeline; promoting it to a required status check is a later call).
+
+**The honest hole in the freeze, stated rather than hidden.** What the owner sees depends on more than
+the hashed files alone — seed data, a shared partial, a CSS variable, an asset path elsewhere. Something
+outside the hashed set can in principle change what renders without moving the hash. No byte check
+closes that; the design reviewer and the recorded design language are the intended cover, not a claim
+that the freeze is airtight.
+
+**Rationale for the replacement mechanism.** Screenshots were retired, not merely upgraded — see "Why
+it was retired, not just replaced" above. The live-preview loop keeps the 2026-07-08 gate's core win
+(catch "correct but not what I meant" before it is expensive to change, without leaving a PR parked)
+while removing the capture step that kept failing and the surface it could misrepresent (viewport
+clipping, font rendering) — the owner now looks at the actual running app, not a picture of it.
+
+**Not a redesign license (unchanged).** This loop is a product-taste checkpoint, not authorization for
+agents to originate design changes — the north-star's "agents do not redesign" still stands.
 
 ### Hosted deployment
 
