@@ -90,12 +90,22 @@ router.get('/', function (req, res) {
 
   // Total active tasks (guests only ever see active tasks).
   const totalActiveRow = db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get();
-  const totalTasks = totalActiveRow.n;
 
   // Completed tasks for this guest — routed through scoring.getCompletedCount
   // (issue #104) so this count can never drift from points and badges, which
   // use the same canonical rule (visible submissions, no is_active filter).
   const completedTasks = scoring.getCompletedCount(guest.id);
+
+  // Issue #409: the hardcoded "Upload your profile photo" starter task is a
+  // real task from the guest's point of view — it renders as a counted row in
+  // the /tasks list and shows in Done once the avatar is set. This home
+  // progress bar counts it the same way (via the single owner
+  // scoring.starterTaskContribution, shared with GET /tasks) so a guest who
+  // has completed it never sees it sitting in Done while the headline still
+  // reads "0 of N".
+  const starter = scoring.starterTaskContribution(guest);
+  const totalTasks = totalActiveRow.n + starter.total;
+  const completedTasksWithStarter = completedTasks + starter.done_count;
 
   // Points and badges from the scoring service (section 06 real exports).
   const points = scoring.getPoints(guest.id);
@@ -131,7 +141,7 @@ router.get('/', function (req, res) {
   const progressPercent =
     totalTasks === 0
       ? 0
-      : Math.max(0, Math.min(100, Math.round((completedTasks / totalTasks) * 100)));
+      : Math.max(0, Math.min(100, Math.round((completedTasksWithStarter / totalTasks) * 100)));
 
   res.render('guest-home', {
     title: 'My Garden',
@@ -139,7 +149,7 @@ router.get('/', function (req, res) {
     badges: badges,
     submissions: submissions,
     totalTasks: totalTasks,
-    completedTasks: completedTasks,
+    completedTasks: completedTasksWithStarter,
     progressPercent: progressPercent,
   });
 });
@@ -196,15 +206,25 @@ router.get('/tasks', function (req, res) {
       return String(b.done_at || '').localeCompare(String(a.done_at || ''));
     });
 
+  // Issue #409: the hardcoded "Upload your profile photo" starter renders as a
+  // real row inside the to-do or done list (tasks.ejs) and is counted in the
+  // chip counts, so no visible list disagrees with its adjacent count. Both
+  // the counts and the tile's placement/label come from the single owner in
+  // the scoring service (scoring.starterTaskContribution / STARTER_PHOTO_POINT)
+  // — this route re-derives neither the avatar rule nor the point value.
+  const starter = scoring.starterTaskContribution(guest);
+
   res.render('tasks', {
     title: 'Tasks',
     view: req.query.view === 'done' ? 'done' : 'todo',
     todoTasks: todoTasks,
     doneTasks: doneTasks,
-    doneCount: doneTasks.length,
-    todoCount: todoTasks.length,
-    totalCount: tasks.length,
+    doneCount: doneTasks.length + starter.done_count,
+    todoCount: todoTasks.length + starter.todo_count,
+    totalCount: tasks.length + starter.total,
     pointsPerPhoto: scoring.POINTS_PER_PHOTO,
+    starterDone: starter.done,
+    starterPoints: starter.points,
   });
 });
 
@@ -761,6 +781,12 @@ router.post('/me/edit', function (req, res) {
 
       const oldAvatar = guest.avatar_path;
       newAvatarPath = savedAvatar;
+
+      // Issue #409: award the one-time "Upload your profile photo" starter
+      // point now that an avatar has actually saved. Idempotent — no-op if
+      // this guest already earned it (a replacement avatar never re-awards,
+      // AC2), so it is safe to call on every successful save here.
+      scoring.awardProfilePhotoPoint(guest.id);
 
       // Delete the previous avatar file if it changed. Avatars live in the
       // uploads dir (no thumbnail), so deleteOriginalFile removes them.
