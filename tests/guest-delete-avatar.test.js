@@ -12,7 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
-const { loadApp, makeAdminAgent } = require('./helpers/testApp');
+const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 
 // Realistic stored filename shape (matches photos.js's ORIGINAL_RE allowlist:
 // ^[0-9a-f]{16}-\d+\.(jpg|png|webp)$) so the /uploads static-mount guard
@@ -39,7 +39,7 @@ const TINY_PNG = Buffer.from(
  */
 async function makeGuestAgent(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
+  signInGuest(app, token, agent);
   return agent;
 }
 

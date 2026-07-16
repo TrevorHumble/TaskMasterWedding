@@ -82,4 +82,49 @@ maybeDescribe('apply-branch-protection -EmitPayload', () => {
       'test',
     ]);
   });
+
+  // #48 AC6: -RequireReviewArtifact adds review-artifact-present to the
+  // required-checks payload, without disturbing required_approving_review_count
+  // (stays 0 -- solo maintainer, GitHub forbids self-approval) or enforce_admins
+  // (stays true).
+  it('AC6: -RequireReviewArtifact -EmitPayload -> adds review-artifact-present, review count 0, enforce_admins true', () => {
+    const r = run(['-RequireReviewArtifact']);
+    expect(r.status).toBe(0);
+
+    const body = JSON.parse(r.stdout);
+    const checks = body.required_status_checks.checks;
+    expect(checks).toHaveLength(6);
+
+    const sortedContexts = checks.map((c) => c.context).sort();
+    expect(sortedContexts).toEqual([
+      'Analyze (javascript)',
+      'commit-gate-integrity',
+      'lint',
+      'merge-association',
+      'review-artifact-present',
+      'test',
+    ]);
+
+    expect(body.required_pull_request_reviews.required_approving_review_count).toBe(0);
+    expect(body.enforce_admins).toBe(true);
+  });
+
+  // AC6 combined with -RequireSmoke: both switches are independent additions
+  // to the same base five, not mutually exclusive.
+  it('AC6: -RequireSmoke -RequireReviewArtifact -EmitPayload -> seven checks, both added', () => {
+    const r = run(['-RequireSmoke', '-RequireReviewArtifact']);
+    expect(r.status).toBe(0);
+
+    const body = JSON.parse(r.stdout);
+    const sortedContexts = body.required_status_checks.checks.map((c) => c.context).sort();
+    expect(sortedContexts).toEqual([
+      'Analyze (javascript)',
+      'commit-gate-integrity',
+      'lint',
+      'merge-association',
+      'review-artifact-present',
+      'smoke',
+      'test',
+    ]);
+  });
 });

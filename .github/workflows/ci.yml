@@ -80,6 +80,47 @@ jobs:
       - name: Prettier (check)
         run: npm run format:check
 
+  # Server-side review-authenticity gate (#48): merge-association above only
+  # checks a commit message NAMES an issue -- it never checks a review
+  # happened, and required_approving_review_count stays 0 (solo maintainer,
+  # GitHub forbids self-approval), so the review-aware gate has to be a
+  # status check. scripts/check-review-artifact.js reads the pre-merge
+  # `<!-- governance-ledger -->` PR comment and fails closed unless the
+  # evidence it names is bound to THIS PR's actual head tree and issue -- a
+  # stale comment from an earlier push (bound to an old tree oid) fails by
+  # construction. `if: pull_request` only, same as merge-association: on a
+  # merge_group event the condition is false so the job is skipped, and
+  # GitHub treats a skipped required check as success -- correct here
+  # because the check already ran and passed at PR time (see DESIGN.md
+  # "Merge queue (#404)" and "Review-artifact-present check (#48)"). Not yet
+  # a required status check on main -- activation is a deferred rollout step
+  # (tools/apply-branch-protection.ps1 -RequireReviewArtifact), run only
+  # after this wave's other open PRs have merged.
+  review-artifact-present:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Review evidence present, bound to this PR's head tree and issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed="$(git diff --name-only "$base" "$head" | paste -sd, -)"
+          node scripts/check-review-artifact.js \
+            --pr "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --head-sha "$head" \
+            --changed-paths "$changed"
+
   # Empirical smoke gate (#197): boots the real app against a seeded throwaway
   # DB and probes behavior (hot paths, hostile input, referenced assets).
   # Deliberately a separate job from `test` so a smoke failure reads distinctly

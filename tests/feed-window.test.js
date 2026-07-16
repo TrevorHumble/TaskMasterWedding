@@ -12,7 +12,7 @@
 'use strict';
 
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -70,7 +70,7 @@ beforeAll(async () => {
     .run(guestId, tdTask).lastInsertRowid;
 
   agent = request.agent(app);
-  await agent.get('/j/windowtoken');
+  signInGuest(app, 'windowtoken', agent);
 });
 
 const newest = () => subIds[subIds.length - 1];

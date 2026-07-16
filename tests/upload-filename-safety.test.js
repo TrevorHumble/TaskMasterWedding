@@ -14,7 +14,7 @@
 
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 // Regex that every app-generated filename must match.
 // Matches the shape produced by randomFilename in src/services/photos.js:
@@ -51,7 +51,7 @@ beforeAll(async () => {
   app = result.app;
   db = result.db;
 
-  // Seed a guest.  onboarded=1 so GET /j/:token redirects to / not /onboard.
+  // Seed a guest to sign in as via signInGuest.
   guestToken = 'upload-safety-token';
   guestId = db
     .prepare(`INSERT INTO guests (token, name, onboarded) VALUES (?, ?, 1)`)
@@ -65,12 +65,11 @@ beforeAll(async () => {
 
 /**
  * Return a supertest agent that has the gsid cookie set (authenticated guest).
- * GET /j/:token sets the signed cookie and redirects; the agent stores it.
+ * signInGuest mints the signed cookie directly and stores it on the agent.
  */
 async function makeGuestAgent() {
   const agent = request.agent(app);
-  // Follow the redirect; the cookie is stored on the agent automatically.
-  await agent.get('/j/' + guestToken).redirects(1);
+  signInGuest(app, guestToken, agent);
   return agent;
 }
 

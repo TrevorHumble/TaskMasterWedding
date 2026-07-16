@@ -15,6 +15,67 @@ const { db } = require('./db');
 const app = express();
 
 // ---------------------------------------------------------------------------
+// Process-level crash guards (issue #311). Deliberately at MODULE scope --
+// runs the moment this file is require()'d, NOT inside the startup guard
+// down in section 9 below (only true when this file is the process entry
+// point) -- so a test that loads the app (tests/helpers/testApp.js's
+// loadApp) and then emits a synthetic unhandledRejection always finds a
+// handler already attached, and so a real require of this module from any
+// entrypoint (the server, a script, a test) is protected the same way.
+// (Deliberately NOT spelling out that guard's exact condition in this
+// comment -- several tests, including this file's own AC5/AC6 checks below,
+// locate it in the source via its literal text, and an incidental second
+// occurrence of that phrase up here would shift what `indexOf` finds first.)
+//
+// Before this, there was no process.on('unhandledRejection'/
+// 'uncaughtException') anywhere in src/ (grepped) -- src/routes/guest.js's
+// await submissions.submitPhoto(...) call inside an async multer callback
+// was NOT wrapped in try/catch (fixed separately, in that file, for AC1), so
+// a throw there escaped as an unhandled rejection straight past Express's
+// own error handler (section 8 below) and, on Node >= 15, TERMINATED THE
+// PROCESS -- a full outage for every guest at once until
+// scripts/serve-resilient.js relaunched it.
+//
+// The two guards below make two DIFFERENT choices on purpose:
+//
+//   unhandledRejection: log and KEEP RUNNING. This is the guest-facing
+//   server for the whole reception -- "one bad promise costs one broken
+//   request," not a full-app outage for every other guest mid-celebration.
+//   AC1's try/catch already closes the one throw surface #311 found, so a
+//   rejection reaching this handler at all means some OTHER, not-yet-
+//   anticipated path escaped a catch; logging it is exactly the missing
+//   signal the #311 evidence called out ("an operator watching the console
+//   has zero signal").
+//
+//   uncaughtException: log, then EXIT. Node's own docs warn the process is
+//   in an undefined state once this fires (https://nodejs.org/api/process.html
+//   #event-uncaughtexception) -- continuing to serve requests against
+//   possibly-corrupted state is not a safer choice than restarting.
+//   scripts/serve-resilient.js already exists to relaunch this process on
+//   any unexpected exit, so "exit and let the wrapper restart" is the same
+//   bounded, brief outage the app already tolerates today, not a new cost.
+//
+// Guarded against double registration: this module can load more than once
+// within one Node process (e.g. a test suite that evicts it from
+// require.cache and re-requires it, per tests/hosting-lifecycle.test.js's
+// reloadAppWithFreshConfig). The guard flag lives on `process` itself
+// (outlives any one module instance) so a second load never attaches a
+// second pair of listeners.
+// ---------------------------------------------------------------------------
+if (!process.__gppCrashGuardsInstalled) {
+  process.__gppCrashGuardsInstalled = true;
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('[app] unhandledRejection:', reason);
+  });
+
+  process.on('uncaughtException', (err) => {
+    console.error('[app] uncaughtException:', err);
+    process.exit(1);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // 0. Trust proxy. Hosted deployment (DESIGN.md § Hosted deployment) sits
 //    behind a reverse proxy that terminates TLS and forwards the real client
 //    address in X-Forwarded-For. config.TRUST_PROXY is the hop count to
@@ -73,7 +134,7 @@ app.use((req, res, next) => {
 //    /thumbs  -> data/thumbs  (thumbnails)
 // ---------------------------------------------------------------------------
 app.use(express.static(config.PUBLIC_DIR));
-app.use('/uploads', photos.blockTakenDownOriginal, express.static(config.UPLOADS_DIR));
+app.use(config.UPLOADS_URL_BASE, photos.blockTakenDownOriginal, express.static(config.UPLOADS_DIR));
 app.use('/thumbs', photos.blockTakenDownThumb, express.static(config.THUMBS_DIR));
 
 // ---------------------------------------------------------------------------

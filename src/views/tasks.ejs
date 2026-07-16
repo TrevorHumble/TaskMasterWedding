@@ -4,6 +4,19 @@
 
   <h1 class="page-title">Tasks</h1>
 
+  <%# Hardcoded starter task (issue #409): not a real tasks/submissions row —
+      its point is a one-time bonus point awarded by
+      scoring.awardProfilePhotoPoint (POST /join, POST /me/edit), so it never
+      leaks into the public gallery/feed. Its completion state (starterDone)
+      and point value (starterPoints) come from the single owner
+      scoring.starterTaskContribution via the route (src/routes/guest.js GET
+      /tasks) — this view does NOT re-derive guest.avatar_path or hardcode the
+      point value. It renders as an ordinary FIRST row inside the to-do list
+      (incomplete) or the done list (complete) — same <li class="task-row">
+      markup as a real task — and is counted into todoCount/doneCount/
+      totalCount by the route (same owner) so the chip counts next to the
+      lists never disagree with what's actually inside them. %>
+
   <% var allDone = totalCount > 0 && todoCount === 0; %>
   <% if (allDone) { %>
     <section class="tasks-memory-cta">
@@ -30,10 +43,20 @@
     %>
 
     <% if (view === 'done') { %>
-      <% if (doneTasks.length === 0) { %>
+      <% if (doneTasks.length === 0 && !starterDone) { %>
         <p class="muted">Nothing here yet &mdash; your finished tasks will show up here, photo and all.</p>
       <% } else { %>
         <ul class="task-list">
+          <% if (starterDone) { %>
+            <li class="task-row task-done">
+              <a class="task-link" href="/me/edit">
+                <span class="task-body">
+                  <span class="task-title-text">Upload your profile photo</span>
+                </span>
+                <span class="task-points">Complete</span>
+              </a>
+            </li>
+          <% } %>
           <% doneTasks.forEach(function (t) { %>
             <li class="task-row task-done">
               <a class="task-link" href="/tasks/<%= t.id %>">
@@ -45,6 +68,10 @@
                 </span>
                 <span class="task-body">
                   <span class="task-title-text"><%= t.title %></span>
+                  <span class="task-earnable-badge">
+                    <img class="badge-art" src="<%= t.badge.art_path %>" alt="<%= t.badge.name %>" />
+                    <span class="task-earnable-copy">Earn <%= t.badge.name %> plus extra points</span>
+                  </span>
                 </span>
               </a>
             </li>
@@ -52,10 +79,21 @@
         </ul>
       <% } %>
     <% } else { %>
-      <% if (todoTasks.length === 0) { %>
+      <% if (todoTasks.length === 0 && starterDone) { %>
         <p class="muted">All done &mdash; you&rsquo;ve finished every task. The Wedding Masters are impressed.</p>
       <% } else { %>
         <ul class="task-list">
+          <% if (!starterDone) { %>
+            <li class="task-row task-todo">
+              <a class="task-link" href="/me/edit">
+                <span class="task-body">
+                  <span class="task-title-text">Upload your profile photo</span>
+                  <span class="task-desc">Put a face on your profile.</span>
+                </span>
+                <span class="task-points">+<%= starterPoints %> pt</span>
+              </a>
+            </li>
+          <% } %>
           <% todoTasks.forEach(function (t) { %>
             <li class="task-row task-todo">
               <a class="task-link" href="/tasks/<%= t.id %>">
@@ -64,36 +102,16 @@
                   <% if (t.description) { %>
                     <span class="task-desc"><%= t.description %></span>
                   <% } %>
+                  <span class="task-earnable-badge">
+                    <img class="badge-art" src="<%= t.badge.art_path %>" alt="<%= t.badge.name %>" />
+                    <span class="task-earnable-copy">Earn <%= t.badge.name %> plus extra points</span>
+                  </span>
                 </span>
                 <span class="task-points">+<%= pointsPerPhoto %> pt<%= pointsPerPhoto === 1 ? '' : 's' %></span>
               </a>
             </li>
           <% }); %>
         </ul>
-      <% } %>
-
-      <% if (doneTasks.length > 0) { %>
-        <h2 class="task-section-label">Done</h2>
-        <ul class="task-list">
-          <% recentDone.forEach(function (t) { %>
-            <li class="task-row task-done">
-              <a class="task-link" href="/tasks/<%= t.id %>">
-                <span class="task-thumb-wrap">
-                  <% if (t.thumb_path) { %>
-                    <img src="/thumbs/<%= t.thumb_path %>" alt="" class="task-thumb" width="40" height="40" />
-                  <% } %>
-                  <span class="task-thumb-check" aria-label="Completed">&#10003;</span>
-                </span>
-                <span class="task-body">
-                  <span class="task-title-text"><%= t.title %></span>
-                </span>
-              </a>
-            </li>
-          <% }); %>
-        </ul>
-        <% if (doneTasks.length > 3) { %>
-          <p class="task-see-all"><a href="/tasks?view=done">See all <%= doneCount %> done</a></p>
-        <% } %>
       <% } %>
     <% } %>
   <% } %>

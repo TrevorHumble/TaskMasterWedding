@@ -1,15 +1,18 @@
 // tests/admin-guests-ui.test.js
 // Covers issue #257 acceptance criteria — the guests admin page as a
-// phone-first card list with live name search and copy-link.
+// phone-first card list with live name search.
 //
 //   AC1 — each guest renders as a card (name form, "N pts · D/T tasks" meta,
-//         Copy control, bonus-points form, delete form); no <table> anywhere
+//         bonus-points form, delete form); no <table> anywhere
 //   AC2 — any-word-prefix filter: pure-function tests + DOM count via jsdom
-//   AC3 — Copy button calls clipboard.writeText with the /j/<token> link and
-//         the literal "Copied!" appears (jsdom + clipboard mock)
 //   AC4 — name input width rule in theme.css resolves to ≥ 60% of the card
-//   AC5 — Dashboard + Print QR share a flex container with a gap rule
+//   AC5 — Dashboard + Print entry poster share a flex container with a gap rule
 //   AC6 — guest list starts within the first 40% of the response body
+//
+// AC3 (Copy button copying a guest's private /j/:token link) is gone: issue
+// #244 retired per-guest links entirely — guests join at the one shared
+// /join link now, so there is no per-guest link left to copy. The copy-link
+// button, its handler, and its CSS were removed with it.
 //
 // The jsdom parts build DOMs explicitly via the jsdom package (node test
 // environment throughout) so supertest keeps its node HTTP transport.
@@ -89,7 +92,7 @@ beforeAll(async () => {
 // AC1 — card per guest, required contents, no table
 // ---------------------------------------------------------------------------
 describe('AC1: guest cards replace the table', () => {
-  it('renders a .guest-card per guest with meta line, Copy, bonus form, delete form', async () => {
+  it('renders a .guest-card per guest with meta line, bonus form, delete form', async () => {
     const res = await adminAgent.get('/admin/guests');
     expect(res.status).toBe(200);
 
@@ -100,7 +103,6 @@ describe('AC1: guest cards replace the table', () => {
     const metaCount = (res.text.match(/\d+ pts · \d+\/\d+ tasks/g) || []).length;
     expect(metaCount).toBe(3);
 
-    expect(res.text).toMatch(/class="[^"]*copy-link[^"]*"/);
     expect(res.text).toMatch(/action="\/admin\/guests\/\d+\/points"/);
     expect(res.text).toMatch(/action="\/admin\/guests\/\d+\/delete"/);
 
@@ -142,38 +144,24 @@ describe('AC2: nameMatchesQuery is a case-insensitive any-word prefix match', ()
 });
 
 // ---------------------------------------------------------------------------
-// AC2 (DOM count) + AC3 — one jsdom instance, one require of the client
-// scripts. The browser scripts attach their listeners to whichever document
-// is global when they load, so both DOM tests share a single fixture and a
-// single load rather than re-requiring against fresh documents.
+// AC2 (DOM count) — one jsdom instance, one require of the client scripts.
+// (AC3's copy-link DOM coverage lived here too before issue #244 removed the
+// feature — see the file header comment.)
 // ---------------------------------------------------------------------------
-describe('DOM wiring via jsdom: search filtering (AC2) and copy-link (AC3)', () => {
-  const link = 'http://localhost:3000/j/' + guestToken;
+describe('DOM wiring via jsdom: search filtering (AC2)', () => {
   let dom;
-  let writeText;
   let restoreGlobals;
 
   beforeAll(async () => {
     dom = new JSDOM(
       `<input type="search" id="guest-search" />
        <div class="guest-list">
-         <article class="guest-card" data-guest-name="Ava Fenwick">
-           <div class="guest-link-row">
-             <input type="text" readonly value="${link}" />
-             <button type="button" class="copy-link" data-link="${link}">Copy</button>
-             <span class="copy-confirm" hidden>Copied!</span>
-           </div>
-         </article>
+         <article class="guest-card" data-guest-name="Ava Fenwick"></article>
          <article class="guest-card" data-guest-name="Marcus Bell"></article>
          <article class="guest-card" data-guest-name="Nora Avery"></article>
        </div>`,
       { url: 'http://localhost/' }
     );
-    writeText = vi.fn(() => Promise.resolve());
-    Object.defineProperty(dom.window.navigator, 'clipboard', {
-      value: { writeText },
-      configurable: true,
-    });
     restoreGlobals = installDomGlobals(dom);
     // filter.js was already required at the top of this file (before any
     // window existed), so its window-wiring line never ran and a re-require
@@ -219,21 +207,6 @@ describe('DOM wiring via jsdom: search filtering (AC2) and copy-link (AC3)', () 
     const body = cssRuleBody('.guest-card[hidden]');
     expect(body).not.toBeNull();
     expect(body).toMatch(/display:\s*none\s*!important/);
-  });
-
-  it('AC3: clipboard.writeText gets the guest link and Copied! appears', async () => {
-    const btn = dom.window.document.querySelector('.copy-link');
-    const confirmEl = dom.window.document.querySelector('.copy-confirm');
-    expect(confirmEl.hidden).toBe(true);
-
-    btn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    // Flush the clipboard promise's .then().
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(writeText).toHaveBeenCalledWith(link);
-    expect(confirmEl.hidden).toBe(false);
-    expect(confirmEl.textContent).toBe('Copied!');
   });
 });
 
@@ -289,12 +262,12 @@ describe('AC4: name input width rule', () => {
 // AC5 — header actions share a flex container with a gap
 // ---------------------------------------------------------------------------
 describe('AC5: page-actions flex row', () => {
-  it('Dashboard and Print QR live in one .page-actions element', async () => {
+  it('Dashboard and Print entry poster live in one .page-actions element', async () => {
     const res = await adminAgent.get('/admin/guests');
     const rowMatch = res.text.match(/<p class="page-actions">[\s\S]*?<\/p>/);
     expect(rowMatch).not.toBeNull();
     expect(rowMatch[0]).toContain('Dashboard');
-    expect(rowMatch[0]).toContain('Print QR place-cards');
+    expect(rowMatch[0]).toContain('Print entry poster');
   });
 
   it('theme.css .page-actions is display:flex with a gap rule', () => {
@@ -310,13 +283,14 @@ describe('AC5: page-actions flex row', () => {
 // AC6 — setup forms are <details>; guest list starts early in the document
 // ---------------------------------------------------------------------------
 describe('AC6: setup sections collapse, guest list starts within one screen', () => {
-  it('the three setup sections are <details> blocks', async () => {
+  // Issue #244 removed the "Add one guest" and "Bulk create" sections along
+  // with the admin guest-creation routes they posted to — guests join
+  // themselves at /join now. "Create a custom badge" is the only one left.
+  it('the remaining setup section is a <details> block', async () => {
     const res = await adminAgent.get('/admin/guests');
     const detailsCount = (res.text.match(/<details class="setup-details">/g) || []).length;
-    expect(detailsCount).toBe(3);
-    ['Add one guest', 'Bulk create', 'Create a custom badge'].forEach((label) => {
-      expect(res.text).toMatch(new RegExp('<summary>' + label + '</summary>'));
-    });
+    expect(detailsCount).toBe(1);
+    expect(res.text).toMatch(/<summary>Create a custom badge<\/summary>/);
   });
 
   it('the first guest card appears within the first 40% of the body', async () => {

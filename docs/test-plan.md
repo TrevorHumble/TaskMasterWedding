@@ -23,7 +23,7 @@ Do this once, before you start testing.
    node scripts/seed-event.js --guests 100
    ```
 
-   This creates ~100 guests, a set of tasks, sample photo submissions, and awarded badges, all inside `data-demo` (a folder next to the real `data` folder — it never touches real event data). Guest sign-in tokens are `event-guest-token-0` through `event-guest-token-99`. Guest `event-guest-token-0` is the top scorer on the leaderboard — useful for checking rank #1 quickly.
+   This creates ~100 guests, a set of tasks, sample photo submissions, and awarded badges, all inside `data-demo` (a folder next to the real `data` folder — it never touches real event data). These guests carry internal identifiers `event-guest-token-0` through `event-guest-token-99` — not sign-in links; nothing signs you in as one of them. The first guest, named "Ava Martinez," is the engineered top scorer on the leaderboard — useful for checking rank #1 quickly.
 
 2. **Set an admin password for this test run.** Choose your own password (at least 12 characters) — do not reuse the real event's password, and do not write the real password into any document:
 
@@ -42,7 +42,7 @@ Do this once, before you start testing.
    Leave this running in its own terminal window for the rest of the walkthrough.
 
 4. **Open two browser sessions** — use one regular window and one private/incognito window so the two sign-ins don't overwrite each other's cookies:
-   - **Guest window:** go to `http://localhost:3000/j/event-guest-token-5` (any number 0–99 works; use a different number than token-0 if you also want to check a non-top-scorer). This signs you in as that guest.
+   - **Guest window:** go to `http://localhost:3000/join` and sign up with a name, an email or phone, and a 4-digit PIN of your choosing. This creates a brand-new guest and signs you in as them — the 100 pre-seeded event guests are there to populate the gallery/leaderboard for you to look at, not for you to sign in as.
    - **Admin window:** go to `http://localhost:3000/admin/login` and sign in with the password you set in step 2.
 
 - [ ] Setup complete: server running, guest window signed in, admin window signed in.
@@ -53,27 +53,27 @@ Do this once, before you start testing.
 
 Any guest can play in seconds, and nothing about the tech gets in the way.
 
-### A1. QR sign-in works with a valid link
+### A1. The shared poster link takes a new guest straight to signup
 
-Steps: In a fresh private window, go to `/j/event-guest-token-12`.
+Steps: In a fresh private window, go to `/join` (the same link every guest gets, from the printed poster — see C9 below).
 
-Expected: You land on the guest home page (or the onboarding form, if that guest hasn't onboarded yet) with no error, no login prompt, no password asked.
-
-- [ ] Pass/fail
-
-### A2. First-run onboarding collects a name
-
-Steps: If step A1 sent you to `/onboard`, fill in a name and submit. Skip the avatar and social fields.
-
-Expected: You're redirected to the guest home page (`/`), and the name you entered now appears there. Revisiting `/onboard` afterward does not show the form again — it goes straight to `/`.
+Expected: The signup form appears immediately — no error, no login prompt, no password asked.
 
 - [ ] Pass/fail
 
-### A3. Invalid or unknown token does not sign anyone in
+### A2. Signup collects a name, contact, and PIN in one step
 
-Steps: In a fresh private window, go to `/j/not-a-real-token-xyz`.
+Steps: Fill in a name, an email or phone, and a 4-digit PIN. Skip the avatar and social fields.
 
-Expected: A "Link Not Recognized" message page, not a crash or a blank page. No sign-in cookie is set — confirm by then visiting `/tasks` in that same window; it should redirect you to `/join`, not show the tasks list.
+Expected: You're redirected straight to the guest home page (`/`), with the name you entered now shown there — there is no separate onboarding form afterward.
+
+- [ ] Pass/fail
+
+### A3. An old personal link never signs anyone in
+
+Steps: In a fresh private window, go to `/j/anything-at-all` (any value — this route is fully retired).
+
+Expected: You land on `/join`, signed OUT. No sign-in cookie is set — confirm by then visiting `/tasks` in that same window; it should also redirect you to `/join`, not show the tasks list.
 
 - [ ] Pass/fail
 
@@ -135,7 +135,7 @@ Expected: A "Photo replaced!" message, the new photo shows on the task page, and
 
 Steps: Go to `/leaderboard` in either browser window (no sign-in required to view it, but the session gate still applies per Cross-cutting note below).
 
-Expected: Guests are ordered highest points first. Two guests with the same point total show the same rank number (e.g. both show "3"), and the next distinct guest below them skips the tied ranks (e.g. jumps to "5", not "4"). `event-guest-token-0` should be at or near rank 1.
+Expected: Guests are ordered highest points first. Two guests with the same point total show the same rank number (e.g. both show "3"), and the next distinct guest below them skips the tied ranks (e.g. jumps to "5", not "4"). "Ava Martinez" (the engineered top scorer — see Setup step 1) should be at or near rank 1.
 
 - [ ] Pass/fail
 
@@ -249,19 +249,19 @@ Expected: The photo reappears in `/gallery` and on the guest's home page, and th
 
 - [ ] Pass/fail
 
-### C8. Guest management: create, bulk create, rename, delete
+### C8. Guest management: rename and delete
 
-Steps: In `/admin/guests`, create one guest by hand, then use the bulk-create form to add several guests at once, rename one guest, and delete a guest you just created.
+Steps: In `/admin/guests`, rename one of the guests who signed up during this walkthrough, then delete a guest.
 
-Expected: Each action shows a confirmation message and updates the guest table immediately. The bulk-created guests each get their own unique sign-in link. Deleting a guest removes them and their photos from the system (their photos also disappear from `/gallery`).
+Expected: Each action shows a confirmation message and updates the guest table immediately. Guests are no longer created from this page — they join themselves through `/join` — deleting a guest removes them and their photos from the system (their photos also disappear from `/gallery`).
 
 - [ ] Pass/fail
 
-### C9. QR sheet renders a printable page
+### C9. The entry poster renders a printable page
 
-Steps: Go to `/admin/qrsheet`.
+Steps: Go to `/admin/poster`.
 
-Expected: A page listing every guest's name (or a placeholder like "Guest #N" if unnamed) alongside a scannable QR code image for their personal link. The page should look ready to print — no broken images, no missing names.
+Expected: A single page with one scannable QR code pointing at the shared `/join` link, spelled out underneath. The page should look ready to print — no broken image.
 
 - [ ] Pass/fail
 
@@ -357,7 +357,7 @@ Steps: On `/feed`, open a photo's comment dialog (tap the comment bubble). Type 
 
 Expected: Your comment appears in the thread immediately, and the comment count next to the bubble goes up by one. Look for any way to reply to a specific comment, and for any notification or alert sent to another guest about the new comment — there should be **none**; this app has no reply threads and no comment notifications.
 
-Steps (continued): In the admin window, hide the comment you just posted (see C10 above). Sign in as a different guest: open a fresh private/incognito window and go to `/j/event-guest-token-<a different number 0–99 than the commenter>` (the same token scheme as A1). Then reload `/feed` in that window.
+Steps (continued): In the admin window, hide the comment you just posted (see C10 above). Sign in as a different guest: open a fresh private/incognito window, go to `/join`, and sign up with a different name/contact/PIN than your first guest. Then reload `/feed` in that window.
 
 Expected: The hidden comment does not appear anywhere on that photo's card or inside its comment dialog to the second guest.
 

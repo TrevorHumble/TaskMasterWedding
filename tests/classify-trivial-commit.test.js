@@ -66,6 +66,47 @@ function stageLockfile(dir, content) {
   git(dir, ['add', 'package-lock.json']);
 }
 
+// A scratch repo whose HEAD commit carries an explicit package-lock.json
+// (unlike makeRepo, which always seeds the "{}\n" placeholder) -- needed for
+// #467 cases where the lockfile's CONTENT at HEAD must already look like a
+// real npm lockfile (a `packages` object) for the new condition-4 diff to
+// have something real to compare against.
+function makeRepoWithLockfile(headDeps, headLockfileContent) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trivial-commit-'));
+  git(dir, ['init', '-q']);
+  git(dir, ['config', 'user.name', 'test']);
+  git(dir, ['config', 'user.email', 'test@example.invalid']);
+  writeManifest(dir, headDeps);
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), headLockfileContent);
+  git(dir, ['add', '-A']);
+  git(dir, ['commit', '-q', '-m', 'seed']);
+  return dir;
+}
+
+// Builds a real-shaped npm lockfile (lockfileVersion 3 `packages` map): a
+// root "" entry mirroring the manifest's dependencies/devDependencies, plus
+// one node_modules/<name> entry per pkgVersions key. #467's condition 4
+// diffs exactly this shape, so fixtures must use it -- not the `{}` /
+// `{"changed":true}` placeholders #448's tests used (those never reached the
+// lockfile's content, since #448 only ever checked its path).
+function makeLockfile(rootDeps, rootDevDeps, pkgVersions) {
+  const root = { name: 'fixture', version: '1.0.0' };
+  if (rootDeps && Object.keys(rootDeps).length) root.dependencies = rootDeps;
+  if (rootDevDeps && Object.keys(rootDevDeps).length) root.devDependencies = rootDevDeps;
+  const packages = { '': root };
+  for (const [name, version] of Object.entries(pkgVersions || {})) {
+    packages[`node_modules/${name}`] = {
+      version,
+      resolved: `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`,
+      integrity: `sha512-fixture-${name}-${version}`,
+    };
+  }
+  return (
+    JSON.stringify({ name: 'fixture', version: '1.0.0', lockfileVersion: 3, packages }, null, 2) +
+    '\n'
+  );
+}
+
 // Raw-manifest helpers: write a fully-specified package.json object so a
 // fixture can carry arbitrary top-level fields (scripts, bin, main, ...),
 // used to prove a version bump smuggling a non-dep change is `standard`.
@@ -104,9 +145,12 @@ const maybeDescribe = launcherMissing
 
 maybeDescribe('classify-trivial-commit.ps1', () => {
   it('AC1: express minor bump, package.json + lockfile only -> trivial', () => {
-    const dir = makeRepo({ dependencies: { express: '^4.21.2' } });
+    const dir = makeRepoWithLockfile(
+      { dependencies: { express: '^4.21.2' } },
+      makeLockfile({ express: '^4.21.2' }, {}, { express: '4.21.2' })
+    );
     stagePackageJson(dir, { dependencies: { express: '^4.22.2' } });
-    stageLockfile(dir);
+    stageLockfile(dir, makeLockfile({ express: '^4.22.2' }, {}, { express: '4.22.2' }));
     const r = run(dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('trivial');
@@ -187,18 +231,24 @@ maybeDescribe('classify-trivial-commit.ps1', () => {
   }, 30000);
 
   it('edge: non-critical prod patch bump -> trivial', () => {
-    const dir = makeRepo({ dependencies: { lodash: '^4.17.20' } });
+    const dir = makeRepoWithLockfile(
+      { dependencies: { lodash: '^4.17.20' } },
+      makeLockfile({ lodash: '^4.17.20' }, {}, { lodash: '4.17.20' })
+    );
     stagePackageJson(dir, { dependencies: { lodash: '^4.17.21' } });
-    stageLockfile(dir);
+    stageLockfile(dir, makeLockfile({ lodash: '^4.17.21' }, {}, { lodash: '4.17.21' }));
     const r = run(dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('trivial');
   }, 30000);
 
   it('edge: dev-dependency major bump -> trivial (dev bumps are always auto)', () => {
-    const dir = makeRepo({ devDependencies: { eslint: '^8.0.0' } });
+    const dir = makeRepoWithLockfile(
+      { devDependencies: { eslint: '^8.0.0' } },
+      makeLockfile({}, { eslint: '^8.0.0' }, { eslint: '8.0.0' })
+    );
     stagePackageJson(dir, { devDependencies: { eslint: '^9.0.0' } });
-    stageLockfile(dir);
+    stageLockfile(dir, makeLockfile({}, { eslint: '^9.0.0' }, { eslint: '9.0.0' }));
     const r = run(dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('trivial');
@@ -272,13 +322,134 @@ maybeDescribe('classify-trivial-commit.ps1', () => {
   // non-normalizable range (a git URL) alongside a real auto-tier bump does
   // NOT force `standard` -- only the CHANGED version is classified.
   it('unchanged non-normalizable dep (git URL) alongside a real bump -> trivial', () => {
-    const dir = makeRepo({
-      dependencies: { express: '^4.21.2', tool: 'git+https://github.com/x/tool.git#v1' },
-    });
+    const headDeps = { express: '^4.21.2', tool: 'git+https://github.com/x/tool.git#v1' };
+    const stagedDeps = { express: '^4.22.2', tool: 'git+https://github.com/x/tool.git#v1' };
+    const dir = makeRepoWithLockfile(
+      { dependencies: headDeps },
+      makeLockfile(headDeps, {}, { express: '4.21.2', tool: '1.0.0' })
+    );
+    stagePackageJson(dir, { dependencies: stagedDeps });
+    stageLockfile(dir, makeLockfile(stagedDeps, {}, { express: '4.22.2', tool: '1.0.0' }));
+    const r = run(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('trivial');
+  }, 30000);
+
+  // #467: the lockfile's CONTENT, not just its path, is now examined. These
+  // cases exercise condition 4 directly -- AC1/AC2 as specified in issue #467.
+  it('AC1 (#467): manifest bumps a dev dep, but the lockfile also repins an untouched wedding-critical dep -> standard', () => {
+    const headDeps = { dependencies: { sharp: '^0.33.0' }, devDependencies: { eslint: '^8.0.0' } };
+    const dir = makeRepoWithLockfile(
+      headDeps,
+      makeLockfile({ sharp: '^0.33.0' }, { eslint: '^8.0.0' }, { sharp: '0.33.0', eslint: '8.0.0' })
+    );
+    // Manifest: only eslint bumps (dev patch, auto-class); sharp untouched.
     stagePackageJson(dir, {
-      dependencies: { express: '^4.22.2', tool: 'git+https://github.com/x/tool.git#v1' },
+      dependencies: { sharp: '^0.33.0' },
+      devDependencies: { eslint: '^8.0.1' },
     });
+    // Lockfile: eslint's bump is reflected correctly, but sharp is ALSO
+    // repinned even though package.json never touched it -- exactly the
+    // smuggling vector #467 closes.
+    stageLockfile(
+      dir,
+      makeLockfile({ sharp: '^0.33.0' }, { eslint: '^8.0.1' }, { sharp: '0.33.1', eslint: '8.0.1' })
+    );
+    const r = run(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('standard');
+  }, 30000);
+
+  it('AC2 (#467): lockfile changes confined to the manifest-bumped dep -> trivial', () => {
+    const headDeps = { dependencies: { sharp: '^0.33.0' }, devDependencies: { eslint: '^8.0.0' } };
+    const dir = makeRepoWithLockfile(
+      headDeps,
+      makeLockfile({ sharp: '^0.33.0' }, { eslint: '^8.0.0' }, { sharp: '0.33.0', eslint: '8.0.0' })
+    );
+    stagePackageJson(dir, {
+      dependencies: { sharp: '^0.33.0' },
+      devDependencies: { eslint: '^8.0.1' },
+    });
+    // sharp's node_modules entry and root dependency stanza are byte-identical
+    // to HEAD; only eslint's own entries move -- the waiver's intended case.
+    stageLockfile(
+      dir,
+      makeLockfile({ sharp: '^0.33.0' }, { eslint: '^8.0.1' }, { sharp: '0.33.0', eslint: '8.0.1' })
+    );
+    const r = run(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('trivial');
+  }, 30000);
+
+  it('#467: a lockfile with no top-level packages object (old/unrecognized shape) -> standard, fail closed', () => {
+    // Reuses the original placeholder helpers unmodified: HEAD lockfile is
+    // "{}\n" (makeRepo) and the staged lockfile is the default
+    // '{"changed":true}\n" (stageLockfile with no content arg) -- neither has
+    // a `packages` object, which is exactly the "content never examined"
+    // shape #467 exists to stop trusting.
+    const dir = makeRepo({ dependencies: { express: '^4.21.2' } });
+    stagePackageJson(dir, { dependencies: { express: '^4.22.2' } });
     stageLockfile(dir);
+    const r = run(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('standard');
+  }, 30000);
+
+  it('security (#467): lockfile root entry smuggles a non-dependency field -> standard', () => {
+    const dir = makeRepoWithLockfile(
+      { dependencies: { lodash: '^4.17.20' } },
+      makeLockfile({ lodash: '^4.17.20' }, {}, { lodash: '4.17.20' })
+    );
+    stagePackageJson(dir, { dependencies: { lodash: '^4.17.21' } });
+    const lock = JSON.parse(makeLockfile({ lodash: '^4.17.21' }, {}, { lodash: '4.17.21' }));
+    // A root-entry field the manifest-diff check (condition 2) never looks
+    // at, since it only inspects package.json -- the lockfile's own copy of
+    // the root project entry is a second, unguarded place the same kind of
+    // smuggled field could hide.
+    lock.packages[''].bin = './cli-new.js';
+    stageLockfile(dir, JSON.stringify(lock, null, 2) + '\n');
+    const r = run(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('standard');
+  }, 30000);
+
+  it('#467: a new transitive package nested under an UNCHANGED dep -> standard', () => {
+    const dir = makeRepoWithLockfile(
+      { dependencies: { sharp: '^0.33.0' }, devDependencies: { eslint: '^8.0.0' } },
+      makeLockfile({ sharp: '^0.33.0' }, { eslint: '^8.0.0' }, { sharp: '0.33.0', eslint: '8.0.0' })
+    );
+    stagePackageJson(dir, {
+      dependencies: { sharp: '^0.33.0' },
+      devDependencies: { eslint: '^8.0.1' },
+    });
+    const lock = JSON.parse(
+      makeLockfile({ sharp: '^0.33.0' }, { eslint: '^8.0.1' }, { sharp: '0.33.0', eslint: '8.0.1' })
+    );
+    // A package added UNDER sharp's own subtree, but sharp itself never
+    // changed -- transitive drift on an untouched dep, rejected.
+    lock.packages['node_modules/sharp/node_modules/color'] = { version: '4.2.3' };
+    stageLockfile(dir, JSON.stringify(lock, null, 2) + '\n');
+    const r = run(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('standard');
+  }, 30000);
+
+  it('#467: a new transitive package nested under the CHANGED dep -> trivial', () => {
+    const dir = makeRepoWithLockfile(
+      { dependencies: { sharp: '^0.33.0' }, devDependencies: { eslint: '^8.0.0' } },
+      makeLockfile({ sharp: '^0.33.0' }, { eslint: '^8.0.0' }, { sharp: '0.33.0', eslint: '8.0.0' })
+    );
+    stagePackageJson(dir, {
+      dependencies: { sharp: '^0.33.0' },
+      devDependencies: { eslint: '^8.0.1' },
+    });
+    const lock = JSON.parse(
+      makeLockfile({ sharp: '^0.33.0' }, { eslint: '^8.0.1' }, { sharp: '0.33.0', eslint: '8.0.1' })
+    );
+    // A package added under eslint's OWN subtree -- eslint is the dep that
+    // actually bumped, so a nested addition there is within bounds.
+    lock.packages['node_modules/eslint/node_modules/globals'] = { version: '13.20.0' };
+    stageLockfile(dir, JSON.stringify(lock, null, 2) + '\n');
     const r = run(dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('trivial');

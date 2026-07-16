@@ -6,10 +6,19 @@
 // pool of virtual guests over Node's built-in fetch — NO new dependency.
 //
 // Each virtual guest:
-//   1. Signs in via GET /j/<token>, capturing the SIGNED gsid cookie from the
-//      response's Set-Cookie header (see captureSignedCookie below — the
-//      cookie is signed by cookie-parser(COOKIE_SECRET); synthesizing
-//      "gsid=<token>" ourselves would be rejected by src/middleware/session.js).
+//   1. Signs in by MINTING the signed gsid cookie directly with node's own
+//      `crypto` (see mintSignedGsidCookie below) — no HTTP round trip. Issue
+//      #244 retired GET /j/:token (the route this harness used to sign in
+//      through, capturing its Set-Cookie); a synthesized "gsid=<token>" is
+//      rejected by src/middleware/session.js, since the cookie must be signed
+//      exactly the way cookie-parser(COOKIE_SECRET) signs it. This harness
+//      reproduces that signing algorithm locally instead (same approach as
+//      tests/helpers/testApp.js's signInGuest/signCookieValue), keyed to each
+//      lane's seeded token (`${tokenPrefix}${laneIndex}`) — the token itself
+//      is never sent over the wire to sign in, only the resulting cookie is.
+//      This requires COOKIE_SECRET in this process's env to match the value
+//      the target server was started with (both read it from the same
+//      project .env by default — see config.js's loadDotEnv).
 //   2. Loops over the read paths: /, /tasks, /gallery, /feed, /leaderboard.
 //   3. Submits a real photo via POST /tasks/:id/submit (multipart, field
 //      "photo") — the heavy path: multer + synchronous better-sqlite3 +
@@ -32,6 +41,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const config = require('../config');
 
 // ---------------------------------------------------------------------------
 // Pure measurement helpers (unit-tested in tests/loadtest.test.js).
@@ -232,10 +243,13 @@ function parseArgs(argv) {
  * no gsid cookie is present.
  *
  * The cookie is SIGNED by cookie-parser(COOKIE_SECRET) — its value is not the
- * bare guest token but "s:<token>.<hmac>", URL-encoded. We must forward this
- * EXACT value verbatim; synthesizing "gsid=<token>" ourselves fails
- * signature verification in src/middleware/session.js and the guest is
- * treated as signed out.
+ * bare guest token but "s:<token>.<hmac>", URL-encoded.
+ *
+ * NOT used by this harness's own sign-in anymore (see mintSignedGsidCookie
+ * below) — issue #244 retired the GET /j/:token response this used to parse a
+ * Set-Cookie header out of. Kept as a general-purpose parsing helper (and its
+ * own unit test in tests/loadtest.test.js still covers it) in case a future
+ * flow signs in over a real HTTP round trip again.
  *
  * @param {string|null} setCookieHeader - raw Set-Cookie header value
  * @returns {string|null} e.g. "gsid=s%3Aevent-guest-token-0.abc123"
@@ -243,10 +257,55 @@ function parseArgs(argv) {
 function captureSignedCookie(setCookieHeader) {
   if (!setCookieHeader) return null;
   // Match just the gsid= pair, stopping at the first attribute separator (`;`).
-  // auth.js's /j/:token sets exactly one cookie per redirect response, so a
-  // single match is all we need — no multi-cookie splitting.
   const match = setCookieHeader.match(/gsid=[^;]+/);
   return match ? match[0] : null;
+}
+
+/**
+ * Sign a raw cookie value exactly the way `cookie-parser` (via the
+ * `cookie-signature` package) verifies it: `value + '.' + base64(HMAC-SHA256(
+ * value, secret))`, trailing `=` padding stripped. Reproduces
+ * cookie-signature's two-line algorithm with node's own `crypto` rather than
+ * pulling in that transitive dependency directly — the SAME approach
+ * tests/helpers/testApp.js's signCookieValue uses (kept as two small,
+ * independent copies rather than a shared module, since one lives under
+ * scripts/ and the other under tests/helpers/ with no existing shared home
+ * between them).
+ *
+ * @param {string} value - the raw cookie value (here, a guest's token).
+ * @param {string} secret - config.COOKIE_SECRET.
+ * @returns {string} the signed value, WITHOUT the leading `s:` marker.
+ */
+function signCookieValue(value, secret) {
+  const mac = crypto.createHmac('sha256', secret).update(value).digest('base64').replace(/=+$/, '');
+  return `${value}.${mac}`;
+}
+
+/**
+ * Mint the exact signed `gsid` cookie header value src/middleware/session.js
+ * (via cookie-parser(COOKIE_SECRET)) expects for a given guest token — with
+ * NO HTTP round trip. Issue #244 retired GET /j/:token, the route this
+ * harness used to sign in through by capturing a real Set-Cookie response; a
+ * virtual guest's token is already known here (`${tokenPrefix}${laneIndex}`,
+ * matching how scripts/seed-event.js seeds guests), so minting locally is
+ * both simpler and removes one HTTP request per lane from the run.
+ *
+ * Requires this process's COOKIE_SECRET to match the target server's (both
+ * default to reading the same project .env — see config.js's loadDotEnv) —
+ * otherwise the server rejects the signature and treats the guest as signed
+ * out, which would show up as every read path 302-redirecting to /join
+ * instead of 200ing.
+ *
+ * @param {string} token - a guest's `guests.token` value, already seeded.
+ * @returns {string} e.g. "gsid=s%3Aevent-guest-token-0.abc123"
+ */
+function mintSignedGsidCookie(token) {
+  const signed = signCookieValue(token, config.COOKIE_SECRET);
+  // The cookie's value on the wire is percent-encoded (Express/`cookie`
+  // encodes with encodeURIComponent by default) — reproduce that here so it
+  // decodes back to the same signed value cookie-parser would unsign from a
+  // real Set-Cookie response.
+  return `gsid=${encodeURIComponent(`s:${signed}`)}`;
 }
 
 /**
@@ -381,7 +440,7 @@ function loadSamplePhoto() {
  * @param {string} ctx.baseUrl
  * @param {string} ctx.tokenPrefix
  * @param {Array<{ms:number,status:number|null,path:string,networkFailure:boolean}>} ctx.samples
- * @param {Map<number, string>} ctx.cookies - lane -> captured gsid cookie
+ * @param {Map<number, string>} ctx.cookies - lane -> minted gsid cookie
  * @param {Map<number, number>} ctx.taskIds - lane -> discovered active task id
  * @param {{buffer: Buffer, filename: string, contentType: string}} ctx.photo
  * @param {{warned: boolean}} ctx.noTaskWarning - one-shot "no active task" warning latch
@@ -393,19 +452,12 @@ async function runOneLap(ctx, laneIndex) {
 
   let cookie = cookies.get(laneIndex);
   if (!cookie) {
+    // Mint the signed session cookie directly (no HTTP round trip) — see
+    // mintSignedGsidCookie's doc comment above for why (issue #244 retired
+    // the GET /j/:token response this used to sign in through).
     const token = `${tokenPrefix}${laneIndex}`;
-    const res = await timedFetch(samples, `${baseUrl}/j/${token}`, '/j/:token');
-    if (res) {
-      const captured = captureSignedCookie(res.headers.get('set-cookie'));
-      if (captured) {
-        cookie = captured;
-        cookies.set(laneIndex, cookie);
-      }
-    }
-    if (!cookie) {
-      // Could not sign in this lane — nothing more to do this lap.
-      return;
-    }
+    cookie = mintSignedGsidCookie(token);
+    cookies.set(laneIndex, cookie);
   }
 
   const headers = { cookie };
@@ -539,6 +591,8 @@ module.exports = {
   formatSummary,
   parseArgs,
   captureSignedCookie,
+  signCookieValue,
+  mintSignedGsidCookie,
   extractActiveTaskIds,
   chooseTaskId,
   runPool,

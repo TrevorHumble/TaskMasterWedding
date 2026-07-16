@@ -1,5 +1,7 @@
 # Build Log
 
+**Cutover (2026-07-11, #447):** per-merge entries (`<sha> — #<n> — <summary>`) no longer append to this file. They are harvested from a pre-merge `<!-- buildlog-entry -->` PR comment into `governance/ledger.ndjson`, and rendered as the browsable per-merge changelog — the rendered `BUILDLOG.md` committed on the `ledger` branch, one file per merge, reverse-chronological, prefixed by the frozen history below (see `governance/buildlog-history.md`). This file (`BUILDLOG.md` on `main`) keeps receiving only the exceptional, non-merge entry types: `[HALT]`, `[AUDIT]`, and wave-completion notes — see `agents/orchestrator.md` § "Wave boundary" and § "Stop condition". Offline/worktree fallback for reading the rendered log without a network call: `node scripts/buildlog-render.js`. The live per-merge log is on the `ledger` branch, not below — everything from here down is the frozen pre-cutover history.
+
 Reverse-chronological record of notable changes to the repo.
 
 ## Entry conventions
@@ -10,9 +12,7 @@ Three entry types, appended in reverse-chronological order:
 - `[AUDIT] <sha> — <summary>` — full-system architectural audit, run on every 5th counted entry; excluded from the count.
 - `[HALT] #<n> — <reason>` — segment halted at the impasse stop condition; the work is not committed.
 
-The run-time Live-log ledger (per-increment `[HH:MM] elapsed=…` lines) lives in `docs/RESUME-STATE.md`.
-
-**Cutover (2026-07-11, #447):** per-merge entries (`<sha> — #<n> — <summary>`) no longer append to this file. They are harvested from a pre-merge `<!-- buildlog-entry -->` PR comment into `governance/ledger.ndjson`, and rendered as the browsable per-merge changelog — the rendered `BUILDLOG.md` committed on the `ledger` branch, one file per merge, reverse-chronological, prefixed by the frozen history below (see `governance/buildlog-history.md`). This file (`BUILDLOG.md` on `main`) keeps receiving only the exceptional, non-merge entry types: `[HALT]`, `[AUDIT]`, and wave-completion notes — see `agents/orchestrator.md` § "Wave boundary" and § "Stop condition". Offline/worktree fallback for reading the rendered log without a network call: `node scripts/buildlog-render.js`. Every entry below this note predates the cutover and is preserved byte-identical.
+The run-time Live-log ledger (per-increment `[HH:MM] elapsed=…` lines) lives in `docs/RESUME-STATE.md`. Every entry below this note predates the cutover and is preserved byte-identical.
 
 ## 2026-07-11
 

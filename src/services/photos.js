@@ -671,65 +671,95 @@ async function resolveUploadedFile(file, guestId) {
     throw err;
   }
 
-  // Read the file exactly ONCE (bounded by MAX_UPLOAD_BYTES = 15 MB), then both
-  // sniff and — if HEIC — convert from those SAME bytes. One filesystem access
-  // to this path closes the check-then-use (TOCTOU) window a separate
-  // open-to-sniff + reopen-to-read would leave. The signature (not the declared
-  // mimetype) decides whether this is HEIC (see the doc comment above).
-  const original = fs.readFileSync(safePath);
-
-  if (!looksLikeHeic(original.subarray(0, 12))) {
-    // Not HEIC. Keep it only if its declared type is one we actually store;
-    // otherwise it is a non-HEIC file that only got this far because fileFilter
-    // accepted its mimetype provisionally (e.g. application/octet-stream).
-    if (ALLOWED_MIME_TO_EXT[file.mimetype]) {
-      return; // already a real, correctly-stored jpeg/png/webp — nothing to do
-    }
-    fs.unlinkSync(safePath);
-    const err = new Error(DISALLOWED_TYPE_MESSAGE);
-    err.code = 'BAD_IMAGE_TYPE';
-    throw err;
-  }
-
-  // HEIC confirmed by signature. Charge the per-guest decode rate limit BEFORE
-  // spending a decode; an over-limit (or unattributable) guest is rejected here
-  // without the file ever reaching the worker. Delete the stored file first so a
-  // rejected upload leaves no residue (same as the reject branches above).
+  // Open the stored file EXACTLY ONCE and do both the bounded 12-byte header
+  // sniff and — only on the HEIC-confirmed branch — the full read through this
+  // SAME file descriptor. Reading through an already-open fd pins both reads to
+  // one inode, so the path is never re-resolved between the check (sniff) and
+  // the use (full read): that closes the check-then-use (TOCTOU) race a
+  // separate open-to-sniff + reopen-to-read would leave (CodeQL
+  // js/file-system-race).
+  //
+  // The dominant case is non-HEIC, where nothing downstream ever needs the rest
+  // of the bytes (sharp re-reads the file from disk for the thumbnail), so a
+  // full-file read on every upload would be pure waste — up to MAX_UPLOAD_BYTES
+  // (15 MB) copied into memory on the main thread for a 12-byte decision. The
+  // full read therefore happens ONLY inside the HEIC-confirmed branch below,
+  // where convertHeicToJpeg actually needs every byte.
+  const header = Buffer.alloc(12);
+  const fd = fs.openSync(safePath, 'r');
   try {
-    assertHeicDecodeAllowed(guestId);
-  } catch (rlErr) {
-    fs.unlinkSync(safePath);
-    throw rlErr;
-  }
+    // Sniff at an EXPLICIT position 0, which leaves the fd's own read offset
+    // UNCHANGED (Node fs semantics, confirmed on this runtime) — so a later
+    // fs.readFileSync(fd) on the HEIC branch still starts at byte 0 and returns
+    // the whole file, leading 12 bytes included.
+    const headerBytesRead = fs.readSync(fd, header, 0, 12, 0);
 
-  let jpegBuffer;
-  try {
-    jpegBuffer = await convertHeicToJpeg(original);
-  } catch (convertErr) {
-    fs.unlinkSync(safePath);
-    // convertHeicToJpeg's own guards throw already-guest-safe, coded errors
-    // (BAD_IMAGE_TYPE for the pixel cap, HEIC_RATE_LIMITED for the global
-    // pending cap) — let those through with their specific message rather than
-    // masking it. Only a genuine decode failure (an uncoded raw libheif error,
-    // a timeout, or a worker-infrastructure error) gets the generic copy.
-    if (GUEST_SAFE_CONVERT_CODES.has(convertErr.code)) {
-      throw convertErr;
+    if (!looksLikeHeic(header.subarray(0, headerBytesRead))) {
+      // Not HEIC. Keep it only if its declared type is one we actually store;
+      // otherwise it is a non-HEIC file that only got this far because fileFilter
+      // accepted its mimetype provisionally (e.g. application/octet-stream).
+      if (ALLOWED_MIME_TO_EXT[file.mimetype]) {
+        return; // already a real, correctly-stored jpeg/png/webp — nothing to do
+      }
+      fs.unlinkSync(safePath);
+      const err = new Error(DISALLOWED_TYPE_MESSAGE);
+      err.code = 'BAD_IMAGE_TYPE';
+      throw err;
     }
-    const err = new Error("Sorry, that photo couldn't be read. Please try a different photo.", {
-      cause: convertErr,
-    });
-    err.code = 'BAD_IMAGE_TYPE';
-    throw err;
+
+    // HEIC confirmed by signature. Charge the per-guest decode rate limit BEFORE
+    // spending a decode; an over-limit (or unattributable) guest is rejected here
+    // without the file ever reaching the worker. Delete the stored file first so a
+    // rejected upload leaves no residue (same as the reject branches above).
+    try {
+      assertHeicDecodeAllowed(guestId);
+    } catch (rlErr) {
+      fs.unlinkSync(safePath);
+      throw rlErr;
+    }
+
+    // Only now — confirmed HEIC — read the full file (bounded by
+    // MAX_UPLOAD_BYTES = 15 MB) from the SAME fd; convertHeicToJpeg and
+    // assertHeicPixelsWithinCap need every byte. Passing the fd (not the path)
+    // is what keeps this pinned to the inode the sniff already validated. This
+    // single read is the only full-file read on this path.
+    const original = fs.readFileSync(fd);
+
+    let jpegBuffer;
+    try {
+      jpegBuffer = await convertHeicToJpeg(original);
+    } catch (convertErr) {
+      fs.unlinkSync(safePath);
+      // convertHeicToJpeg's own guards throw already-guest-safe, coded errors
+      // (BAD_IMAGE_TYPE for the pixel cap, HEIC_RATE_LIMITED for the global
+      // pending cap) — let those through with their specific message rather than
+      // masking it. Only a genuine decode failure (an uncoded raw libheif error,
+      // a timeout, or a worker-infrastructure error) gets the generic copy.
+      if (GUEST_SAFE_CONVERT_CODES.has(convertErr.code)) {
+        throw convertErr;
+      }
+      const err = new Error("Sorry, that photo couldn't be read. Please try a different photo.", {
+        cause: convertErr,
+      });
+      err.code = 'BAD_IMAGE_TYPE';
+      throw err;
+    }
+
+    const newName = randomFilename('.jpg');
+    const newPath = path.join(UPLOADS_DIR, newName);
+    fs.writeFileSync(newPath, jpegBuffer);
+    fs.unlinkSync(safePath);
+
+    file.filename = newName;
+    file.path = newPath;
+    file.mimetype = 'image/jpeg';
+  } finally {
+    // Close the single fd on EVERY exit: the non-HEIC early return, every throw
+    // (bad-type, rate-limit, convert-failure), and the HEIC success path.
+    // fs.readFileSync(fd) does not close a caller-supplied fd, so this is the
+    // sole close and never double-closes.
+    fs.closeSync(fd);
   }
-
-  const newName = randomFilename('.jpg');
-  const newPath = path.join(UPLOADS_DIR, newName);
-  fs.writeFileSync(newPath, jpegBuffer);
-  fs.unlinkSync(safePath);
-
-  file.filename = newName;
-  file.path = newPath;
-  file.mimetype = 'image/jpeg';
 }
 
 const multerInstance = multer({
@@ -879,7 +909,7 @@ function uploadMemoryBatch(req, res, cb) {
 
 // ---------------------------------------------------------------------------
 // multer configuration: MEMORY storage for avatar intake (issue #122).
-// Shared by onboarding (auth.js POST /onboard) and profile-edit (guest.js
+// Shared by signup (auth.js POST /join) and profile-edit (guest.js
 // POST /me/edit) so avatar bytes always arrive as req.file.buffer through the
 // SAME mechanism — no route reads a file back off disk to get a Buffer.
 // Field name is "avatar" (e.g. <input type="file" name="avatar">). Reuses the
@@ -894,6 +924,24 @@ const uploadAvatar = multer({
     files: 1,
   },
 }).single('avatar');
+
+// ---------------------------------------------------------------------------
+// multer configuration: MEMORY storage for task-badge art intake (issue
+// #483). Same shape as uploadAvatar immediately above — memory storage so
+// the route gets req.file.buffer straight away — but its OWN multer instance
+// bound to a different field ("badge_art"), because this upload has no guest
+// context (it is admin-only, behind requireAdmin, on the task board) and
+// must not be confused with — or accidentally accepted on — the guest
+// avatar field.
+// ---------------------------------------------------------------------------
+const uploadBadgeArt = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: MAX_UPLOAD_BYTES,
+    files: 1,
+  },
+}).single('badge_art');
 
 // ---------------------------------------------------------------------------
 // Thumbnail generation.
@@ -1009,16 +1057,88 @@ async function saveAvatar(buffer, guestId) {
 }
 
 // ---------------------------------------------------------------------------
+// Task-badge art persistence (issue #483). Mirrors saveAvatar's pipeline
+// (memory storage -> HEIC detection/conversion -> sharp re-encode, same
+// allowlist and EXIF-orientation handling) but has no guest to attach the
+// result to — the caller (src/routes/admin.js's POST /admin/tasks/:id/badge)
+// hands the stored path to task-badges.setTaskBadge instead.
+// ---------------------------------------------------------------------------
+
+// Square badge-art dimension in pixels. Badge SVGs render at a 120x120
+// viewBox; storing at double that gives crisp display at 2x device pixel
+// ratio without the file being needlessly large for a wedding-laptop host.
+const BADGE_ART_DIMENSION = 240;
+
+/**
+ * Persist a task-badge art image that arrived as an in-memory Buffer (via
+ * the uploadBadgeArt middleware above).
+ * @param {Buffer} buffer - the raw uploaded bytes (req.file.buffer via uploadBadgeArt)
+ * @returns {Promise<string>} the stored filename (relative to UPLOADS_DIR —
+ *   build its URL with urlForOriginal, same as any other UPLOADS_DIR file).
+ *
+ * Notes:
+ *  - We normalize to JPEG, same as saveAvatar, so an oddly-encoded upload is
+ *    viewable in any browser.
+ *  - HEIC is detected and converted exactly as saveAvatar does. UNLIKE
+ *    saveAvatar/resolveUploadedFile, this does NOT call
+ *    assertHeicDecodeAllowed (the per-guest HEIC-decode rate limit): that
+ *    limit is keyed on a guestId this admin-only upload has none of, and its
+ *    purpose is throttling a hostile GUEST flooding decodes — this path is
+ *    reachable only behind requireAdmin, by the single event admin, so it is
+ *    not the flood surface the limit defends against. The pixel-bomb cap and
+ *    the global pending-decode cap (both guestId-independent) still apply,
+ *    via convertHeicToJpeg below, same as every other HEIC entry point.
+ *  - .rotate() honors EXIF orientation, same as saveAvatar/makeThumb.
+ */
+async function saveBadgeArt(buffer) {
+  if (!buffer || !buffer.length) {
+    throw new Error(
+      'saveBadgeArt: empty buffer (caller must use the uploadBadgeArt memory-storage middleware).'
+    );
+  }
+
+  let sourceBuffer = buffer;
+  if (looksLikeHeic(buffer)) {
+    try {
+      sourceBuffer = await convertHeicToJpeg(buffer);
+    } catch (convertErr) {
+      if (GUEST_SAFE_CONVERT_CODES.has(convertErr.code)) {
+        throw convertErr;
+      }
+      throw new Error("Sorry, that image couldn't be read. Please try a different image.", {
+        cause: convertErr,
+      });
+    }
+  }
+
+  const name = randomFilename('.jpg');
+  const absPath = path.join(UPLOADS_DIR, name);
+
+  await sharp(sourceBuffer)
+    .rotate()
+    .resize({
+      width: BADGE_ART_DIMENSION,
+      height: BADGE_ART_DIMENSION,
+      fit: 'cover',
+      position: 'attention',
+    })
+    .jpeg({ quality: 82 })
+    .toFile(absPath);
+
+  return name;
+}
+
+// ---------------------------------------------------------------------------
 // Path / URL builders.
 // submissions.photo_path and submissions.thumb_path (and guests.avatar_path) store
 // the RELATIVE filename only (no directory). These helpers convert between filename,
 // absolute disk path, and the public URL served by the static mounts in app.js.
 // ---------------------------------------------------------------------------
 
-/** Public URL for an original photo (or avatar), served by app.use('/uploads', ...). */
+/** Public URL for an original photo (or avatar), served by app.use(config.UPLOADS_URL_BASE, ...). */
 function urlForOriginal(photoPath) {
   if (!photoPath) return '';
-  return '/uploads/' + photoPath;
+  return config.UPLOADS_URL_BASE + '/' + photoPath;
 }
 
 /** Public URL for a thumbnail, served by app.use('/thumbs', ...). */
@@ -1306,6 +1426,7 @@ module.exports = {
   upload,
   uploadAvatar,
   uploadMemoryBatch,
+  uploadBadgeArt,
   MAX_UPLOAD_BYTES,
   MEMORY_BATCH_MAX_FILES,
   THUMB_WIDTH,
@@ -1314,6 +1435,7 @@ module.exports = {
   // image processing
   makeThumb,
   saveAvatar,
+  saveBadgeArt,
 
   // HEIC pixel-bomb guard (exported for direct unit testing — see
   // tests/heic-conversion.test.js). MAX_HEIC_PIXELS is the single cap;

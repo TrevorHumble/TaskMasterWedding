@@ -60,24 +60,31 @@ Write-Output "evidence written: issue $Verdict by $ReviewerId for issue $IssueNu
 
 # Ledger bridge (#359, #412): the ephemeral evidence file above never survives worktree
 # cleanup, so it cannot be the durable record. Emit the same verdict as the
-# {role,model,verdict,round} object the orchestrator carries verbatim into the
-# pre-merge governance-ledger PR comment (agents/orchestrator.md) -- CI's
+# {role,model,verdict,issue_number,round} object the orchestrator carries verbatim
+# into the pre-merge governance-ledger PR comment (agents/orchestrator.md) -- CI's
 # scripts/ledger-harvest.js then copies that comment's reviews array, unchanged,
 # into the committed gl1 row. [ordered] + -Compress fixes the key order to exactly
-# role,model,verdict,round so the emitted line matches byte-for-byte across runs.
+# role,model,verdict,issue_number,round so the emitted line matches byte-for-byte
+# across runs.
 # The durable record stays the CI-written role:"issue" entry in the gl1 row of
 # governance/ledger.ndjson -- this sibling file is a scratch relay to the
 # orchestrator, not evidence in its own right. Its extension is .ledger-entry.txt
 # (not .json) so tools/issue-core.ps1 Read-IssueEvidence's *.json glob can never
-# match it -- the file is unscannable by the commit-msg issue gate by construction,
-# not merely by the no-issue_number check below. No issue_number field either, as
-# defence-in-depth: even if a future glob change widened the extension filter, this
-# sibling still could not inflate the issue gate's evidence count.
+# match it -- the file is unscannable by the commit-msg issue gate by construction.
+#
+# issue_number (#48): added so the server-side review-artifact-present check
+# (scripts/check-review-artifact.js) can bind this entry to the exact issue a PR
+# claims to close, instead of trusting an unqualified role:"issue" PASS. This
+# widens what the ledger-bridge sibling carries but changes nothing about the
+# .ledger-entry.txt-vs-.json extension defence above: Read-IssueEvidence's glob
+# still can never match this file, so adding a field here still cannot inflate
+# the commit-msg issue gate's evidence count.
 $ledgerEntry = [ordered]@{
-  role    = 'issue'
-  model   = $Model
-  verdict = $Verdict
-  round   = $Round
+  role         = 'issue'
+  model        = $Model
+  verdict      = $Verdict
+  issue_number = $IssueNumber
+  round        = $Round
 }
 $ledgerEntryJson = $ledgerEntry | ConvertTo-Json -Compress
 $ledgerEntryPath = Join-Path $dir "$ReviewerId.ledger-entry.txt"

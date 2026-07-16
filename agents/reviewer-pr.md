@@ -34,7 +34,7 @@ If the spawning prompt names what the artifact is supposed to accomplish, or exp
 
 **Governing standard:** the `## Acceptance criteria` section of the linked issue is the operative standard for this review. No separate standards file governs PR review; treat each AC item as a checklist row.
 
-**Input:** the absolute path to the PR diff (or list of changed files) and the absolute path to its linked issue file. Read both, and read `standards/adversarial-review-protocol.md`. Read nothing else unless a changed file path is listed and must be inspected for AC compliance.
+**Input:** the absolute path to the PR diff (or list of changed files) and the absolute path to its linked issue file. Read both, and read `standards/adversarial-review-protocol.md`. Read nothing else unless a changed file path is listed and must be inspected for AC compliance. The spawn prompt also assigns this reviewer instance a distinct `reviewerId` (e.g. `reviewer-pr-1`) — use that exact value in the JSON block below; do not invent one.
 
 **Output:**
 
@@ -50,6 +50,25 @@ AC2: PASS|FAIL — verified by: …
 ```
 
 One token verdict, then one `verified by` line per AC, then the numbered defect list. A `verified by` field is sufficient if it states a concrete input→output pair, a `file:line`, or the specific test checked; it counts as unverified = FAIL only when it has none of those (e.g. just "looks fine"). Verdict maps directly to AC coverage: every AC must have an explicit finding (pass or fail). An AC with no finding is itself a FAIL. A PASS with any open blocker or major is not a PASS.
+
+**In addition to** the prose review above — not instead of it — emit a single trailing fenced ```json block conforming to `tools/review-verdict.schema.md`. It is a complete object: `reviewerId` (the id the spawn prompt assigned), `verdict` (`PASS` or `FAIL`, matching the prose token), and `defects` (an array mirroring the numbered defect list above; each entry carries `severity` — one of `blocker`/`major`/`minor`/`nit` — `category` — one of `correctness`/`security`/`test-coverage`/`docs`/`design`/`simplification`/`style` — `text`, and, when the finding cites a location, `file` and 1-based `line`). Example:
+
+```json
+{
+  "reviewerId": "reviewer-pr-1",
+  "verdict": "FAIL",
+  "defects": [
+    {
+      "severity": "blocker",
+      "category": "correctness",
+      "text": "unhandled null deref",
+      "file": "src/db.js",
+      "line": 42
+    },
+    { "severity": "nit", "category": "style", "text": "naming style" }
+  ]
+}
+```
 
 ## Checklist
 

@@ -1,8 +1,13 @@
 // tests/admin-guest-management.test.js
 // Issue #181: admin guest-management routes need tests that assert real
-// response/DB outcomes, not just that a handler ran. Covers create, bulk
-// create (with its junk/cap guards), edit (rename + pin/unpin), delete
-// (missing-file resilience), and bonus points (add/subtract/reject).
+// response/DB outcomes, not just that a handler ran. Covers edit (rename +
+// pin/unpin), delete (missing-file resilience), and bonus points
+// (add/subtract/reject).
+//
+// Issue #244 AC3 retired admin-side guest CREATION (POST /admin/guests and
+// POST /admin/guests/bulk) — guests now join themselves at /join, so those
+// two routes must 404 and write no row; see the first describe block below.
+// The create/bulk-create coverage this file used to carry is gone with them.
 //
 // REQUIRE ORDER: loadApp() must run before any require that pulls in config
 // or db (see tests/helpers/testApp.js).
@@ -27,64 +32,23 @@ beforeAll(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Create
+// Retired guest-creation routes (issue #244 AC3)
 // ---------------------------------------------------------------------------
-describe('POST /admin/guests — create one guest', () => {
-  it('trims the name, generates a 32-char hex token, and redirects with a message', async () => {
-    const res = await adminAgent.post('/admin/guests').type('form').send({ name: ' Aunt Carol ' });
+describe('POST /admin/guests and POST /admin/guests/bulk are retired', () => {
+  it('POST /admin/guests 404s and creates no row', async () => {
+    const before = db.prepare('SELECT COUNT(*) AS n FROM guests').get().n;
+    const res = await adminAgent.post('/admin/guests').type('form').send({ name: 'Aunt Carol' });
 
-    expect(res.status).toBe(303);
-    expect(res.headers.location).toMatch(/^\/admin\/guests\?msg=/);
-
-    const row = db.prepare('SELECT * FROM guests WHERE name = ?').get('Aunt Carol');
-    expect(row).toBeTruthy();
-    expect(row.token).toMatch(/^[0-9a-f]{32}$/);
+    expect(res.status).toBe(404);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM guests').get().n).toBe(before);
   });
 
-  it('an empty body creates a nameless guest (legal — the place-card flow depends on it)', async () => {
-    const before = db.prepare("SELECT COUNT(*) AS n FROM guests WHERE name = ''").get().n;
-    await adminAgent.post('/admin/guests').type('form').send({});
-    const after = db.prepare("SELECT COUNT(*) AS n FROM guests WHERE name = ''").get().n;
-    expect(after).toBe(before + 1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Bulk create
-// ---------------------------------------------------------------------------
-describe('POST /admin/guests/bulk', () => {
-  it('creates exactly N guests with distinct tokens and a matching message', async () => {
+  it('POST /admin/guests/bulk 404s and creates no row', async () => {
     const before = db.prepare('SELECT COUNT(*) AS n FROM guests').get().n;
     const res = await adminAgent.post('/admin/guests/bulk').type('form').send({ count: '3' });
 
-    const after = db.prepare('SELECT COUNT(*) AS n FROM guests').get().n;
-    expect(after).toBe(before + 3);
-    expect(res.headers.location).toContain(encodeURIComponent('Created 3'));
-
-    const tokens = db
-      .prepare('SELECT token FROM guests ORDER BY id DESC LIMIT 3')
-      .all()
-      .map((r) => r.token);
-    expect(new Set(tokens).size).toBe(3);
-  });
-
-  it.each(['0', 'abc'])(
-    'rejects junk count %s — no rows created, message says "1 or more"',
-    async (count) => {
-      const before = db.prepare('SELECT COUNT(*) AS n FROM guests').get().n;
-      const res = await adminAgent.post('/admin/guests/bulk').type('form').send({ count });
-
-      const after = db.prepare('SELECT COUNT(*) AS n FROM guests').get().n;
-      expect(after).toBe(before);
-      expect(res.headers.location).toContain(encodeURIComponent('1 or more'));
-    }
-  );
-
-  it('caps a request for 501 at exactly 500 new rows', async () => {
-    const before = db.prepare('SELECT COUNT(*) AS n FROM guests').get().n;
-    await adminAgent.post('/admin/guests/bulk').type('form').send({ count: '501' });
-    const after = db.prepare('SELECT COUNT(*) AS n FROM guests').get().n;
-    expect(after).toBe(before + 500);
+    expect(res.status).toBe(404);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM guests').get().n).toBe(before);
   });
 });
 

@@ -6,7 +6,7 @@
 // stay, since they sit outside #galleryGrid.
 'use strict';
 
-const { loadApp, seed } = require('./helpers/testApp');
+const { loadApp, seed, signInGuest } = require('./helpers/testApp');
 const request = require('supertest');
 
 let agent;
@@ -77,7 +77,7 @@ beforeAll(async () => {
   ).run(ids.guestId, taskId, 'takendown-photo.jpg', TAKENDOWN_THUMB);
 
   agent = request.agent(app);
-  await agent.get('/j/seedtoken');
+  signInGuest(app, 'seedtoken', agent);
 });
 
 // ---------------------------------------------------------------------------

@@ -44,6 +44,21 @@
           </label>
         </form>
 
+        <div class="task-badge-row">
+          <div class="task-badge-row-current">
+            <img class="badge-art" src="<%= t.badge.art_path %>" alt="<%= t.badge.name %>" />
+            <span class="badge-name"><%= t.badge.name %></span>
+          </div>
+          <% if (t.badge.isDefault) { %>
+            <form action="/admin/tasks/<%= t.id %>/badge" method="post" enctype="multipart/form-data"
+                  class="task-badge-upload-form">
+              <input type="text" name="name" placeholder="Badge name (e.g. Golden Move)" />
+              <%- include('partials/upload-field', { id: 'badge-art-' + t.id, name: 'badge_art', accept: 'image/*', label: 'Upload badge art…' }) %>
+              <button type="submit" class="btn btn-sm btn-secondary">Upload badge</button>
+            </form>
+          <% } %>
+        </div>
+
         <div class="task-card-actions">
           <button type="submit" form="task-edit-<%= t.id %>" class="btn btn-sm btn-secondary">Save</button>
           <form action="/admin/tasks/<%= t.id %>/active" method="post">

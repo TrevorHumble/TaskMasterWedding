@@ -16,7 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -46,12 +46,12 @@ let seq = 0;
 let lastToken = null;
 
 // /leaderboard sits behind guest.js's requireGuest, so a viewer must be signed
-// in. We sign in as one of the already-seeded guests (via GET /j/<token>, the
+// in. We sign in as one of the already-seeded guests (via signInGuest, the
 // same pattern the other route tests use) rather than adding an extra guest to
 // the field, which would perturb the engineered point distributions.
 async function signedInBoard(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token);
+  signInGuest(app, token, agent);
   const res = await agent.get('/leaderboard');
   expect(res.status).toBe(200);
   return res;

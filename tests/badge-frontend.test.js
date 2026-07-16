@@ -5,8 +5,7 @@
 // leaderboard, and the public profile keeps working unchanged.
 'use strict';
 
-const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -41,16 +40,18 @@ function submit(guestId, taskId) {
   ).run(guestId, taskId, `p${subSeq}.jpg`, `t${subSeq}.jpg`);
 }
 
-async function signIn(token) {
-  const agent = request.agent(app);
-  await agent.get('/j/' + token);
-  return agent;
+function signIn(token) {
+  return signInGuest(app, token);
 }
 
 describe('AC1/AC5: home progress bar is re-based on task completion, not badge thresholds', () => {
-  it('a guest with 2 of 6 active tasks complete sees "2 of 6", no "to your next badge", and aria-valuenow="33"', async () => {
+  it('a guest with 2 of 6 active tasks complete (profile-photo starter still incomplete) sees "2 of 7", no "to your next badge", and aria-valuenow="29"', async () => {
     // seed.js's 6 sample tasks are the only active tasks at this point (fresh
-    // temp DB, nothing else has touched `tasks` yet in this file).
+    // temp DB, nothing else has touched `tasks` yet in this file). Issue #409
+    // AC6: the hardcoded "Upload your profile photo" starter always adds 1 to
+    // the home progress denominator (matching how GET /tasks counts it), so a
+    // guest who has completed 2 of the 6 real tasks and has NOT set an avatar
+    // reads "2 of 7" here, exactly as the /tasks list reads "2 of 7".
     const activeTaskIds = db
       .prepare('SELECT id FROM tasks WHERE is_active = 1 ORDER BY id LIMIT 2')
       .all()
@@ -64,10 +65,10 @@ describe('AC1/AC5: home progress bar is re-based on task completion, not badge t
     const res = await agent.get('/');
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain('2 of 6');
+    expect(res.text).toContain('2 of 7');
     expect(res.text).not.toContain('to your next badge');
-    // AC5: round(2/6*100) = 33.
-    expect(res.text).toMatch(/role="progressbar"[^>]*aria-valuenow="33"/);
+    // AC5/AC6: round(2/7*100) = 29 (denominator includes the incomplete starter).
+    expect(res.text).toMatch(/role="progressbar"[^>]*aria-valuenow="29"/);
   });
 
   it('clamps aria-valuenow to 100 when completedTasks exceeds totalTasks (task deactivated after completion)', async () => {

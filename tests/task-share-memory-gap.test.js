@@ -16,7 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -63,7 +63,7 @@ function seedOneTodoTask() {
 
 async function signedInAgent(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token);
+  signInGuest(app, token, agent);
   return agent;
 }
 
@@ -118,9 +118,16 @@ describe('AC471(3): the allDone .tasks-memory-cta path is untouched', () => {
     db.prepare('DELETE FROM submissions').run();
     db.prepare('DELETE FROM tasks').run();
     db.prepare('DELETE FROM guests').run();
+    // avatar_path is set so this guest is genuinely "all done": issue #409's
+    // owner-redirected placement (second visual-loop edit, 2026-07-14) folds
+    // the hardcoded profile-photo starter tile into the to-do/done split, so
+    // a guest who hasn't set an avatar always has an outstanding to-do item
+    // (the tile itself) and allDone (src/views/tasks.ejs) never fires.
     const guestId = db
-      .prepare('INSERT INTO guests (token, name, onboarded) VALUES (?, ?, 1)')
-      .run('ac471-alldone-token', 'Done Guest').lastInsertRowid;
+      .prepare(
+        'INSERT INTO guests (token, name, onboarded, avatar_path, avatar_point_awarded) VALUES (?, ?, 1, ?, 1)'
+      )
+      .run('ac471-alldone-token', 'Done Guest', 'has-avatar.jpg').lastInsertRowid;
     const taskId = db
       .prepare('INSERT INTO tasks (title, is_active) VALUES (?, 1)')
       .run('Cut the cake').lastInsertRowid;

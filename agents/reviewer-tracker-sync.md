@@ -7,8 +7,8 @@ model: opus
 
 ## Role
 
-Single responsibility: judge whether the `issues/NNNN-*.md` files, `BUILDLOG.md`, and the live GitHub issue
-board agree with each other, plus — **while the roadmap epic #126 is OPEN only** — whether its checklist (the
+Single responsibility: judge whether the `data/wip-issues/<N>-slug.md` files, the live per-merge log (the
+`ledger`-branch rendered `BUILDLOG.md`, #447), and the live GitHub issue board agree with each other, plus — **while the roadmap epic #126 is OPEN only** — whether its checklist (the
 board-derived roadmap, see `DESIGN.md` "Roadmap: board-derived, session-structured (#139)") agrees with the
 board. A CLOSED #126 is a retired epic, not a live artifact: this agent still reads it (see Input contract
 below) to confirm that closed state, but judges nothing further against it. GitHub is the single source of
@@ -37,10 +37,15 @@ If the spawning prompt asserts the board is already correct, or names the expect
 
 ## Input / output contract
 
-**Input:** the repo root. Read `issues/` (the issue files), `BUILDLOG.md`, the epic **#126**
+**Input:** the repo root. Read `data/wip-issues/` (the issue files) and the live per-merge log — since
+#447, `main`'s own `BUILDLOG.md` no longer receives a per-merge entry (it carries only the frozen
+pre-cutover history plus exceptional `[HALT]`/`[AUDIT]`/wave entries), so the shipped-vs-open check below
+reads the `ledger`-branch rendered log instead: `git show ledger:BUILDLOG.md`, or regenerate locally with
+`node scripts/buildlog-render.js`. Also read the epic **#126**
 (the epic read: `& "C:\Program Files\GitHub CLI\gh.exe" issue view 126`), and the live board
-(the board list read: `& "C:\Program Files\GitHub CLI\gh.exe" issue list --state all --json number,title,state,labels`
-— no `--repo`, it defaults to this project's own repo). Read nothing else. The epic read's state (OPEN or
+(the board list read: `& "C:\Program Files\GitHub CLI\gh.exe" issue list --state all --limit 500 --json number,title,state,labels`
+— no `--repo`, it defaults to this project's own repo; `--limit 500` is required so a just-shipped issue can never
+fall outside the default 30-result window). Read nothing else. The epic read's state (OPEN or
 CLOSED) is what the "Checklist — epic #126 drift" section below gates on: a CLOSED result means the epic is
 retired, so the two epic-drift checks emit no finding — this is the expected outcome for a retired epic, never
 an input error or a missing-artifact defect.
@@ -58,10 +63,10 @@ One token verdict, then the numbered defect list. A PASS with any open blocker o
 
 ## Checklist (the board is `out of sync` if any holds)
 
-- [ ] An issue whose artifact BUILDLOG records as shipped/committed is OPEN on the board.
+- [ ] An issue whose artifact the live per-merge log (the `ledger`-branch rendered `BUILDLOG.md`) records as shipped/committed is OPEN on the board.
 - [ ] An issue or backlog item with no shipped artifact (and no `done`/`graduated` marker) is CLOSED on the board.
-- [ ] An issue file `issues/NNNN-*.md` has no matching GitHub card at all (missing from the board). Exception: a backlog-_container_ file (one that lists future work rather than being a single task) has no card of its own; its actionable items are each their own card instead.
-- [ ] A card's label contradicts the issue's declared tier (a `ready` card for a `backlog` item, or vice versa).
+- [ ] An issue file `data/wip-issues/<N>-slug.md` has no matching GitHub card at all (missing from the board). Exception: a backlog-_container_ file (one that lists future work rather than being a single task) has no card of its own; its actionable items are each their own card instead. Note: `data/wip-issues/` is gitignored and per-worktree, so a draft file may legitimately be absent from this worktree; an empty or missing `data/wip-issues/` is recorded as not-applicable for this check, not as drift.
+- [ ] A card's label contradicts the issue's declared tier, read from `data/wip-issues/<N>-slug.md`'s `Type:` field (a `ready` card for a `backlog` item, or vice versa). Note: `data/wip-issues/` is gitignored and per-worktree, so the issue file backing this check may legitimately be absent from this worktree; treat a missing file as not-applicable, not as evidence of a tier mismatch.
 - [ ] A card marked closed-as-superseded points to a successor issue that does not exist.
 
 ## Checklist — epic #126 drift (advisory findings, never a block on their own)
@@ -85,7 +90,7 @@ blocking. The two epic-#126 checks are separate directions of drift and must not
       list read. Report the issue number and its actual board state.
 - [ ] **Dangling epic reference (minor/nit):** an epic #126 checklist item cites an issue number that does
       not appear as a `number` in the board list read at all. This is the opposite direction from the existing
-      "issue file with no matching board card" check above: that check starts from an `issues/NNNN-*.md` file on
+      "issue file with no matching board card" check above: that check starts from a `data/wip-issues/<N>-slug.md` file on
       disk and asks whether the board list read has a card for it; this check starts from a number written
       inside the epic's own checklist text and asks whether that number appears anywhere in the board list
       read's `number` field. Report the cited issue number.

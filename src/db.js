@@ -31,6 +31,7 @@ db.exec(`
     token         TEXT    NOT NULL UNIQUE,
     name          TEXT    NOT NULL DEFAULT '',
     avatar_path   TEXT,
+    avatar_point_awarded INTEGER NOT NULL DEFAULT 0,
     social_links  TEXT    NOT NULL DEFAULT '{}',
     bonus_points  INTEGER NOT NULL DEFAULT 0,
     onboarded     INTEGER NOT NULL DEFAULT 0,
@@ -216,6 +217,83 @@ function ensureBadgeTypeCheckWidened() {
 }
 
 ensureBadgeTypeCheckWidened();
+
+// --- Guarded migration: badges.task_id (issue #483) ---
+/**
+ * Add badges.task_id if it is not already present, then (re)create the
+ * partial unique index that gives a task at most one badge row.
+ *
+ * Same guard shape as ensurePhotoBonusColumn above: the badges CREATE TABLE
+ * above deliberately omits task_id, so the column is absent on BOTH a fresh
+ * DB and an existing pre-#483 app.db; the ALTER TABLE ... ADD COLUMN adds it
+ * on the first boot, gated on PRAGMA table_info so a repeat call (or a later
+ * boot) is a no-op and never throws "duplicate column" (AC9). No DEFAULT is
+ * given, so the column is NULL for every pre-existing row — SQLite's ALTER
+ * TABLE ADD COLUMN refuses a REFERENCES clause unless the new column's
+ * default is NULL, which this satisfies.
+ *
+ * MUST run AFTER ensureBadgeTypeCheckWidened() above: that function REBUILDS
+ * the whole `badges` table on an old-vocabulary DB (drop + recreate + copy),
+ * and if task_id already existed by then the rebuild's explicit column list
+ * would silently drop it. The call order below (widen-check, then this) is
+ * load-bearing, not incidental.
+ *
+ * The index is partial (WHERE task_id IS NOT NULL) so the many system rows
+ * (task_id NULL: auto/special/metric/transferable, plus any custom badge not
+ * tied to a task) never collide with each other or with a NULL under a plain
+ * UNIQUE constraint — only two badges rows naming the SAME task collide,
+ * enforcing "a task has at most one badge row" (issue #483's foundation
+ * rule) at the schema layer rather than in application code.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureBadgeTaskIdColumn() {
+  const cols = db.prepare(`PRAGMA table_info(badges)`).all();
+  if (!cols.some((col) => col.name === 'task_id')) {
+    db.exec(`ALTER TABLE badges ADD COLUMN task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE`);
+  }
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_badges_task_id ON badges(task_id) WHERE task_id IS NOT NULL`
+  );
+}
+
+ensureBadgeTaskIdColumn();
+
+// --- Guarded migration: guest_badges award columns (issue #483) ---
+/**
+ * Add guest_badges.points/note/submission_id if any is not already present.
+ *
+ * Same guard shape as ensureGuestIdentityColumns above: the guest_badges
+ * CREATE TABLE deliberately omits all three, so they are absent on BOTH a
+ * fresh DB and an existing pre-#483 app.db; each ALTER TABLE runs once per
+ * column, gated on PRAGMA table_info, so a repeat call (or a later boot) is a
+ * no-op and never throws "duplicate column" (AC9).
+ *
+ * points defaults to 0 and note/submission_id default to NULL — the ADD
+ * COLUMN itself is what gives every PRE-EXISTING row (every system/auto/
+ * metric/transferable/special grant ever written through stmtGrantBadge,
+ * which never sets these) exactly those defaults, with no separate backfill
+ * UPDATE needed (AC7).
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureGuestBadgeAwardColumns() {
+  const cols = db.prepare(`PRAGMA table_info(guest_badges)`).all();
+  const names = new Set(cols.map((col) => col.name));
+  if (!names.has('points')) {
+    db.exec(`ALTER TABLE guest_badges ADD COLUMN points INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!names.has('note')) {
+    db.exec(`ALTER TABLE guest_badges ADD COLUMN note TEXT`);
+  }
+  if (!names.has('submission_id')) {
+    db.exec(
+      `ALTER TABLE guest_badges ADD COLUMN submission_id INTEGER REFERENCES submissions(id) ON DELETE SET NULL`
+    );
+  }
+}
+
+ensureGuestBadgeAwardColumns();
 
 // --- Guarded migration: guests.pinned (issue #251) ---
 /**
@@ -416,6 +494,41 @@ function ensureResubmittedColumn() {
 // module-load code before any other module's `require('../db')` call returns.
 ensureResubmittedColumn();
 
+// --- Guarded migration: guests.avatar_point_awarded (issue #409) ---
+/**
+ * Add guests.avatar_point_awarded if it is not already present.
+ *
+ * Same PRAGMA-guarded conditional-ALTER shape as ensurePinnedColumn above —
+ * but unlike pinned (which the guests CREATE TABLE deliberately omits), this
+ * column IS in the guests CREATE TABLE above, so on a fresh DB the column
+ * already exists and this migration is a no-op. It exists only to upgrade an
+ * existing pre-#409 app.db in place: there the column does not exist yet;
+ * PRAGMA table_info detects the absence and the ALTER TABLE runs once, gated
+ * so a repeat call (or a later boot) is a no-op and never throws
+ * "duplicate column".
+ *
+ * Meaning of the flag: flips from 0 to 1 the first time scoring.js's
+ * awardProfilePhotoPoint() grants the one-time starter "Upload your profile
+ * photo" bonus point for this guest (POST /join, POST /me/edit). It never
+ * resets — the point is awarded once, ever, even if the guest later replaces
+ * their avatar — so DEFAULT 0 on ADD COLUMN correctly treats every
+ * pre-existing row (avatar or not) as not-yet-awarded; the next avatar save
+ * for a guest who already had one before this migration ran simply awards
+ * the point once, same as any other guest. Exported so tests bind to this
+ * real guard rather than an inline copy.
+ */
+function ensureAvatarPointAwardedColumn() {
+  const cols = db.prepare(`PRAGMA table_info(guests)`).all();
+  if (!cols.some((col) => col.name === 'avatar_point_awarded')) {
+    db.exec(`ALTER TABLE guests ADD COLUMN avatar_point_awarded INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
+// Run once at module load, before scoring.js prepares any statement that
+// reads/writes avatar_point_awarded — db.js fully evaluates this module-load
+// code before any other module's `require('../db')` call returns.
+ensureAvatarPointAwardedColumn();
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -452,11 +565,14 @@ module.exports = {
   db,
   ensurePhotoBonusColumn,
   ensureBadgeTypeCheckWidened,
+  ensureBadgeTaskIdColumn,
+  ensureGuestBadgeAwardColumns,
   ensurePinnedColumn,
   ensureGuestIdentityColumns,
   ensureTaskIdNullable,
   ensureBadgeCatalog,
   ensureResubmittedColumn,
+  ensureAvatarPointAwardedColumn,
   getGuestByToken,
   getGuestById,
   getGuestByContact,

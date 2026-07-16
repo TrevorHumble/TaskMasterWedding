@@ -2,6 +2,58 @@
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
 
+  <% if (typeof taskComplete !== 'undefined' && taskComplete) { %>
+    <!-- Success card (issue #255): the reward moment for a just-created
+         completion. Supersedes the plain flash for this case — the route
+         (src/routes/guest.js) writes a one-shot taskComplete payload instead
+         of setFlash when result.status === 'created', so res.locals.flash is
+         null here and header.ejs's flash bar does not also render. -->
+    <section class="success-card" role="status">
+      <svg class="success-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <h2 class="success-heading">Task complete!</h2>
+      <p class="success-points">
+        +1 point &mdash; you're at <%= taskComplete.points %> point<%= taskComplete.points === 1 ? '' : 's' %>
+      </p>
+      <p class="success-memory-prompt">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
+    </section>
+  <% } %>
+
+  <% if (typeof badgeMoment !== 'undefined' && badgeMoment) { %>
+    <!-- Badge modal (issue #255): a native <dialog> matching the #248
+         comments-dialog pattern (src/views/feed.ejs / src/public/js/feed.js)
+         — showModal()/close(), Escape/backdrop dismissal free from the
+         platform. src/public/js/badge-moment.js opens it on load and wires
+         the dismiss button. No points language in here — points live only in
+         the inline success card above. -->
+    <dialog class="badge-dialog" id="badge-dialog" tabindex="-1">
+      <div class="badge-card">
+        <p class="eyebrow badge-eyebrow">You earned a badge</p>
+        <h2 class="badge-title"><%= badgeMoment.name %>!</h2>
+
+        <div class="badge-stage">
+          <span class="badge-ring"></span>
+          <span class="spark gold" style="--dx:-58px; --dy:-46px; --rot:120deg;  --sd:120ms">&#10047;</span>
+          <span class="spark sage" style="--dx:56px;  --dy:-50px; --rot:-90deg;  --sd:200ms">&#10048;</span>
+          <span class="spark mint" style="--dx:72px;  --dy:6px;   --rot:60deg;   --sd:160ms">&#8226;</span>
+          <span class="spark gold" style="--dx:52px;  --dy:58px;  --rot:150deg;  --sd:280ms">&#10057;</span>
+          <span class="spark sage" style="--dx:-8px;  --dy:74px;  --rot:-70deg;  --sd:320ms">&#8226;</span>
+          <span class="spark mint" style="--dx:-64px; --dy:50px;  --rot:100deg;  --sd:220ms">&#10047;</span>
+          <span class="spark gold" style="--dx:-74px; --dy:-4px;  --rot:-120deg; --sd:360ms">&#8226;</span>
+          <span class="spark sage" style="--dx:12px;  --dy:-70px; --rot:80deg;   --sd:180ms">&#10048;</span>
+          <span class="badge-sway">
+            <img class="badge-art" src="<%= badgeMoment.art_path %>" alt="<%= badgeMoment.name %> badge" />
+          </span>
+        </div>
+
+        <p class="badge-sub"><%= badgeMoment.description %></p>
+        <button type="button" class="btn badge-done">Continue</button>
+      </div>
+    </dialog>
+    <script src="/js/badge-moment.js" defer></script>
+  <% } %>
+
   <p class="back-link"><a href="/tasks">&#8592; All tasks</a></p>
   <p class="back-link"><a href="/gallery?task=<%= task.id %>">See photos for this task</a></p>
 
@@ -11,6 +63,14 @@
   <% if (task.description) { %>
     <p class="task-detail-desc center"><%= task.description %></p>
   <% } %>
+
+  <p class="task-detail-badge center">
+    Earns:
+    <a href="/badge/<%= taskBadge.code %>">
+      <img class="task-badge-icon" src="<%= taskBadge.art_path %>" alt="" width="24" height="24" />
+      <%= taskBadge.name %>
+    </a>
+  </p>
 
   <% if (submission && submission.taken_down) { %>
     <!-- Issue #190: a host takedown is sticky. Do not show the photo (not
@@ -33,7 +93,12 @@
         <p class="submission-caption"><%= submission.caption %></p>
       <% } %>
       <p class="muted">This task is complete. You can replace your photo below.</p>
-      <p class="muted">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
+      <% if (!(typeof taskComplete !== 'undefined' && taskComplete)) { %>
+        <%# The success card above already carries this prompt for a fresh
+            'created' completion (issue #255) — only repeat it here for a
+            return visit / replace, so it never prints twice on one page. %>
+        <p class="muted">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
+      <% } %>
     </section>
   <% } %>
 

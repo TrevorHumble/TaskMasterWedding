@@ -13,13 +13,33 @@ const { db } = require('../db');
 // redirects visitors who have no valid guest link. setFlash is the shared
 // one-shot flash writer (also in section 03), the single owner of the signed
 // `flash` cookie's shape.
-const { requireGuest, setFlash } = require('../middleware/session');
+const { requireGuest, setFlash, setTaskCompleteReward } = require('../middleware/session');
+
+// withUploadSlot (issue #311 AC3) bounds how many concurrent submitPhoto
+// calls run their heavy thumbnail+DB-write pipeline at once -- see
+// src/utils/upload-concurrency.js's file comment for why.
+const { withUploadSlot } = require('../utils/upload-concurrency');
+
+// The one guest-facing "your photo didn't save" copy, shared by every
+// submitPhoto failure mode below -- the thumb_failed status branch AND the
+// caught-throw branch (issue #311 AC1) -- so the two call sites that must say
+// the same thing cannot drift apart (same pattern as photos.js's
+// DISALLOWED_TYPE_MESSAGE).
+const PHOTO_SAVE_FAILED_MESSAGE = 'Sorry, we could not save that photo. Please try again.';
 
 // isValidPin (issue #243) — the SAME 4-digit-shape rule signup (routes/auth.js)
 // and the admin identity route (routes/admin.js) already share from
 // services/identity.js. POST /me/edit below calls this single owner rather
 // than re-encoding the shape rule a third time.
 const { isValidPin } = require('../services/identity');
+
+// Per-task badge resolution (issue #483) — resolveTaskBadge returns the
+// task's own badge row (custom art/name if uploaded, else the shared
+// default-ribbon art), lazily inserting the default row the first time a
+// task is asked for. GET /tasks below is the ONLY other resolveTaskBadge
+// caller outside admin.js; both read the same row, never a second copy of
+// "which badge does this task earn".
+const taskBadges = require('../services/task-badges');
 
 // Photos service (section 05) — REAL exports only.
 // `upload` is the multer DISK-storage middleware ALREADY BOUND to single('photo')
@@ -70,16 +90,26 @@ router.get('/', function (req, res) {
 
   // Total active tasks (guests only ever see active tasks).
   const totalActiveRow = db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get();
-  const totalTasks = totalActiveRow.n;
 
   // Completed tasks for this guest — routed through scoring.getCompletedCount
   // (issue #104) so this count can never drift from points and badges, which
   // use the same canonical rule (visible submissions, no is_active filter).
   const completedTasks = scoring.getCompletedCount(guest.id);
 
+  // Issue #409: the hardcoded "Upload your profile photo" starter task is a
+  // real task from the guest's point of view — it renders as a counted row in
+  // the /tasks list and shows in Done once the avatar is set. This home
+  // progress bar counts it the same way (via the single owner
+  // scoring.starterTaskContribution, shared with GET /tasks) so a guest who
+  // has completed it never sees it sitting in Done while the headline still
+  // reads "0 of N".
+  const starter = scoring.starterTaskContribution(guest);
+  const totalTasks = totalActiveRow.n + starter.total;
+  const completedTasksWithStarter = completedTasks + starter.done_count;
+
   // Points and badges from the scoring service (section 06 real exports).
   const points = scoring.getPoints(guest.id);
-  const badges = scoring.getGuestBadges(guest.id); // each: {code,name,art_path,...}
+  const badges = scoring.getGuestBadges(guest.id); // each: {code,name,art_path,description,points,...}
 
   // The guest's own (non-taken-down) submissions, newest first, joined to
   // task title so we can label each thumbnail on the home page. LEFT JOIN
@@ -111,7 +141,7 @@ router.get('/', function (req, res) {
   const progressPercent =
     totalTasks === 0
       ? 0
-      : Math.max(0, Math.min(100, Math.round((completedTasks / totalTasks) * 100)));
+      : Math.max(0, Math.min(100, Math.round((completedTasksWithStarter / totalTasks) * 100)));
 
   res.render('guest-home', {
     title: 'My Garden',
@@ -119,7 +149,7 @@ router.get('/', function (req, res) {
     badges: badges,
     submissions: submissions,
     totalTasks: totalTasks,
-    completedTasks: completedTasks,
+    completedTasks: completedTasksWithStarter,
     progressPercent: progressPercent,
   });
 });
@@ -132,7 +162,7 @@ router.get('/tasks', function (req, res) {
 
   // For each active task, join the guest's submission (if any) so we know
   // whether it is done. taken_down submissions do NOT count as done.
-  // s.created_at orders the "most recent completions" strip on the default view.
+  // s.created_at orders the ?view=done list (the default view no longer uses it — see below).
   const tasks = db
     .prepare(
       `SELECT t.id, t.title, t.description, t.sort_order,
@@ -149,12 +179,26 @@ router.get('/tasks', function (req, res) {
     )
     .all(guest.id);
 
-  const todoTasks = tasks.filter(function (t) {
+  // Attach each task's own resolved badge (issue #486) so the list can show
+  // "earn [name] plus extra points" before the guest even takes the photo —
+  // the same custom-or-default resolution admin.js's task board already
+  // uses, so a customized badge shows here the moment it is uploaded.
+  // Mapped onto `tasks` BEFORE the todo/done split below so both derived
+  // lists carry the badge without a second resolve pass.
+  const tasksWithBadges = tasks.map(function (t) {
+    const badge = taskBadges.resolveTaskBadge(t.id);
+    return Object.assign({}, t, {
+      badge: taskBadges.toTaskBadgeView(badge),
+    });
+  });
+
+  const todoTasks = tasksWithBadges.filter(function (t) {
     return t.done !== 1;
   });
-  // Done tasks, most recent completion first — the default view shows the top 3
-  // of this list; ?view=done shows all of it.
-  const doneTasks = tasks
+  // Done tasks, most recent completion first. The default (to-do) view no
+  // longer renders any of this list (issue #339) — it feeds only the chip
+  // count and the full ?view=done list.
+  const doneTasks = tasksWithBadges
     .filter(function (t) {
       return t.done === 1;
     })
@@ -162,24 +206,34 @@ router.get('/tasks', function (req, res) {
       return String(b.done_at || '').localeCompare(String(a.done_at || ''));
     });
 
+  // Issue #409: the hardcoded "Upload your profile photo" starter renders as a
+  // real row inside the to-do or done list (tasks.ejs) and is counted in the
+  // chip counts, so no visible list disagrees with its adjacent count. Both
+  // the counts and the tile's placement/label come from the single owner in
+  // the scoring service (scoring.starterTaskContribution / STARTER_PHOTO_POINT)
+  // — this route re-derives neither the avatar rule nor the point value.
+  const starter = scoring.starterTaskContribution(guest);
+
   res.render('tasks', {
     title: 'Tasks',
     view: req.query.view === 'done' ? 'done' : 'todo',
     todoTasks: todoTasks,
     doneTasks: doneTasks,
-    recentDone: doneTasks.slice(0, 3),
-    doneCount: doneTasks.length,
-    todoCount: todoTasks.length,
-    totalCount: tasks.length,
+    doneCount: doneTasks.length + starter.done_count,
+    todoCount: todoTasks.length + starter.todo_count,
+    totalCount: tasks.length + starter.total,
     pointsPerPhoto: scoring.POINTS_PER_PHOTO,
+    starterDone: starter.done,
+    starterPoints: starter.points,
   });
 });
 
 // ---------------------------------------------------------------------------
-// GET /how-to-play  — the one-screen rules card (issue #246). Shown once
-// automatically right after onboarding (POST /onboard redirects here with
-// ?first=1) and reachable forever after from the profile menu (a plain GET,
-// no query string).
+// GET /how-to-play  — the one-screen rules card (issue #246). Reachable from
+// the profile menu (a plain GET, no query string). ?first=1 (still honored
+// via req.query.first below) shows the "Skip for now" link for a guest
+// mid-first-run; nothing currently redirects here with it since #244 retired
+// the separate /onboard step that used to.
 //
 // taskCount is the LIVE count of active tasks (owner directive: never a
 // hard-coded number, so the copy tracks admin changes to the task list).
@@ -289,6 +343,12 @@ router.post('/bug-report', function (req, res) {
   return res.redirect('/');
 });
 
+// When one submission earns more than one new badge (rare — e.g. an auto
+// badge plus COMPLETIONIST at once), the modal celebrates a single PRIMARY
+// badge by this fixed priority (design, #255). The rest are still awarded
+// and appear on the guest's profile — one modal, one badge (v1).
+const BADGE_MOMENT_PRIORITY = ['GARDEN', 'BOUQUET', 'BLOOM', 'COMPLETIONIST', 'MOSTPHOTOS'];
+
 // ---------------------------------------------------------------------------
 // GET /tasks/:id  — one task's detail + the upload form. If the guest has
 // already submitted, show their photo (or, if a host took it down, the
@@ -311,6 +371,10 @@ router.get('/tasks/:id', function (req, res) {
     return res.status(404).render('404', { title: 'Not found' });
   }
 
+  // This task's own badge (issue #488 follow-up) — always resolvable, shown
+  // and linked whether or not the guest has completed the task yet.
+  const taskBadge = taskBadges.resolveTaskBadge(taskId);
+
   // The guest's submission for this task, loaded REGARDLESS of taken_down
   // (issue #190): a host takedown must not make the task page fall back to
   // "not done" and invite a resubmit that would have silently reversed the
@@ -324,10 +388,61 @@ router.get('/tasks/:id', function (req, res) {
     )
     .get(guest.id, taskId);
 
+  // Success card + badge modal (issue #255): resolve the one-shot
+  // taskComplete reward (read and cleared by attachGuest,
+  // src/middleware/session.js) into what task.ejs needs. Points live ONLY on
+  // the inline card (taskComplete.points); a newly-earned badge gets its own
+  // separate badgeMoment, which task.ejs renders as an auto-opening modal.
+  //
+  // Badge codes are resolved against the guest's CURRENT held badges rather
+  // than trusted as-is, so a badge id that no longer resolves (defensive; not
+  // expected to happen within the same redirect) is silently dropped instead
+  // of rendering a blank badge entry.
+  let taskComplete = null;
+  let badgeMoment = null;
+  if (res.locals.taskCompleteReward) {
+    const reward = res.locals.taskCompleteReward;
+    taskComplete = { points: reward.points };
+
+    if (reward.newBadgeIds.length > 0) {
+      const heldBadges = scoring.getGuestBadges(guest.id);
+      const earnedBadges = heldBadges.filter((b) => reward.newBadgeIds.includes(b.code));
+
+      // Pick the primary badge by fixed priority; if none of the earned
+      // badges appear in the priority list (a future code not yet added to
+      // it), fall back to the first earned badge rather than showing none.
+      let primary = null;
+      for (const code of BADGE_MOMENT_PRIORITY) {
+        primary = earnedBadges.find((b) => b.code === code);
+        if (primary) {
+          break;
+        }
+      }
+      if (!primary) {
+        primary = earnedBadges[0] || null;
+      }
+
+      if (primary) {
+        // Use the badge's OWN catalog data — its name is the title, its
+        // description is the subtitle (scripts/badge-catalog.js). No invented
+        // per-badge copy: the modal shows only what the badge actually carries.
+        badgeMoment = {
+          code: primary.code,
+          name: primary.name,
+          art_path: primary.art_path,
+          description: primary.description,
+        };
+      }
+    }
+  }
+
   res.render('task', {
     title: task.title,
     task: task,
+    taskBadge: taskBadge, // this task's badge — always present, unlike badgeMoment
     submission: submission, // null if none yet
+    taskComplete: taskComplete, // null unless a 'created' submit just redirected here
+    badgeMoment: badgeMoment, // null unless that submit also earned a new badge
     pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/
   });
 });
@@ -341,6 +456,15 @@ router.get('/tasks/:id', function (req, res) {
 // recompute — is one call to submissions.submitPhoto (issue #106); this
 // handler only owns what needs req/res: running multer, the multer-error and
 // missing-file branches, and mapping the returned status to a response.
+//
+// Issue #311 AC1/AC3: the submitPhoto call is wrapped in try/catch (its
+// synchronous better-sqlite3 writes are unguarded, so an unexpected throw --
+// a constraint violation, disk-full mid-write, a future regression -- used
+// to escape this async multer callback as an unhandled rejection and, with
+// no process-level guard existing anywhere in src/ before this, crash the
+// whole process) and run through withUploadSlot, which bounds how many of
+// these heavy pipelines run at once under a concurrent-upload burst (see
+// src/utils/upload-concurrency.js).
 // ---------------------------------------------------------------------------
 router.post('/tasks/:id/submit', function (req, res) {
   // Run multer first; it may error (file too big, wrong type, no file).
@@ -366,31 +490,55 @@ router.post('/tasks/:id/submit', function (req, res) {
       return res.redirect('/tasks/' + taskId);
     }
 
-    const result = await submissions.submitPhoto({
-      guestId: guest.id,
-      taskId: taskId,
-      file: req.file,
-      caption: req.body.caption,
-    });
+    let result;
+    try {
+      result = await withUploadSlot(() =>
+        submissions.submitPhoto({
+          guestId: guest.id,
+          taskId: taskId,
+          file: req.file,
+          caption: req.body.caption,
+        })
+      );
+    } catch (submitErr) {
+      // Issue #311 AC1: submitPhoto's DB writes are unguarded synchronous
+      // better-sqlite3 statements. Mirror the thumb_failed branch below
+      // exactly -- from the guest's point of view this is the identical
+      // "your photo didn't save, try again" outcome, whatever the internal
+      // cause. Logging with the `[submit]` prefix is the stderr signal an
+      // operator watching the console needs (the #311 evidence: failures
+      // that never reach here left stdout/stderr completely silent).
+      console.error('[submit] submitPhoto threw for guest', guest.id, 'task', taskId, submitErr);
+      setFlash(res, 'error', PHOTO_SAVE_FAILED_MESSAGE);
+      return res.redirect('/tasks/' + taskId);
+    }
 
     if (result.status === 'task_inactive') {
       return res.status(404).render('404', { title: 'Not found' });
     }
     if (result.status === 'thumb_failed') {
-      setFlash(res, 'error', 'Sorry, we could not save that photo. Please try again.');
+      setFlash(res, 'error', PHOTO_SAVE_FAILED_MESSAGE);
       return res.redirect('/tasks/' + taskId);
     }
 
+    // created (issue #255): the success card supersedes the plain flash for
+    // this case, so a one-shot taskComplete payload is written instead of
+    // setFlash — task.ejs renders the card on the redirected GET and header.ejs
+    // never gets a flash to also print, avoiding a double-render of the same
+    // moment.
+    //
     // replaced_hidden (issue #190): the resubmit landed on a still-taken-down
     // row, so it does not go live — tell the guest that plainly rather than
-    // claiming "Photo replaced!" for something that isn't visible yet.
-    let flashMsg = 'Task complete! +1 point.';
-    if (result.status === 'replaced') {
-      flashMsg = 'Photo replaced!';
+    // claiming "Photo replaced!" for something that isn't visible yet. These
+    // two statuses keep their existing plain flash (AC4).
+    if (result.status === 'created') {
+      setTaskCompleteReward(res, { points: result.pointsTotal, newBadgeIds: result.newBadgeIds });
     } else if (result.status === 'replaced_hidden') {
-      flashMsg = 'Photo received — it will appear once the hosts approve it.';
+      setFlash(res, 'success', 'Photo received — it will appear once the hosts approve it.');
+    } else {
+      // status === 'replaced'
+      setFlash(res, 'success', 'Photo replaced!');
     }
-    setFlash(res, 'success', flashMsg);
     return res.redirect('/tasks/' + taskId);
   });
 });
@@ -633,6 +781,12 @@ router.post('/me/edit', function (req, res) {
 
       const oldAvatar = guest.avatar_path;
       newAvatarPath = savedAvatar;
+
+      // Issue #409: award the one-time "Upload your profile photo" starter
+      // point now that an avatar has actually saved. Idempotent — no-op if
+      // this guest already earned it (a replacement avatar never re-awards,
+      // AC2), so it is safe to call on every successful save here.
+      scoring.awardProfilePhotoPoint(guest.id);
 
       // Delete the previous avatar file if it changed. Avatars live in the
       // uploads dir (no thumbnail), so deleteOriginalFile removes them.

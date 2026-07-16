@@ -26,6 +26,13 @@ param(
   [int]$Major = 0,
   [int]$Minor = 0,
   [int]$Nit = 0,
+  [int]$Correctness = 0,
+  [int]$Security = 0,
+  [int]$TestCoverage = 0,
+  [int]$Docs = 0,
+  [int]$Design = 0,
+  [int]$Simplification = 0,
+  [int]$Style = 0,
   [int]$Round = 1,
   [string]$ReviewsRoot = ''
 )
@@ -65,6 +72,15 @@ $ev = [ordered]@{
   verdict        = $Verdict
   findings_count = $findingsCount
   defects        = [ordered]@{ blocker = $Blocker; major = $Major; minor = $Minor; nit = $Nit }
+  categories     = [ordered]@{
+    correctness     = $Correctness
+    security        = $Security
+    'test-coverage' = $TestCoverage
+    docs            = $Docs
+    design          = $Design
+    simplification  = $Simplification
+    style           = $Style
+  }
   round          = $Round
   tree_oid       = $TreeOid
   ts             = (Get-Date -Format o)

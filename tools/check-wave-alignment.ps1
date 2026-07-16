@@ -45,15 +45,38 @@ function Get-IssueTouches {
   param([int]$N)
 
   $repoRoot = Split-Path $PSScriptRoot -Parent
-  $draftGlob = Join-Path $repoRoot "data/wip-issues/$N-*.md"
-  $draft = Get-ChildItem -Path $draftGlob -File -ErrorAction SilentlyContinue | Select-Object -First 1
+  # Zero-padded-safe draft lookup: drafts are named e.g. "0048-slug.md", not
+  # "48-slug.md" -- a plain "$N-*.md" glob misses every padded draft, which
+  # silently pushes almost every issue onto the broken gh fallback below
+  # (#524). Match on filename, anchored at the start, allowing any number of
+  # leading zeros before the exact issue number and requiring the immediate
+  # next character to be "-" -- this accepts both "48-x.md" and "0048-x.md"
+  # while refusing to cross-match a different issue number that merely
+  # contains "48" as a substring (e.g. "148-x.md", "480-x.md").
+  $draftDir = Join-Path $repoRoot 'data/wip-issues'
+  $draftNamePattern = '^0*{0}-' -f $N
+  $draft = $null
+  if (Test-Path -LiteralPath $draftDir) {
+    $draft = Get-ChildItem -Path $draftDir -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match $draftNamePattern } |
+      Select-Object -First 1
+  }
 
   $body = $null
   if ($draft) {
     $body = Get-Content -Raw -Path $draft.FullName -ErrorAction SilentlyContinue
   }
   if (-not $body) {
-    $body = "$(& gh issue view $N --json body -q .body 2>$null)"
+    # Newline-safe capture (see tools/check-freshness.ps1:136-141): wrapping
+    # multi-line `gh` output in "$(...)" string interpolation joins every
+    # line with $OFS (a single space) before anything else runs, so the
+    # `(?m)^Touches:\s*(.+)$` match below could never fire on a real issue
+    # body -- Get-IssueTouches silently returned @() for every gh-fetched
+    # issue (#524). Capturing `& gh ...` as an array keeps one output line
+    # per element; -join "`n" (a real newline, not the two-character
+    # sequence) rebuilds a genuinely multi-line string so ^/$ in multiline
+    # regex mode still land on line boundaries.
+    $body = (@(& gh issue view $N --json body -q .body 2>$null) -join "`n")
   }
   if (-not $body) {
     return @()

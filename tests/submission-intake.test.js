@@ -17,7 +17,7 @@ const path = require('path');
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let db;
 let config;
@@ -306,7 +306,7 @@ describe('POST /tasks/:id/submit — status to response mapping (issue #106)', (
   // 'task_inactive' and 'thumb_failed' assert on routeGuestId's row state.
   async function makeGuestAgent() {
     const agent = request.agent(app);
-    await agent.get(`/j/${routeGuestToken}`).redirects(1);
+    signInGuest(app, routeGuestToken, agent);
     return agent;
   }
 
@@ -321,11 +321,11 @@ describe('POST /tasks/:id/submit — status to response mapping (issue #106)', (
       'Fresh Route Guest'
     );
     const agent = request.agent(app);
-    await agent.get(`/j/${token}`).redirects(1);
+    signInGuest(app, token, agent);
     return agent;
   }
 
-  it('created: flash "Task complete! +1 point." and redirect', async () => {
+  it('created: success card (not the plain flash) and redirect (issue #255)', async () => {
     const agent = await makeGuestAgent();
     const res = await agent
       .post(`/tasks/${activeTaskId}/submit`)
@@ -334,13 +334,17 @@ describe('POST /tasks/:id/submit — status to response mapping (issue #106)', (
     expect([302, 303]).toContain(res.status);
     expect(res.headers.location).toBe('/tasks/' + activeTaskId);
 
-    // The flash cookie is SIGNED (cookie-parser, req.signedCookies) — rather
-    // than reimplementing signature verification in the test, follow the
-    // redirect with the same agent (it resends the cookie automatically) and
-    // assert on the rendered flash text, exactly what a guest would see.
+    // The taskComplete cookie is SIGNED (cookie-parser, req.signedCookies) —
+    // rather than reimplementing signature verification in the test, follow
+    // the redirect with the same agent (it resends the cookie automatically)
+    // and assert on the rendered success-card text, exactly what a guest
+    // would see. Issue #255 replaced the plain "Task complete! +1 point."
+    // flash with a success card for the 'created' case — see
+    // tests/rewards.test.js for the full AC1-AC5 coverage.
     const page = await agent.get(res.headers.location);
-    expect(page.text).toContain('Task complete! +1 point.');
-    expect(page.text).toContain('flash-ok');
+    expect(page.text).toContain('Task complete!');
+    expect(page.text).toContain('+1 point');
+    expect(page.text).not.toContain('flash-ok');
   });
 
   it('replaced: flash "Photo replaced!" and redirect', async () => {

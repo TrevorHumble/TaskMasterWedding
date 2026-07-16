@@ -1,0 +1,74 @@
+<%# src/views/badge-detail.ejs — issue #488
+    GET /badge/:code. `isTaskMaster` (computed once by the route, never
+    re-derived here) picks the rendered shape:
+      - false: system badge (auto/special/metric/transferable) — shared
+        catalog description + a plain holder list, no per-award data.
+      - true:  Task Master badge (a task's own 'custom' badge) — one row per
+        award with that award's points, note, and earning-photo thumbnail
+        (thumbnail only when the earning photo is still visible — AC4). %>
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+  <header class="badge-detail-header">
+    <img class="badge-detail-art"
+         src="<%= badge.art_path %>"
+         alt="<%= badge.name %>"
+         width="120" height="120" />
+    <h1 class="badge-detail-name"><%= badge.name %></h1>
+    <% if (badge.description) { %>
+      <p class="badge-detail-desc"><%= badge.description %></p>
+    <% } %>
+  </header>
+
+  <% if (isTaskMaster) { %>
+    <section class="badge-award-section">
+      <h2 class="badge-detail-label">Awards<% if (holders.length > 0) { %> <span class="badge-detail-count"><%= holders.length %></span><% } %></h2>
+      <% if (holders.length === 0) { %>
+        <p class="muted">No one has earned this badge yet.</p>
+      <% } else { %>
+        <ul class="award-row-list">
+          <% holders.forEach(function (h) { %>
+            <li class="award-row">
+              <div class="award-row-body">
+                <div class="award-row-head">
+                  <a class="award-row-name" href="/u/<%= h.guest_id %>"><%= h.guest_name || 'Guest' %></a>
+                  <span class="award-row-points">+<%= h.points %> pts</span>
+                </div>
+                <% if (h.note) { %>
+                  <p class="award-row-note"><%= h.note %></p>
+                <% } %>
+              </div>
+              <% if (h.submission_id && h.thumb_path) { %>
+                <a class="award-row-thumb-link"
+                   href="/feed?from=<%= h.submission_id %>#photo-<%= h.submission_id %>"
+                   aria-label="View the earning photo">
+                  <img class="award-row-thumb"
+                       src="/thumbs/<%= h.thumb_path %>"
+                       alt=""
+                       width="60" height="60"
+                       loading="lazy" />
+                </a>
+              <% } %>
+            </li>
+          <% }); %>
+        </ul>
+      <% } %>
+    </section>
+  <% } else { %>
+    <section class="badge-holder-section">
+      <h2 class="badge-detail-label">Holders<% if (holders.length > 0) { %> <span class="badge-detail-count"><%= holders.length %></span><% } %></h2>
+      <% if (holders.length === 0) { %>
+        <p class="muted">No one has earned this badge yet.</p>
+      <% } else { %>
+        <ul class="holder-list">
+          <% holders.forEach(function (h) { %>
+            <li class="holder-row">
+              <a href="/u/<%= h.guest_id %>"><%= h.guest_name || 'Guest' %></a>
+            </li>
+          <% }); %>
+        </ul>
+      <% } %>
+    </section>
+  <% } %>
+
+<%- include('partials/footer') %>

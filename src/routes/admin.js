@@ -2,17 +2,16 @@
 // Admin router. Every route here is behind requireAdmin (applied below).
 // Routes:
 //   GET  /admin                          dashboard
-//   GET  /admin/guests                   guests table + add/bulk forms
-//   POST /admin/guests                   create one guest
-//   POST /admin/guests/bulk              create N guests
+//   GET  /admin/guests                   guests table
 //   POST /admin/guests/:id/edit          rename a guest / set gallery pin
 //   POST /admin/guests/:id/delete        delete a guest (cascades submissions/badges; deletes photo files)
 //   POST /admin/guests/:id/points        award bonus points (scoring.addBonusPoints)
 //   POST /admin/guests/:id/badge         award OR remove a special badge
-//   GET  /admin/qrsheet                  printable QR place-card sheet
+//   GET  /admin/poster                   the single shared entry-link poster (issue #244)
 //   GET  /admin/tasks                    task list + add form
 //   POST /admin/tasks                    create a task
 //   POST /admin/tasks/:id/edit           edit a task title/description
+//   POST /admin/tasks/:id/badge          set a task's badge name/art
 //   POST /admin/tasks/:id/delete         delete a task (cascades submissions)
 //   POST /admin/tasks/:id/active         toggle is_active
 //   POST /admin/tasks/reorder            move a task up/down (sort_order)
@@ -38,8 +37,9 @@ const { requireAdmin } = require('../middleware/session');
 const qr = require('../services/qr');
 const scoring = require('../services/scoring');
 const photos = require('../services/photos');
+const taskBadges = require('../services/task-badges');
 const { streamExportZip } = require('../services/export');
-const { makeUniqueToken, normalizeContact, isValidPin } = require('../services/identity');
+const { normalizeContact, isValidPin } = require('../services/identity');
 
 const router = express.Router();
 
@@ -48,7 +48,7 @@ const router = express.Router();
 router.use(requireAdmin);
 
 // Mark every admin page as an admin context so partials/header.ejs renders the
-// ADMIN nav (Dashboard/Tasks/Guests/Photos/QR Sheet/Log out) and the logout
+// ADMIN nav (Dashboard/Tasks/Guests/Photos/Poster/Log out) and the logout
 // button, instead of the GUEST nav. Set once here so no individual res.render
 // has to remember to pass isAdmin.
 router.use((req, res, next) => {
@@ -69,8 +69,26 @@ function redirectWithMsg(res, path, msg, anchor) {
   res.redirect(303, path + sep + 'msg=' + encodeURIComponent(msg) + hash);
 }
 
-// makeUniqueToken moved to src/services/identity.js (issue #240) so both this
-// admin router and the self-serve /join signup route share one generator.
+// ---------------------------------------------------------------------------
+// Retired routes (issue #244 AC2/AC3): guest-creation (POST /guests, POST
+// /guests/bulk) and the per-guest QR sheet (GET /qrsheet) must respond 404,
+// not just fall out of this router unhandled. That distinction matters here:
+// app.js mounts guest.js (at '/') right after this router, and guest.js runs
+// `router.use(requireGuest)` unconditionally for every path it sees — so a
+// path this router doesn't recognize does NOT reach app.js's real 404
+// handler, it falls through into guest.js and comes back as a 302 to /join
+// instead (requireGuest has no guest session to check for an admin-only
+// visitor). Rendering the same 404 view these three retired paths used to
+// return before they existed is not needed for anything else on this
+// router — every path a guest can legitimately reach here still has its own
+// route above/below and never reaches this block.
+// ---------------------------------------------------------------------------
+function renderNotFound(req, res) {
+  res.status(404).render('404', { url: req.originalUrl });
+}
+router.post('/guests', renderNotFound);
+router.post('/guests/bulk', renderNotFound);
+router.get('/qrsheet', renderNotFound);
 
 // ---------------------------------------------------------------------------
 // GET /admin  — dashboard
@@ -95,7 +113,7 @@ router.get('/', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /admin/guests  — table of guests + add form + bulk form
+// GET /admin/guests  — table of guests
 // ---------------------------------------------------------------------------
 router.get('/guests', (req, res) => {
   const guests = db.prepare('SELECT * FROM guests ORDER BY created_at ASC, id ASC').all();
@@ -118,8 +136,6 @@ router.get('/guests', (req, res) => {
     return {
       id: g.id,
       name: g.name || '',
-      token: g.token,
-      link: config.BASE_URL.replace(/\/+$/, '') + '/j/' + g.token,
       bonus_points: g.bonus_points,
       pinned: g.pinned,
       points: scoring.getPoints(g.id),
@@ -151,34 +167,6 @@ router.get('/guests', (req, res) => {
     msg: req.query.msg || '',
     isAdmin: true,
   });
-});
-
-// POST /admin/guests  — create a single guest (optionally with a name)
-router.post('/guests', (req, res) => {
-  const name = (req.body.name || '').trim();
-  const token = makeUniqueToken();
-  db.prepare('INSERT INTO guests (token, name) VALUES (?, ?)').run(token, name);
-  redirectWithMsg(res, '/admin/guests', 'Guest created.');
-});
-
-// POST /admin/guests/bulk  — create N empty guests, each with a random token
-router.post('/guests/bulk', (req, res) => {
-  let n = parseInt(req.body.count, 10);
-  if (isNaN(n) || n < 1) {
-    return redirectWithMsg(res, '/admin/guests', 'Enter a number of guests of 1 or more.');
-  }
-  if (n > 500) {
-    n = 500; // sanity cap; wedding is ~100 guests
-  }
-  const insert = db.prepare('INSERT INTO guests (token, name) VALUES (?, ?)');
-  // Wrap the loop in a transaction for speed and atomicity.
-  const insertMany = db.transaction((howMany) => {
-    for (let i = 0; i < howMany; i++) {
-      insert.run(makeUniqueToken(), '');
-    }
-  });
-  insertMany(n);
-  redirectWithMsg(res, '/admin/guests', 'Created ' + n + ' guest(s).');
 });
 
 // POST /admin/guests/:id/edit  — rename a guest and set their gallery pin.
@@ -453,30 +441,21 @@ router.post('/badges', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /admin/qrsheet  — printable place-card sheet (name + QR per guest)
+// GET /admin/poster  — the one shared entry-link poster (issue #244). One QR
+// pointing at GET /join, printed once instead of a hundred personal
+// place-cards — every guest scans the SAME code, then signs themselves up.
 // ---------------------------------------------------------------------------
-router.get('/qrsheet', async (req, res, next) => {
+router.get('/poster', async (req, res, next) => {
   try {
-    const guests = db.prepare('SELECT * FROM guests ORDER BY name ASC, id ASC').all();
-
     const base = config.BASE_URL.replace(/\/+$/, '');
-    const cards = [];
-    for (const g of guests) {
-      const link = base + '/j/' + g.token;
-      // qr.qrDataUrl returns a PNG data-URI string we can drop into <img src>.
-      // (Section 03 exports qrDataUrl, NOT toDataURL.)
-      const dataUri = await qr.qrDataUrl(link);
-      cards.push({
-        name: g.name && g.name.length ? g.name : 'Guest #' + g.id,
-        link,
-        qr: dataUri,
-      });
-    }
+    const joinUrl = base + '/join';
+    // qr.qrDataUrl returns a PNG data-URI string we can drop into <img src>.
+    const dataUri = await qr.qrDataUrl(joinUrl);
 
-    res.render('admin-qrsheet', {
-      title: 'QR Place-Card Sheet',
-      cards,
-      baseUrl: base,
+    res.render('admin-poster', {
+      title: 'Entry Poster',
+      joinUrl,
+      qr: dataUri,
       isAdmin: true,
     });
   } catch (err) {
@@ -494,16 +473,28 @@ router.get('/tasks', (req, res) => {
   const subStmt = db.prepare(
     'SELECT COUNT(*) AS n FROM submissions WHERE task_id = ? AND taken_down = 0'
   );
-  const rows = tasks.map((t, idx) => ({
-    id: t.id,
-    title: t.title,
-    description: t.description || '',
-    sort_order: t.sort_order,
-    is_active: t.is_active,
-    submissions: subStmt.get(t.id).n,
-    isFirst: idx === 0,
-    isLast: idx === tasks.length - 1,
-  }));
+  const rows = tasks.map((t, idx) => {
+    // resolveTaskBadge lazily inserts the task's own badge row (default
+    // ribbon art) the first time a task's card is rendered (issue #483) —
+    // every task always has a badge to show, never a missing-badge branch.
+    const badge = taskBadges.resolveTaskBadge(t.id);
+    return {
+      id: t.id,
+      title: t.title,
+      description: t.description || '',
+      sort_order: t.sort_order,
+      is_active: t.is_active,
+      submissions: subStmt.get(t.id).n,
+      isFirst: idx === 0,
+      isLast: idx === tasks.length - 1,
+      badge: Object.assign({}, taskBadges.toTaskBadgeView(badge), {
+        // "Still the default" drives whether the upload control shows
+        // (AC10) — compared by path, not by a separate stored flag, so it
+        // can never desync from what art_path actually renders.
+        isDefault: badge.art_path === taskBadges.DEFAULT_RIBBON_ART_PATH,
+      }),
+    };
+  });
 
   res.render('admin-tasks', {
     title: 'Tasks',
@@ -556,10 +547,56 @@ router.post('/tasks/:id/edit', (req, res) => {
   redirectWithMsg(res, '/admin/tasks', 'Task updated.', 'task-' + id);
 });
 
+// POST /admin/tasks/:id/badge  — set a task's badge name and/or art (issue
+// #483). Runs photos.uploadBadgeArt directly with an explicit callback (same
+// pattern POST /join uses for photos.uploadAvatar), so a fileFilter/size
+// rejection surfaces as a flash message instead of an uncaught rejection
+// (Express 4 does not catch async-handler rejections; issue #187). Body:
+// name (optional — blank leaves the existing name unchanged); the "badge_art"
+// file field is optional too — a name-only or art-only submit is valid, and
+// setTaskBadge (src/services/task-badges.js) leaves whichever field is
+// blank/absent unchanged rather than clearing it.
+router.post('/tasks/:id/badge', (req, res, next) => {
+  const id = parseInt(req.params.id, 10);
+  photos.uploadBadgeArt(req, res, async (err) => {
+    if (err) {
+      return redirectWithMsg(
+        res,
+        '/admin/tasks',
+        err.message || 'That badge art could not be uploaded.',
+        'task-' + id
+      );
+    }
+
+    const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
+    if (!task) {
+      return redirectWithMsg(res, '/admin/tasks', 'Task not found.');
+    }
+
+    const name = (req.body.name || '').trim();
+    try {
+      let artPath;
+      if (req.file && req.file.buffer && req.file.buffer.length) {
+        // saveBadgeArt returns a bare filename (relative to UPLOADS_DIR, like
+        // every other photos.js upload); build the public path the same way
+        // avatars do at render time, via urlForOriginal, rather than
+        // hand-concatenating "/uploads/" here — one owner of that URL shape.
+        const filename = await photos.saveBadgeArt(req.file.buffer);
+        artPath = photos.urlForOriginal(filename);
+      }
+      taskBadges.setTaskBadge(id, { name, artPath });
+      redirectWithMsg(res, '/admin/tasks', 'Badge updated.', 'task-' + id);
+    } catch (saveErr) {
+      next(saveErr);
+    }
+  });
+});
+
 // POST /admin/tasks/:id/delete  — delete a task and its photo files.
-// ON DELETE CASCADE removes submission rows, but NOT the files on disk.
-// Hard-delete each submission's files first so no orphaned originals or
-// thumbnails remain (and so direct-URL access is closed — the file is gone).
+// ON DELETE CASCADE removes submission rows AND the task's own badges row,
+// but NOT any files on disk. Hard-delete each submission's files first so no
+// orphaned originals or thumbnails remain (and so direct-URL access is
+// closed — the file is gone).
 router.post('/tasks/:id/delete', (req, res) => {
   const id = parseInt(req.params.id, 10);
 
@@ -572,6 +609,23 @@ router.post('/tasks/:id/delete', (req, res) => {
       // Don't abort the whole delete just because one stray file was already
       // gone; log and continue so the DB row still gets removed.
       console.error('Failed to delete files for submission', sub.id, err);
+    }
+  }
+
+  // Resolve the task's badge art BEFORE the DELETE below — ON DELETE CASCADE
+  // removes the badges row along with the task, and its art_path cannot be
+  // read back afterward (issue #501). Uses the non-lazy getTaskBadge (not
+  // resolveTaskBadge): a task that was never customized (and never had its
+  // admin card rendered) may have no badges row at all, and there is no
+  // reason to insert one here just to unlink nothing and immediately cascade
+  // it away. unlinkUploadedArt no-ops on the shared default ribbon SVG, same
+  // policy as the avatar cleanup above (guest delete).
+  const badge = taskBadges.getTaskBadge(id);
+  if (badge) {
+    try {
+      taskBadges.unlinkUploadedArt(badge.art_path);
+    } catch (err) {
+      console.error('Failed to delete badge art for task', id, err);
     }
   }
 

@@ -63,9 +63,43 @@ reviewer verifies before emitting a citation; the orchestrator's "The spawner mu
 never" #5 below is the other half, verifying on receipt. Neither half substitutes for
 the other. `tools/review-runner.ps1` (#128) is the mechanical enforcement of this same
 rule for the JSON-verdict path — it rejects any out-of-range or nonexistent `file:line`
-citation before a verdict can be recorded. Prose verdicts have no such mechanical
-backstop yet, so the reviewer's own self-check is the only guard until a verdict moves
-to the runner.
+citation before a verdict can be recorded. The PR-path reviewers (`reviewer-pr`,
+`reviewer-design-philosophy`) emit that JSON block per #474; #455 wired the runner into
+the pipeline to consume it, via `tools/capture-reviewer-verdict.ps1` (see "PR-review
+recording: capture → runner (#455)" below) — a PR-review verdict is now recorded
+mechanically from the reviewer's own returned text, not transcribed by hand. For the
+issue-stage reviewers (`reviewer-issue`, `reviewer-architecture`), which stay on prose,
+the reviewer's own self-check remains the only guard.
+
+---
+
+## PR-review recording: capture → runner (#455)
+
+A PR-review verdict is recorded by capturing each PR-path reviewer's own emitted JSON
+block and feeding it through `tools/review-runner.ps1` — never by a hand
+`tools/persist-review.ps1` call. For each PR-path reviewer (`reviewer-pr`,
+`reviewer-design-philosophy`, per #474), `tools/capture-reviewer-verdict.ps1
+-RawReturnFile <f> -RunDir <dir>` extracts the trailing fenced ```json verdict block
+from that reviewer's raw return text and writes it, verbatim, to `<dir>/<reviewerId>.json`
+— fail-closed (exits non-zero, writes nothing) if no such block exists, the block does
+not parse as JSON, or it has no non-empty `reviewerId`. Once every reviewer in the round
+is captured into the same `<dir>`, `tools/review-runner.ps1 -RunDir <dir> -TreeOid <T>
+-Mode <both-pass|unanimous>` citation-validates every defect and, only on a fully clean
+pass, calls `tools/persist-review.ps1` per reviewer and `tools/review_verdict.ps1` to
+bind the tree-level PASS.
+
+This closes the residual `DESIGN.md` § "Commit gate: review evidence bound to the staged
+tree" named as still open: the actor that could invent a PASS by hand (the orchestrator,
+running `persist-review.ps1` directly with a free-text reviewer id) is no longer the
+actor recording it for the PR-review path — the evidence is mechanically derived from
+the reviewer agent's own returned bytes. The orchestrator's "The spawner must never" #5
+post-hoc verification (confirm every citation, every item in scope has a finding) is now
+performed by the runner's citation validation before any evidence is written, not by the
+orchestrator reading the verdict and deciding to trust it.
+
+The issue-review path (`tools/persist-issue-review.ps1`, step 2 of
+`agents/orchestrator.md`) is unchanged by this wiring — it remains a direct,
+hand-invoked call, since #455 scopes only the PR-review recording path.
 
 ---
 
@@ -96,7 +130,7 @@ The **design-philosophy gate remains required for every implementation artifact*
 
 **Why 1 PR reviewer, not a panel (#201):** across three build sessions (~9 multi-reviewer panels reconstructed), no second or third same-charter panelist ever flipped a verdict — every panel was unanimous PASS. Every FAIL that sent work back came from the differently-chartered design-philosophy reviewer or from a fresh single reviewer on a later round. Panel width bought reassurance, not catches; a different lens bought catches. So routine round 1 pays for one PR reviewer and keeps the different lens, and the "2–5 reviewers" range is retired. The 3-round soft cap and severity adjudicator (`## Stop condition — soft cap and severity gate`) remain unchanged.
 
-**Kernel/experimental split (#218):** reviewer charters — files matching `agents/reviewer-*.md`, including new lens charters — take the **routine** bar above, not the system-level bar. Everything else on the governing-artifact surface (see `DESIGN.md` "System-level change (definition)") stays kernel, explicitly including the rest of `agents/`, all of `standards/`, `tools/`, `.githooks/`, `skills/`, `.github/`, and `.claude/`. Charter iteration is where governance experimentation happens, and the governance ledger (a separate issue in the same overhaul set; not yet landed) will make a weakened charter detectable via falling catch-rates; bar-definitions fail silently when weakened, so they stay kernel. `Get-RequiredBar` in `tools/verdict-core.ps1` enforces the split mechanically. **Fable interaction:** for Fable-authored work, an edit to any `agents/reviewer-*.md` is self-modification and takes Pattern 2 (one independent reviewer — see `## Fable review patterns`) regardless of this bar-1 carve-out; Fable never commits a charter edit on self-certification alone, because a charter reviews the very work Fable produces.
+**Kernel/experimental split (#218):** reviewer charters — files matching `agents/reviewer-*.md`, including new lens charters — take the **routine** bar above, not the system-level bar. Everything else on the governing-artifact surface (see `DESIGN.md` "System-level change (definition)") stays kernel, explicitly including the rest of `agents/`, all of `standards/`, `tools/`, `.githooks/`, `skills/`, `.github/`, and `.claude/`. Charter iteration is where governance experimentation happens, and the governance ledger (a separate issue in the same overhaul set; not yet landed) will make a weakened charter detectable via falling catch-rates; bar-definitions fail silently when weakened, so they stay kernel. `Get-RequiredBar` in `tools/verdict-core.ps1` enforces the split mechanically.
 
 Reviewers remain **Opus** on every tier except the explicitly-scoped `sonnet-only` tier (#427) — model is not a savings lever elsewhere. A reviewer must run on a different, non-weaker model than the implementer; `standards/agent-standards.md` makes Opus required for a gate. Savings otherwise come from reviewer _count_ only. The `sonnet-only` tier is a bounded exception: an issue eligible under `tools/classify-issue-run.ps1` (routine, off the wedding-critical guest paths, small and reversible) runs its implementer and every reviewer that fires on Sonnet, mitigated by the retained design-philosophy lens and a coverage-first instruction on every reviewer charter that can run on that tier — see `standards/agent-standards.md` § "`sonnet-only` tier carve-out" and `agents/orchestrator.md` § "Model policy" for the escalation safety valve.
 
@@ -322,83 +356,81 @@ guarantees the loop terminates without ever self-exiting by accepting consequent
 
 ---
 
-## Fable review patterns (#203, narrowed by #207)
+## Finding disposition — fix in place, drop, or defer (#514)
 
-**Retired 2026-07-06 (#274).** The Fable model is no longer available to this
-project; its final session ended 2026-07-06 and no current implementer qualifies
-for these patterns. **Every implementer follows the unmodified protocol above —
-the independence rules, reviewer counts, and self-modification bar apply with no
-exception.** The text below is preserved as the historical record of the
-decision and its rationale; it is not live policy.
+The section above answers a narrow question that only fires at the 3-round soft cap: is a
+_remaining_ defect consequential or inconsequential. This section answers a broader question that
+applies at **every** round, from the first finding onward: what happens to a finding once it is
+raised — is it fixed now, dropped, or filed as a new issue. The two share one underlying test — real
+defect vs. taste — this section just applies it to routing from round 1, not only after the cap
+trips.
 
-**Decision lineage.** #203 (2026-07-04) granted Fable full self-certification at
-every risk tier. **#207 (decided by the owner the same day, 2026-07-04) narrows
-that grant to the two patterns below and caps all Fable reviews at one round.**
-Where this section and any record of the original #203 grant disagree, this
-section governs.
+Every review finding takes exactly one of three dispositions.
 
-**Pattern 1 — routine work: fresh-context self-review.** Fable-authored work that
-is **not** system-level, **not** security-flagged, and **not** self-modification is
-certified by a self-review that Fable runs in a **fresh context**: a clean prompt
-containing the issue, the diff, this protocol's stance, and the design-philosophy
-charter (`standards/design-philosophy.md`) — and none of the implementing
-conversation. Re-reading one's own work inside the implementing context is not a
-review; the independence gained here is context-independence, and the
-design-philosophy charter is the lens because it is the one reviewer role the
-repo's own round-ledger evidence (#201) showed catching every consequential
-defect. Recorded via `tools/persist-self-certification.ps1` (`role: 'self-cert'`).
+**1. Fix in place — mandatory for an in-scope-fixable defect.**
 
-**Pattern 2 — governance surface: one independent reviewer.** Fable-authored work
-that is **system-level** (the governing-artifact surface defined in `DESIGN.md`),
-**security-flagged**, or **self-modification** takes exactly **one independent
-reviewer** — per the Model policy table (Opus), spawned from a clean prompt with
-no shared context with the implementer. Rationale: an agent that can rewrite the
-machinery that checks it and certify its own rewrite has no remaining independent
-check of any kind; the failure mode is undetectable by construction, so no degree
-of implementer capability substitutes for outside eyes here.
+A finding is _in-scope-fixable_ when both hold:
 
-**One-round cap (both patterns).** Every Fable review is exactly one round: the
-reviewer reports, the implementer fixes, and the **same** reviewer confirms the
-fixed artifact once within that round. No fresh-reviewer rounds, no panels, no
-soft-cap loop, no severity-adjudicator invocation. A consequential defect that
-cannot be resolved within the round halts the work and surfaces to the owner — it
-is not merged.
+- it is a real defect, not taste (the taste test is disposition 2, below); and
+- fixing it changes only the work under review — its own diff, its touched files, or a direct
+  consequence of the change — and the fix is bounded: not a new feature, not a large refactor.
 
-**Scope.** This applies only to Fable. Every other implementer remains bound by the
-rest of this protocol at full strength, unchanged — including the reviewer-count
-precedence order, the bias gate, and the soft-cap severity gate. For Fable-run
-reviews, the bias-gate agent ceremony does not apply; the bias-gate evidence
-artifact is written via `tools/persist-bias-gate.ps1 -SelfCertify`.
+An in-scope-fixable defect **must** be fixed in the current change before it merges. It may
+**never** be deferred to a new GitHub issue or a `spawn_task` chip. Another review round is the
+accepted cost of a correct fix, and it is cheaper than the issue → issue-review → implement →
+PR-review → CI pipeline a deferral would spawn — a pipeline that also locks the finding's file out
+of concurrent development until it lands. **"I do not want another review round" is never a valid
+reason to defer.** Neither is "it's trivial" — see the anti-pattern below.
 
-**Supersession.** For Fable only, this section supersedes:
+**2. Drop — for taste.**
 
-- `## Independence` — replaced by Pattern 1 (fresh-context self-review) for routine
-  work and Pattern 2 (one independent reviewer, not two-plus) for the rest.
-- `## Self-modification bar` — the two-independent-reviewer requirement is reduced
-  to Pattern 2's one independent reviewer. It is **not** waived: self-modification
-  never proceeds on self-certification alone.
+A finding that is a matter of opinion — both the implementer's and the reviewer's choices are
+valid, with no functional, correctness, or comprehension impact — is dropped: not fixed, not filed.
+These are the same criteria as the `## Stop condition — soft cap and severity gate` section's
+`inconsequential` test above, so the two never drift: taste is dropped at round 1 exactly as it is
+dropped at round 4. Taste is never escalated into a new issue merely because nobody wants to argue
+about it further.
 
-**Permanence.** Owner-authorized standing policy (decided 2026-07-04, #207) — not
-time-boxed. Any future widening back toward full self-certification is an owner
-decision to be recorded the same way.
+**3. Defer to a new issue — only for genuinely separable scope.**
 
-**CI is unaffected.** `npm run lint`, `npm run format:check`, and
-`npm run test:coverage` still gate Fable's work exactly as everyone else's, and the
-empirical smoke gate (#197, shipped with this policy) probes the running app on
-every push and PR.
+A finding may become a new GitHub issue only if fixing it requires genuinely separable new scope:
 
-**Mechanism.** Evidence, not hand-waving: `tools/persist-self-certification.ps1`
-writes distinctly-tagged records (`reviewer_id: fable-self-<i>`,
-`role: 'self-cert'`) to `.review_state/issue-reviews/<N>/` (issue mode) or
-`.review_state/reviews/<tree_oid>/` (tree mode). **Tree mode is capped at one
-record (#207).** Because `Reduce-Verdicts` (`tools/verdict-core.ps1`) counts
-distinct `reviewer_id`s with a PASS against `Required`, and a system-level tree
-requires `Required = 2` (`Get-RequiredBar`), the cap makes Pattern 2 mechanical:
-a system-level tree needs at least one PASS recorded by a real independent
-reviewer via `tools/persist-review.ps1` — self-certification alone can never
-satisfy it (`tests/persist-self-certification.test.js` pins both directions).
+- a different feature than the one under review;
+- a large or risky refactor that would itself need its own review cycle; or
+- a pre-existing defect in code this change does not touch.
 
-The `role: 'self-cert'` field keeps Fable's self-certified evidence honestly
-distinguishable from an independent reviewer's PASS in the audit trail — the
-exception is documented and visible in the evidence itself, not hidden behind a
-free-text `reviewer_id` that could be confused with a real reviewer.
+A `spawn_task` chip is never the vehicle for a review finding — GitHub issues are the single source
+of truth for tracked work. "I do not want another round" is excluded as a reason here exactly as in
+disposition 1 above — deferral is earned by the scope being genuinely separable, never by review
+fatigue.
+
+**Anti-pattern — "trivial" gets filed, not fixed.** The tell: a finding is labelled "trivial" or
+"minor" and then routed to a new issue or a `spawn_task` chip instead of being fixed, on the theory
+that something this small isn't worth another round. This is backwards. A trivial-and-fixable
+finding is the _exact_ case disposition 1 requires be fixed on the spot — the smaller the fix, the
+worse a whole downstream pipeline is as its vehicle for landing it. Severity labels do not decide
+disposition; only in-scope-fixable vs. genuinely-separable-scope does. "Trivial" is evidence for
+fix-in-place, never for defer.
+
+**Floor, not ceiling.** This rule sets a minimum, not a maximum. Fixing more than the
+in-scope-fixable set — e.g. sweeping a related pre-existing defect in a file you are already
+touching — is always allowed and encouraged. The rule only forbids fixing _less_ than the
+in-scope-fixable set by punting part of it elsewhere. A defect in the work under review is in scope
+by definition: fixing it completes the asked work, it is not scope-creep — only genuinely separate
+work is deferred.
+
+**Worked example — fix in place.** A reviewer finds: "this PR's diff moves the upload handler from
+`src/routes/photos.js` to `src/services/photos.js`, but the comment block this same diff adds two
+lines above still says `// see src/routes/photos.js for the multer config` — a reader following the
+comment lands on a file this PR deleted." The cited file's comment is inside the PR's own
+touched-files set and the fix is a one-line path correction. Disposition: fix in place. Filing it as
+a follow-up issue or chip would be the anti-pattern above — a trivial, in-diff fix routed around the
+review instead of made in it.
+
+**Worked example — defer to a new issue.** A reviewer finds: "`src/services/scoring.js`, untouched
+by this PR, computes tie-breaks with a comparator that silently mis-ranks entries sharing a
+timestamp — unrelated to the badge-catalog change under review." The defect lives in code this
+change never touches, and fixing it is a separate correctness fix to a different subsystem with its
+own test surface. Disposition: defer to a new GitHub issue (filed via `skills/capture-system-defect.md`
+if it is a machinery/process defect, or `skills/issue-create.md` for a product defect) — genuinely
+separable scope, not this change's job to carry.

@@ -19,7 +19,7 @@ const { Worker } = require('worker_threads');
 const request = require('supertest');
 const sharp = require('sharp');
 const decode = require('heic-decode');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 const HEIC_FIXTURE = fs.readFileSync(
   path.join(__dirname, '../fixtures/sample-photos/sample-heic-01.heic')
@@ -108,7 +108,7 @@ describe('end-to-end: the crafted "ispe bypass" upload is safely rejected', () =
       .prepare('INSERT INTO tasks (title) VALUES (?)')
       .run('Gate task').lastInsertRowid;
     const agent = request.agent(app);
-    await agent.get('/j/' + token).redirects(1);
+    signInGuest(app, token, agent);
 
     const evil = Buffer.from(HEIC_FIXTURE);
     evil.writeUInt32BE(24, ISPE - 4); // non-standard ispe size

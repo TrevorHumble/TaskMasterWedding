@@ -16,12 +16,13 @@ after every verdict in this format has been validated and aggregated.
 
 ## `defects[]` entry fields
 
-| Field      | Type   | Required | Notes                                                                                                                           |
-| ---------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `severity` | string | yes      | Allowed values: `blocker`, `major`, `minor`, `nit`. Expected of a well-formed verdict; the runner does not validate this field. |
-| `text`     | string | yes      | Free-text description of the defect. Expected of a well-formed verdict; the runner does not validate this field.                |
-| `file`     | string | no       | Path to the cited file, relative to the repo root. Omit for a defect with no file citation (e.g. a process finding).            |
-| `line`     | number | no       | 1-based line number in `file`. Only meaningful when `file` is present.                                                          |
+| Field      | Type   | Required | Notes                                                                                                                                                                                |
+| ---------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `severity` | string | yes      | Allowed values: `blocker`, `major`, `minor`, `nit`. Expected of a well-formed verdict; the runner does not validate this field.                                                      |
+| `category` | string | yes      | Allowed values: `correctness`, `security`, `test-coverage`, `docs`, `design`, `simplification`, `style`. Expected of a well-formed verdict; the runner does not validate this field. |
+| `text`     | string | yes      | Free-text description of the defect. Expected of a well-formed verdict; the runner does not validate this field.                                                                     |
+| `file`     | string | no       | Path to the cited file, relative to the repo root. Omit for a defect with no file citation (e.g. a process finding).                                                                 |
+| `line`     | number | no       | 1-based line number in `file`. Only meaningful when `file` is present.                                                                                                               |
 
 A defect that omits `file` is never citation-validated — there is nothing to check.
 A defect that includes `file` but omits `line` is treated as citing the whole file;
@@ -30,9 +31,10 @@ A `line` of `0` (or any value outside `1..count`) is `out-of-range` — `line` i
 
 The runner validates two things only: each verdict file's top-level `verdict`
 value (`PASS`/`FAIL`, anything else is `malformed`), and every defect's
-`file`/`line` citation per the rules above. It does NOT validate `severity`
-or `text` — a defect with a bogus `severity` or empty `text` still passes
-citation validation as long as its `file`/`line` (if present) are valid.
+`file`/`line` citation per the rules above. It does NOT validate `severity`,
+`category`, or `text` — a defect with a bogus `severity`, an unrecognized
+`category`, or empty `text` still passes citation validation as long as its
+`file`/`line` (if present) are valid.
 
 ## Example
 
@@ -49,8 +51,14 @@ citation validation as long as its `file`/`line` (if present) are valid.
   "reviewerId": "reviewer-pr-2",
   "verdict": "FAIL",
   "defects": [
-    { "severity": "blocker", "text": "unhandled null deref", "file": "src/db.js", "line": 42 },
-    { "severity": "nit", "text": "naming style" }
+    {
+      "severity": "blocker",
+      "category": "correctness",
+      "text": "unhandled null deref",
+      "file": "src/db.js",
+      "line": 42
+    },
+    { "severity": "nit", "category": "style", "text": "naming style" }
   ]
 }
 ```
@@ -72,3 +80,9 @@ citation validation as long as its `file`/`line` (if present) are valid.
   `persist-review.ps1 -Blocker/-Major/-Minor/-Nit` alongside `-FindingsCount`
   (#417). This is still not _validation_ of `severity` — an unrecognized
   value is counted toward `findings_count` but bucketed nowhere.
+- The runner tallies each reviewer's `defects[].category` the same way, into
+  an independent `{correctness,security,test-coverage,docs,design,simplification,style}`
+  breakdown, passed through to `persist-review.ps1` alongside the severity
+  counts (#517). This is not _validation_ of `category` either — an
+  unrecognized value is counted toward `findings_count` but bucketed nowhere,
+  same honesty posture as severity.

@@ -23,6 +23,14 @@
 // crashes at load time on the first prepared statement below.
 const { db } = require('../db');
 const { METRIC_BADGES, TRANSFERABLE_BADGES } = require('./badges');
+// TASK_BADGE_CODE_PREFIX is defined once in task-badges.js (the single owner
+// of the 'TASK-' literal — see that module's doc comment); createCustomBadge
+// below imports it rather than hard-coding a second copy that could drift.
+const { TASK_BADGE_CODE_PREFIX } = require('./task-badges');
+// VISIBLE_WHERE ('s.taken_down = 0') is owned by feed.js; badgeWithHolders'
+// query below consumes it rather than re-deriving the visibility literal (#488).
+// feed.js requires only '../db', so this import introduces no cycle.
+const { VISIBLE_WHERE } = require('./feed');
 
 // ---------------------------------------------------------------------------
 // Canonical auto-badge thresholds. These MUST match the seeded `badges` rows
@@ -108,6 +116,26 @@ const stmtPhotoBonusSum = db.prepare(
   'SELECT COALESCE(SUM(photo_bonus), 0) AS pb FROM submissions WHERE guest_id = ? AND taken_down = 0'
 );
 
+// Sum a guest's task-badge AWARD points (guest_badges.points, issue #483)
+// over awards whose earning photo is currently VISIBLE. A system/auto/
+// metric/transferable/special grant (written by stmtGrantBadge, never by
+// task-badges.awardTaskBadge) always carries submission_id IS NULL and
+// points = 0 (column defaults), so the LEFT JOIN's ON clause passes those
+// rows through unconditionally (they contribute 0 either way) while a
+// task-badge award's row is counted ONLY while its submission is
+// taken_down = 0 — the same visibility guard stmtPhotoBonusSum applies to
+// photo_bonus, mirrored here so a taken-down earning photo drops its award
+// points from the score exactly like a taken-down photo drops its bonus
+// (AC6), and a restore re-adds them. COALESCE(..., 0) covers the
+// no-awards case, where SUM would otherwise return SQL NULL.
+const stmtAwardPointsSum = db.prepare(
+  `SELECT COALESCE(SUM(gb.points), 0) AS ap
+     FROM guest_badges gb
+     LEFT JOIN submissions s ON s.id = gb.submission_id
+    WHERE gb.guest_id = ?
+      AND (gb.submission_id IS NULL OR ${VISIBLE_WHERE})`
+);
+
 // Look up a badge row by its code (e.g. 'BLOOM', 'EARLYBIRD').
 const stmtBadgeByCode = db.prepare('SELECT * FROM badges WHERE code = ?');
 
@@ -141,6 +169,14 @@ const stmtAddBonus = db.prepare(
   'UPDATE guests SET bonus_points = MAX(0, bonus_points + ?) WHERE id = ?'
 );
 
+// Read/flip a guest's one-time avatar starter-point flag (issue #409). Used
+// only by awardProfilePhotoPoint below, which is the single caller allowed
+// to set this flag — no other statement in this file writes it.
+const stmtAvatarPointAwarded = db.prepare('SELECT avatar_point_awarded FROM guests WHERE id = ?');
+const stmtSetAvatarPointAwarded = db.prepare(
+  'UPDATE guests SET avatar_point_awarded = 1 WHERE id = ?'
+);
+
 // ---------------------------------------------------------------------------
 // Read helpers
 // ---------------------------------------------------------------------------
@@ -163,9 +199,12 @@ function getCompletedCount(guestId) {
  * point, issue #247)
  *   + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
  *     submissions, task or memory — issue #89, preserved by #247)
- *   + admin guests.bonus_points.
- * bonus_points is stored clamped at >= 0, and photo_bonus is a non-negative
- * admin-set absolute value, so total points are always >= 0.
+ *   + admin guests.bonus_points
+ *   + task-badge AWARD points (SUM of guest_badges.points, issue #483),
+ *     counted only while the award's earning photo is visible (AC6).
+ * bonus_points is stored clamped at >= 0, photo_bonus is a non-negative
+ * admin-set absolute value, and award points are coerced non-negative at
+ * write time (task-badges.awardTaskBadge), so total points are always >= 0.
  * @param {number} guestId
  * @returns {number}
  */
@@ -174,7 +213,8 @@ function getPoints(guestId) {
   const photoBonus = stmtPhotoBonusSum.get(guestId).pb;
   const bonusRow = stmtBonusPoints.get(guestId);
   const bonus = bonusRow ? bonusRow.bonus_points : 0;
-  return completed * POINTS_PER_PHOTO + photoBonus + bonus;
+  const awardPoints = stmtAwardPointsSum.get(guestId).ap;
+  return completed * POINTS_PER_PHOTO + photoBonus + bonus + awardPoints;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,15 +402,21 @@ function removeSpecialBadge(guestId, code) {
 /**
  * Admin creates a new host-defined CUSTOM badge in the catalog.
  * Refuses to create a badge whose type is 'metric' or 'transferable'
- * (system-owned types — AC5): no row is written and the function returns
- * null. `code` must be unique (the DB's UNIQUE constraint enforces this;
- * a duplicate throws SqliteError like any other catalog insert would).
+ * (system-owned types — AC5), or whose code begins with the reserved
+ * 'TASK-' prefix (issue #483 AC8 — that prefix is reserved for the per-task
+ * badges task-badges.js manages, which never go through this function):
+ * either way no row is written and the function returns null. `code` must
+ * otherwise be unique (the DB's UNIQUE constraint enforces this; a
+ * duplicate throws SqliteError like any other catalog insert would).
  *
  * @param {{code: string, name: string, type: string, artPath: string, description?: string}} params
- * @returns {object|null} the inserted badge row, or null if the type was refused
+ * @returns {object|null} the inserted badge row, or null if refused
  */
 function createCustomBadge({ code, name, type, artPath, description }) {
   if (!ADMIN_AWARDABLE_TYPES.has(type)) {
+    return null;
+  }
+  if (typeof code === 'string' && code.startsWith(TASK_BADGE_CODE_PREFIX)) {
     return null;
   }
   const info = db
@@ -403,6 +449,82 @@ function addBonusPoints(guestId, delta) {
 }
 
 // ---------------------------------------------------------------------------
+// Profile-photo starter task (issue #409) — single owner of its two facts
+// ---------------------------------------------------------------------------
+
+// The hardcoded "Upload your profile photo" starter task is worth this many
+// points, owned here exactly as POINTS_PER_PHOTO owns the per-photo base
+// (issue #409 design constraint). Both the bonus-point award below and the
+// tasks-page tile's "+N pt" label read this one constant, so the value never
+// appears as a bare literal at a scoring call site OR in the view.
+const STARTER_PHOTO_POINT = 1;
+
+/**
+ * The starter task's contribution to a guest's task counts, plus its display
+ * facts, derived in ONE place from the guest row (issue #409 design
+ * constraint). Every surface that shows or counts the starter — GET / (home
+ * progress bar), GET /tasks (chip counts), and views/tasks.ejs (tile
+ * placement and label) — consumes this instead of re-deriving
+ * `!!avatar_path` or re-applying the `+1` arithmetic on its own, so the
+ * surfaces can never disagree about whether the starter exists or is done.
+ *
+ * The starter is always exactly one task (`total: 1`); it is complete once
+ * the guest has an avatar. `done_count`/`todo_count` are the +1 a caller
+ * folds into its own done/todo totals.
+ *
+ * @param {{avatar_path?: string|null}} guest a guest row (e.g. res.locals.guest)
+ * @returns {{points:number, done:boolean, total:number, done_count:number, todo_count:number}}
+ */
+function starterTaskContribution(guest) {
+  const done = !!(guest && guest.avatar_path);
+  return {
+    points: STARTER_PHOTO_POINT,
+    done: done,
+    total: 1,
+    done_count: done ? 1 : 0,
+    todo_count: done ? 0 : 1,
+  };
+}
+
+/**
+ * Award the one-time "Upload your profile photo" starter bonus point (issue
+ * #409) the first time a guest sets an avatar. Both avatar-setting call
+ * sites — POST /join (signup, routes/auth.js) and POST /me/edit (profile
+ * edit, routes/guest.js) — call this after their saveAvatar call succeeds.
+ *
+ * Awarded exactly ONCE, ever, per guest: guests.avatar_point_awarded starts
+ * at 0 and this function is the only writer that ever sets it to 1, so a
+ * replacement avatar upload (POST /me/edit again, or a delete-then-re-upload)
+ * finds the flag already 1 and no-ops — the point can never be earned twice
+ * (AC2). Calling this with no file saved (avatar unchanged) is simply not
+ * done by either call site, so "no photo selected" never reaches here (AC3).
+ *
+ * The award goes through addBonusPoints — the single scoring authority — so
+ * this stays a bonus point, not a task/submission row: it never appears in
+ * the public gallery/feed, and it does NOT count toward the completed-task
+ * badge thresholds (BLOOM/BOUQUET/GARDEN), which count submissions only —
+ * see issue #409's "Deliberate scope call for the reviewer".
+ *
+ * Wrapped in a transaction so the flag flip and the point award apply
+ * together or not at all; better-sqlite3 nests transaction functions via
+ * SAVEPOINTs, so this is safe to call from inside another db.transaction if
+ * a future caller ever needs to.
+ *
+ * @param {number} guestId
+ * @returns {boolean} true if the point was just awarded; false if it was
+ *   already awarded (no-op) or the guest id does not resolve to a row.
+ */
+const awardProfilePhotoPoint = db.transaction((guestId) => {
+  const row = stmtAvatarPointAwarded.get(guestId);
+  if (!row || row.avatar_point_awarded) {
+    return false;
+  }
+  stmtSetAvatarPointAwarded.run(guestId);
+  addBonusPoints(guestId, STARTER_PHOTO_POINT);
+  return true;
+});
+
+// ---------------------------------------------------------------------------
 // Leaderboard
 // ---------------------------------------------------------------------------
 
@@ -412,15 +534,19 @@ function addBonusPoints(guestId, delta) {
  * (issue #247: a memory contributes no base point)
  * + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
  * submissions, task or memory — issue #89, preserved by #247's design)
- * + guests.bonus_points. Each row carries the guest's earned badge codes
- * (auto + special).
+ * + guests.bonus_points
+ * + task-badge AWARD points (SUM of guest_badges.points, issue #483),
+ * counted only while the award's earning photo is visible (AC6) — see the
+ * awardPoints subquery note below. Each row carries the guest's earned badge
+ * codes (auto + special).
  *
  * The completed-count here uses the SAME canonical rule as getCompletedCount
  * (section 1a, Decision A; amended by #247): visible TASK submissions only
  * (taken_down = 0 AND task_id IS NOT NULL), with no is_active filter, so
  * leaderboard points always match a guest's own "X complete" home-page count.
- * bonus_points is clamped >= 0 and photo_bonus is a non-negative admin-set
- * value, so points >= 0.
+ * bonus_points is clamped >= 0, photo_bonus is a non-negative admin-set
+ * value, and award points are coerced non-negative at write time
+ * (task-badges.awardTaskBadge), so points >= 0.
  *
  * @returns {Array<{
  *   id: number,
@@ -447,6 +573,21 @@ function leaderboard() {
   // task completion, so it must not add a base point. photo_bonus stays
   // summed over EVERY visible row (task or memory), unchanged from #89 — a
   // memory's admin-awarded bonus still counts (AC10).
+  //
+  // awardPoints (issue #483) is a CORRELATED SUBQUERY in the SELECT list,
+  // NOT an extra JOIN guest_badges added to the outer FROM/GROUP BY above —
+  // that outer query is already grouped by g.id over a one-row-per-guest
+  // LEFT JOIN submissions; adding a second one-to-many JOIN guest_badges
+  // there would fan out (a guest with 2 photos x 1 award = 2 grouped rows
+  // before aggregation), inflating BOTH COALESCE(SUM(s.photo_bonus), 0) and
+  // the award sum by the fan-out factor. The subquery below runs once per
+  // guest row, independent of how many submissions that guest has, so it
+  // cannot fan out anything — mirroring stmtAwardPointsSum's guest_badges
+  // LEFT JOIN submissions above (same expression, evaluated per-guest there
+  // vs. once per leaderboard row here; see the Duplicated-ownership note in
+  // this issue's handoff for why the two live as separate query shapes
+  // rather than one shared statement, the same pattern already used for the
+  // completed-count/photo-bonus terms above).
   const rows = db
     .prepare(
       `SELECT
@@ -455,11 +596,18 @@ function leaderboard() {
          g.avatar_path   AS avatar_path,
          g.bonus_points  AS bonus_points,
          COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END)                                          AS completed,
-         COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END) * ${POINTS_PER_PHOTO} + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points AS points,
+         COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END) * ${POINTS_PER_PHOTO} + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points +
+         COALESCE((
+           SELECT SUM(gb.points)
+             FROM guest_badges gb
+             LEFT JOIN submissions gbs ON gbs.id = gb.submission_id
+            WHERE gb.guest_id = g.id
+              AND (gb.submission_id IS NULL OR gbs.taken_down = 0)
+         ), 0) AS points,
          MAX(s.created_at)                                    AS last_submission_at
        FROM guests g
        LEFT JOIN submissions s
-         ON s.guest_id = g.id AND s.taken_down = 0
+         ON s.guest_id = g.id AND ${VISIBLE_WHERE}
        GROUP BY g.id
        -- Tiebreak within an equal-points group by "earliest to reach the
        -- score" (oldest latest-submission first). A guest with no visible
@@ -500,9 +648,19 @@ function leaderboard() {
 
 // Every badge a guest currently holds, joined to the badge catalog so callers
 // get the display fields directly. Auto badges come first (ordered by their
-// threshold 5 -> 10 -> 15), then special badges by code.
+// threshold 5 -> 10 -> 15), then special badges by code. gb.points (issue
+// #483) is the guest's AWARD points for that specific badge — 0 for every
+// system/auto/metric/transferable/special grant (stmtGrantBadge never sets
+// it), a task-badge judgment amount for an admin task-badge award
+// (task-badges.js awardTaskBadge). gb.created_at and b.id (aliased badge_id)
+// are included only so a caller that needs a different display order (e.g.
+// community.js's leaderboard/profile "oldest award first" order) can re-sort
+// the array it gets back locally instead of re-deriving this join with a
+// second SQL statement (issue #487 design-philosophy review) — this
+// function stays the ONE place the guest_badges/badges join is written.
 const stmtGuestBadgesFull = db.prepare(
-  `SELECT b.code, b.name, b.art_path, b.type, b.description, gb.awarded_by
+  `SELECT b.id AS badge_id, b.code, b.name, b.art_path, b.type, b.description,
+          gb.awarded_by, gb.points, gb.created_at
      FROM guest_badges gb
      JOIN badges b ON b.id = gb.badge_id
     WHERE gb.guest_id = ?
@@ -512,14 +670,86 @@ const stmtGuestBadgesFull = db.prepare(
 );
 
 /**
- * All badges a guest currently holds, each with { code, name, art_path, type,
- * description, awarded_by }. Used by the section 04 home page, the section 07
- * public profile, and the section 08 admin guest view.
+ * All badges a guest currently holds, each with { badge_id, code, name,
+ * art_path, type, description, awarded_by, points, created_at, pointsLabel }.
+ * Used by the section 04 home page, the section 07 public profile (via
+ * community.js's re-sorting wrapper), the leaderboard, and the section 08
+ * admin guest view.
+ *
+ * pointsLabel (issue #487) is the ONE place "show a points suffix only when
+ * the award is worth something" is decided: "+<points> pts" when points > 0,
+ * else '' (falsy, so `<% if (b.pointsLabel) %>` in a template skips it
+ * cleanly for a 0-pt badge — AC1/AC2). Every caller renders this precomputed
+ * value rather than re-testing `points > 0` itself, so the rule can't drift
+ * between the guest-home and public-profile templates.
  * @param {number} guestId
  * @returns {Array<object>}
  */
 function getGuestBadges(guestId) {
-  return stmtGuestBadgesFull.all(guestId);
+  return stmtGuestBadgesFull.all(guestId).map((b) => ({
+    ...b,
+    pointsLabel: b.points > 0 ? `+${b.points} pts` : '',
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Badge detail page (issue #488): one badge's catalog row + every guest who
+// holds it.
+// ---------------------------------------------------------------------------
+
+// Every holder of one badge, with the fields the badge detail page needs for
+// EITHER of its two rendered shapes (issue #488): a system badge only reads
+// guest_id/guest_name; a Task Master (custom) badge also reads
+// points/note/submission_id/thumb_path per award. One shared query serves
+// both — the view decides what to display, this statement never branches on
+// badge type.
+//
+// The LEFT JOIN's ON clause carries the visibility predicate (not a WHERE
+// filter), so a taken-down or missing earning photo drops submission_id/
+// thumb_path to NULL for that row WITHOUT dropping the guest_badges row itself
+// (AC4) — the award's name/points/note must still render, only the photo
+// disappears.
+//
+// The predicate is `${VISIBLE_WHERE}`, consumed from feed.js's single owner
+// (the submissions table is aliased `s` here, matching VISIBLE_WHERE's `s.`
+// alias) rather than re-deriving the literal. stmtAwardPointsSum (above) and
+// the leaderboard main join likewise consume `${VISIBLE_WHERE}` — the two
+// clean `s.`-aliased sites migrated by #510. The remaining literals in this
+// module (the no-alias single-table counts stmtCompletedCount and
+// stmtPhotoBonusSum, and the `gbs`-aliased leaderboard subquery) and in other
+// modules stay inlined BY DESIGN: they can't cleanly consume the `s.`-prefixed
+// constant. See the ownership-boundary comment at feed.js's VISIBLE_WHERE
+// declaration for the why.
+const stmtBadgeHolders = db.prepare(
+  `SELECT
+     g.id         AS guest_id,
+     g.name       AS guest_name,
+     gb.points    AS points,
+     gb.note      AS note,
+     s.id         AS submission_id,
+     s.thumb_path AS thumb_path
+     FROM guest_badges gb
+     JOIN guests g ON g.id = gb.guest_id
+     LEFT JOIN submissions s ON s.id = gb.submission_id AND ${VISIBLE_WHERE}
+    WHERE gb.badge_id = ?
+    ORDER BY gb.points DESC, g.name ASC, g.id ASC`
+);
+
+/**
+ * One badge's catalog row plus every guest who holds it, for the badge
+ * detail page (`GET /badge/:code`, issue #488).
+ *
+ * @param {string} code
+ * @returns {{badge: object, holders: Array<object>}|null} null when no badge
+ *   with that code exists (the route 404s on this — AC5).
+ */
+function badgeWithHolders(code) {
+  const badge = stmtBadgeByCode.get(code);
+  if (!badge) {
+    return null;
+  }
+  const holders = stmtBadgeHolders.all(badge.id);
+  return { badge, holders };
 }
 
 // ---------------------------------------------------------------------------
@@ -533,6 +763,7 @@ module.exports = {
   getCompletedCount,
   getPoints,
   getGuestBadges,
+  badgeWithHolders,
   recomputeBadges,
   recomputeTransferableBadges,
   recomputeAfterSubmissionChange,
@@ -540,5 +771,8 @@ module.exports = {
   removeSpecialBadge,
   createCustomBadge,
   addBonusPoints,
+  STARTER_PHOTO_POINT,
+  starterTaskContribution,
+  awardProfilePhotoPoint,
   leaderboard,
 };

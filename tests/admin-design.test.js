@@ -34,7 +34,8 @@ describe('admin design system — AC3: single <main> preserved', () => {
 });
 
 describe('admin design system — AC4: admin pages render with a session', () => {
-  const routes = ['/admin', '/admin/tasks', '/admin/guests', '/admin/photos', '/admin/qrsheet'];
+  // /admin/qrsheet -> /admin/poster (issue #244 retired the per-guest QR sheet).
+  const routes = ['/admin', '/admin/tasks', '/admin/guests', '/admin/photos', '/admin/poster'];
 
   routes.forEach((route) => {
     // Issue #252 self-hosted every font (no more per-page Google Fonts link);

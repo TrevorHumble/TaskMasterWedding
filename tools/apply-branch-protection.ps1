@@ -24,6 +24,15 @@
 # with -RequireSmoke only once the smoke job is green on `main` (i.e. after
 # #187 and #193 merge). See DESIGN.md "Empirical smoke gate (#197)".
 #
+# -RequireReviewArtifact appends `review-artifact-present` (#48), the
+# server-side review-authenticity check. Same two-stage-promotion posture as
+# -RequireSmoke and for the same reason: a branch cut before the
+# review-artifact-present job existed can never report that check, so
+# requiring it before every open PR in the current wave has merged would
+# deadlock those PRs. Run with -RequireReviewArtifact only after that wave's
+# PRs have merged (recorded as a rollout step in #48's closing comment). See
+# DESIGN.md "Review-artifact-present check (#48)".
+#
 # required_approving_review_count stays 0: the repo owner is a solo maintainer
 # and GitHub does not let an author approve their own PR, so requiring >= 1
 # would lock the owner out of merging their own work. The owner's manual
@@ -36,6 +45,7 @@
 param(
   [string]$Branch = 'main',
   [switch]$RequireSmoke,
+  [switch]$RequireReviewArtifact,
   [switch]$EmitPayload
 )
 
@@ -58,6 +68,9 @@ $requiredChecks = @(
 )
 if ($RequireSmoke) {
   $requiredChecks += 'smoke'
+}
+if ($RequireReviewArtifact) {
+  $requiredChecks += 'review-artifact-present'
 }
 
 # restrictions must be present and explicitly null in the payload -- GitHub's

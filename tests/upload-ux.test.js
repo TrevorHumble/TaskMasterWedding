@@ -25,7 +25,7 @@ const path = require('path');
 const crypto = require('crypto');
 const request = require('supertest');
 const { JSDOM } = require('jsdom');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 const TASK_EJS_PATH = path.join(__dirname, '..', 'src', 'views', 'task.ejs');
 const UPLOAD_JS_PATH = path.join(__dirname, '..', 'src', 'public', 'js', 'upload.js');
@@ -62,7 +62,7 @@ function insertGuestAndTask() {
 
 async function makeGuestAgent(token) {
   const agent = request.agent(app);
-  await agent.get('/j/' + token).redirects(1);
+  signInGuest(app, token, agent);
   return agent;
 }
 

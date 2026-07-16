@@ -1,9 +1,8 @@
 // src/public/js/admin.js
 // Client-side helpers for the admin pages: confirmation dialogs on destructive
-// actions, copy-to-clipboard for guest links, the live guest-name search, and
-// keeping each badge-award form's action in sync with its select. Loaded by
-// the admin views after filter.js. Vanilla JS only; every feature degrades —
-// no JS still leaves working forms and a selectable link input.
+// actions, the live guest-name search, and keeping each badge-award form's
+// action in sync with its select. Loaded by the admin views after filter.js.
+// Vanilla JS only; every feature degrades — no JS still leaves working forms.
 (function () {
   'use strict';
 
@@ -20,30 +19,6 @@
         event.preventDefault();
       }
     }
-  });
-
-  // Copy a guest's private link. The readonly input next to the button stays
-  // selectable as the fallback when the Clipboard API is unavailable.
-  document.addEventListener('click', function (event) {
-    var target = event.target;
-    var btn = target && target.closest ? target.closest('.copy-link') : null;
-    if (!btn) {
-      return;
-    }
-    if (!navigator.clipboard || !navigator.clipboard.writeText) {
-      return;
-    }
-    var link = btn.getAttribute('data-link') || '';
-    navigator.clipboard.writeText(link).then(function () {
-      var row = btn.parentElement;
-      var confirmEl = row ? row.querySelector('.copy-confirm') : null;
-      if (confirmEl) {
-        confirmEl.hidden = false;
-        setTimeout(function () {
-          confirmEl.hidden = true;
-        }, 2000);
-      }
-    });
   });
 
   // (The badge-award select needs no JS: it posts action="toggle" and the

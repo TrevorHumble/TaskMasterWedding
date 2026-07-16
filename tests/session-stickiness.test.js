@@ -2,8 +2,16 @@
 // Issue #242 — rolling 400-day guest sessions, admin cookie left at 14 days,
 // and a hard production boot failure when COOKIE_SECRET is unset.
 //
-// AC1: a successful guest sign-in's Set-Cookie for `gsid` carries
-//      Max-Age=34560000 (400 days in seconds).
+// Sign-in mechanism migrated off the retired GET /j/:token (issue #244 — that
+// route now just 302s to /join and sets no cookie) to a real POST /join
+// signup, which is the route that actually sets `gsid` via
+// cookieOpts(config.GUEST_COOKIE_MAX_AGE_MS). #242's intent (the rolling
+// 400-day Max-Age) is unaffected by #244 — it still lives in
+// src/middleware/session.js's attachGuest — so these assertions are unchanged
+// in substance, just observed on the current sign-in path.
+//
+// AC1: a successful guest sign-in (POST /join)'s Set-Cookie for `gsid`
+//      carries Max-Age=34560000 (400 days in seconds).
 // AC2: a request carrying a valid `gsid` cookie gets a FRESH Set-Cookie for
 //      `gsid` (still Max-Age=34560000) on every subsequent authenticated
 //      request — the rolling refresh.
@@ -29,26 +37,24 @@ const REPO_ROOT = path.join(__dirname, '..');
 
 describe('rolling guest cookie / unchanged admin cookie (issue #242, AC1-AC3)', () => {
   let app;
-  let db;
 
   beforeAll(() => {
     const loaded = loadApp();
     app = loaded.app;
-    db = loaded.db;
 
     const fs = require('fs');
     const bcrypt = require('bcryptjs');
     const config = require('../config');
     fs.mkdirSync(path.dirname(config.ADMIN_HASH_PATH), { recursive: true });
     fs.writeFileSync(config.ADMIN_HASH_PATH, bcrypt.hashSync('StickySessions!9', 10), 'utf8');
-
-    db.prepare(
-      "INSERT INTO guests (token, name, onboarded) VALUES ('sticky-tok', 'Sticky Guest', 1)"
-    ).run();
   });
 
-  it('AC1: GET /j/:token sign-in sets gsid with Max-Age=34560000', async () => {
-    const res = await request(app).get('/j/sticky-tok');
+  it('AC1: POST /join sign-in sets gsid with Max-Age=34560000', async () => {
+    const res = await request(app)
+      .post('/join')
+      .field('name', 'Sticky Guest')
+      .field('contact', 'sticky-ac1@example.com')
+      .field('pin', '4321');
     const cookies = [].concat(res.headers['set-cookie'] || []);
     const gsid = cookies.find((c) => c.startsWith('gsid='));
     expect(gsid).toBeTruthy();
@@ -59,8 +65,13 @@ describe('rolling guest cookie / unchanged admin cookie (issue #242, AC1-AC3)', 
 
   it('AC2: every subsequent authenticated request re-issues gsid with a fresh Max-Age=34560000', async () => {
     const agent = request.agent(app);
-    // Sign in once.
-    const signIn = await agent.get('/j/sticky-tok');
+    // Sign in once, via the real self-serve signup route (POST /join) — the
+    // agent persists the resulting gsid cookie for the follow-up request.
+    const signIn = await agent
+      .post('/join')
+      .field('name', 'Sticky Guest Two')
+      .field('contact', 'sticky-ac2@example.com')
+      .field('pin', '5678');
     const signInCookies = [].concat(signIn.headers['set-cookie'] || []);
     expect(signInCookies.find((c) => c.startsWith('gsid='))).toBeTruthy();
 

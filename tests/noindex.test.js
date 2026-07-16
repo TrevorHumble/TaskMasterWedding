@@ -1,7 +1,7 @@
 // tests/noindex.test.js
 'use strict';
 
-const { loadApp, seed } = require('./helpers/testApp');
+const { loadApp, seed, signInGuest } = require('./helpers/testApp');
 const request = require('supertest');
 
 let agent;
@@ -10,7 +10,7 @@ beforeAll(async () => {
   const { app, db } = loadApp();
   seed(db);
   agent = request.agent(app);
-  await agent.get('/j/seedtoken');
+  signInGuest(app, 'seedtoken', agent);
 });
 
 describe('search-engine indexing is blocked site-wide', () => {

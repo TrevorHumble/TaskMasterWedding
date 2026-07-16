@@ -14,8 +14,11 @@
 
 const fs = require('fs');
 const path = require('path');
+const { extractLedgerComment } = require('./lib/ledger-comment');
 
 // Mirrors $SYSTEM_PATH_REGEX / $EXPERIMENTAL_PATH_REGEX in tools/verdict-core.ps1.
+// scripts/check-review-artifact.js (#48) reuses touchesKernelSurface directly
+// rather than declaring a third copy of these regexes.
 const SYSTEM_PATH_REGEX =
   /^(\.githooks\/|tools\/|standards\/|agents\/|skills\/|\.github\/|\.claude\/|docs\/north-star\.md|DESIGN\.md|CLAUDE\.md|AGENTS\.md)/;
 const EXPERIMENTAL_PATH_REGEX = /^agents\/reviewer-[^/]+\.md$/;
@@ -28,28 +31,10 @@ function touchesKernelSurface(files) {
   return (files || []).some((f) => !EXPERIMENTAL_PATH_REGEX.test(f) && SYSTEM_PATH_REGEX.test(f));
 }
 
-// Find the structured review report in a PR's comments: a comment containing
-// the marker token `governance-ledger` and a fenced json block. The LAST such
-// comment wins (a re-posted report supersedes earlier ones). Returns the parsed
-// object, or null when no comment carries a parseable report — the caller
-// records reviews: [] (an honestly-visible gap, never a fabricated entry).
-function extractLedgerComment(comments) {
-  const re = /governance-ledger[\s\S]*?```json\s*\n([\s\S]*?)```/;
-  let found = null;
-  for (const c of comments || []) {
-    const body = c && c.body ? c.body : '';
-    const m = re.exec(body);
-    if (m) {
-      try {
-        found = JSON.parse(m[1]);
-      } catch {
-        // Malformed report: keep whatever parsed earlier; a broken latest
-        // report must not erase a valid prior one silently.
-      }
-    }
-  }
-  return found;
-}
+// extractLedgerComment now lives in scripts/lib/ledger-comment.js (#48), shared
+// with scripts/check-review-artifact.js — re-exported here unchanged so every
+// existing caller of `require('./ledger-harvest').extractLedgerComment` keeps
+// working without a call-site change.
 
 // Find the last PR comment carrying the `<!-- buildlog-entry -->` marker and
 // return the narrative text that follows it, verbatim (leading/trailing

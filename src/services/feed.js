@@ -46,6 +46,25 @@ const GROUP_PREVIEW_SIZE = 6;
 // (grouped) need the bare terms inside an OVER (...) clause, where the
 // ORDER BY keyword is already supplied by the OVER syntax position.
 // ---------------------------------------------------------------------------
+// VISIBLE_WHERE owns the `s.`-aliased submission-visibility predicate only
+// (issue #510). Three site shapes intentionally keep their own literal
+// instead of importing this constant:
+//   - no-alias single-table queries (e.g. scoring.js's completed-count and
+//     photo-bonus-sum statements) — there is no `s` alias to reference, and
+//     inventing one just to consume this constant would be a bigger, riskier
+//     diff than the two-character literal it replaces.
+//   - a differently-aliased subquery, e.g. scoring.js's `gbs`-aliased
+//     leaderboard subquery — spelling `${VISIBLE_WHERE}` there would silently
+//     depend on the caller happening to alias its table `s`, which this
+//     module cannot see or enforce from here.
+//   - compound sites that fuse the visibility check with an unrelated
+//     condition, e.g. `taken_down = 0 AND task_id IS NOT NULL` — that AND'd
+//     clause is a different rule (task-linked vs. memory submissions), not a
+//     copy of this one, so folding it into VISIBLE_WHERE would conflate two
+//     independent predicates under one name.
+// Only a caller that already aliases the submissions table `s` and needs the
+// bare visibility check may safely consume ${VISIBLE_WHERE} (see scoring.js's
+// award-points-sum and leaderboard queries).
 const VISIBLE_WHERE = 's.taken_down = 0';
 const ORDER_NEWEST_TERMS = 's.created_at DESC, s.id DESC';
 const ORDER_NEWEST_FIRST = `ORDER BY ${ORDER_NEWEST_TERMS}`;
@@ -428,6 +447,12 @@ module.exports = {
   GALLERY_PAGE_SIZE,
   FEED_PAGE_SIZE,
   GROUP_PREVIEW_SIZE,
+  // The one visibility predicate ("a submission is visible iff taken_down = 0",
+  // aliased `s`). Exported (#488) so other services consume this single owner
+  // instead of re-deriving the literal; #510 migrated the two cleanly-composable
+  // `s.`-aliased sites in scoring.js, while the other-shape sites intentionally
+  // retain their own literal (see the declaration-site comment for why).
+  VISIBLE_WHERE,
   recentPage,
   feedWindow,
   grouped,

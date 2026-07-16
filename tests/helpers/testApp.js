@@ -5,6 +5,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const request = require('supertest');
 
@@ -86,4 +87,65 @@ async function makeAdminAgent(app, password = 'test-admin-pw') {
   return agent;
 }
 
-module.exports = { loadApp, seed, makeAdminAgent };
+/**
+ * Sign a raw cookie value the exact way `cookie-parser` (via the
+ * `cookie-signature` package) verifies it: `value + '.' + base64(HMAC-SHA256(
+ * value, secret))`, trailing `=` padding stripped. This is cookie-parser's
+ * private wire format for a *signed cookie's* content — the `s:` prefix
+ * cookie-parser strips before unsigning is added by the caller below, not
+ * here (mirrors how `res.cookie(name, value, { signed: true })` builds it in
+ * production: `'s:' + signature.sign(value, secret)`).
+ *
+ * `cookie-signature` is a transitive dependency (pulled in by cookie-parser),
+ * not a top-level one, so this reproduces its two-line algorithm with node's
+ * own `crypto` instead of reaching into another package's node_modules.
+ *
+ * @param {string} value - the raw cookie value (here, a guest's token).
+ * @param {string} secret - config.COOKIE_SECRET.
+ * @returns {string} the signed value, WITHOUT the leading `s:` marker.
+ */
+function signCookieValue(value, secret) {
+  const mac = crypto.createHmac('sha256', secret).update(value).digest('base64').replace(/=+$/, '');
+  return `${value}.${mac}`;
+}
+
+/**
+ * Sign in a supertest agent as the guest holding `token`, without making any
+ * HTTP request — issue #244 retired GET /j/:token (the route every test used
+ * to hit to establish a guest session), so a test can no longer sign in by
+ * visiting a URL. Instead this mints the exact signed `gsid` cookie
+ * attachGuest (src/middleware/session.js) expects and seeds it directly into
+ * the agent's cookie jar, which supertest/superagent then attaches to every
+ * subsequent request from that agent — same end state as the old
+ * `agent.get('/j/' + token)`, one function call instead of a network round trip.
+ *
+ * MUST be called after loadApp() (config needs the temp DATA_DIR already set —
+ * see loadApp's REQUIRE ORDER note above) and after the guest row with this
+ * token already exists in the DB (this function performs no DB write itself).
+ *
+ * @param {import('express').Application} app
+ * @param {string} token - a guest's `guests.token` value already in the DB.
+ * @param {import('supertest').SuperAgentTest} [agent] - reuse an existing
+ *   agent instead of creating a new one (e.g. one already holding other
+ *   cookies a test needs to keep).
+ * @returns {import('supertest').SuperAgentTest}
+ */
+function signInGuest(app, token, agent) {
+  // config is already cached with the temp DATA_DIR set by loadApp().
+  const config = require('../../config');
+  const signed = signCookieValue(token, config.COOKIE_SECRET);
+  // The cookie's value on the wire is percent-encoded (Express/`cookie`
+  // encodes with encodeURIComponent by default) — reproduce that here so the
+  // stored jar entry decodes back to the same signed value cookie-parser
+  // would unsign from a real Set-Cookie response.
+  const wireValue = encodeURIComponent(`s:${signed}`);
+  const theAgent = agent || request.agent(app);
+  // superagent's Agent keeps a `cookiejar`-package CookieJar (not a WHATWG
+  // one); setCookie(cookieString) parses one Set-Cookie-style string and
+  // stores it for every future request from this agent, exactly like a real
+  // response's Set-Cookie would have.
+  theAgent.jar.setCookie(`gsid=${wireValue}; Path=/`);
+  return theAgent;
+}
+
+module.exports = { loadApp, seed, makeAdminAgent, signInGuest };

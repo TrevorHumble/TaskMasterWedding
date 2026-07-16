@@ -157,6 +157,29 @@ describe('ledger-harvest pure functions (AC3)', () => {
     expect(extractLedgerComment([older, newer]).reviews).toEqual(reviews);
   });
 
+  // #48: the comment's reviews array is copied verbatim into the gl1 row
+  // regardless of shape, so the tree_oid/reviewer_id/issue_number binding
+  // fields tools/emit-ledger-comment.ps1 now emits pass through additively
+  // -- buildRow does not know or care about them -- and a row from before
+  // #48 (lacking those fields) is equally valid, an honest historical gap
+  // rather than a validation failure. Same posture as `buildlog: null`.
+  it('#48: reviews entries carrying the new binding fields (tree_oid/reviewer_id/issue_number) pass through verbatim', () => {
+    const widenedReviews = [
+      { role: 'issue', model: 'opus', verdict: 'PASS', issue_number: 188, round: 1 },
+      {
+        role: 'pr',
+        model: 'opus',
+        verdict: 'PASS',
+        tree_oid: 'deadbeefT',
+        reviewer_id: 'reviewer-pr-1',
+        defects: { blocker: 0, major: 0, minor: 0, nit: 0 },
+        round: 1,
+      },
+    ];
+    const row = buildRow(pr, [ledgerComment({ reviews: widenedReviews })]);
+    expect(row.reviews).toEqual(widenedReviews);
+  });
+
   it('resolveIssueNumber: title (#N), Closes #N, branch fallback, none -> null', () => {
     expect(resolveIssueNumber({ title: 'x (#42)', body: '', head: { ref: 'z' } })).toBe(42);
     expect(resolveIssueNumber({ title: 'x', body: 'Closes #7', head: { ref: 'z' } })).toBe(7);

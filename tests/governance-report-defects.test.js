@@ -95,4 +95,97 @@ maybeDescribe('governance-report.ps1 (#417 AC4)', () => {
       /issue: total 1, PASS 1, FAIL 0, defects: blocker 0, major 0, minor 0, nit 0/
     );
   });
+
+  // AC-Cat4 (#517): populated `categories` objects across two reviewer roles
+  // -> "by category:" section tabulates each bucket's true, summed value.
+  it('AC-Cat4: populated categories objects -> by-category output values', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gov-report-cats-'));
+    const ledgerPath = path.join(dir, 'ledger.ndjson');
+    const row = {
+      schema: 'gl1',
+      pr: 44,
+      issue: 517,
+      merged_sha: 'c0ffee00',
+      ts: '2026-07-14T00:00:00Z',
+      reviews: [
+        {
+          role: 'pr',
+          model: 'opus',
+          verdict: 'FAIL',
+          defects: { blocker: 1, major: 1, minor: 0, nit: 0 },
+          categories: {
+            correctness: 1,
+            security: 0,
+            'test-coverage': 1,
+            docs: 0,
+            design: 0,
+            simplification: 0,
+            style: 0,
+          },
+          round: 1,
+        },
+        {
+          role: 'design-philosophy',
+          model: 'opus',
+          verdict: 'FAIL',
+          defects: { blocker: 0, major: 1, minor: 0, nit: 0 },
+          categories: {
+            correctness: 0,
+            security: 0,
+            'test-coverage': 0,
+            docs: 0,
+            design: 1,
+            simplification: 0,
+            style: 0,
+          },
+          round: 1,
+        },
+      ],
+      labels: [],
+      freeze: false,
+    };
+    fs.writeFileSync(ledgerPath, JSON.stringify(row) + '\n');
+
+    const r = runReport(ledgerPath);
+
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('by category:');
+    expect(r.stdout).toMatch(/correctness: 1/);
+    expect(r.stdout).toMatch(/security: 0/);
+    expect(r.stdout).toMatch(/test-coverage: 1/);
+    expect(r.stdout).toMatch(/docs: 0/);
+    expect(r.stdout).toMatch(/design: 1/);
+    expect(r.stdout).toMatch(/simplification: 0/);
+    expect(r.stdout).toMatch(/style: 0/);
+  });
+
+  // AC-Cat4 (#517): a `reviews: []` historical row must contribute zeros to
+  // every category, never a fabricated bucket, and must not crash.
+  it('AC-Cat4: reviews: [] historical row -> by-category zeros, no crash', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gov-report-cats-empty-'));
+    const ledgerPath = path.join(dir, 'ledger.ndjson');
+    const row = {
+      schema: 'gl1',
+      pr: 45,
+      issue: 518,
+      merged_sha: 'deadc0de',
+      ts: '2026-07-14T00:00:00Z',
+      reviews: [],
+      labels: [],
+      freeze: false,
+    };
+    fs.writeFileSync(ledgerPath, JSON.stringify(row) + '\n');
+
+    const r = runReport(ledgerPath);
+
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('by category:');
+    expect(r.stdout).toMatch(/correctness: 0/);
+    expect(r.stdout).toMatch(/security: 0/);
+    expect(r.stdout).toMatch(/test-coverage: 0/);
+    expect(r.stdout).toMatch(/docs: 0/);
+    expect(r.stdout).toMatch(/design: 0/);
+    expect(r.stdout).toMatch(/simplification: 0/);
+    expect(r.stdout).toMatch(/style: 0/);
+  });
 });

@@ -93,6 +93,40 @@ function mostPhotosHolders() {
 }
 
 // ---------------------------------------------------------------------------
+// MOSTLIKED (transferable): the guest(s) whose VISIBLE submissions have
+// collected the strict-most total likes, summed across every one of that
+// guest's visible photos (issue #484) — a per-guest total, parallel to
+// MOSTPHOTOS being a per-guest count of submissions rather than one photo's
+// count. Ties are ALL held simultaneously, same as MOSTPHOTOS. The join below
+// walks likes -> submissions and keeps only likes on a visible submission
+// (taken_down = 0), so a taken-down photo's likes drop out of its guest's
+// total; the "zero total likes never holds it" rule is the same
+// `if (max === 0) return new Set()` guard as mostPhotosHolders — without it a
+// fresh DB (max 0) would make every liked-nothing guest a co-"winner".
+// ---------------------------------------------------------------------------
+const stmtLikeTotalsByGuest = db.prepare(`
+  SELECT s.guest_id AS guest_id, COUNT(*) AS n
+    FROM likes l
+    JOIN submissions s ON s.id = l.submission_id
+   WHERE s.taken_down = 0
+   GROUP BY s.guest_id
+`);
+
+/**
+ * @returns {Set<number>} guest ids tied for the most total likes on their
+ *   visible submissions.
+ */
+function mostLikedHolders() {
+  const rows = stmtLikeTotalsByGuest.all();
+  let max = 0;
+  for (const row of rows) {
+    if (row.n > max) max = row.n;
+  }
+  if (max === 0) return new Set();
+  return new Set(rows.filter((row) => row.n === max).map((row) => row.guest_id));
+}
+
+// ---------------------------------------------------------------------------
 // Registries.
 // ---------------------------------------------------------------------------
 
@@ -104,6 +138,7 @@ const METRIC_BADGES = {
 /** code -> () => Set<guestId> */
 const TRANSFERABLE_BADGES = {
   MOSTPHOTOS: mostPhotosHolders,
+  MOSTLIKED: mostLikedHolders,
 };
 
 module.exports = {
