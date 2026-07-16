@@ -518,7 +518,7 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 **Mitigating a known Sonnet reviewer quirk.** Sonnet follows "be conservative / only report serious issues" instructions literally and under-reports as a result. Every reviewer charter that can run on the `sonnet-only` tier (`reviewer-issue`, `reviewer-pr`, `reviewer-design-philosophy`) carries a coverage-first instruction scoped to that tier: report every finding, tagged with its own severity and confidence, and let the orchestrator triage — never promise a downstream filtering step, since on the common single-round PASS path none runs.
 
-**Escalation is the safety valve, not a suggestion.** Any eligibility gate tripping mid-run — a touched path turns out to be system-level or guest-critical, a security flag surfaces, a schema/data migration is discovered, or the orchestrator escalates — moves the remainder of the run to the standard Opus policy immediately, per `agents/orchestrator.md` § "Model policy". Reaching the 3-round soft cap is itself an escalation trigger: the severity-adjudicator always runs on Opus, on every tier.
+**Escalation is the safety valve, not a suggestion.** Any eligibility gate tripping mid-run — a touched path turns out to be system-level or guest-critical, a security flag surfaces, a schema/data migration is discovered, or the orchestrator escalates — moves the remainder of the run to the standard Opus policy immediately, per `agents/orchestrator.md` § "Model policy". Reaching the 3-round soft cap is itself an escalation trigger on every tier, whether or not an adjudicator ends up firing (#540): the concede/contest declaration and everything after the cap run on Opus, and on the contest path the severity-adjudicator invocation runs on Opus too — a concession does not exempt the remainder of the run from the escalation.
 
 **Mechanism.** `tools/classify-issue-run.ps1` dot-sources `tools/verdict-core.ps1` for `$SYSTEM_PATH_REGEX` and applies it directly — it does not call `Get-RequiredBar`, whose `$EXPERIMENTAL_PATH_REGEX` carve-out answers a different question (reviewer _count_ for `agents/reviewer-*.md` charters) than run-tier eligibility (which _model_). A reviewer-charter edit is a governance change and classifies `opus` under this script even though the same edit takes the routine reviewer-count bar under `Get-RequiredBar` — the two functions are not in tension, they answer different questions from the same regex. The `sonnet-only` GitHub label is applied by hand to the owner-confirmed qualifying issues; the classifier is the single source of truth for any future issue's eligibility, not the label's presence alone.
 
@@ -529,6 +529,41 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 **What this trades away, stated honestly.** The old rule bought determinism — an agent verifying an issue mechanically, with no judgment call. That is knowingly given up: two reviewers may disagree on the same criterion under the new bar. The trade is accepted because the old determinism was purchased by producing criteria nobody could hold — a worse failure than occasional reviewer disagreement.
 
 **Interaction with the `sonnet-only` tier (#427).** The new bar leans on reviewer judgment ("a competent reviewer can answer it"), and the "competent reviewer" on a `sonnet-only` run is a model this file's own § "Sonnet-only run tier (#427)" records as under-reporting when told to be conservative. No new mechanism is added to contain that here: the tier's existing bounds (routine, reversible, off the wedding-critical guest paths and the governance surface) plus the coverage-first instruction already scoped to that tier are what contain it — the same guardrails that already govern every other judgment call a `sonnet-only` reviewer makes.
+
+### No severity adjudicator when the orchestrator concedes a rewrite (#540)
+
+**Decision:** at the 3-round soft cap, the orchestrator first declares whether it **concedes** —
+judges at least one open defect warrants a fix — before anything else happens. On a concession,
+the severity adjudicator does not fire: **no dispute, no referee**. There is no dispute to referee
+because the orchestrator is not trying to exit with defects open; it commits instead to rewriting
+against **all** open feedback (not only the conceded defect) and a fresh reviewer re-reviews. On a
+contest — the orchestrator seeks to exit with defects still open — the adjudicator fires exactly
+as before, with its clean-prompt / no-context-from-prior-rounds requirement unchanged. Full
+mechanics: `standards/adversarial-review-protocol.md` § "Stop condition — soft cap and severity
+gate"; orchestrator-side recording: `agents/orchestrator.md` § "Stop condition".
+
+**Why this cannot be gamed toward less work.** Conceding costs _more_, not less: the rewrite must
+address every open item, including nits an adjudicator might have classified inconsequential and
+dismissed — work a contested round could have gotten to skip. There is no incentive to falsely
+concede to dodge the adjudicator; the shirking direction — falsely _contesting_ to get defects
+waved through — is exactly the case the adjudicator still fires on, unchanged. A concession is
+also explicitly **not** a severity classification and **not** an exit authorization, so it does not
+erode the retained rule that the author, implementer, and orchestrator never classify severity or
+authorize exit — a concession classifies nothing and authorizes no exit, it only commits to a
+rewrite.
+
+**The impasse backstop, re-keyed.** The prior backstop was keyed to the adjudicator ("a
+consequential defect surviving the adjudicator plus 3 further fix-and-re-review rounds"); if a
+concession skips the adjudicator, that trigger would never fire and a perpetually-conceding run
+could loop forever. The backstop is re-keyed to **6 total rounds without PASS, whether or not an
+adjudicator ran** — the same effective ceiling as before (3 rounds to the trigger plus 3 further
+rounds), so the bound is neither tightened nor loosened on the contested path, and a run that
+concedes every round is now bounded too.
+
+**Not tamper-proof, only tamper-evident.** No mechanism verifies a concession was made honestly.
+Like every other gate in this protocol, the control is that the concession must be recorded in the
+run output naming the defect conceded, so a skipped adjudicator leaves evidence of why it was
+skipped rather than a silent gap — not that a false concession is structurally impossible.
 
 ## System-level change (definition)
 

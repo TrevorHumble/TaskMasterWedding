@@ -290,7 +290,7 @@ A system-level change requires two independent reviewers. The reviewers must be 
 
 This is the system-level specialization of the high-stakes independence rule in the Independence section: instead of ≥3 adversaries with 2-of-3 majority, a system-level change uses two independent reviewers who must both reach PASS, and disagreement is treated as FAIL (fail-closed), so no third tie-breaker is needed.
 
-This bar is additive to the soft cap and severity gate below. When a system-level change reaches the soft cap trigger, both the two-reviewer requirement and the severity adjudicator apply. See `DESIGN.md` for the definition of system-level change. For the full precedence order placing this bar within the risk-tier hierarchy — including the security-flagged-system-level combination — see `## Reviewer count by artifact`.
+This bar is additive to the soft cap and severity gate below. When a system-level change reaches the soft cap trigger, both the two-reviewer requirement and the severity gate apply — the severity adjudicator itself firing only on the contest path (§ "Stop condition — soft cap and severity gate"; a conceding orchestrator skips it). See `DESIGN.md` for the definition of system-level change. For the full precedence order placing this bar within the risk-tier hierarchy — including the security-flagged-system-level combination — see `## Reviewer count by artifact`.
 
 ---
 
@@ -328,8 +328,29 @@ One exception: a **`severity:blocker`** security gate change applies to every op
 
 the 3-round mark is a trigger, not a hard cap.
 
-**Trigger:** At 3 rounds without PASS, the orchestrator invokes a `severity adjudicator` — a
-fresh Opus agent with no context from prior rounds. The loop does not stop at this point.
+**Trigger:** At 3 rounds without PASS, the orchestrator first declares whether it **concedes** —
+i.e. whether it judges that at least one open defect warrants a fix — before anything else
+happens. That declaration forks the path below.
+
+**Concede path — no dispute, no referee.** A concession is the orchestrator judging that **at
+least one** open defect warrants a fix. When the orchestrator concedes, it is not seeking to exit
+with defects open, so there is nothing to adjudicate: the severity adjudicator does **not** fire —
+**no dispute, no referee**. A concession obliges the implementation agent to rewrite against
+**all** open feedback, not only the conceded defect; a fresh reviewer then re-reviews. Conceding
+is a **fix-and-continue decision — it is not a severity classification and not an exit
+authorization**, so it does not collide with the retained rule below that the author, implementer,
+and orchestrator never classify severity or authorize exit: a concession classifies nothing and
+authorizes nothing, it only commits to a rewrite. Conceding costs _more_ than contesting, not
+less — the all-open-feedback rewrite folds in nits an adjudicator might have classified
+inconsequential and dismissed — so there is no incentive to concede falsely to skip review. The
+orchestrator **must record the concession in the run output, naming the defect(s) conceded**, so a
+skipped adjudicator leaves tamper-evident evidence of why it was skipped rather than a silent gap.
+
+**Contest path — the adjudicator fires exactly as today.** If the orchestrator does not concede —
+i.e. it seeks to exit with one or more defects still open — it invokes a `severity adjudicator`, a
+fresh Opus agent with no context from prior rounds, unchanged from today: the clean-prompt /
+no-context-from-prior-rounds requirement is not altered by this carve-out. The loop does not stop
+at this point.
 
 **Classification:** The severity adjudicator inspects every remaining open defect and classifies
 each as `consequential` or `inconsequential`. A defect is consequential if it does any of the
@@ -344,20 +365,28 @@ A defect is inconsequential only if it is none of those — a pure style or word
 functional, correctness, or comprehension impact. The severity adjudicator must cite a basis for
 each classification.
 
-**Exit rule:** exit is authorized only when every remaining defect is inconsequential. The
-system never accepts work while a consequential defect remains.
+**Exit rule:** on the contest path, exit is authorized only when every remaining defect is
+inconsequential. The system never accepts work while a consequential defect remains, and a
+concession never authorizes exit — it authorizes only a rewrite.
 the author, implementer, and orchestrator never classify severity or authorize exit — that power
-belongs solely to the severity adjudicator.
+belongs solely to the severity adjudicator, and only on the contest path.
 
-**Loop-continues path:** If any defect is consequential, the implementation agent fixes it, a
-fresh reviewer re-reviews, and the severity adjudicator is re-invoked. The loop continues
-until either a reviewer returns PASS or the severity adjudicator authorizes exit.
+**Loop-continues path:** If any defect is consequential (contest path), the implementation agent
+fixes it, a fresh reviewer re-reviews, and the severity adjudicator is re-invoked. If the
+orchestrator conceded instead, the implementation agent rewrites against all open feedback and a
+fresh reviewer re-reviews, without the adjudicator. Either way, at the next round without PASS the
+orchestrator again declares concede or contest. The loop continues until a reviewer returns PASS,
+the severity adjudicator authorizes exit on the contest path, or impasse is declared.
 
-**Impasse:** A consequential defect that survives the severity gate plus 3 further fix-and-re-review rounds
-is declared an impasse. The orchestrator tracks the post-gate round count and declares the impasse; the
-severity adjudicator only classifies severity per invocation and cannot track elapsed rounds. The segment
-halts and surfaces to the operator; a halt is not an acceptance — the work is not committed. This bound
-guarantees the loop terminates without ever self-exiting by accepting consequential work.
+**Impasse:** re-keyed to **total rounds without PASS**, so a run that concedes every round still
+terminates — whether or not an adjudicator ran. A consequential-or-open defect that survives **6
+total rounds without PASS** is declared an impasse: today's effective ceiling (3 rounds to the
+trigger plus 3 further fix-and-re-review rounds), neither tightened nor loosened. The orchestrator
+tracks the total round count and declares the impasse; the severity adjudicator, when it fires,
+only classifies severity per invocation and cannot track elapsed rounds. The segment halts and
+surfaces to the operator; a halt is not an acceptance — the work is not committed. This bound
+guarantees the loop terminates without ever self-exiting by accepting consequential work, on
+either the concede or the contest path.
 
 ---
 

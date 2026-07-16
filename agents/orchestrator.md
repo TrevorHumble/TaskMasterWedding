@@ -328,18 +328,31 @@ start)/60`. **Never estimate, infer, or carry-forward `elapsed` by feel** — a 
 
 - Every FAIL is fixed by the implementation agent and re-reviewed with a fresh reviewer instance.
   The author never decides a finding is a "nitpick."
-- At 3 rounds without PASS, spawn `agents/severity-adjudicator.md` (Opus, clean prompt, no
-  context from prior rounds). The adjudicator classifies every remaining open defect as
-  `consequential` or `inconsequential` and cites a basis for each.
-- On a consequential defect, the loop continues — fix and re-review, then re-invoke the
-  adjudicator. Bad work is never silently accepted.
-- Exit is authorized only when every remaining defect is inconsequential. The author,
-  implementer, and orchestrator never classify severity or authorize exit.
-- **Impasse:** the orchestrator tracks the post-gate round count and declares the impasse.
-  A consequential defect that survives the adjudicator plus 3 further fix-and-re-review
-  rounds triggers the orchestrator to halt and surface to the operator. The severity
-  adjudicator only classifies severity per invocation; it cannot track elapsed rounds.
-  Log the halt in `BUILDLOG.md` and continue with independent segments. a halt is not an
+- At 3 rounds without PASS, the orchestrator first declares whether it **concedes** — i.e.
+  whether it judges at least one open defect warrants a fix — before doing anything else. Full
+  definition, the anti-gaming rationale, and the exact wording: `standards/adversarial-review-protocol.md`
+  § "Stop condition — soft cap and severity gate"; this section states only the orchestrator-side
+  mechanics.
+  - **Concede — no dispute, no referee.** The orchestrator does not spawn
+    `agents/severity-adjudicator.md`; there is nothing to adjudicate. Instead the implementation
+    agent rewrites against **all** open feedback (not only the conceded defect) and a fresh
+    reviewer re-reviews. The orchestrator **must record the concession in the run output**,
+    naming the defect(s) conceded — a skipped adjudicator must leave evidence of why it was
+    skipped, not a silent gap.
+  - **Contest — the adjudicator fires exactly as today.** Spawn `agents/severity-adjudicator.md`
+    (Opus, clean prompt, no context from prior rounds). The adjudicator classifies every
+    remaining open defect as `consequential` or `inconsequential` and cites a basis for each.
+- On a consequential defect (contest path), the loop continues — fix and re-review, then
+  re-invoke the adjudicator. Bad work is never silently accepted.
+- Exit is authorized only when every remaining defect is inconsequential, on the contest path. A
+  concession never authorizes exit — it authorizes only a rewrite. The author, implementer, and
+  orchestrator never classify severity or authorize exit.
+- **Impasse:** re-keyed to **6 total rounds without PASS**, whether or not an adjudicator ran —
+  preserving today's effective ceiling (3 rounds to the trigger plus 3 further fix-and-re-review
+  rounds), neither tightened nor loosened, so a run that concedes every round is still bounded.
+  The orchestrator tracks the total round count and declares the impasse. The severity
+  adjudicator, when it fires, only classifies severity per invocation; it cannot track elapsed
+  rounds. Log the halt in `BUILDLOG.md` and continue with independent segments. A halt is not an
   acceptance — the work is not committed.
 
 **Disposing of a finding, every round.** A FAIL is never routed to a new GitHub issue or a
@@ -394,7 +407,10 @@ counter Sonnet's tendency to under-report findings.
 turns out to match the system-level surface or a guest-critical path, a security flag is raised, a
 schema/data migration is discovered, or the orchestrator escalates), the remaining run escalates
 immediately to the standard Opus policy above. Reaching the 3-round soft cap on a `sonnet-only` run is
-itself an escalation trigger: the severity-adjudicator invocation and everything after it run on Opus.
+itself an escalation trigger, whether or not an adjudicator ran: everything from the cap forward —
+the concede/contest declaration, a conceded rewrite-and-re-review, or the adjudicator invocation on
+the contest path — runs on Opus. A concession does not keep the run on Sonnet; only the contest
+path spawns the adjudicator, but both paths escalate at the cap.
 
 ---
 

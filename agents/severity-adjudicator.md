@@ -3,8 +3,11 @@ name: severity-adjudicator
 description: >
   Classifies every remaining open defect in a stalled review loop as consequential or
   inconsequential and authorizes exit only when all are inconsequential. Invoke when the
-  review loop has reached 3 rounds without PASS and the orchestrator needs an independent
-  severity ruling before the loop can continue or exit.
+  review loop has reached 3 rounds without PASS and the orchestrator contests — it is not
+  conceding and instead seeks to exit with defects open, so it needs an independent severity
+  ruling before the loop can continue or exit. No dispute, no referee: on a concession (the
+  orchestrator judges at least one open defect warrants a fix) this agent does not fire at all —
+  see `standards/adversarial-review-protocol.md` § "Stop condition — soft cap and severity gate".
 model: opus
 tools: [Read]
 ---
@@ -21,9 +24,14 @@ This agent performs read-only inspection only. Read-only commands (`git show`, `
 
 ## When to invoke
 
-- The orchestrator has reached 3 review rounds without a PASS verdict.
-- A prior severity ruling retained a consequential defect, the loop ran 3 further rounds, and
-  impasse must be declared.
+- The orchestrator has reached 3 review rounds without a PASS verdict **and contests** — it
+  judges no open defect warrants a fix and seeks to exit with defects open. This agent is not
+  invoked on a concession: if the orchestrator instead judges at least one open defect warrants a
+  fix, that is a concession, and per `standards/adversarial-review-protocol.md` § "Stop condition
+  — soft cap and severity gate" ("no dispute, no referee") the orchestrator skips this agent
+  entirely and rewrites against all open feedback.
+- A prior severity ruling retained a consequential defect, the loop ran further rounds on the
+  contest path, and the 6-total-rounds impasse must be declared.
 
 ## Bias check
 
@@ -93,8 +101,11 @@ One token verdict followed by the classified defect list.
 
 - `EXIT AUTHORIZED` — every defect is inconsequential; the loop may close without a PASS.
 - `LOOP CONTINUES` — one or more defects are consequential; return to fix-and-re-review.
-- `IMPASSE` — a consequential defect that survives the severity gate plus 3 further
-  fix-and-re-review rounds; the segment halts and surfaces to the operator.
+- `IMPASSE` — emitted only when the **orchestrator** (which tracks the total round count; this
+  agent cannot track elapsed rounds) has determined a defect survives **6 total rounds without
+  PASS**, whether or not an adjudicator ran on every round — a run may alternate concede and
+  contest rounds, and concede rounds run without this agent. On that determination the segment
+  halts and surfaces to the operator.
 
 ## Checklist
 
