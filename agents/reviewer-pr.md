@@ -32,9 +32,9 @@ If the spawning prompt names what the artifact is supposed to accomplish, or exp
 
 ## Input / output contract
 
-**Governing standard:** the `## Acceptance criteria` section of the linked issue is the operative standard for this review. No separate standards file governs PR review; treat each AC item as a checklist row.
+**Governing standard:** the `## Acceptance criteria` section of the linked issue is the operative standard for this review, read per `issue-standards.md` § "Acceptance criteria" — each criterion is a promise, not a checklist item graded on wording alone: a diff that keeps the promise passes even if a criterion's wording is imprecise, while a diff that satisfies every criterion's letter while breaking the promise FAILs.
 
-**Input:** the absolute path to the PR diff (or list of changed files) and the absolute path to its linked issue file. Read both, and read `standards/adversarial-review-protocol.md`. Read nothing else unless a changed file path is listed and must be inspected for AC compliance. The spawn prompt also assigns this reviewer instance a distinct `reviewerId` (e.g. `reviewer-pr-1`) — use that exact value in the JSON block below; do not invent one.
+**Input:** the absolute path to the PR diff (or list of changed files) and the absolute path to its linked issue file. Read both, and read `standards/adversarial-review-protocol.md` and `standards/issue-standards.md` (for the acceptance-criteria bar referenced above). Read nothing else unless a changed file path is listed and must be inspected for AC compliance. The spawn prompt also assigns this reviewer instance a distinct `reviewerId` (e.g. `reviewer-pr-1`) — use that exact value in the JSON block below; do not invent one.
 
 **Output:**
 
@@ -74,7 +74,7 @@ One token verdict, then one `verified by` line per AC, then the numbered defect 
 
 - [ ] Every acceptance criterion in the linked issue has an explicit finding (passed or failed).
 - [ ] No AC is skipped on the grounds that it is "implied" or "obvious."
-- [ ] For each behavioral AC, traced the changed code on one concrete input to a concrete output. If the traced output contradicts the AC, that is a blocker.
+- [ ] For each behavioral AC, traced the changed code on one concrete input to a concrete output. A criterion's imprecise wording is not itself a blocker when the traced output keeps the promise; a traced output that breaks the promise is a blocker regardless of wording.
 - [ ] For each behavioral AC, named one input it does NOT obviously cover — picked from the matching input-type row in `standards/edge-case-checklist.md` (the same canonical list the implementer builds against) — and stated how the changed code handles it. An unhandled edge the diff does not address is at least a major. (Exempt: an input outside the AC's stated input domain, or a closed/enumerated input set with no nontrivial edge — say so rather than flag it; not handling an out-of-domain input is correct.)
 - [ ] If the diff adds or changes tests, each asserts a specific expected output VALUE (not merely that code ran, returned non-null, or did not throw). Confirm at least one test would fail if the AC behavior were inverted; a test that cannot fail when the behavior is wrong is a major.
 - [ ] Changed files match the `Touches` field in the issue's dependency map; unannounced files are a finding.

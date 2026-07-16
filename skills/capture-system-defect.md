@@ -41,8 +41,8 @@ the full tier definitions and required fields for each tier — do not restate t
 Use `skills/issue-create.md`. File the issue in `data/wip-issues/<N>-slug.md` with:
 
 - a user story naming the agent or human hurt by the defect
-- at least one Given/When/Then acceptance criterion that resolves to a literal string or
-  structural check (even at backlog tier)
+- at least one Given/When/Then acceptance criterion — see `issue-standards.md` § "Acceptance criteria"
+  for what a criterion must be (even at backlog tier)
 - for a backlog issue: the graduation-condition field required by `standards/issue-standards.md`
   (deterministic, not human-approval)
 

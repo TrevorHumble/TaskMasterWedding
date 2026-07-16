@@ -28,7 +28,7 @@ If the spawning prompt names what the artifact is supposed to accomplish, or exp
 
 ## Input / output contract
 
-**Input:** the absolute path to the documentation file under review. Read that file, `standards/documentation-standards.md`, and `standards/adversarial-review-protocol.md`. Read nothing else.
+**Input:** the absolute path to the documentation file under review. Read that file, `standards/documentation-standards.md`, `standards/issue-standards.md` (for the acceptance-criteria bar the checklist below routes to), and `standards/adversarial-review-protocol.md`. Read nothing else.
 
 **Output:**
 
@@ -43,7 +43,7 @@ One token verdict followed by the numbered defect list. A PASS with any open blo
 
 ## Checklist (from `standards/documentation-standards.md`)
 
-- [ ] All acceptance criteria referenced by this doc resolve to literal string or structural checks (no "an agent can understand X" criteria).
+- [ ] All acceptance criteria referenced by this doc are answerable yes/no by a competent reviewer, per `issue-standards.md` § "Acceptance criteria" (no "an agent can understand X" criteria).
 - [ ] User story names a consumer and follows `As a [consumer], I need…` form.
 - [ ] No preamble sentences, restatements of section headers, or padding are present (quote any bloat candidate as evidence).
 - [ ] No banned slop words: `elegantly`, `robustly`, `seamlessly`, `comprehensively`, `holistically`, `notably`, `importantly`, `leverages`, `cutting-edge`, `game-changing`, `powerful`, `innovative`.

@@ -28,6 +28,8 @@ For backlog issues, check the `Graduate after` field. If the graduation conditio
 
 For ready issues, independently classify the issue's run tier using the same eligibility rules `tools/classify-issue-run.ps1` encodes (system-level surface, security-flagged, orchestrator-escalated, wedding-critical guest paths, schema-or-data-migration — citing that script as the single source of truth). If the independently-derived classification disagrees with the issue's declared `**Run tier:**` value, return a blocking FAIL.
 
+For every acceptance criterion, judge whether the criteria state the promise — confirm each is answerable yes/no by a competent reviewer against real evidence, and that together they describe when the issue is done, rather than grepping for banned phrasing. An issue whose criteria have multiplied past the count ceiling stated in `standards/issue-standards.md` § "Acceptance criteria" so that nobody can hold them together is at least major severity — cite that section's #410 failure scenario in the finding.
+
 **Coverage-first instruction for `sonnet-only` runs.** When this review is conducted as part of a `sonnet-only` run, report every finding identified — including low-confidence and low-severity ones — tagged with its own severity and confidence. Do not silently drop a finding judged minor; the orchestrator, not the reviewer, decides what to act on. This instruction does not promise a downstream filtering step (on the common single-round PASS path none runs) — it exists because Sonnet follows "be conservative / only report serious issues" phrasing literally and under-reports as a result, so non-suppression is the rule and severity-tagging is the triage mechanism. This is scoped to the `sonnet-only` run only; it does not override the standing "retract your own over-flags" bar for Opus reviews in `standards/adversarial-review-protocol.md`.
 
 ## Bias check
@@ -36,7 +38,7 @@ If the spawning prompt names what the artifact is supposed to accomplish, or exp
 
 ## Input / output contract
 
-**Input:** the absolute path to the issue file under review. Read that file, `standards/issue-standards.md`, and `standards/adversarial-review-protocol.md`. Read nothing else.
+**Input:** the absolute path to the issue file under review. Read that file, `standards/issue-standards.md`, `standards/adversarial-review-protocol.md`, and — for a ready-tier issue only — `tools/classify-issue-run.ps1`, whose encoded eligibility rules are the single source of truth for the `**Run tier:**` check. Read nothing else.
 
 **Output:**
 
@@ -52,8 +54,8 @@ One token verdict (`PASS` or `FAIL`) followed by the numbered defect list. A PAS
 ## Checklist (from `standards/issue-standards.md`)
 
 - [ ] User story names an end-consumer and follows `As a [consumer], I need…` form.
-- [ ] Every acceptance criterion is in Given/When/Then form and resolves to a literal string/structural check or a behavioral input→output assertion.
-- [ ] At least one acceptance criterion asserts a behavioral output value (input → expected output), not only that a file/section/string exists — an issue whose ACs are all presence-checks cannot catch a wrong implementation, that is a major. (Exempt documentation-only issues — those whose `Touches` paths are all docs, `.md` or under `docs/` — whose ACs may be purely string/structural per `standards/issue-standards.md`.)
+- [ ] Every acceptance criterion is in Given/When/Then form and is answerable yes/no by a competent reviewer, or asserts a behavioral input→output value, per `standards/issue-standards.md` § "Acceptance criteria".
+- [ ] At least one acceptance criterion asserts a behavioral output value (input → expected output), not only that a file/section/string exists — an issue whose ACs are all presence-checks cannot catch a wrong implementation, that is a major. (Exempt documentation-only issues per the exemption defined once in `standards/issue-standards.md` § "Acceptance criteria".)
 - [ ] Implementation plan is present with at least three numbered steps, each naming a file path or concrete deliverable.
 - [ ] Dependency map contains all three fields: `Depends on`, `Blocks`, `Touches`.
 - [ ] No FINAL, LAST, or TRULY_FINAL in filenames or section headers referenced by this issue.
