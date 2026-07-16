@@ -18,6 +18,12 @@ const scoring = require('../services/scoring');
 // failedAttempts/lockedUntil scalars this file used to carry. See
 // src/services/lockout.js's own header comment for the full rationale.
 const lockout = require('../services/lockout');
+// Generic counting semaphore (issue #543) -- bounds concurrent bcrypt
+// compares on POST /admin/login below. Imported from src/utils/semaphore.js,
+// NOT src/utils/upload-concurrency.js: that module's name and header
+// describe only the upload pipeline, and importing it here to guard a login
+// would be a plainly wrong dependency for a reader to untangle.
+const { Semaphore } = require('../utils/semaphore');
 // Route-level rate limiting (issue #283). DISTINCT from
 // src/services/rate-limit.js (owns POST /memories and the HEIC-decode
 // throttle) — see src/middleware/rate-limit.js's file comment for the
@@ -465,6 +471,159 @@ router.post('/onboard', (req, res) => {
 
 const ADMIN_LOGIN_TITLE = 'Admin Login';
 
+// Module-level singleton (issue #543), same pattern as
+// src/utils/upload-concurrency.js's uploadSemaphore -- the limit only means
+// something if every POST /admin/login request shares one counter, not a
+// fresh one per request. Sized from config so an operator can retune
+// ADMIN_LOGIN_MAX_CONCURRENT_COMPARES per event/host without a code change.
+// `let`, not `const`: see _resetAdminLoginSemaphoreForTest below.
+let adminLoginSemaphore = new Semaphore(config.ADMIN_LOGIN_MAX_CONCURRENT_COMPARES);
+
+// Every _*ForTest seam below is gated on NODE_ENV === 'test' (which vitest
+// sets by default, see tests/cookie-secure.test.js's own comment) and is
+// INERT -- a true no-op, not a throw -- everywhere else. These are
+// module-internal today (nothing over HTTP can reach a require()'d router's
+// own properties), but router._setCompareImplForTest below can authenticate
+// every password (`_setCompareImplForTest(() => true)`), in the module that
+// mints the admin cookie, on a host public for weeks pre-event -- gating it
+// closes that off as defense-in-depth even though it is not a live hole
+// today, rather than relying solely on "nothing reaches it" staying true.
+const isTestEnv = () => process.env.NODE_ENV === 'test';
+
+// Test-only seam: replaces the semaphore with a fresh instance. Needed
+// because it is module-level singleton state that outlives any one test —
+// a test that fails or times out with an unsettled fake compare still holding
+// a slot would otherwise leak that slot into every later test in the file
+// (including this file's own vitest.config.mjs `retry: 2` re-attempts of the
+// SAME test), permanently starving the gate. Real production traffic has no
+// equivalent reset; this exists purely to give each test a clean gate.
+router._resetAdminLoginSemaphoreForTest = () => {
+  if (!isTestEnv()) return;
+  adminLoginSemaphore = new Semaphore(config.ADMIN_LOGIN_MAX_CONCURRENT_COMPARES);
+};
+
+// Test-only seam (issue #543 AC1-AC4): the real compare (bcrypt.compare,
+// cost 10-12) is too slow to drive 50 concurrent requests through
+// deterministically in a unit test, and its settle timing can't be
+// controlled from outside. Production always calls the real bcrypt.compare;
+// only a test with access to this router's internals can swap it out.
+const defaultCompare = (password, hash) => bcrypt.compare(password, hash);
+let compareImpl = defaultCompare;
+router._setCompareImplForTest = (fn) => {
+  if (!isTestEnv()) return;
+  compareImpl = fn || defaultCompare;
+};
+// Exposes the live semaphore instance so a test can assert queue length /
+// active count directly (e.g. AC4's "the gate's queue length ... returns to
+// 0"). Returns undefined outside a test environment rather than handing out
+// a live reference a caller could acquire()/release() against directly.
+router._adminLoginSemaphoreForTest = () => (isTestEnv() ? adminLoginSemaphore : undefined);
+
+/**
+ * Run `fn` inside the admin-login CPU-bound gate (issue #543): acquire a
+ * slot from adminLoginSemaphore, run `fn`, and always release the slot
+ * afterward. Mirrors src/utils/upload-concurrency.js's withUploadSlot(fn) --
+ * the same acquire/try/finally-owning idiom -- extended with the one thing
+ * withUploadSlot doesn't need: a cancellable wait, because an admin-login
+ * waiter can queue behind an unauthenticated flood and its client can
+ * disconnect before ever reaching the front (AC4).
+ *
+ * A QUEUED waiter holds no slot yet -- dropping it from the queue on
+ * disconnect (the catch below) is a different action from releasing an
+ * already-held slot (the finally below, which runs regardless of
+ * disconnect). The abort listener inside Semaphore.acquire is removed the
+ * instant a slot is granted, so 'close' firing again after a normal
+ * response (it always does) is a no-op here, never a double-release.
+ *
+ * Listens on `res` ('close'), not `req`: req's readable stream is already
+ * fully drained by the time this runs (the global urlencoded body parser
+ * reads the whole body before calling next()), and on this Node runtime
+ * req's own 'close' fires the instant that read finishes -- i.e.
+ * immediately, for every request, not on an actual disconnect. Verified
+ * empirically while building this gate: wiring req.on('close') aborted
+ * every queued waiter within the same tick it queued, which would make this
+ * gate cancel-only and never actually bound anything. res's 'close' fires
+ * only when the underlying connection ends, whether that is a normal
+ * post-response cleanup (harmless no-op here, per the paragraph above) or a
+ * genuine premature disconnect (AC4).
+ *
+ * Returns a discriminated result object rather than unioning "the compare's
+ * answer" with "no compare happened" into one truthy-capable channel (a
+ * cancellation sentinel would sit only a `===` check away from a `boolean`
+ * in the same slot, one call site away from a truthy sentinel accidentally
+ * minting the admin cookie). `cancelled` must be checked first; `ok` is
+ * only meaningful when `cancelled` is false.
+ *
+ * @template T
+ * @param {import('express').Response} res
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<{ cancelled: true } | { cancelled: false, ok: T }>}
+ */
+async function withCompareSlot(res, fn) {
+  // Captured once so a mid-flight _resetAdminLoginSemaphoreForTest cannot
+  // acquire against one Semaphore instance and release against another --
+  // acquire and release below always agree on which instance they mean.
+  const sem = adminLoginSemaphore;
+  const controller = new AbortController();
+  const onClose = () => controller.abort();
+  res.on('close', onClose);
+
+  try {
+    await sem.acquire({ signal: controller.signal });
+  } catch (err) {
+    // Semaphore.acquire's JSDoc describes cancellation via AbortSignal but
+    // never promises abort is the ONLY rejection reason -- checking
+    // controller.signal.aborted here, rather than assuming every rejection
+    // is a disconnect, is what keeps that promise from being silently
+    // load-bearing. A genuine abort (the client is already gone) has no
+    // response to send and no slot to release (acquire() never granted
+    // one); AC4: this must never consume a compare.
+    res.removeListener('close', onClose);
+    if (controller.signal.aborted) {
+      return { cancelled: true };
+    }
+    // Some other rejection reason: rethrow so the caller's catch (around
+    // withCompareSlot, in POST /admin/login below) renders a 500 instead of
+    // this request hanging with no response ever sent.
+    throw err;
+  }
+
+  try {
+    const ok = await fn();
+    return { cancelled: false, ok };
+  } finally {
+    // Release regardless of throw (a corrupt/unreadable admin.hash reaching
+    // compareImpl despite the caller's readFileSync guard would otherwise
+    // leak the slot forever) or of the client having disconnected
+    // mid-compare (that request already holds its slot; only a QUEUED wait
+    // is cancellable).
+    sem.release();
+    res.removeListener('close', onClose);
+  }
+}
+
+/**
+ * Render the same generic 500 admin-login page for both ways this route can
+ * fail to reach a real yes/no answer: an unreadable/missing admin.hash (the
+ * readFileSync guard below) and a readable-but-corrupt hash that makes
+ * compareImpl's bcrypt.compare REJECT instead of resolving false (issue
+ * #543 tightening — three independent reviewers demonstrated a corrupt
+ * 60-char hash makes bcryptjs throw "Illegal salt length", and since the
+ * route handler is async, Express 4 does not route that rejection to
+ * next(err) — see :113-118 — so without this catch the request hangs
+ * forever instead of ever reaching this render). One render, two callers,
+ * so the copy and status code have a single owner instead of drifting
+ * between call sites. Never leaks `err` into the response — an admin.hash
+ * failure of any kind, unreadable or corrupt, gets the same host-facing
+ * "not set up yet" copy, not the underlying exception.
+ */
+function renderAdminSetupError(res) {
+  res.status(500).render('admin-login', {
+    title: ADMIN_LOGIN_TITLE,
+    error: 'The admin area is not set up yet. Please ask the host to finish setup.',
+  });
+}
+
 // GET /admin/login — show the password form.
 router.get('/admin/login', (req, res) => {
   res.render('admin-login', { title: ADMIN_LOGIN_TITLE, error: null });
@@ -478,22 +637,68 @@ router.get('/admin/login', (req, res) => {
 // A correct password always authenticates and clears the failure counter, so the
 // real admin cannot be locked out by others' failed attempts. Only wrong passwords
 // increment the counter and are throttled.
+//
+// CPU-bound gate (issue #543): every caller here is unauthenticated by
+// construction (this route is what MINTS the admin cookie -- nothing before
+// the compare can tell the admin apart from an attacker, and DESIGN.md's "No
+// limiter on POST /admin/login" note records that IP doesn't separate them
+// either, since admin and attacker can share one venue-NAT IP). That is why
+// this is a CONCURRENCY gate, not a rate limiter: it wraps the compare below
+// in adminLoginSemaphore so at most ADMIN_LOGIN_MAX_CONCURRENT_COMPARES run
+// at once, but it never refuses an ARRIVING request -- an over-limit caller
+// queues (uncapped depth) and is still answered, so the real admin's correct
+// password is never turned away even deep in a flood (AC2). The only
+// deliberate refusal is a QUEUED waiter whose client has already
+// disconnected (res.on('close') inside withCompareSlot, above): that caller
+// cannot be "refused" because there is no one left to answer, so dropping it
+// from the queue bounds queue depth by live connections at no cost to AC2.
+// This gate is not a rate limiter; it addresses event-loop share, a
+// distinct exposure the lockout does not bound (a fully locked-out
+// attacker still forces a complete bcrypt compare on every request).
 router.post('/admin/login', async (req, res) => {
-  const password = req.body.password || '';
+  // A non-string password (e.g. a duplicated `password=a&password=b` field,
+  // which express.urlencoded({ extended: false })'s underlying querystring
+  // parser turns into the ARRAY ["a", "b"]) is truthy and survives a bare
+  // `|| ''`. bcrypt.compare then rejects with "Illegal arguments: object,
+  // string" -- and since this handler is async, Express 4 does not route
+  // that rejection to next(err) (see :113-118 above), so no response is
+  // ever sent and the socket pins forever. Coercing anything non-string to
+  // '' here turns that case into an ordinary wrong password (401) instead.
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
 
   let hash;
   try {
     hash = fs.readFileSync(config.ADMIN_HASH_PATH, 'utf8').trim();
   } catch (err) {
-    res.status(500).render('admin-login', {
-      title: ADMIN_LOGIN_TITLE,
-      error: 'The admin area is not set up yet. Please ask the host to finish setup.',
-    });
+    renderAdminSetupError(res);
     return;
   }
 
-  const ok = await bcrypt.compare(password, hash);
-  if (ok) {
+  // withCompareSlot (above) owns the whole acquire/cancel/release lifecycle
+  // for the CPU-bound gate (issue #543) -- see its own comment for the
+  // res-vs-req 'close' rationale and the queued-vs-held-slot distinction.
+  //
+  // Tightening (three independent reviewers): withCompareSlot's inner try
+  // has a finally but deliberately no catch (it needs to release the slot
+  // on either outcome, then let a compareImpl rejection propagate) -- but
+  // that means a REJECTION (e.g. bcryptjs throwing on a readable-but-corrupt
+  // admin.hash the readFileSync guard above can't detect, since it only
+  // catches an unreadable file, not a corrupt one) would otherwise escape
+  // this async handler uncaught. Express 4 does not route an async handler's
+  // rejection to next(err) (see :113-118 above), so without this try/catch
+  // the request hangs forever instead of ever getting a response. Same
+  // failure class as the non-string-password fix a few lines up, one line
+  // away, in this same handler.
+  let result;
+  try {
+    result = await withCompareSlot(res, () => compareImpl(password, hash));
+  } catch (err) {
+    renderAdminSetupError(res);
+    return;
+  }
+  if (result.cancelled) return;
+
+  if (result.ok) {
     // Correct password — clear any active lockout and authenticate (issue
     // #49: this branch runs regardless of lockout state; a correct password
     // always wins).

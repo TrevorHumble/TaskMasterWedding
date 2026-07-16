@@ -178,6 +178,27 @@ const config = {
   ADMIN_LOGIN_MAX_ATTEMPTS: parseInt(process.env.ADMIN_LOGIN_MAX_ATTEMPTS, 10) || 10,
   ADMIN_LOGIN_LOCKOUT_MS: parseInt(process.env.ADMIN_LOGIN_LOCKOUT_MS, 10) || 15 * 60 * 1000,
 
+  // ADMIN_LOGIN_MAX_CONCURRENT_COMPARES: bound on how many bcrypt.compare
+  // calls POST /admin/login may run AT ONCE (issue #543). This is DISTINCT
+  // from the lockout above (which bounds guessing -- how many wrong
+  // passwords land before a 429) and from the deliberate absence of a rate
+  // limiter on this route (DESIGN.md's "No limiter on POST /admin/login,
+  // deliberately" -- that decision addresses guessing, not CPU, and stands
+  // unchanged). bcryptjs is pure JS and runs entirely on the main thread.
+  // Measured per-compare cost and drain rate are cited, not restated, in
+  // DESIGN.md's "Admin-login CPU-bound gate (#543)" section (a remeasure
+  // updates one place, not two); that section and issue #553 also cover
+  // what this gate does NOT bound (total accumulation under sustained
+  // flood). This bounds the compare's event-loop share to N regardless of
+  // how many requests arrive, so an unauthenticated caller cannot crowd
+  // every guest off the loop with nothing but repeated wrong guesses. An
+  // over-limit caller QUEUES (uncapped depth, never refused or
+  // 429/503'd by this gate) rather than being rejected, matching the
+  // upload-concurrency Semaphore's own "queue, don't reject" rationale --
+  // the queued admin with the correct password must never be turned away.
+  ADMIN_LOGIN_MAX_CONCURRENT_COMPARES:
+    parseInt(process.env.ADMIN_LOGIN_MAX_CONCURRENT_COMPARES, 10) || 2,
+
   // Guest re-entry (login) throttling (issue #241). Keyed per-normalized-contact
   // in src/routes/auth.js, not globally like the admin counters above — one
   // guest guessing wrong should never lock out a different guest's contact.
