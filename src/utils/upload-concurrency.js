@@ -17,56 +17,17 @@
 // No new dependency: this is a small in-process counter + FIFO queue, sized
 // for one Node process serving one weekend event on one laptop -- the same
 // reasoning src/services/rate-limit.js gives for its in-memory guards.
+//
+// The Semaphore class itself lives in src/utils/semaphore.js (issue #543) --
+// it is generic and has a second caller now (src/routes/auth.js's
+// admin-login CPU-bound gate). Re-exported here unchanged so this module's
+// existing callers (and tests/upload-concurrency.test.js, which imports
+// Semaphore from THIS path) need no change.
 
 'use strict';
 
 const config = require('../../config');
-
-/**
- * A counting semaphore: at most `limit` concurrent holders; anyone past that
- * limit queues (FIFO) until a holder releases.
- */
-class Semaphore {
-  /**
-   * @param {number} limit - max concurrent holders. A non-positive or
-   *   non-integer value falls back to 1 rather than deadlocking every
-   *   caller forever (a limit of 0 would mean acquire() never resolves) --
-   *   a misconfigured MAX_CONCURRENT_UPLOADS must degrade to "serialize
-   *   everything," never "accept nothing."
-   */
-  constructor(limit) {
-    this.limit = Number.isInteger(limit) && limit > 0 ? limit : 1;
-    this.active = 0;
-    this.queue = [];
-  }
-
-  /**
-   * Wait for a free slot. Resolves immediately if under the limit; otherwise
-   * queues and resolves once an earlier holder calls release().
-   * @returns {Promise<void>}
-   */
-  acquire() {
-    if (this.active < this.limit) {
-      this.active += 1;
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => this.queue.push(resolve));
-  }
-
-  /**
-   * Free a slot. If another caller is queued, the slot passes straight to
-   * them (this.active is unchanged -- ownership transfers, it does not dip
-   * to zero and get re-acquired); otherwise the active count drops by one.
-   */
-  release() {
-    const next = this.queue.shift();
-    if (next) {
-      next();
-    } else {
-      this.active -= 1;
-    }
-  }
-}
+const { Semaphore } = require('./semaphore');
 
 // The one upload semaphore this process uses, sized from config so an
 // operator can retune MAX_CONCURRENT_UPLOADS per event/host without a code

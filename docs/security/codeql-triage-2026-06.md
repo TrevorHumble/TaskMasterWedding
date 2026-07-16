@@ -362,3 +362,45 @@ does not survive a restart" gap (above) described. Full design:
 No finding above is reclassified — the data-flow reasoning in each still
 holds. This entry only replaces the speculative implementation guess with
 what shipped.
+
+---
+
+## 2026-07-16 — admin-login "DoS-safe lockout" claim narrowed (issue #543)
+
+Issue #543 found that `bcrypt.compare` in `POST /admin/login` runs first and
+unconditionally, ahead of the lockout check (issue #49's invariant: a correct
+password always wins and clears the lockout, so the compare cannot be gated
+behind the lockout check without breaking that guarantee). A fully
+locked-out caller — or any unauthenticated caller sending wrong guesses —
+therefore still forces a complete compare on every request, at the shipped
+cost factor (~173ms measured, pure-JS `bcryptjs`, single Node event-loop
+thread). Left ungated, N concurrent requests put N compare chains on that
+one thread at once, competing with every guest's gallery/task/upload
+request for a turn on the event loop.
+
+**Original Disposition's `js/missing-rate-limiting` reason string (above,
+"admin login already has a DoS-safe lockout"): narrowed, not reversed.** The
+lockout bounds _guessing_ — how many wrong passwords land before a `429` —
+which is what "DoS-safe" meant at the time: an attacker cannot brute-force
+the password. It never bounded _CPU cost per request_, and the original
+disposition did not distinguish the two. #543 closes that specific gap with
+a concurrency gate (`src/utils/semaphore.js`, wrapping the compare in
+`src/routes/auth.js`), not a rate limiter — the "won't fix" verdict on
+adding a rate limiter to this route is unchanged and still holds for the
+reasons recorded above (a pre-auth IP limiter would throttle the real
+admin's correct password once tripped, and admin/attacker can share a NAT
+IP at the venue).
+
+**2026-07-15 entry's "the fix for that route is persistence, not
+throttling" (above, :353-356): superseded.** That statement was correct for
+the persistence gap it was addressing (in-memory lockout state not
+surviving a restart) but incomplete as a total description of "the fix for
+that route" — it did not know about the CPU-bound compare-cost gap #543
+later found, because #543 had not been filed yet. The full picture as of
+#543: persistence (#283, `src/services/lockout.js`) fixes the lockout
+counter surviving a restart; the concurrency gate (#543,
+`src/utils/semaphore.js`) fixes the unconditional compare's event-loop cost.
+Neither is a rate limiter; the "won't fix" verdict on rate-limiting this
+route is unchanged.
+
+Full design: `DESIGN.md` § "Admin-login CPU-bound gate (#543)".
