@@ -14,8 +14,31 @@ const { normalizeContact, isValidPin, makeUniqueToken } = require('../services/i
 // profile photo" starter bonus point, called below after a signup avatar
 // actually saves.
 const scoring = require('../services/scoring');
+// Persistent admin-lockout state (issue #283) — replaces the module-scoped
+// failedAttempts/lockedUntil scalars this file used to carry. See
+// src/services/lockout.js's own header comment for the full rationale.
+const lockout = require('../services/lockout');
+// Route-level rate limiting (issue #283). DISTINCT from
+// src/services/rate-limit.js (owns POST /memories and the HEIC-decode
+// throttle) — see src/middleware/rate-limit.js's file comment for the
+// boundary. joinRateLimiter and loginRateLimiter are separate instances
+// (each its own Map) even though both are IP-keyed at the same
+// config.RATE_LIMIT_IP_MAX: a signup flood must never also lock a returning
+// guest out of POST /login from the same venue-NAT IP, and vice versa.
+const { createRateLimiter } = require('../middleware/rate-limit');
 
 const router = express.Router();
+
+const joinRateLimiter = createRateLimiter({
+  windowMs: () => config.RATE_LIMIT_WINDOW_MS,
+  max: () => config.RATE_LIMIT_IP_MAX,
+  keyFn: (req) => 'ip:' + req.ip,
+});
+const loginRateLimiter = createRateLimiter({
+  windowMs: () => config.RATE_LIMIT_WINDOW_MS,
+  max: () => config.RATE_LIMIT_IP_MAX,
+  keyFn: (req) => 'ip:' + req.ip,
+});
 
 /**
  * Stash the just-typed contact for 30 seconds (same lifetime as setFlash's
@@ -87,7 +110,7 @@ router.get('/join', (req, res) => {
 // POST /onboard above) so a fileFilter/size rejection or a sharp-undecodable
 // image never falls through to the global 500 handler or crashes the process
 // (Express 4 does not catch async-handler rejections; issue #187).
-router.post('/join', (req, res, next) => {
+router.post('/join', joinRateLimiter, (req, res, next) => {
   photos.uploadAvatar(req, res, async (err) => {
     try {
       const name = ((req.body && req.body.name) || '').trim();
@@ -176,10 +199,8 @@ router.post('/join', (req, res, next) => {
 const LOGIN_TITLE = 'Log In';
 const LOGIN_FAIL_MESSAGE = "That contact and code don't match.";
 
-// Per-normalized-contact lockout state — module-scoped Maps, the same shape
-// as the admin lockout's two scalars above but keyed by contact.value
-// because there are many guests, not one admin. Unlike the admin flow (where
-// a correct password always wins, even mid-lockout, since only wrong
+// Per-normalized-contact lockout state. Unlike the admin flow (where a
+// correct password always wins, even mid-lockout, since only wrong
 // passwords are throttled — issue #49), a guest's credential is a 4-digit PIN
 // with only 10,000 possible values, so if the correct PIN always bypassed an
 // active lockout the throttle would not actually slow a brute-force script —
@@ -187,8 +208,127 @@ const LOGIN_FAIL_MESSAGE = "That contact and code don't match.";
 // lockout to block EVEN the correct PIN until the window elapses, so here the
 // lockout check runs before the credential check (the opposite order from
 // admin/login).
-const guestFailedAttempts = new Map(); // contact.value -> consecutive fail count
-const guestLockedUntil = new Map(); // contact.value -> timestamp lockout ends
+//
+// Merged (issue #464, absorbed into #283) into ONE Map keyed by
+// contact.value -> { fails, lastFailAt, lockedUntil }, replacing the earlier
+// two separate Maps (guestFailedAttempts / guestLockedUntil) — same
+// information, one lookup instead of two, and one place to apply the bound
+// below. Bounded two ways so a flood of distinct made-up contacts cannot
+// grow this forever:
+//   - sweep-on-write: any entry whose lockout has expired AND whose last
+//     failure predates config.GUEST_LOGIN_LOCKOUT_MS is dropped the next
+//     time a NEW contact fails (no setInterval — see
+//     src/middleware/rate-limit.js's file comment for why this app never
+//     uses timers for memory hygiene).
+//   - hard cap: config.GUEST_LOGIN_TRACKED_MAX, enforced on every new-contact
+//     insert (see evictOneGuestEntry below) so the map's size never exceeds
+//     it. The victim is the OLDEST entry that is NOT currently locked, so a
+//     locked contact is never evicted while any cheaper victim exists — AC8's
+//     "a locked entry is never evicted before its lockout expires", and why
+//     an ordinary flood of fresh contacts cannot un-lock anyone.
+//     ONE degenerate case is called out honestly rather than papered over:
+//     when EVERY tracked entry is currently locked, there is no unlocked
+//     victim, and the cap can only hold by evicting the soonest-EXPIRING
+//     lockout (the entry nearest to lapsing on its own anyway). Reaching that
+//     state costs an attacker GUEST_LOGIN_TRACKED_MAX x
+//     GUEST_LOGIN_MAX_ATTEMPTS failed logins (25,000 at the shipped defaults)
+//     against the IP-keyed POST /login limiter, and buys only the tail end of
+//     one already-expiring lockout. The alternative — refusing to track the
+//     new contact — would leave that contact unlockable-out entirely, a
+//     strictly worse trade; letting the map grow without limit, which is what
+//     this code did before, is worse still.
+const guestLockoutState = new Map();
+
+function sweepExpiredGuestLockouts(now) {
+  for (const [key, entry] of guestLockoutState) {
+    const notLocked = now >= entry.lockedUntil;
+    const stale = now - entry.lastFailAt > config.GUEST_LOGIN_LOCKOUT_MS;
+    if (notLocked && stale) {
+      guestLockoutState.delete(key);
+    }
+  }
+}
+
+/**
+ * Free exactly one slot, preferring the least costly victim.
+ *
+ * Two-tier, and the second tier is what makes the cap a real bound rather
+ * than a suggestion: an UNLOCKED entry (oldest last-failure first) is always
+ * taken when one exists, so a locked contact is never evicted while a
+ * cheaper victim is available. Only when EVERY tracked entry is locked — no
+ * unlocked victim exists at all — does this fall back to evicting the
+ * soonest-EXPIRING lockout, i.e. the one closest to lapsing on its own
+ * anyway. Without that fallback the caller would insert unconditionally and
+ * the map would grow past the cap without limit inside one window, which is
+ * the exact unbounded-growth failure this cap exists to stop.
+ *
+ * @param {number} now
+ * @returns {boolean} true if an entry was evicted.
+ */
+function evictOneGuestEntry(now) {
+  let unlockedKey = null;
+  let oldestFailAt = Infinity;
+  let lockedKey = null;
+  let soonestLockedUntil = Infinity;
+
+  for (const [key, entry] of guestLockoutState) {
+    if (now < entry.lockedUntil) {
+      // Locked: only a fallback candidate, and only the soonest to expire.
+      if (entry.lockedUntil < soonestLockedUntil) {
+        soonestLockedUntil = entry.lockedUntil;
+        lockedKey = key;
+      }
+      continue;
+    }
+    if (entry.lastFailAt < oldestFailAt) {
+      oldestFailAt = entry.lastFailAt;
+      unlockedKey = key;
+    }
+  }
+
+  const victim = unlockedKey !== null ? unlockedKey : lockedKey;
+  if (victim === null) return false;
+  guestLockoutState.delete(victim);
+  return true;
+}
+
+/**
+ * Record one failed guest-login attempt (wrong PIN, or an unknown contact —
+ * see the existence-oracle note on POST /login below) for `contactValue`,
+ * engaging a new lockout once config.GUEST_LOGIN_MAX_ATTEMPTS is reached —
+ * the same threshold behavior the pre-#464 two-Map version implemented.
+ * Sweeps stale entries and enforces config.GUEST_LOGIN_TRACKED_MAX on every
+ * NEW contact; an existing contact's repeat failure only updates its own
+ * entry, so it can never grow the map.
+ * @param {string} contactValue
+ * @param {number} [now=Date.now()] - injectable clock for deterministic tests.
+ */
+function recordGuestLoginFailure(contactValue, now = Date.now()) {
+  const existing = guestLockoutState.get(contactValue);
+  if (!existing) {
+    sweepExpiredGuestLockouts(now);
+    // Evict until this insert cannot push the map past the cap. A loop, not a
+    // single eviction: config.GUEST_LOGIN_TRACKED_MAX is read fresh here, so
+    // a lowered value (a test, or an operator restart) must be converged on
+    // rather than approached one entry per request. evictOneGuestEntry
+    // returning false means the map is empty, which terminates the loop.
+    while (guestLockoutState.size >= config.GUEST_LOGIN_TRACKED_MAX) {
+      if (!evictOneGuestEntry(now)) break;
+    }
+  }
+
+  const fails = (existing ? existing.fails : 0) + 1;
+  if (fails >= config.GUEST_LOGIN_MAX_ATTEMPTS) {
+    guestLockoutState.set(contactValue, {
+      fails: 0,
+      lastFailAt: now,
+      lockedUntil: now + config.GUEST_LOGIN_LOCKOUT_MS,
+    });
+  } else {
+    const lockedUntil = existing ? existing.lockedUntil : 0;
+    guestLockoutState.set(contactValue, { fails, lastFailAt: now, lockedUntil });
+  }
+}
 
 // GET /login — show the re-entry form. A visitor who already has a valid
 // guest session is bounced home, same as GET /join. Prefills the contact
@@ -215,7 +355,7 @@ router.get('/login', (req, res) => {
 // For the same reason, the per-contact throttle below counts an
 // unknown-contact attempt too: if only real accounts were throttled, hitting
 // the lockout message would itself reveal the contact exists.
-router.post('/login', (req, res) => {
+router.post('/login', loginRateLimiter, (req, res) => {
   const contact = normalizeContact(req.body && req.body.contact);
   const rawContact = (req.body && req.body.contact) || '';
   const submittedPin = req.body && req.body.pin;
@@ -234,7 +374,8 @@ router.post('/login', (req, res) => {
 
   const key = contact.value;
   const now = Date.now();
-  const lockedUntil = guestLockedUntil.get(key) || 0;
+  const existingEntry = guestLockoutState.get(key);
+  const lockedUntil = existingEntry ? existingEntry.lockedUntil : 0;
 
   if (now < lockedUntil) {
     res.status(429).render('login', {
@@ -257,8 +398,7 @@ router.post('/login', (req, res) => {
     guest.pin === submittedPin;
 
   if (pinOk) {
-    guestFailedAttempts.delete(key);
-    guestLockedUntil.delete(key);
+    guestLockoutState.delete(key);
     res.cookie('gsid', guest.token, cookieOpts(config.GUEST_COOKIE_MAX_AGE_MS));
     res.redirect('/');
     return;
@@ -266,13 +406,7 @@ router.post('/login', (req, res) => {
 
   // Wrong PIN, or no guest at all for this contact — count toward the
   // per-contact throttle either way (see the existence-oracle note above).
-  const attempts = (guestFailedAttempts.get(key) || 0) + 1;
-  if (attempts >= config.GUEST_LOGIN_MAX_ATTEMPTS) {
-    guestLockedUntil.set(key, now + config.GUEST_LOGIN_LOCKOUT_MS);
-    guestFailedAttempts.delete(key);
-  } else {
-    guestFailedAttempts.set(key, attempts);
-  }
+  recordGuestLoginFailure(key, now);
 
   res.status(401).render('login', {
     title: LOGIN_TITLE,
@@ -280,6 +414,27 @@ router.post('/login', (req, res) => {
     error: LOGIN_FAIL_MESSAGE,
   });
 });
+
+// --- Test-only seam (issue #283 AC7/AC8) -------------------------------------
+// The guest-login lockout Map above is module-scoped in this routes file (the
+// issue's plan keeps it here rather than extracting a separate service), so
+// these hooks are attached directly to the exported router — not used by any
+// route. `_guestLockoutTrackedCount` exposes the Map's current size;
+// `_recordGuestLoginFailureForTest` drives the SAME internal
+// sweep/cap/lockout logic POST /login itself calls, parameterized by an
+// injectable `now` so a test can assert the stale-sweep (AC7) and bounded-cap
+// (AC8) behavior deterministically instead of sleeping in real time.
+router._guestLockoutTrackedCount = () => guestLockoutState.size;
+router._recordGuestLoginFailureForTest = (contactValue, now) =>
+  recordGuestLoginFailure(contactValue, now);
+// Raw entry accessor (a shallow copy) so a test can assert a specific
+// contact's exact { fails, lastFailAt, lockedUntil } — e.g. confirming a
+// locked contact survived a cap-eviction flood with its lockedUntil intact,
+// not just that the map's overall size stayed bounded.
+router._guestLockoutEntryForTest = (contactValue) => {
+  const entry = guestLockoutState.get(contactValue);
+  return entry ? { ...entry } : undefined;
+};
 
 // --- Retired onboarding step (issue #244) -------------------------------------
 //
@@ -302,10 +457,11 @@ router.post('/onboard', (req, res) => {
 
 // --- Admin login / logout ---------------------------------------------------
 
-// Module-scoped lockout state. A single-admin app warrants a global counter;
-// no per-IP tracking needed (see issue #37 for the trust-proxy rationale).
-let failedAttempts = 0;
-let lockedUntil = 0;
+// Lockout state persists to SQLite via src/services/lockout.js (issue #283),
+// replacing the module-scoped failedAttempts/lockedUntil scalars this file
+// used to carry — a single-admin app still warrants one global counter (no
+// per-IP tracking needed, see issue #37), but that counter must now survive a
+// process restart (AC5). See lockout.js's own header comment for why.
 
 const ADMIN_LOGIN_TITLE = 'Admin Login';
 
@@ -338,16 +494,18 @@ router.post('/admin/login', async (req, res) => {
 
   const ok = await bcrypt.compare(password, hash);
   if (ok) {
-    // Correct password — clear any active lockout and authenticate.
-    failedAttempts = 0;
-    lockedUntil = 0;
+    // Correct password — clear any active lockout and authenticate (issue
+    // #49: this branch runs regardless of lockout state; a correct password
+    // always wins).
+    lockout.clear();
     res.cookie('admin', '1', cookieOpts(config.ADMIN_COOKIE_MAX_AGE_MS));
     // Lands on the admin dashboard, mounted at /admin.
     res.redirect('/admin');
     return;
   }
 
-  // Wrong password — check lockout window first, then increment.
+  // Wrong password — check lockout window first, then record the failure.
+  const { lockedUntil } = lockout.getState();
   if (Date.now() < lockedUntil) {
     res.status(429).render('admin-login', {
       title: ADMIN_LOGIN_TITLE,
@@ -356,11 +514,7 @@ router.post('/admin/login', async (req, res) => {
     return;
   }
 
-  failedAttempts += 1;
-  if (failedAttempts >= config.ADMIN_LOGIN_MAX_ATTEMPTS) {
-    lockedUntil = Date.now() + config.ADMIN_LOGIN_LOCKOUT_MS;
-    failedAttempts = 0;
-  }
+  lockout.recordFailure();
   res.status(401).render('admin-login', {
     title: ADMIN_LOGIN_TITLE,
     error: 'Incorrect password. Please try again.',

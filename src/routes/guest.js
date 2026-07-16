@@ -4,6 +4,8 @@
 const express = require('express');
 const router = express.Router();
 
+const config = require('../../config');
+
 // db.js exports an OBJECT { db, getGuestByToken, getGuestById }. Destructure the
 // better-sqlite3 connection itself, or db.prepare(...) is undefined.
 const { db } = require('../db');
@@ -14,6 +16,12 @@ const { db } = require('../db');
 // one-shot flash writer (also in section 03), the single owner of the signed
 // `flash` cookie's shape.
 const { requireGuest, setFlash, setTaskCompleteReward } = require('../middleware/session');
+
+// Route-level rate limiting (issue #283) — see the createRateLimiter call
+// sites below (after the services/rate-limit require) for the two instances
+// this file wires up. guestOrIpKey is the single owner of the "guest-keyed,
+// IP fallback when signed out" rule, shared with community.js.
+const { createRateLimiter, guestOrIpKey } = require('../middleware/rate-limit');
 
 // withUploadSlot (issue #311 AC3) bounds how many concurrent submitPhoto
 // calls run their heavy thumbnail+DB-write pipeline at once -- see
@@ -76,6 +84,28 @@ const rateLimit = require('../services/rate-limit');
 const MEMORY_RATE_LIMIT_MESSAGE =
   "Whoa — that's a lot of memories at once. Give it a minute and try again.";
 const MEMORY_DISK_FULL_MESSAGE = 'The gallery is full right now — please tell the hosts.';
+
+// Route-level rate limiting (issue #283). DISTINCT from services/rate-limit
+// (required above), which keeps owning POST /memories and the HEIC-decode
+// throttle — see src/middleware/rate-limit.js's file comment for the
+// boundary. Both instances below are guest-keyed (falls back to an IP bucket
+// for the signed-out case, which requireGuest below would redirect anyway).
+// uploadRateLimiter is SHARED between POST /tasks/:id/submit and POST
+// /me/edit (one combined per-guest budget, config.RATE_LIMIT_UPLOAD_MAX);
+// socialRateLimiter backs POST /bug-report alone (its own budget,
+// config.RATE_LIMIT_SOCIAL_MAX — a SEPARATE instance from the one
+// src/routes/community.js creates for /like + /comments, even though both
+// read the same config value).
+const uploadRateLimiter = createRateLimiter({
+  windowMs: () => config.RATE_LIMIT_WINDOW_MS,
+  max: () => config.RATE_LIMIT_UPLOAD_MAX,
+  keyFn: guestOrIpKey,
+});
+const socialRateLimiter = createRateLimiter({
+  windowMs: () => config.RATE_LIMIT_WINDOW_MS,
+  max: () => config.RATE_LIMIT_SOCIAL_MAX,
+  keyFn: guestOrIpKey,
+});
 
 // Every route in this router requires a signed-in guest.
 router.use(requireGuest);
@@ -315,7 +345,7 @@ router.get('/bug-report', function (req, res) {
 // stripped), and the User-Agent — the guest form itself carries only the
 // message body, per the design ("no email field, no screenshot upload").
 // ---------------------------------------------------------------------------
-router.post('/bug-report', function (req, res) {
+router.post('/bug-report', socialRateLimiter, function (req, res) {
   const guest = res.locals.guest;
 
   const raw = typeof req.body.body === 'string' ? req.body.body : '';
@@ -466,7 +496,7 @@ router.get('/tasks/:id', function (req, res) {
 // these heavy pipelines run at once under a concurrent-upload burst (see
 // src/utils/upload-concurrency.js).
 // ---------------------------------------------------------------------------
-router.post('/tasks/:id/submit', function (req, res) {
+router.post('/tasks/:id/submit', uploadRateLimiter, function (req, res) {
   // Run multer first; it may error (file too big, wrong type, no file).
   // photos.upload is the ALREADY-BOUND single('photo') middleware (section 05),
   // so call it directly. The callback is async because submitPhoto is async.
@@ -705,7 +735,7 @@ router.get('/me/edit', function (req, res) {
 // guestId) (async; it sets avatar_path) and remove a replaced avatar with
 // deleteOriginalFile. No thumbnail, no submission row.
 // ---------------------------------------------------------------------------
-router.post('/me/edit', function (req, res) {
+router.post('/me/edit', uploadRateLimiter, function (req, res) {
   // photos.uploadAvatar is the ALREADY-BOUND single('avatar') MEMORY-storage
   // middleware (section 05). The callback is async because saveAvatar() is async.
   photos.uploadAvatar(req, res, async function (err) {

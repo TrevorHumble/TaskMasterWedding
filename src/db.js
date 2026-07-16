@@ -529,6 +529,32 @@ function ensureAvatarPointAwardedColumn() {
 // code before any other module's `require('../db')` call returns.
 ensureAvatarPointAwardedColumn();
 
+// --- Guarded migration: settings table (issue #283) ---
+/**
+ * Create the `settings` key/value table if it does not already exist.
+ *
+ * Shape coordinated with #253's planned settings table (two columns,
+ * IF NOT EXISTS) — whichever change lands first wins and the other's
+ * migration is a no-op. src/services/lockout.js uses this table to persist
+ * admin-lockout state (failedAttempts / lockedUntil) across a process
+ * restart, replacing the module-scoped scalars src/routes/auth.js used to
+ * carry before #283. Exported so tests bind to this real guard rather than
+ * an inline copy.
+ */
+function ensureSettingsTable() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+}
+
+// Run at module load, before lockout.js prepares any statement against
+// settings -- db.js fully evaluates this module-load code before any other
+// module's `require('../db')` call returns.
+ensureSettingsTable();
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -573,6 +599,7 @@ module.exports = {
   ensureBadgeCatalog,
   ensureResubmittedColumn,
   ensureAvatarPointAwardedColumn,
+  ensureSettingsTable,
   getGuestByToken,
   getGuestById,
   getGuestByContact,
