@@ -10,6 +10,10 @@ const { db, getGuestByContact } = require('../db');
 const { setFlash, cookieOpts } = require('../middleware/session');
 const photos = require('../services/photos');
 const { normalizeContact, isValidPin, makeUniqueToken } = require('../services/identity');
+// scoring.awardProfilePhotoPoint (issue #409) — the one-time "Upload your
+// profile photo" starter bonus point, called below after a signup avatar
+// actually saves.
+const scoring = require('../services/scoring');
 
 const router = express.Router();
 
@@ -138,7 +142,13 @@ router.post('/join', (req, res, next) => {
 
       if (!avatarRejected) {
         try {
-          await trySaveAvatar(req.file, guestId);
+          const avatarPath = await trySaveAvatar(req.file, guestId);
+          // Issue #409: award the one-time starter point the moment an
+          // avatar actually saves (trySaveAvatar returns null when no file
+          // was attached — AC3, no award for a name/PIN-only signup).
+          if (avatarPath) {
+            scoring.awardProfilePhotoPoint(guestId);
+          }
         } catch {
           // sharp could not decode the bytes (corrupt or mislabelled image).
           // The guest account is already created — do not block signup on a
@@ -278,6 +288,10 @@ router.post('/login', (req, res) => {
 // at /join now collects name + avatar in the same POST that creates the
 // account (#240), so there is nothing left for a standalone onboarding step
 // to do — both verbs just send a visitor on to /join.
+//
+// Issue #409 note: this route is dead (redirect only), so the "award the
+// profile-photo starter point at onboarding" hook lives on POST /join above
+// (the actual signup-time saveAvatar call site) instead of here.
 router.get('/onboard', (req, res) => {
   res.redirect('/join');
 });

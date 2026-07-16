@@ -4,6 +4,19 @@
 
   <h1 class="page-title">Tasks</h1>
 
+  <%# Hardcoded starter task (issue #409): not a real tasks/submissions row —
+      its point is a one-time bonus point awarded by
+      scoring.awardProfilePhotoPoint (POST /join, POST /me/edit), so it never
+      leaks into the public gallery/feed. Its completion state (starterDone)
+      and point value (starterPoints) come from the single owner
+      scoring.starterTaskContribution via the route (src/routes/guest.js GET
+      /tasks) — this view does NOT re-derive guest.avatar_path or hardcode the
+      point value. It renders as an ordinary FIRST row inside the to-do list
+      (incomplete) or the done list (complete) — same <li class="task-row">
+      markup as a real task — and is counted into todoCount/doneCount/
+      totalCount by the route (same owner) so the chip counts next to the
+      lists never disagree with what's actually inside them. %>
+
   <% var allDone = totalCount > 0 && todoCount === 0; %>
   <% if (allDone) { %>
     <section class="tasks-memory-cta">
@@ -30,10 +43,20 @@
     %>
 
     <% if (view === 'done') { %>
-      <% if (doneTasks.length === 0) { %>
+      <% if (doneTasks.length === 0 && !starterDone) { %>
         <p class="muted">Nothing here yet &mdash; your finished tasks will show up here, photo and all.</p>
       <% } else { %>
         <ul class="task-list">
+          <% if (starterDone) { %>
+            <li class="task-row task-done">
+              <a class="task-link" href="/me/edit">
+                <span class="task-body">
+                  <span class="task-title-text">Upload your profile photo</span>
+                </span>
+                <span class="task-points">Complete</span>
+              </a>
+            </li>
+          <% } %>
           <% doneTasks.forEach(function (t) { %>
             <li class="task-row task-done">
               <a class="task-link" href="/tasks/<%= t.id %>">
@@ -56,10 +79,21 @@
         </ul>
       <% } %>
     <% } else { %>
-      <% if (todoTasks.length === 0) { %>
+      <% if (todoTasks.length === 0 && starterDone) { %>
         <p class="muted">All done &mdash; you&rsquo;ve finished every task. The Wedding Masters are impressed.</p>
       <% } else { %>
         <ul class="task-list">
+          <% if (!starterDone) { %>
+            <li class="task-row task-todo">
+              <a class="task-link" href="/me/edit">
+                <span class="task-body">
+                  <span class="task-title-text">Upload your profile photo</span>
+                  <span class="task-desc">Put a face on your profile.</span>
+                </span>
+                <span class="task-points">+<%= starterPoints %> pt</span>
+              </a>
+            </li>
+          <% } %>
           <% todoTasks.forEach(function (t) { %>
             <li class="task-row task-todo">
               <a class="task-link" href="/tasks/<%= t.id %>">

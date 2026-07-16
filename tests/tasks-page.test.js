@@ -3,9 +3,11 @@
 //   AC1 — no `white-space: nowrap` inside the `.task-desc` rule (the nowrap
 //         span forced 566px-wide pages on 375px phones); asserted against the
 //         shipped CSS since the suite has no browser harness
-//   AC2 — chip labels render computed counts ("To do · 13", "Done · 19") and
-//         the default (to-do) view shows every to-do title and no done task
-//         (issue #339 dropped the trailing "Done" section from that view)
+//   AC2 — chip labels render computed counts ("To do · 14", "Done · 19" — the
+//         14 includes issue #409's starter tile, folded into todoCount since
+//         this fixture guest has no avatar) and the default (to-do) view
+//         shows every to-do title and no done task (issue #339 dropped the
+//         trailing "Done" section from that view)
 //   AC3 — a done row's completion indicator is the guest's own /thumbs/ photo;
 //         no badge-todo / badge-done pills anywhere
 //   AC4 — to-do rows carry "+1 pt" and no "See photos" anchor
@@ -98,10 +100,17 @@ describe('tasks page v2 (#250)', () => {
     }
   });
 
-  test('AC2: chips render "To do · 13" / "Done · 19" and the default view shows every to-do title and no done title (#339)', async () => {
+  test('AC2: chips render "To do · 14" / "Done · 19" and the default view shows every to-do title and no done title (#339)', async () => {
     const res = await signedInTasks();
 
-    expect(res.text).toContain('To do · 13');
+    // Issue #409's owner-redirected placement (second visual-loop edit,
+    // 2026-07-14) moved the hardcoded "Upload your profile photo" starter
+    // tile from a section above the filters to a real row INSIDE the to-do
+    // list for this fixture guest (avatar_path is unset), and the tasks
+    // route now folds it into todoCount too — so the 13 seeded todo rows
+    // plus the tile read "To do · 14", not "· 13". doneCount is untouched:
+    // the tile only ever occupies one side (to-do OR done), never both.
+    expect(res.text).toContain('To do · 14');
     expect(res.text).toContain('Done · 19');
 
     // The to-do view no longer renders any done tasks or the trailing
@@ -130,8 +139,20 @@ describe('tasks page v2 (#250)', () => {
   test('AC4: to-do rows contain "+1 pt" and no "See photos" anchor', async () => {
     const res = await signedInTasks();
 
-    const rows = res.text.split('task-row task-todo').slice(1);
-    expect(rows.length).toBe(TODO_COUNT);
+    // Scope to the real task list, after the chip filters. Issue #409's
+    // owner-redirected placement (second visual-loop edit, 2026-07-14) made
+    // the hardcoded "Upload your profile photo" starter tile a real FIRST
+    // row INSIDE this same to-do list (this fixture guest has no avatar), so
+    // it is itself a "task-row task-todo" row inside the scoped listHtml —
+    // TODO_COUNT + 1 rows, not TODO_COUNT. It happens to satisfy the same
+    // per-row assertions below ("+1 pt", no "See photos"), so no extra
+    // exclusion logic is needed, just the updated count.
+    const listStart = res.text.indexOf('class="task-filters"');
+    expect(listStart).toBeGreaterThan(-1);
+    const listHtml = res.text.slice(listStart);
+
+    const rows = listHtml.split('task-row task-todo').slice(1);
+    expect(rows.length).toBe(TODO_COUNT + 1);
     for (const row of rows) {
       const rowMarkup = row.slice(0, row.indexOf('</li>'));
       expect(rowMarkup).toContain('+1 pt');

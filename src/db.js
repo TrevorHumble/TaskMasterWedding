@@ -31,6 +31,7 @@ db.exec(`
     token         TEXT    NOT NULL UNIQUE,
     name          TEXT    NOT NULL DEFAULT '',
     avatar_path   TEXT,
+    avatar_point_awarded INTEGER NOT NULL DEFAULT 0,
     social_links  TEXT    NOT NULL DEFAULT '{}',
     bonus_points  INTEGER NOT NULL DEFAULT 0,
     onboarded     INTEGER NOT NULL DEFAULT 0,
@@ -493,6 +494,41 @@ function ensureResubmittedColumn() {
 // module-load code before any other module's `require('../db')` call returns.
 ensureResubmittedColumn();
 
+// --- Guarded migration: guests.avatar_point_awarded (issue #409) ---
+/**
+ * Add guests.avatar_point_awarded if it is not already present.
+ *
+ * Same PRAGMA-guarded conditional-ALTER shape as ensurePinnedColumn above —
+ * but unlike pinned (which the guests CREATE TABLE deliberately omits), this
+ * column IS in the guests CREATE TABLE above, so on a fresh DB the column
+ * already exists and this migration is a no-op. It exists only to upgrade an
+ * existing pre-#409 app.db in place: there the column does not exist yet;
+ * PRAGMA table_info detects the absence and the ALTER TABLE runs once, gated
+ * so a repeat call (or a later boot) is a no-op and never throws
+ * "duplicate column".
+ *
+ * Meaning of the flag: flips from 0 to 1 the first time scoring.js's
+ * awardProfilePhotoPoint() grants the one-time starter "Upload your profile
+ * photo" bonus point for this guest (POST /join, POST /me/edit). It never
+ * resets — the point is awarded once, ever, even if the guest later replaces
+ * their avatar — so DEFAULT 0 on ADD COLUMN correctly treats every
+ * pre-existing row (avatar or not) as not-yet-awarded; the next avatar save
+ * for a guest who already had one before this migration ran simply awards
+ * the point once, same as any other guest. Exported so tests bind to this
+ * real guard rather than an inline copy.
+ */
+function ensureAvatarPointAwardedColumn() {
+  const cols = db.prepare(`PRAGMA table_info(guests)`).all();
+  if (!cols.some((col) => col.name === 'avatar_point_awarded')) {
+    db.exec(`ALTER TABLE guests ADD COLUMN avatar_point_awarded INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
+// Run once at module load, before scoring.js prepares any statement that
+// reads/writes avatar_point_awarded — db.js fully evaluates this module-load
+// code before any other module's `require('../db')` call returns.
+ensureAvatarPointAwardedColumn();
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -536,6 +572,7 @@ module.exports = {
   ensureTaskIdNullable,
   ensureBadgeCatalog,
   ensureResubmittedColumn,
+  ensureAvatarPointAwardedColumn,
   getGuestByToken,
   getGuestById,
   getGuestByContact,
