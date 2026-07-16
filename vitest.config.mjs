@@ -27,6 +27,20 @@ export default defineConfig({
     // contention can push a launcher past the default timeout) without
     // masking a genuine regression, which still fails every attempt. See #68.
     retry: 2,
+    // Default testTimeout (#552). vitest's 5000ms default reddened the full
+    // suite (tests/check-freshness.test.js: "Test timed out in 5000ms")
+    // because a .ps1-spawning test's measured duration under the same
+    // parallel load is ~5.1s (5137ms) against that 5000ms budget -- missed
+    // by a hair, not by an order of magnitude. Set to 30000 rather than to
+    // something nearer that measurement because Linux CI's `pwsh` cold start
+    // is much slower than this Windows one (tests/review-runner.test.js:19-21),
+    // so 5137ms is a lower bound on CI, not an estimate of it; 30000 is also
+    // the smallest value the .ps1-spawning tests already chose for this same
+    // cold-start problem, so it is this tree's settled answer rather than a
+    // new guess. This is a DEFAULT, not a floor: any per-test third-argument
+    // timeout still wins, whether larger (tests/event-mode.test.js: 120000)
+    // or smaller (tests/login-lockout-releases.test.js:51: 10000).
+    testTimeout: 30000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
