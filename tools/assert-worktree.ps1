@@ -4,7 +4,7 @@
 # other's uncommitted work -- the exact collision #113 documented on 2026-07-02.
 # #113 shipped the fix (tools/new-agent-worktree.ps1) but nothing in the pipeline
 # asserted it was actually used; this script is that assertion. Pure check, no
-# side effects -- mirrors the shape of tools/check-gate.ps1.
+# side effects -- mirrors the shape of tools/check-freshness.ps1.
 #
 # `git rev-parse --absolute-git-dir` returns a forward-slash path that ends in
 # `/.git` in the primary checkout and contains `/worktrees/<name>` in a linked

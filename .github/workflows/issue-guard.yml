@@ -2,7 +2,8 @@ name: Issue creation guard
 
 # Flags an issue opened outside the sanctioned flow. Every sanctioned issue is
 # born carrying `needs-issue-review` (applied at `gh issue create` time,
-# cleared only by a recorded issue-review PASS via tools/clear-issue-marker.ps1).
+# cleared only after a PASS on the issue review, via
+# `gh issue edit <N> --remove-label needs-issue-review`).
 # An issue missing that marker did not come through the pipeline and is made
 # conspicuous here, not silently accepted. See DESIGN.md "Server-side
 # issue-creation guard (#116)" for the trigger, scope, and honest bar.

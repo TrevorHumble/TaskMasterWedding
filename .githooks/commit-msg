@@ -1,6 +1,6 @@
 #!/bin/sh
-# commit-msg: tie every code commit to a reviewed GitHub issue.
-# Fails CLOSED. Mirrors the style of .githooks/pre-commit.
+# commit-msg: tie every code commit to a GitHub issue reference.
+# Fails CLOSED. One cheap check, no evidence machinery.
 #
 # Classification: staged paths determine whether a commit is CODE or doc-only.
 # Delegates to Test-StagedHasCode in tools/issue-core.ps1 (PowerShell) so that
@@ -9,106 +9,21 @@
 # A path is a doc iff it ends in .md or .markdown (case-insensitive extension check).
 # Folder location does NOT exempt a path: a code file under docs/ (e.g. docs/evil.ps1)
 # is still CODE. Only the file extension determines the classification.
-# If ANY staged path is not a doc -> CODE: resolve the issue, require PASS.
-# If every staged path is a doc -> doc-only: allowed (advisory CI check covers merge).
 #
-# A code commit with no resolvable reviewed issue is blocked, with three
-# narrowly scoped, never-silent exemptions -- each checked explicitly below,
-# never a blanket skip: the ledger appender (#219, the sole staged path is
-# governance/ledger.ndjson and the message starts "ledger: "), the event-mode
-# hotfix (#220, an ACTIVE governance/event-mode.json flag plus a
-# "hotfix: "-prefixed subject), and the trivial dep-bump path (#448, a staged
-# manifest-only bump that classifies 'trivial' under
-# tools/classify-trivial-commit.ps1 plus a "chore(deps): "-prefixed subject).
-# Everything else takes the full gate. --no-verify bypasses this hook (same
-# as pre-commit); CI is the backstop.
+# A CODE commit must name an issue: (#N), a GitHub closing keyword + #N, or an
+# issue-N branch (see Resolve-IssueNumber in tools/issue-core.ps1). No review
+# evidence is checked here — the governing surface is frozen and review
+# practice is unmechanized until 2026-08-08 (see CLAUDE.md "Governance
+# freeze"). --no-verify bypasses this hook; CI is the backstop.
 set -e
 
 msg_file="$1"
 root="$(git rev-parse --show-toplevel)"
-. "$root/.githooks/gate-core.sh"
-
-# Sanctioned ledger-appender exemption (#219): the governance ledger's ONLY
-# writer is the CI job in .github/workflows/ledger.yml (a ledger row is never
-# part of the tree it describes, so no reviewed-issue commit can carry it).
-# A commit is exempt ONLY when BOTH hold: the sole staged path is
-# governance/ledger.ndjson AND the message starts with "ledger: ". Any other
-# staged path alongside the ledger, or any other message, takes the full gate.
-# See DESIGN.md "Governance ledger (#219)".
-staged_paths="$(git diff --cached --name-only)"
-if [ "$staged_paths" = "governance/ledger.ndjson" ]; then
-  case "$(head -1 "$msg_file")" in
-    "ledger: "*) exit 0 ;;
-  esac
-fi
-
-# Trivial dep-bump exemption (#448): pre-commit deferred its evidence gate
-# here whenever the staged tree classifies 'trivial' (it cannot read the
-# commit message). This hook re-classifies the SAME staged tree -- it does
-# not change between pre-commit and commit-msg within one `git commit` -- and:
-#   - trivial AND "chore(deps): "-prefixed subject -> bypass BOTH gates below
-#     (the evidence gate AND the issue-reference gate), matching the
-#     Dependabot-equivalent policy this path recomputes, never attests.
-#   - trivial but any other subject -> run the evidence gate right here
-#     (pre-commit deferred it to this hook), then fall through to the issue
-#     gate below like an ordinary commit -- EXCEPT during an ACTIVE event-mode
-#     window, where the gate is left to the event-mode block just below so its
-#     'hotfix: ' bypass is still reachable. Without that carve-out a
-#     'hotfix: ' commit whose staged tree happens to be a manifest-only
-#     trivial bump would be blocked here and never reach the documented
-#     event-mode exemption -- a silent narrowing of it. Deferring (not
-#     running) the gate here is still fail-closed: the event-mode block below
-#     runs the identical evidence_gate for every non-'hotfix: ' commit while a
-#     flag file is present, so the gate is never skipped, only relocated one
-#     block down (idempotent, same as the event-mode/pre-commit deferral).
-#   - not trivial -> unaffected; behaves exactly as before #448.
-# See DESIGN.md "Trivial dep-bump gate (#448)".
-if [ "$(classifier_says_trivial "$root")" = "true" ]; then
-  case "$(head -1 "$msg_file")" in
-    "chore(deps): "*)
-      echo "commit-msg: staged tree classifies 'trivial' and the subject carries the 'chore(deps): ' prefix -- bypassing the evidence gate and the issue-reference gate (tools/classify-trivial-commit.ps1)." >&2
-      exit 0
-      ;;
-  esac
-  if [ "$(event_mode_state "$root")" != "ACTIVE" ]; then
-    evidence_gate "$root"
-  fi
-fi
-
-# Event mode (#220): while governance/event-mode.json is a valid em1 flag with a
-# future expiry, pre-commit defers the evidence gate to THIS hook (the one that
-# can read the message). A commit whose subject starts 'hotfix: ' ships on
-# automated checks alone -- no review evidence, no reviewed issue -- and is
-# queued for retro-review by its freeze:true ledger row (consumed by
-# tools/set-event-mode.ps1 -Clear, which refuses until every freeze commit has
-# a retro-review PASS). Every other commit runs the full evidence gate right
-# here plus the issue gate below. An expired or invalid flag enables nothing.
-#
-# The guard is FLAG-FILE PRESENCE, not ACTIVE state, on purpose: the flag can
-# expire between the two hooks (pre-commit deferred on a then-ACTIVE flag;
-# commit-msg now sees EXPIRED). Gating on ACTIVE here would let that commit
-# skip the evidence gate in BOTH hooks -- a fail-open seam. Flag present ->
-# this hook runs the gate for every commit except an ACTIVE-window 'hotfix: ';
-# at worst the gate runs twice (idempotent), never zero times. This also means
-# merge commits (which git never passes through pre-commit) meet the evidence
-# gate while a flag file exists -- new coverage, strictly fail-closed.
-# See DESIGN.md "Event mode (#220)".
-if [ -f "$root/governance/event-mode.json" ]; then
-  if [ "$(event_mode_state "$root")" = "ACTIVE" ]; then
-    case "$(head -1 "$msg_file")" in
-      "hotfix: "*)
-        echo "commit-msg: event mode ACTIVE -- 'hotfix: ' commit allowed without review evidence. Retro-review is owed; tools/set-event-mode.ps1 -Clear enforces it." >&2
-        exit 0
-        ;;
-    esac
-  fi
-  evidence_gate "$root"
-fi
 
 # Require PowerShell before classification: classification itself calls into PS.
 _ps="$(command -v powershell 2>/dev/null)" || _ps=""
 if [ -z "$_ps" ]; then
-  echo "commit-msg (BLOCKED): 'powershell' not found on PATH. Cannot verify issue review. Failing closed." >&2
+  echo "commit-msg (BLOCKED): 'powershell' not found on PATH. Cannot verify issue reference. Failing closed." >&2
   exit 1
 fi
 
@@ -126,9 +41,7 @@ msg="$(cat "$msg_file")"
 branch="$(git symbolic-ref --short HEAD 2>/dev/null)" || branch=""
 
 issue_num="$(powershell -ExecutionPolicy Bypass -NoProfile -Command "
-  \$scriptDir = '$root/tools'
-  . \"\$scriptDir/verdict-core.ps1\"
-  . \"\$scriptDir/issue-core.ps1\"
+  . '$root/tools/issue-core.ps1'
   \$n = Resolve-IssueNumber -Message '$( echo "$msg" | sed "s/'/\\''/g" )' -Branch '$branch'
   Write-Output \$n
 " 2>/dev/null)" || issue_num="0"
@@ -136,18 +49,9 @@ issue_num="$(powershell -ExecutionPolicy Bypass -NoProfile -Command "
 issue_num="$(echo "$issue_num" | tr -d '[:space:]')"
 
 if [ -z "$issue_num" ] || [ "$issue_num" -eq 0 ] 2>/dev/null; then
-  echo "commit-msg (BLOCKED): commit changes code but names no reviewed issue." >&2
+  echo "commit-msg (BLOCKED): commit changes code but names no issue." >&2
   echo "  Add (#N) or 'Closes #N' to the message, or use a branch named feat/issue-N." >&2
   echo "  Doc-only commits (*.md / *.markdown) are exempt; a code file under docs/ is still CODE." >&2
-  exit 1
-fi
-
-# Issue number resolved: check that a review PASS is on file.
-if ! powershell -ExecutionPolicy Bypass -NoProfile -File "$root/tools/check-issue-reviewed.ps1" \
-    -IssueNumber "$issue_num" >&2; then
-  echo "commit-msg (BLOCKED): issue $issue_num has no recorded review PASS." >&2
-  echo "  Run the issue review, then record it:" >&2
-  echo "    powershell -File tools/persist-issue-review.ps1 -IssueNumber $issue_num -ReviewerId <id> -Verdict PASS" >&2
   exit 1
 fi
 

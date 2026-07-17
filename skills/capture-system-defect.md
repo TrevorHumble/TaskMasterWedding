@@ -29,7 +29,7 @@ plan with at least three numbered steps, and the Depends/Blocks/Touches dependen
 
 **backlog:** everything else. File the issue and continue. The current task does not pause.
 
-**Scenario (fix-now):** while implementing an issue, `tools/persist-review.ps1` writes its evidence file to the wrong directory, so the pre-commit gate cannot see any PASS and every commit is blocked. Basis: the current task cannot complete correctly (no commit can land) and there is no workaround that does not involve forging or bypassing the gate — pause, fix through the pipeline, resume.
+**Scenario (fix-now):** while implementing an issue, `tools/issue-core.ps1`'s `Resolve-IssueNumber` stops matching a valid `Closes #N` commit message, so the commit-msg hook blocks every commit on the branch. Basis: the current task cannot complete correctly (no commit can land) and there is no workaround that does not involve bypassing the gate — pause, fix through the pipeline, resume.
 
 **Scenario (backlog):** during the same run you notice `skills/research-prior-art.md` cites a section header that was renamed two merges ago. Basis: the stale pointer does not block the current task — you found the right section anyway — so file it at backlog tier and keep going.
 

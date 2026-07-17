@@ -15,17 +15,38 @@ The four goals (full text and outcomes in [`docs/north-star.md`](docs/north-star
 - **C — The hosts run the show:** the couple and planners steer tasks, set prizes, and moderate (hide / move / delete) — choreographing the weekend they planned.
 - **D — One shared record, kept:** a hundred phones pooled into one gallery, a favorites slideshow at the end, a keepsake export after.
 
+## Governance freeze (2026-07-17 – 2026-08-08)
+
+**Frozen surface.** `.githooks/`, `tools/`, `standards/`, `agents/`, `skills/`, `.github/`, `.claude/`,
+`DESIGN.md`, `CLAUDE.md`, `AGENTS.md`, and `docs/north-star.md` are frozen until **2026-08-08**. This
+pipeline's whole capacity goes to guest-facing work for the three weeks before the wedding, not to
+reviewing, repairing, and re-reviewing its own enforcement machinery.
+
+**Filing rule.** A defect found on the frozen surface is filed as a GitHub issue carrying the
+`post-wedding` label and is **not built** — unless it blocks a guest-facing path or CI, in which case it
+is built as an ordinary issue with recorded owner approval. A deferred review finding follows the same
+rule: during the freeze it is one line commented on the single parking issue, **#588**, never a new
+GitHub issue — see `standards/adversarial-review-protocol.md` § "Finding disposition".
+
+**Approval to change the frozen surface.** A change to the frozen surface before 2026-08-08 requires
+explicit owner approval, recorded in the issue that carries it. This issue (#587) is itself such a
+change, and the owner authorized it on 2026-07-17.
+
+Rationale and the measured evidence behind the freeze (merge-throughput cliff, governance-machinery
+growth, zero app-code blocker/major defects since 07-11, the proof layer's own failures) are recorded in
+`DESIGN.md`'s teardown ADR — this section states the rule, not the case for it.
+
 ## How work flows: the orchestrator pipeline
 
 All changes go through an enforced pipeline. Do not commit code straight to the default branch and do not skip steps.
 
 1. **Issue** — file the work as a GitHub issue meeting `standards/issue-standards.md` (user story, Given/When/Then acceptance criteria, implementation plan, dependency map).
-2. **Adversarial review of the issue** — independent reviewers attack the issue against the standard before any code is written. See `standards/adversarial-review-protocol.md`.
+2. **Adversarial review of the issue** — an independent reviewer attacks the issue against the standard before any code is written. See `standards/adversarial-review-protocol.md`.
 3. **Implement** — an implementer agent writes the change to satisfy the issue's acceptance criteria.
-4. **Adversarial review of the PR** — independent reviewers attack the implementation against the issue and the standards.
-5. **Commit / PR** — only after review passes. Push the branch, open a pull request (`gh pr create`), watch CI to green, then merge. Non-visual changes merge once adversarial review has passed and CI is green. **Visual / product-direction changes** are different in shape, not just gated later: the owner settles the look **live**, first — `npm run preview` gives him a seeded localhost link, the orchestrator edits the real `views/**`/`src/public/**` directly against it while nothing commits, and only once he says approved does `tools/persist-visual-approval.ps1` freeze the pixels and the normal pipeline (criteria, issue review, implementation, PR review) run on the transcribed result — see `agents/orchestrator.md` § "Visual-approval loop" and `DESIGN.md` § "Visual-approval loop reinstated (#294) -- superseded by #378". The `.githooks/pre-commit` hook and the scripts in `tools/` enforce the gates locally.
+4. **Adversarial review of the PR** — a PR reviewer plus the design-philosophy reviewer attack the implementation against the issue and the standards; a blocker/major finding takes one re-check, scoped to the fix.
+5. **Commit / PR** — only after review passes. Push the branch, open a pull request (`gh pr create`), watch CI to green, then merge. Non-visual changes merge once adversarial review has passed and CI is green. **Visual / product-direction changes** are different in shape, not just gated later: the owner settles the look **live**, first — `npm run preview` gives him a seeded localhost link, the orchestrator edits the real `views/**`/`src/public/**` directly against it while nothing commits, and only once he says approved does `tools/persist-visual-approval.ps1` freeze the pixels and the normal pipeline (criteria, issue review, implementation, PR review) run on the transcribed result — see `agents/orchestrator.md` § "Visual-approval loop" and `DESIGN.md` § "Visual-approval loop reinstated (#294) -- superseded by #378". `.githooks/commit-msg` (a code commit must name a GitHub issue) is the only local hook; CI is the rest of the gate.
 
-**Wave boundary — owner-invoked review, not a gate.** After a wave's planned batch of issues merges, the owner may run `/post-wave-review` (#302) — a cross-PR regression, seam, and docs-vs-code drift check plus a lived-data drill. This is **owner-invoked**: it never runs automatically and is never a precondition for starting the next wave. Full mechanics: `standards/adversarial-review-protocol.md` § "Wave governance (#310)"; orchestrator-side nudge: `agents/orchestrator.md` § "Wave boundary".
+**Wave boundary — owner-invoked review, not a gate.** After a wave's planned batch of issues merges, the owner may run `/post-wave-review` — a cross-PR regression, seam, and docs-vs-code drift check plus a lived-data drill. This is **owner-invoked**: it never runs automatically and is never a precondition for starting the next wave. Full mechanics: `standards/adversarial-review-protocol.md` § "Wave governance"; orchestrator-side nudge: `agents/orchestrator.md` § "Wave boundary".
 
 Standards live in `standards/`. Agent definitions live in `agents/`. Both are ported in separately; treat them as the source of truth and point to them rather than restating them.
 
@@ -33,39 +54,17 @@ Standards live in `standards/`. Agent definitions live in `agents/`. Both are po
 
 Every spawned agent sets its `model` explicitly. Never rely on a default that may escalate silently.
 
-| Role         | Model                                                                                  |
-| ------------ | -------------------------------------------------------------------------------------- |
-| Orchestrator | Opus                                                                                   |
-| Implementer  | Sonnet                                                                                 |
-| Reviewers    | Opus, and a different model from the implementer — except the `sonnet-only` tier below |
+| Role         | Model                                            |
+| ------------ | ------------------------------------------------ |
+| Orchestrator | Opus                                             |
+| Implementer  | Sonnet                                           |
+| Reviewers    | Opus, and a different model from the implementer |
 
-Reviewers run on a different model than the implementer so they do not inherit the implementer's correlated blind spots, on every tier except the `sonnet-only` tier. A reviewer must never review its own output.
+Reviewers run on a different model than the implementer, on every issue, so they do not inherit the implementer's correlated blind spots. There is no exception tier. A reviewer must never review its own output.
 
 **Phase-1 visual edits are the one carve-out (#378).** During the live-preview loop (`agents/orchestrator.md` § "Visual-approval loop"), the orchestrator (Opus) edits `views/**/*.ejs` and `src/public/**` directly instead of spawning the Sonnet implementer for each owner-requested tweak — the implementer has no memory of the phase-1 conversation, so it cannot know what the owner already rejected two refreshes ago, and spawning it per five-second edit would re-litigate settled taste calls for no benefit. This holds only while nothing commits. The **phase-2 tree** — once the owner has approved, the pixels are frozen, and the criteria are transcribed — is not exempted: it goes through the normal implementer-then-reviewer bar in the table above, unchanged.
 
 **Fable (#453).** Fable is an available model, used only on the owner's explicit per-use signal. Absent that signal, every implementer — Fable included — goes through the standard independent adversarial review per the table above; there is no standing Fable-specific review handling until the owner specifies one.
-
-## Sonnet-only run tier (#427)
-
-An issue carrying the `sonnet-only` GitHub label runs its whole pipeline — orchestrator, implementer, and every reviewer that fires — on Sonnet, instead of the standard Opus reviewer policy above. `tools/classify-issue-run.ps1` is the authoritative rule engine; the summary here is a human-readable restatement, not a second copy of the logic.
-
-An issue qualifies only if all three gates hold — failing any one classifies `opus`:
-
-- **Routine tier** — `Touches` paths do not match the system-level governing-artifact surface (`.githooks/`, `tools/`, `standards/`, `agents/`, `skills/`, `.github/`, `.claude/`, `DESIGN.md`, `CLAUDE.md`, `AGENTS.md`, `docs/north-star.md`), and the issue is not security-flagged or orchestrator-escalated.
-- **Off the wedding-critical guest paths** — `Touches` paths do not touch join/auth, upload, moderation, or gallery/export core.
-- **Small and reversible** — no schema change, no data migration.
-
-**Wedding-critical guest surfaces** (a bad change on `sonnet-only` review rigor breaks a core guest path): join/auth — `src/routes/auth.js`, `src/middleware/session.js`, `src/services/identity.js`, `src/services/qr.js`; upload — `src/services/photos.js`, `src/services/heic-worker.js`, `src/services/submissions.js`; moderation — `src/routes/admin.js`; gallery/export core — `src/services/export.js`, `src/services/feed.js`. This list mirrors the security-lens dispatch row ("Upload/intake, auth, file-serving, admin routes") in `standards/adversarial-review-protocol.md` § "Which reviews does this change need?" — update both together when a guest-critical surface moves.
-
-Borderline cases default to `opus`. Anything that trips these gates mid-run escalates the remaining run to the standard Opus policy — see `agents/orchestrator.md` § "Model policy".
-
-Run the classifier against an issue's touched paths to determine its tier:
-
-```powershell
-powershell -File tools/classify-issue-run.ps1 -TouchesPaths 'src/services/scoring.js'
-```
-
-Output is the single token `sonnet-only` or `opus`, exit 0.
 
 ## Adversarial review, in brief
 
@@ -74,12 +73,11 @@ Output is the single token `sonnet-only` or `opus`, exit 0.
 - The spawner gives the goal, not the implementation. No positive framing, no planted suspicions, full scope.
 - Final verdict is a single `PASS`/`FAIL` token with a numbered defect list. A PASS with open blockers or majors is not a PASS.
 - **Issues and plans: 1 Opus reviewer** (`reviewer-issue`). Never a panel of issue-reviewers.
-- **Code review, round 1: exactly 1 PR reviewer plus the design-philosophy reviewer, both must PASS** (routine code; #201 retired the 2–5 panel).
-- **Code review, rounds 2+: 1 fresh reviewer** each round (except system-level changes — those need two independent PASSes on the final tree).
-- **Reviewer charters (`agents/reviewer-*.md`) take the routine bar, not the system-level bar** (#218); the rest of the governing-artifact surface stays kernel.
-- **Related governance changes sharing one stated intent may ship as one reviewed batch** (#218); a batch mixing kernel and experimental paths takes the kernel bar.
+- **Code review, round 1: exactly 1 PR reviewer plus the design-philosophy reviewer, both must PASS.**
+- **One-round stop rule:** minor and nit findings are fixed inline and shipped with no re-review; only a blocker or major finding triggers a re-check, scoped to that fix, with one fresh reviewer. No severity adjudicator, no reviewer panels.
+- The security lens (`agents/reviewer-security.md`) and the architecture lens (`agents/reviewer-architecture.md`, on-request only) are advisory — a finding from either is fixed, dropped, or deferred like any other finding.
 
-Full protocol, including the risk-tier precedence order, the high-stakes 3-reviewer rule, the system-level-change bar, the review-dispatch checklist ("Which reviews does this change need?"), the advisory-lens lifecycle, the bias gate, and the soft-cap severity gate: `standards/adversarial-review-protocol.md`.
+Full protocol, including the review-dispatch checklist ("Which reviews does this change need?"), the advisory-lens lifecycle, and finding disposition: `standards/adversarial-review-protocol.md`.
 
 ## Documentation split
 
@@ -117,14 +115,6 @@ The authoritative tier logic lives in `tools/classify-dep-pr.ps1`; the summary h
 
 **Native-binary members need an on-host smoke test before merge (#304).** Of the wedding-critical list, `sharp` and `better-sqlite3` ship a prebuilt native binary (a `.node` file) per platform. A `review`-tier bump to either must pass an on-host `npm ci` followed by `node -e "require('<dep>')"` (exit 0) on the Windows event laptop before merge — not just green CI. Why: Windows Smart App Control can block a new/unknown unsigned native binary by cloud reputation until its hash accrues one (see `DESIGN.md` § "sharp 0.35.2 SAC block was a reputation-lag, now cleared"), and CI runs on Linux, which cannot reproduce or catch this Windows-only failure mode.
 
-**Trivial dep-bump path for a hand-built commit (#448).** Dependabot remains the preferred author for dependency bumps — this path exists only for a security advisory Dependabot has not filed a PR for yet. The commit gates (`pre-commit`, `commit-msg`) recognize a hand-built commit as `trivial` and let it ship on green CI alone — no review evidence, no reviewed-issue reference — matching the tier Dependabot's own equivalent PR would already merge under, when ALL three hold:
-
-1. The staged paths are exactly a non-empty subset of `{package.json, package-lock.json}`, and `package.json` is among them (a lockfile-only diff stays `standard`).
-2. Every direct dependency whose version differs between `HEAD:package.json` and the staged copy classifies `auto` under the same tier logic as `tools/classify-dep-pr.ps1` above (shared via `tools/classify-dep-pr-core.ps1`, one copy of the rules) — wedding-critical deps and prod majors can never qualify.
-3. The commit subject starts with the fixed prefix `chore(deps): `.
-
-Eligibility is recomputed by `tools/classify-trivial-commit.ps1` from the staged tree itself every time — nothing is attested or forged. Full design, the version-adapter fail-closed rules, and the reconciled "no bypass" self-descriptions: `standards/adversarial-review-protocol.md` § "Trivial dep-bump path (base-tier waiver)" and `DESIGN.md`.
-
 Run the classifier against a PR's metadata to determine its tier:
 
 ```powershell
@@ -135,8 +125,13 @@ Output is the single token `auto` or `review`, exit 0.
 
 ## What needs extra rigor
 
-A system-level change uses the stricter two-independent-reviewer, both-must-PASS bar in `standards/adversarial-review-protocol.md`. Its definition — the governing-artifact surface — lives in `DESIGN.md` and is enforced by the same list in `tools/verdict-core.ps1`.
+A change to the frozen governing-artifact surface needs owner approval before it merges — see
+"Governance freeze" above. That freeze is the extra-rigor bar for that surface during the freeze
+window; there is no separate system-level reviewer-count bar layered on top of it.
 
-**Issue-review gate:** every code commit must name a reviewed GitHub issue. After an issue-review PASS, record it with `powershell -File tools/persist-issue-review.ps1 -IssueNumber <N> -ReviewerId <id> -Verdict PASS` — the `.githooks/commit-msg` gate blocks any code commit whose named issue lacks that record. Full rationale and the honest bar in `DESIGN.md` § "Issue-review gate".
+**Issue-reference gate:** every code commit must name a GitHub issue — `.githooks/commit-msg` blocks a
+commit that stages a non-`.md` file and names none (`(#N)`, a closing keyword, or an `issue-N` branch).
+This is a cheap, mechanical check; it does not itself verify that a review happened — see
+`WHAT-IT-CHECKS.md` for the honest description of what review coverage actually is right now.
 
-**Issue lifecycle marker:** new issues are born carrying the `needs-issue-review` label (applied at `gh issue create` time). The label is cleared only by a recorded issue-review PASS, via `powershell -File tools/clear-issue-marker.ps1 -IssueNumber <N>`.
+**Issue lifecycle marker:** new issues are born carrying the `needs-issue-review` label (applied at `gh issue create` time). The label is cleared after a PASS on the issue review, via `gh issue edit <N> --remove-label needs-issue-review`.

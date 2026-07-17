@@ -12,7 +12,7 @@ issue → adversarial review of issue → implement → adversarial review of PR
 
 - **Issue** must meet `standards/issue-standards.md`: consumer-POV user story, Given/When/Then acceptance criteria, a numbered implementation plan, and a dependency map (`Depends on`, `Blocks`, `Touches`).
 - **Adversarial review** (of both the issue and the PR) follows `standards/adversarial-review-protocol.md`: assume total failure, cite real evidence, end with a single `PASS`/`FAIL` token plus a numbered defect list.
-- **Enforcement** is local via `.githooks/pre-commit` and the scripts in `tools/` — the review-evidence gate (`verdict-core.ps1`, `validate-verdict.ps1`, `persist-review.ps1`, `review_verdict.ps1`) plus `check-gate.ps1`, `check-enforcement.ps1`, `start-run.ps1`, `stop-run.ps1`, `setup-hooks.ps1`.
+- **Enforcement** is local via `.githooks/commit-msg`, which checks that a code commit names a GitHub issue, plus `tools/issue-core.ps1` and `tools/setup-hooks.ps1`. There is no mechanized review-evidence gate during the governance freeze (`CLAUDE.md` § "Governance freeze") — review practice is real but unmechanized.
 
 ## Roles and models
 
@@ -38,9 +38,10 @@ Agent definitions live in `agents/` (ported separately). Each agent must satisfy
 
 ## Independence and rigor
 
-- High-stakes review uses at least three independent adversaries; a finding or a clean verdict needs two of three to agree.
-- A **system-level change** (the governing-artifact surface defined in `DESIGN.md`, enforced by the same list in `tools/verdict-core.ps1`) uses two independent reviewers who must **both** reach PASS; disagreement is FAIL.
-- A **bias gate** audits the briefing before fan-out: the only allowed bias is anti-builder.
+- One reviewer per artifact class: exactly 1 Opus reviewer for an issue; exactly 1 PR reviewer plus the design-philosophy reviewer for code, both must PASS round 1. There is no standing reviewer-panel requirement.
+- **One-round stop rule:** minor/nit findings are fixed inline and shipped with no re-review; a blocker/major finding takes exactly one re-check, scoped to the fix, with one fresh reviewer. See `standards/adversarial-review-protocol.md` § "One-round stop rule".
+- De-biasing a briefing (give the goal not the implementation, no positive hints, no planted suspicions, full scope) is a spawning discipline the orchestrator applies on every spawn — not a separate mechanized audit step.
+- The governing-artifact surface this pipeline is defined on is frozen through 2026-08-08 — see `CLAUDE.md` § "Governance freeze".
 
 ## Environment
 

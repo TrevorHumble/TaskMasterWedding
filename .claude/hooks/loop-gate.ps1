@@ -66,7 +66,7 @@ try {
   $run.last_block = $now
   [IO.File]::WriteAllText($runf, ($run | ConvertTo-Json -Compress))
   $left = [long][math]::Round(($end - $now) / 60)
-  $reason = "loop-gate (forced never-stop): ~$left min remain in the autonomous run budget (turn $iters of $max). Do NOT stop. Continue the loop -- pick the next highest-value action from the goals, or run the Done-Early Cascade (holistic review -> revisit blockers -> deep research -> raise the bar -> file issues). Genuine emergency stop only: create .run_state/STOP or run tools/stop-run.ps1."
+  $reason = "loop-gate (forced never-stop): ~$left min remain in the autonomous run budget (turn $iters of $max). Do NOT stop. Continue the loop -- pick the next highest-value action from the goals, or run the Done-Early Cascade (holistic review -> revisit blockers -> deep research -> raise the bar -> file issues). Genuine emergency stop only: create .run_state/STOP."
   Write-Output (@{ decision = 'block'; reason = $reason } | ConvertTo-Json -Compress)
   exit 0
 } catch {

@@ -51,7 +51,7 @@ Create the GitHub issue **first**, before writing the local draft, applying the 
 gh issue create --label needs-issue-review ...
 ```
 
-Capture the number GitHub assigns — that number is the draft's identity (see Naming). Every newly created issue is born carrying the `needs-issue-review` label. The label is cleared only after a recorded issue-review PASS, by running `tools/clear-issue-marker.ps1 -IssueNumber <N>`.
+Capture the number GitHub assigns — that number is the draft's identity (see Naming). Every newly created issue is born carrying the `needs-issue-review` label. The label is cleared only after a PASS on the issue review, by running `gh issue edit <N> --remove-label needs-issue-review`.
 
 ## Naming
 

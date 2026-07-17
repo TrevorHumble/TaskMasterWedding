@@ -43,19 +43,17 @@ Return your verdict in the output format your agent definition specifies
 
 Nothing else goes in. No goal restatement beyond what the standard already says, no "we focused on X," no suspected weak points, no summary of what the artifact does.
 
-## Bias gate (required before fan-out)
+## De-bias is a spawning discipline, not a mechanized gate
 
-Before spawning N reviewers, spawn one independent agent to audit the briefing for bias. That agent returns required edits with quoted evidence. Apply the edits. Then fan out.
-
-Cadence per `standards/adversarial-review-protocol.md` § Bias gate: the audit runs once per distinct briefing template — a template reused verbatim across rounds is audited on first use only; a fresh briefing (different artifact type, different instructions) requires a fresh audit.
+There is no separate audit agent or recorded evidence artifact for bias-checking a briefing. Apply the de-bias rules above yourself before every spawn; a reviewer that notices a biased briefing anyway says so in its findings like any other defect.
 
 ## No mutation authority (required; no exceptions)
 
 Spawn every reviewer with no mutation authority: use a read-only agent type (`tools: [Read]` or an equivalently narrow read-only set), or, if the reviewer's own spec grants a broader tool set, add an explicit no-mutation instruction to the spawn prompt. A reviewer performs read-only inspection only. Read-only commands (`git show`, `git diff`, `git check-ignore`, `git ls-files`, `npm test`, `format:check`) are permitted. It must not run `git add`, `git reset`, `git restore`, `git checkout`, `git stash`, `git commit`, or `git rm`, and must not edit any file. See `standards/adversarial-review-protocol.md` "Reviewers are read-only" for the rationale — a reviewer that mutates git or files can invalidate the exact staged tree its own verdict is bound to.
 
-## Fan-out threshold
+## Reviewer count
 
-High-stakes reviews: minimum three independent adversaries. A finding is recorded only when ≥2 of 3 confirm it. A verdict of fine requires the same threshold. Fewer than three = invalid review. (Exception: a `system-level change` uses the two-reviewer, both-must-PASS bar defined in `standards/adversarial-review-protocol.md` — fail-closed, no third tie-breaker needed.)
+One reviewer per artifact class — see `standards/adversarial-review-protocol.md` § "Reviewer count by artifact": exactly 1 Opus reviewer for an issue; exactly 1 PR reviewer plus the design-philosophy reviewer for code, both must PASS round 1. The orchestrator may spawn a second independent opinion at its own discretion for a high-stakes or security-flagged change, but there is no standing panel requirement.
 
 ## Spawner must never
 

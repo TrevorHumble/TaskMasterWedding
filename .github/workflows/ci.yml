@@ -10,64 +10,6 @@ permissions:
   contents: read
 
 jobs:
-  # Server-side backstop for the local commit gates: each hook file must exist,
-  # be LF-protected (autocrlf would corrupt the shebang), and start with a sh shebang.
-  commit-gate-integrity:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Commit-gate integrity
-        run: |
-          test -f .githooks/pre-commit || { echo "commit gate missing: .githooks/pre-commit"; exit 1; }
-          git check-attr text eol -- .githooks/pre-commit | grep -q 'eol: lf' \
-            || { echo "commit gate not LF-protected (autocrlf could corrupt it)"; exit 1; }
-          head -1 .githooks/pre-commit | grep -q '^#!/bin/sh' \
-            || { echo "commit gate shebang corrupt"; exit 1; }
-          test -f .githooks/commit-msg || { echo "commit-msg hook missing: .githooks/commit-msg"; exit 1; }
-          git check-attr text eol -- .githooks/commit-msg | grep -q 'eol: lf' \
-            || { echo "commit-msg hook not LF-protected (autocrlf could corrupt it)"; exit 1; }
-          head -1 .githooks/commit-msg | grep -q '^#!/bin/sh' \
-            || { echo "commit-msg hook shebang corrupt"; exit 1; }
-
-  # Event-mode expiry backstop (#220): an expired governance/event-mode.json
-  # enables nothing locally, but leaving it in the tree means the freeze window
-  # ended without cleanup. This job goes red — on main and every branch/PR that
-  # still carries the expired flag — until the flag is cleared via
-  # tools/set-event-mode.ps1 -Clear, which itself refuses until every freeze
-  # commit has its retro-review PASS. The cleanup PR (flag removed) is green.
-  # Becomes required once `-RequireEventModeExpiry` is run (#233) -- until
-  # then it is advisory signal only.
-  event-mode-expiry:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Fail on an expired or invalid event-mode flag
-        run: pwsh -File tools/check-event-mode-expiry.ps1
-
-  # Advisory check: warn when a PR has no linked issue in its commits or title.
-  # This is a soft backstop; the un-bypassable version is issue #48.
-  merge-association:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - name: Check PR links an issue
-        run: |
-          # Collect commit messages on this PR branch (not on base).
-          base="${{ github.event.pull_request.base.sha }}"
-          msgs="$(git log "$base"..HEAD --format='%s %b')"
-          pr_title="${{ github.event.pull_request.title }}"
-          combined="$msgs $pr_title"
-          # Accept (#N), Closes #N, Fixes #N, Resolves #N (case-insensitive).
-          if echo "$combined" | grep -qiE '(\(#[0-9]+\)|closes\s+#[0-9]+|fixes\s+#[0-9]+|resolves\s+#[0-9]+)'; then
-            echo "merge-association: issue link found."
-          else
-            echo "::warning::merge-association: no linked issue found in commit messages or PR title. Add (#N) or 'Closes #N' to a commit message or the PR title. The un-bypassable version is issue #48."
-            exit 0
-          fi
-
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -81,47 +23,6 @@ jobs:
         run: npm run lint
       - name: Prettier (check)
         run: npm run format:check
-
-  # Server-side review-authenticity gate (#48): merge-association above only
-  # checks a commit message NAMES an issue -- it never checks a review
-  # happened, and required_approving_review_count stays 0 (solo maintainer,
-  # GitHub forbids self-approval), so the review-aware gate has to be a
-  # status check. scripts/check-review-artifact.js reads the pre-merge
-  # `<!-- governance-ledger -->` PR comment and fails closed unless the
-  # evidence it names is bound to THIS PR's actual head tree and issue -- a
-  # stale comment from an earlier push (bound to an old tree oid) fails by
-  # construction. `if: pull_request` only, same as merge-association: on a
-  # merge_group event the condition is false so the job is skipped, and
-  # GitHub treats a skipped required check as success -- correct here
-  # because the check already ran and passed at PR time (see DESIGN.md
-  # "Merge queue (#404)" and "Review-artifact-present check (#48)"). Not yet
-  # a required status check on main -- activation is a deferred rollout step
-  # (tools/apply-branch-protection.ps1 -RequireReviewArtifact), run only
-  # after this wave's other open PRs have merged.
-  review-artifact-present:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      - name: Review evidence present, bound to this PR's head tree and issue
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          base="${{ github.event.pull_request.base.sha }}"
-          head="${{ github.event.pull_request.head.sha }}"
-          changed="$(git diff --name-only "$base" "$head" | paste -sd, -)"
-          node scripts/check-review-artifact.js \
-            --pr "${{ github.event.pull_request.number }}" \
-            --repo "${{ github.repository }}" \
-            --head-sha "$head" \
-            --changed-paths "$changed"
 
   # Empirical smoke gate (#197): boots the real app against a seeded throwaway
   # DB and probes behavior (hot paths, hostile input, referenced assets).

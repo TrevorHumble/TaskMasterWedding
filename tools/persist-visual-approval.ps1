@@ -2,11 +2,10 @@
 # after the owner has explicitly approved a screen in the phase-1 live-preview
 # loop (issue #378, agents/orchestrator.md § "Visual-approval loop").
 #
-# Honest residual (stated, not hidden) — mirrors tools/persist-issue-review.ps1:
-# this script is run by the orchestrator on the owner's go-ahead, so a
-# determined hand could call it directly with no real approval behind it.
-# That is made tamper-EVIDENT, not impossible — the owner's bar is
-# tamper-evident, not tamper-proof.
+# Honest residual (stated, not hidden): this script is run by the orchestrator
+# on the owner's go-ahead, so a determined hand could call it directly with no
+# real approval behind it. That is made tamper-EVIDENT, not impossible — the
+# owner's bar is tamper-evident, not tamper-proof.
 #
 # Why the record lives under .review_state/, not inside the visual surface
 # itself: .review_state/ is gitignored and entirely OUTSIDE src/views/**,

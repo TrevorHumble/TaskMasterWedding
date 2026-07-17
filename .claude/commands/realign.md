@@ -10,7 +10,7 @@ Run at the seam between waves, per the **one-wave-in-flight** constraint (`data/
 
 `.claude/commands/post-wave-review.md` is a **post-merge judgment** gate: an outside eye asks whether the merged whole still behaves, whether earlier waves' promises still hold, whether the docs still describe the app — owner-invoked, never automatic, never a precondition for the next wave.
 
-`/realign` is the **mechanical alignment** complement, not a duplicate: it does not evaluate behavior, only positions — is the primary checkout's `main` caught up with `origin/main`, and does the next wave's declared `Touches` collide with anything a sibling merged since the last realign. It runs `tools/check-freshness.ps1` and `tools/check-wave-alignment.ps1` (the same overlap engine #357 built for build-session freshness) rather than booting the app or reading transcripts. The two commands answer different questions and neither substitutes for the other.
+`/realign` is the **mechanical alignment** complement, not a duplicate: it does not evaluate behavior, only positions — is the primary checkout's `main` caught up with `origin/main`, and does the next wave's declared `Touches` collide with anything a sibling merged since the last realign. It runs `tools/check-freshness.ps1` (the same overlap engine #357 built for build-session freshness) rather than booting the app or reading transcripts. Collisions _within_ the next batch itself (two issues in the same wave declaring an overlapping `Touches` file) are caught by hand at issue-review time (`agents/reviewer-issue.md`), not by this command.
 
 ## Steps
 
@@ -19,9 +19,8 @@ Run at the seam between waves, per the **one-wave-in-flight** constraint (`data/
 1. **Fetch.** Run `git fetch origin`. A non-zero exit means this can't proceed on a trustworthy view of the remote — report the fetch failure and stop. Never fall back to whatever `main` happens to be locally.
 
 2. **Next-batch overlap — run now, BEFORE any fast-forward, while local `main` still trails `origin/main`.** Given the next wave's issue numbers as `$ARGUMENTS`:
-   - Run `powershell -File tools/check-wave-alignment.ps1 -IssueNumbers "<comma-separated issue numbers>"` (e.g. `-IssueNumbers "42,43,44"`) to catch collisions **within** the next batch, before it launches. (This one reads only issue `Touches` and is git-state-independent, but it belongs with the other overlap check.)
    - Run `powershell -File tools/check-freshness.ps1 -Touches "<comma-separated union of every issue's Touches list in the batch>"` to catch collisions between the next batch and anything a sibling merged since the last `/realign` — the same overlap engine `tools/check-freshness.ps1` runs for a single build session, reused here against the whole next batch's declared surface. This depends on local `main` NOT yet being fast-forwarded: its drift range is `merge-base(origin/main, main)..origin/main`, which equals the just-merged commits only while `main` still trails. An `OVERLAP: <file>` line (exit 1) is a real next-batch collision — surface it and treat the next batch as needing a resync check per that file. A bare "N commits behind origin/main" with **no** `OVERLAP` line is expected here (those N are exactly the commits step 3 is about to fast-forward past) and is not itself a collision.
-   - Both tools are read-only (see their own headers) and name the file and the responsible issue numbers/commits on any real collision.
+   - This tool is read-only (see its own header) and names the file and the responsible issue numbers/commits on any real collision.
 
 3. **Safe fast-forward of local `main` — never mutate a dirty or diverged tree.** Only after step 2 has read the pre-fast-forward drift range:
    - Check the tree is clean: `git status --porcelain`. If it prints anything, report the dirty paths and **stop** — never run `merge`, `reset`, or `checkout` over uncommitted work.

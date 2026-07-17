@@ -270,6 +270,12 @@ A third reason is what makes leaving the depth uncapped harmless rather than mer
 
 ### Commit gate: review evidence bound to the staged tree
 
+> **Retired 2026-07-17 (#587):** every mechanism this section describes — the evidence-store files,
+> `verdict-core.ps1`, `persist-review.ps1`, `review_verdict.ps1`, `validate-verdict.ps1`, and the
+> capture → runner wiring — is deleted. There is no review-evidence gate today; `.githooks/commit-msg`
+> only checks that a code commit names a GitHub issue. See the "ADR: Governance teardown and freeze
+> (#587)" below for what replaced it and why.
+
 A commit is blocked unless review evidence bound to its exact `git write-tree` says PASS. Two records gate together: `.review_state/verdict.json` (the legacy single-line summary the `pre-commit` hook reads with `sed`) and the per-reviewer evidence files under `.review_state/reviews/<tree>/` (read by `tools/validate-verdict.ps1` through the shared `tools/verdict-core.ps1`). The evidence files are the authoritative per-reviewer record; the summary remains for the cheap shell check. Together they block the literal one-step bypass — a bare recorded PASS with no evidence files no longer authorizes a commit. They do **not** by themselves close the broader hole (see the honest bar below). They are written by **different** tools on purpose: `tools/review_verdict.ps1` records only the summary, and `tools/persist-review.ps1` is the sole writer of evidence — so the script that records a PASS cannot also fabricate the evidence the gate reads. Both records live under the gitignored `.review_state/`, so they never enter the tree they describe.
 
 This is the honest bar: an **evidence-less commit is blocked**, but because the orchestrator can run both `review_verdict.ps1` and `persist-review.ps1` by hand with free-text reviewer ids, it can still self-attest — the self-attestation surface is **relocated, not eliminated**. That residual is made **tamper-evident** by a committed ledger + CI audit (a later slice). **Closed for the PR-review path (2026-07-12, #455):** `tools/capture-reviewer-verdict.ps1` extracts each PR-path reviewer's own trailing JSON verdict block from its raw return and writes it, verbatim, to a `-RunDir` `tools/review-runner.ps1` then consumes — so a PR-review PASS is now fed from the reviewer agent's own returned text, not hand-invoked by the orchestrator with a free-text reviewer id. **Still open:** the issue-review path (`tools/persist-issue-review.ps1`) remains a direct hand-recorded call — #455 scoped only PR-review recording — and even on the closed PR-review path we do not claim cryptographic unforgeability: the orchestrator still controls the machine that runs the capture step, chooses which raw-return file to feed it, and could in principle fabricate a raw return containing a self-authored JSON block. What #455 removes is the _transcription_ step (a human/orchestrator typing a verdict into `persist-review.ps1`'s arguments); it does not remove operator control of the underlying machine.
@@ -277,6 +283,12 @@ This is the honest bar: an **evidence-less commit is blocked**, but because the 
 **Scoped exemption note (2026-07-11, #448):** "an evidence-less commit is blocked" above is no longer an absolute — a staged tree that classifies `trivial` under `tools/classify-trivial-commit.ps1` (a manifest-only dependency bump whose changed deps all classify `auto` under the shared `tools/classify-dep-pr-core.ps1` tier rules) plus a `chore(deps): `-prefixed subject skips this evidence gate entirely, matching the identical diff's Dependabot auto-merge policy. This is a third narrowly scoped exemption alongside the ledger appender (#219) and the event-mode hotfix (#220); see "Trivial dep-bump gate (#448)" below for the full mechanism.
 
 ### Bias-gate and adjudication evidence artifacts (#47)
+
+> **Retired 2026-07-17 (#587):** both writers this section describes (`persist-bias-gate.ps1`,
+> `persist-adjudication.ps1`) are deleted, along with the severity adjudicator itself and the
+> system-level bar that made the bias-gate artifact mandatory. De-biasing a briefing is a spawning
+> discipline now, not a mechanized, evidenced step — see `standards/adversarial-review-protocol.md`
+> § "De-bias the setup" and the ADR below.
 
 Two more `.review_state/` writers close out the remaining pieces of the 2026-06-28 audit's DoD items 1 and 3 (see the reconciliation note in issue #47): the **bias-gate** step (`standards/adversarial-review-protocol.md` "## Bias gate") and the **severity adjudicator** (`## Stop condition — soft cap and severity gate`) each now leave a tree-bound artifact instead of running invisibly.
 
@@ -290,11 +302,21 @@ Two more `.review_state/` writers close out the remaining pieces of the 2026-06-
 
 ### Program-driven review runner (#128)
 
+> **Retired 2026-07-17 (#587):** `tools/review-runner.ps1`, `capture-reviewer-verdict.ps1`, and
+> `tools/review-verdict.schema.md` are deleted; the PR-path reviewers no longer emit a trailing JSON
+> verdict block. Review verdicts are prose only again. See the ADR below.
+
 `tools/review-runner.ps1` (`-RunDir`, `-TreeOid`, `-Mode <both-pass|unanimous>`) is the mechanical front door for a reviewer panel's return: it reads each reviewer's verdict JSON (schema documented in `tools/review-verdict.schema.md`) from `-RunDir`, citation-validates every defect that cites a `file` (fail-closed: `file-not-found` if the file does not resolve under the repo root, `out-of-range` if `line` exceeds the file's line count), and aggregates verdicts across the panel. `-Mode` maps directly to the two reviewer-count bars in `standards/adversarial-review-protocol.md`: `both-pass` requires >= 2 distinct reviewer verdicts, all `PASS` (the system-level two-independent-reviewer bar); `unanimous` requires >= 1 reviewer verdict, all `PASS` (the routine rounds-2+ single-reviewer bar) — either mode still blocks on any `FAIL` or invalid citation regardless of panel size. Before validating anything, the runner computes `git write-tree` of the cwd and refuses to proceed if it does not equal `-TreeOid`, so the citation/verdict validation this script performs and the tree-level bind `tools/review_verdict.ps1` performs independently (via its own `git write-tree`) can never disagree about which tree passed. It does not reimplement evidence writing — on a fully clean pass only, it calls the existing `tools/persist-review.ps1` once per reviewer and `tools/review_verdict.ps1` to bind the tree-level verdict, staying consistent with the shared `tools/verdict-core.ps1` kernel the gate reads. On any invalid citation, any reviewer `FAIL`, an incomplete panel, or a tree-OID mismatch, it prints the specific reason(s) to stderr and exits non-zero, writing no evidence and no `verdict.json` — a reviewer that fabricates a citation cannot produce a recorded PASS. This is the runner referenced by #94's out-of-range citation validation and by #93/#115/#116; the PR-path reviewers (`reviewer-pr`, `reviewer-design-philosophy`) emit the block per #474, alongside their existing prose review, and #455 wired it into the pipeline: `tools/capture-reviewer-verdict.ps1` extracts each reviewer's trailing block from its raw return text and drops it, verbatim, into the `-RunDir` this runner reads — see "PR-review recording: capture → runner (#455)" in `standards/adversarial-review-protocol.md` and `agents/orchestrator.md` step 7 for the full wiring. `tools/review-verdict.schema.md` is part of the governing-artifact surface alongside this note, per the `docs/north-star.md`/`DESIGN.md`/`CLAUDE.md`/`AGENTS.md` system-level list above.
 
 **Design choice weighed:** a directory-of-JSON drop (`-RunDir`, one file per reviewer) was chosen over per-reviewer stdin/args so the runner stays a pure, replayable function of files already on disk — a reviewer agent's return can be inspected, diffed, or re-validated without re-running the agent, and the runner's own input contract (`tools/review-verdict.schema.md`) is testable independent of any particular reviewer's invocation shape.
 
 ### Issue-review gate: every code commit names a reviewed issue (#46)
+
+> **Retired 2026-07-17 (#587):** the reviewed-issue evidence check this section describes
+> (`.review_state/issue-reviews/<N>/`, `tools/persist-issue-review.ps1`, `Test-IssueReviewed`) is
+> deleted. `.githooks/commit-msg` today only checks that the commit message resolves to a GitHub issue
+> number (widened to all 9 GitHub closing keywords per #585) — it no longer checks that issue has a
+> recorded review PASS. See `WHAT-IT-CHECKS.md` and the ADR below.
 
 **Binding decision:** the `commit-msg` hook (`.githooks/commit-msg`) is the enforcement chokepoint. A code commit is blocked unless its message resolves to a GitHub issue number AND that issue has a recorded issue-review PASS under `.review_state/issue-reviews/<N>/`. Issue-number resolution is deterministic: message first (`(#N)` or `Closes/Fixes/Resolves #N`), branch fallback only from an anchored mandatory-prefix regex (`(?i)(?:^|[-/])issue[-/](\d+)(?:$|[-/])`). A branch like `enforce/v4-s1-gate-core` does not resolve — the branch regex requires an explicit `issue[-/]` token and cannot capture bare numerals from version strings. The shared counting kernel (`Reduce-Verdicts` in `tools/verdict-core.ps1`) drives both the PR/tree gate and the issue gate — one function, two call sites, no duplicated logic.
 
@@ -303,6 +325,11 @@ Doc-only commits (`*.md` / `*.markdown` extension) are exempt from the blocking 
 **Honest bar:** a code commit can no longer reach history through the hooks without naming a GitHub issue that has a recorded issue-review PASS — the evidence-less path (draft locally, skip review, implement) is blocked at the `commit-msg` chokepoint, which fails closed and is CI-integrity-checked. **Reconciled (2026-07-11, #448):** rather than an unqualified "no bypass" claim, the honest statement enumerates three scoped, never-silent exemptions — the ledger appender (#219, the sole staged path is `governance/ledger.ndjson` and the message starts `ledger: `), the event-mode hotfix (#220, an ACTIVE `governance/event-mode.json` flag plus a `hotfix: `-prefixed subject), and the trivial dep-bump path (#448, a staged manifest-only bump that classifies `trivial` under `tools/classify-trivial-commit.ps1` plus a `chore(deps): `-prefixed subject) — each checked explicitly in the hooks, none a blanket skip; every other code commit still names a reviewed issue with no exception. **Still only tamper-evident:** the issue-review record is written by `tools/persist-issue-review.ps1` by hand, so a determined operator can record a PASS for an unreviewed issue. Authenticity (verdict from a real reviewer-agent return) is the deferred auto-runner slice. The record lands where a future ledger + CI audit can flag it; forgery is made visible, not impossible. Like `pre-commit`, the hook is bypassed by `git commit --no-verify` and inert in a clone where `core.hooksPath` is unset — the CI `commit-gate-integrity` and `merge-association` jobs are the server-side backstop, and the un-bypassable merge version is #48. **Not in this slice:** server-side merge enforcement ships as an advisory CI job; the un-bypassable version is #48. No un-forgeability claim on a machine the operator controls.
 
 ### Issue-creation review marker: born `needs-issue-review`, cleared by a separate reader-gated tool (#62)
+
+> **Retired 2026-07-17 (#587):** `tools/clear-issue-marker.ps1` and its evidence-reader dependency
+> (`Test-IssueReviewed`) are deleted. The label is now cleared directly, by hand, after a PASS on the
+> issue review: `gh issue edit <N> --remove-label needs-issue-review`. The label itself, and its
+> purpose (an unreviewed issue is board-visible), are unchanged.
 
 Every GitHub issue is created carrying the `needs-issue-review` label (`gh issue create --label needs-issue-review`). The label makes a skipped issue-review tamper-evident and board-visible: an unreviewed issue is distinguishable from a reviewed one on the board without reading any code.
 
@@ -338,6 +365,14 @@ Every GitHub issue is created carrying the `needs-issue-review` label (`gh issue
 
 ### Branch protection on main
 
+> **Retired/superseded 2026-07-17 (#587):** the owner turned `strict` **off** on 2026-07-17, before
+> this issue was filed — the `required_status_checks.strict = true` line below is stale on that point.
+> The required-check set is also retargeted by this issue to exactly `{lint, test, smoke,
+Analyze (javascript)}`; `commit-gate-integrity`, `merge-association`, `review-artifact-present`, and
+> `event-mode-expiry` are gone (their jobs were deleted). `tools/apply-branch-protection.ps1` no longer
+> takes the `-RequireSmoke`/`-RequireReviewArtifact`/`-RequireEventModeExpiry` switches — its required
+> set is baked in. See the ADR below.
+
 **Binding decision:** `main` requires a pull request and `required_status_checks.strict = true` — GitHub's "require branches to be up to date before merging." The five base contexts are the ones `tools/apply-branch-protection.ps1` PUTs when no switch is passed — the real, observed check-run names on `main` (`commit-gate-integrity`, `lint`, `test`, `merge-association`, and CodeQL's actual produced name `Analyze (javascript)`, not the workflow name `CodeQL`). `required_approving_review_count` stays `0`: the owner is a solo maintainer, GitHub does not allow self-approval, and requiring ≥ 1 approval would lock the owner out of merging their own work — the AI adversarial review plus the required CI checks are the gate, not a human approval click (see § Merge policy). `enforce_admins = true` binds the admin merger to the same rules as everyone else. Applied via `tools/apply-branch-protection.ps1`, which PUTs the payload determined by its switch set and is idempotent **for a given switch set** — not a single fixed payload, since the PUT replaces the whole checks list rather than appending to it, so a run that omits a switch that is currently live silently drops that check (see `tools/apply-branch-protection.ps1`'s header comment).
 
 `event-mode-expiry` — the CI expiry backstop created by #220, documented in full under "Event mode (#220)" below — becomes a required check via `tools/apply-branch-protection.ps1 -RequireEventModeExpiry` (#233), run once — as a deadline, not a wait: it must run before any event-mode flag has expired (both `NONE` and `ACTIVE` states are green), because a post-expiry promotion is pinned green forever and delivers nothing. The replace-not-append trap above applies to that run: carry forward every switch already live, or their checks drop. See § "Event mode (#220)" below for the full operator picture, including the fact that there is no re-arm once a flag has been used.
@@ -347,6 +382,11 @@ Every GitHub issue is created carrying the `needs-issue-review` label (`gh issue
 **Relation to #48:** this is GitHub-native branch protection — it governs merge _ordering and freshness_, not review _authenticity_. #48's review-authenticity gate is `review-artifact-present`, a separate required check documented in full under "Review-artifact-present check (#48)" below; its required-check activation on `main` is a deferred rollout step, tracked there, not part of this section's payload.
 
 ### Review-artifact-present check (#48)
+
+> **Retired 2026-07-17 (#587):** this check was never activated as a required check on `main` in the
+> first place (see `definition-of-done.md` § 10's own example). `scripts/check-review-artifact.js` and
+> the `review-artifact-present` CI job are deleted along with the governance-ledger comment it read.
+> See `WHAT-IT-CHECKS.md` and the ADR below.
 
 **Problem:** branch protection on `main` (above) requires status checks, none of them review-aware: `commit-gate-integrity` only checks the hook files exist, `merge-association` only checks a commit message names an issue, and `required_approving_review_count` is deliberately `0` (solo maintainer, GitHub forbids self-approval). A merge can reach `main` with no evidence a review ever happened — including the local-hook-bypass path (`--no-verify`, a fresh clone with `core.hooksPath` unset).
 
@@ -400,9 +440,20 @@ Sessions are **grouped by file-locality**, not by theme. The epic's session grou
 
 Fable is an available model. It is used only on the owner's explicit per-use signal, and until that signal there is no standing Fable-specific review handling — Fable-authored work goes through the same independent adversarial review as any other implementer, per `CLAUDE.md` § "Model policy".
 
+> **Reversed 2026-07-17 (#587):** the paragraph below recorded `persist-self-certification.ps1` and its
+> test as intentionally dormant — kept on disk against a future owner-signaled reactivation. This ADR
+> **reverses that dormant-retention decision itself**, not just the live policy it described: both
+> files are deleted along with the rest of the proof layer. A future Fable-specific review mechanism,
+> if wanted, is designed fresh — it does not un-delete this code. See the ADR below.
+
 `tools/persist-self-certification.ps1` and `tests/persist-self-certification.test.js` intentionally remain on disk as dormant mechanism — a future owner-signaled Fable use could reactivate them — not as a record of live policy.
 
 ### Empirical smoke gate (#197)
+
+> **Note 2026-07-17 (#587):** `smoke` is now a baked-in required check on `main` (no promotion
+> switch); the sibling checks this section lists it alongside (`commit-gate-integrity`,
+> `merge-association`, `event-mode-expiry`) are retired. See "Branch protection on main" above and the
+> ADR below.
 
 **Binding decision:** `scripts/smoke.js` is the one gate that verifies _behavior_, not provenance. Every prior gate in this file proves a review happened and is bound to a tree; none of them ever started the server — which is how the 2026-07-03 guest-facing defects (#187 onboarding crash, #188 HEIC dead end, #193 missing badge art, #192 export gap) all carried recorded PASSes. The smoke script boots the real app (`require('src/app')` on an ephemeral port, `DATA_DIR` pointed at a temp dir seeded by `scripts/seed-event.js` as a child process) and probes it: admin login page, guest sign-in via a real seeded token, the signed-in hot paths (`/`, `/gallery`, `/leaderboard`, `/feed`), a hostile non-image avatar POST (must 4xx with no unhandled rejection and a live server after — the #187 class), and a referenced-asset audit of **both** badge catalogs (the event-seed DB it serves, plus `scripts/seed.js` seeded into a second scratch dir — the #193 class lives only in the latter until #193 unifies them). Pure helpers are exported and unit-tested in `tests/smoke-harness.test.js`; the end-to-end run is the CI `smoke` job.
 
@@ -412,11 +463,25 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 ### Review-cost overhaul: 1-reviewer routine rounds, batching, advisory lenses (#201, #218)
 
+> **Superseded 2026-07-17 (#587):** the "heavy bars" this section calls unchanged — security ≥3
+> all-PASS and the system-level two-independent both-PASS bar — are retired; the kernel/experimental
+> split for batching purposes goes with them, since there is no more kernel bar to escalate a mixed
+> batch to. The 1-reviewer-plus-design-philosophy routine bar this section established is now the
+> **only** bar (see `standards/adversarial-review-protocol.md` § "Reviewer count by artifact"), not
+> one tier among several. The evidence and reasoning below for cutting panel width are unchanged and
+> still hold.
+
 **Decision (2026-07-04, owner-approved):** routine-code round 1 drops from a 2–5 reviewer panel to exactly **1** PR reviewer plus the design-philosophy reviewer, both-must-PASS. **Evidence:** full round-ledgers reconstructed from three build sessions (~9 multi-reviewer PR panels, issues #81/#83/#84/#86/#87/#89/#78/#80/#88/#149). Every multi-reviewer panel returned unanimous PASS — panel width produced **zero flipped verdicts**. Every FAIL that sent work back came from the differently-chartered design-philosophy reviewer (which caught every consequential defect that survived to a fix cycle: the #78 tie-definition duplication, the #89 per-photo-points duplication, the #87 missing service layer, the #80 badge-registry leakage, the #88 `progressPercent` a11y clamp bug) or from a fresh single reviewer on a later round. So width is cut and the different lens is kept, unchanged, on every implementation artifact regardless of change size. The heavy bars (security ≥3 all-PASS, system-level two-independent both-PASS) are **unchanged** — they insure against unrecoverable risk, not because the ledger showed them catching more. The bias-gate audit likewise runs once per distinct briefing template (what all three sessions did in practice), not once per fan-out round.
 
 **Batching (#218):** related governance changes sharing one stated intent may ship as one reviewed batch — one issue-review, one PR, one verdict covering the whole batch; a batch mixing kernel and experimental paths takes the kernel bar. New reviewer lenses enter advisory (recorded, non-blocking, ~10-PR trial, owner promotes on evidence — the #197 smoke gate's two-stage promotion is the precedent), with the security-severity escalation exception. Full text: `standards/adversarial-review-protocol.md` §§ "Review batching", "Advisory-lens lifecycle", "Which reviews does this change need?".
 
 ### Governance ledger (#219): committed record, CI is the only writer
+
+> **Retired 2026-07-17 (#587):** the entire ledger mechanism this section describes —
+> `.github/workflows/ledger.yml`, `scripts/ledger-harvest.js`, `scripts/ledger-push.js`,
+> `scripts/lib/ledger-comment.js`, `tools/governance-report.ps1`, and the `governance-ledger` PR
+> comment — is deleted. The `ledger` branch stays as a frozen archive; no writer remains. See the ADR
+> below.
 
 **Binding decision:** every review outcome lands in `governance/ledger.ndjson` — one JSON object per line, append-only, committed — and the ONLY writer is the CI job in `.github/workflows/ledger.yml`, which runs post-merge on pushes to `main`. No local session or agent ever writes the file. The reason is the self-reference constraint from the hostile review of this overhaul's plan: **a row is never part of the tree it describes** — appending the row would change the tree and invalidate the tree-bound review verdict for that same change. Writing post-merge from CI dissolves the problem (the merge commit already exists when the row is written) and avoids worktree merge conflicts between concurrent sessions as a side effect.
 
@@ -438,6 +503,10 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 ### BUILDLOG comment harvest (#447): per-merge entries move off hand-appended edits
 
+> **Retired 2026-07-17 (#587):** `scripts/buildlog-render.js` and the ledger harvest it depended on
+> are deleted. Per-merge entries are hand-appended to `BUILDLOG.md` on `main` again, as part of the
+> orchestrator's commit step — see `agents/orchestrator.md` step 7. See the ADR below.
+
 **Binding decision:** the per-merge `<sha> — #<n> — <summary>` entry — previously hand-appended to `BUILDLOG.md` as part of the change commit — is now harvested the same way the `reviews` array is: a pre-merge PR comment, harvested post-merge by CI. This reuses the governance-ledger machinery (#219, #228) rather than inventing a parallel one, and dissolves the same problem it dissolved there: under concurrent waves `BUILDLOG.md` was the dominant rebase-collision point in wave merges, and sessions had taken to keeping it out of the change PR and backfilling it in a dedicated bookkeeping PR (recorded in the pre-cutover history below, e.g. #305, #356) — every change shipped as two PRs. A row is never part of the tree it describes, exactly as for the `reviews` array.
 
 **The mechanism.** Entry source is a pre-merge PR comment: the orchestrator posts (or refreshes — last one wins) a PR comment carrying the marker `<!-- buildlog-entry -->` plus the entry narrative. `scripts/ledger-harvest.js` extracts the last such comment's narrative, verbatim, into an additive `buildlog` field on the gl1 row (see "Row schema (v1)" above) — the store is this `buildlog` field, committed to `governance/ledger.ndjson` on the `ledger` branch alongside every other row: present when a comment exists, `null` — an honest gap, never a fabricated entry — when it does not. **The comment carries narrative only; the SHA is stamped by CI.** A pre-merge comment cannot know the merge SHA (it does not exist until merge), so `scripts/buildlog-render.js`'s renderer composes `<merged_sha> — #<issue> — <narrative>` from the row's own `merged_sha`/`issue` fields and never parses a SHA or issue number out of the narrative text — a narrative that happens to contain a SHA-like or `#NN`-like token cannot spoof the entry's identity.
@@ -450,9 +519,19 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 ### Governance snapshots (#224): tagged states, exported surface + stats
 
+> **Retired 2026-07-17 (#587):** `tools/snapshot-governance.ps1` is deleted along with the ledger and
+> report tools it depended on. See the ADR below.
+
 **Convention:** `tools/snapshot-governance.ps1 -Version <N> [-ExportDir <path>]` creates the annotated tag `governance-v<N>` at HEAD — refusing (exit non-zero, no tag) on a dirty working tree or an existing tag — and exports to `<ExportDir>\governance-v<N>\` the governance surface (`standards/`, `agents/`, `.githooks/`, `tools/`, `skills/`, `CLAUDE.md`, `DESIGN.md`, `docs/north-star.md`, `.github/workflows/`) plus `stats.txt`, the output of `tools/governance-report.ps1` against `governance/ledger.ndjson` as committed at HEAD (or the literal line `no ledger rows` when absent). Tag plus export make every governance version recoverable and comparable by its records: the tag pins the exact tree, the export is the portable copy, and `stats.txt` is that period's performance record. Publishing an export into the scaffold-project template repo remains a **manual owner step** — the tool never pushes anywhere.
 
 ### Event mode (#220): wedding-day freeze with expiring flag and mandatory retro-review
+
+> **Retired 2026-07-17 (#587):** every tool this section describes (`tools/set-event-mode.ps1`,
+> `event-mode-core.ps1`, `check-event-mode-expiry.ps1`, `scripts/rehearse-event-mode.ps1`) is deleted,
+> along with `.githooks/pre-commit`/`gate-core.sh`'s evidence-gate machinery this mechanism deferred
+> to. Post-teardown there is no review-evidence gate for a wedding-day hotfix to bypass — an ordinary
+> commit during the wedding is already a small, fast, ordinary commit. #568/#573/#586 (open event-mode
+> gaps) close as obsolete. See the ADR below.
 
 **Why it exists:** during the wedding weekend a broken guest path must be fixable in minutes, and the commit gates as designed block every code commit until review evidence exists. Waiting on reviewer agents mid-reception fails the event. Event mode is the pre-declared, expiring, fully-recorded exception: a hotfix ships on green automated checks alone, and every such commit is mechanically queued for review after the event. Nothing permanently escapes review. This mechanism covers the wedding weekend itself and is unchanged by the move to a hosted deployment; an incident outside that window takes the normal pipeline.
 
@@ -480,6 +559,12 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 ### Trivial dep-bump gate (#448): recomputed, not attested
 
+> **Retired 2026-07-17 (#587):** `tools/classify-trivial-commit.ps1` and the hook exemption branches
+> it fed are deleted — there is no more evidence gate for a hand-built dependency-bump commit to be
+> exempted from. The Dependabot auto/review tiering this section's classifier shared code with
+> (`tools/classify-dep-pr.ps1`, `classify-dep-pr-core.ps1`) is unaffected and stays. See
+> `CLAUDE.md` § "Dependency updates (Dependabot)" and the ADR below.
+
 **Why it exists:** #436 (express 4.21.2 → 4.22.2, a security-advisory bump) ran the full pipeline — issue, issue-review, implementer, PR reviewer, design-philosophy reviewer, two PRs — yet `tools/classify-dep-pr.ps1` rates the identical diff `auto`: the repo's own owner-approved policy already says this change class merges on green CI with **no review at all** when Dependabot authors it. The judgment ("CI is a sufficient gate for this class") was already made and encoded; only the hand-built path ignored it, purely because of who typed the commit.
 
 **Design: recompute, don't attest.** Eligibility is recomputed by the commit gate from the staged tree itself every time — no evidence file, no label, nothing to forge. `tools/classify-trivial-commit.ps1` (no params; reads `git diff --cached` directly) emits `trivial` only when all four hold: (1) the staged paths are exactly a non-empty subset of `{package.json, package-lock.json}` with `package.json` among them — a lockfile-only diff (transitive-only changes) stays `standard`, fail closed; (2) every direct dependency whose version differs between `HEAD:package.json` and the staged copy classifies `auto` under `Get-DepPrTier`, dot-sourced from `tools/classify-dep-pr-core.ps1` — the same file `tools/classify-dep-pr.ps1` (its thin CLI) now dot-sources, so the tier rules have exactly one copy; (3) `package-lock.json`'s content, not just its staged path, is bounded to that same changed-dep set (#467, below); (4) the commit subject starts `chore(deps): ` — checked separately by the hooks (see below), since a classifier invoked before a commit message necessarily exists cannot see it.
@@ -504,6 +589,11 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 ### Wave governance (#310): grandfathering, owner-invoked wave review, doc-currency step
 
+> **Partially retired 2026-07-17 (#587):** the wave-alignment tooling this section's mechanisms relied
+> on (`tools/check-wave-alignment.ps1`, `start-run.ps1`, `stop-run.ps1`) is deleted; `/realign` now
+> does only the `check-freshness.ps1`-based cross-batch check. Grandfathering, the owner-invoked
+> `/post-wave-review`, and the doc-currency step below are unchanged. See the ADR below.
+
 **Decision (2026-07-08, owner):** three governance mechanisms recorded during the Wave-1 post-wave review session, resolving three findings the session surfaced (evidence: issue `#310`).
 
 **Grandfathering.** A governance or gate change merged mid-wave governs from the next issue picked up onward; an open sibling PR already in flight merges under the bar in force when its implementation began, with one exception — a `severity:blocker` security gate change reaches open PRs immediately. Recorded because a real mid-wave case surfaced in Wave-1 (PR #295/#294 and PR #298/#254) and is **correct** behavior under this rule, not a defect a reviewer should flag — worked example with timestamps: `standards/adversarial-review-protocol.md` § "Wave governance (#310)".
@@ -513,6 +603,12 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 **Doc-currency step.** A `doc-currency` implementer-side pipeline step (Sonnet) fires on the source surface defined in `agents/orchestrator.md` § "Doc-currency step". Chosen over a doc-currency _reviewer_ (which could only flag drift, never fix it) because the #318 evidence showed the drift going unfixed for the life of four schema-changing commits despite an unwired reviewer charter (`agents/reviewer-doc-currency.md`) already on disk — an implementer-side auto-fix closes the gap a flag-only reviewer left open. That charter was retired as an orphan in #323. Mechanics (trigger, staging order, the `docs-only` rule): `agents/orchestrator.md` § "Doc-currency step"; classification: `standards/adversarial-review-protocol.md` § "Wave governance (#310)".
 
 ### Merge queue (#404)
+
+> **Note 2026-07-17 (#587):** `commit-gate-integrity`, `merge-association`, and `event-mode-expiry`,
+> named throughout this section as jobs the queue must trigger on `merge_group`, are all retired. The
+> queue now only needs to trigger `lint`, `test`, `smoke`, and `Analyze (javascript)` on that event —
+> the mechanism this section describes (the `merge_group:` trigger, the `gh-readonly-queue/**` push
+> exclusion) is otherwise unchanged.
 
 **Why it's adopted:** `main`'s branch protection runs `strict` (require branches up to date) plus the required checks, and under the concurrency of parallel `/build` sessions that combination loops — every merge during a PR's CI window forces that PR to re-sync and re-run the full ~3.5-minute check set, observed directly on PRs #374 and #395 in the current wave. A GitHub merge queue removes the loop without giving up either guarantee: it builds a temporary `gh-readonly-queue/main/*` branch (`main` tip plus the PR), runs the required checks on that branch once, and merges on green, one entry at a time.
 
@@ -525,6 +621,10 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 **Owner action, and its order.** This issue only makes the workflows queue-compatible; enabling the queue itself is a branch-protection change the owner makes on GitHub (Settings → Branches → main → enable merge queue), and `strict`/up-to-date is then enforced by the queue rather than per-PR. That toggle must be flipped only after this change has merged to `main` — flipping it first would queue-build PRs whose required checks never run on `merge_group`, stalling every entry.
 
 ### Sonnet-only run tier (#427)
+
+> **Retired 2026-07-17 (#587):** `tools/classify-issue-run.ps1` is deleted, the `Run tier` issue field
+> is dropped from `standards/issue-standards.md`, and there is no same-model review carve-out. Every
+> reviewer, on every issue, runs on Opus, on a different model from the implementer. See the ADR below.
 
 **Decision:** a genuinely routine issue's whole pipeline — orchestrator, implementer, and every reviewer that fires — may run on Sonnet instead of the standard Opus reviewer policy, gated by a deterministic classifier (`tools/classify-issue-run.ps1`, mirroring `tools/classify-dep-pr.ps1`) rather than owner judgment per issue. Sonnet now carries a separate cost bucket, so this is a real saving with no shared-budget tradeoff on the issues it covers — but it is restricted to issues where all three eligibility gates hold: off the system-level governing-artifact surface (and not security-flagged or escalated), off the wedding-critical guest paths (join/auth, upload, moderation, gallery/export core), and small/reversible (no schema or data migration). Borderline cases default to `opus`.
 
@@ -544,9 +644,15 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 **What this trades away, stated honestly.** The old rule bought determinism — an agent verifying an issue mechanically, with no judgment call. That is knowingly given up: two reviewers may disagree on the same criterion under the new bar. The trade is accepted because the old determinism was purchased by producing criteria nobody could hold — a worse failure than occasional reviewer disagreement.
 
-**Interaction with the `sonnet-only` tier (#427).** The new bar leans on reviewer judgment ("a competent reviewer can answer it"), and the "competent reviewer" on a `sonnet-only` run is a model this file's own § "Sonnet-only run tier (#427)" records as under-reporting when told to be conservative. No new mechanism is added to contain that here: the tier's existing bounds (routine, reversible, off the wedding-critical guest paths and the governance surface) plus the coverage-first instruction already scoped to that tier are what contain it — the same guardrails that already govern every other judgment call a `sonnet-only` reviewer makes.
+**Interaction with the `sonnet-only` tier (#427) — retired 2026-07-17 (#587).** This paragraph described a now-deleted mechanism: the `sonnet-only` tier and its classifier are gone, so every reviewer is Opus and this interaction no longer applies. Left here as history, not current behavior.
 
 ### No severity adjudicator when the orchestrator concedes a rewrite (#540)
+
+> **Superseded 2026-07-17 (#587):** the whole concede/contest fork this section describes, and the
+> severity adjudicator it partially retained, are retired. Review now runs the one-round stop rule —
+> minor/nit fixed inline and shipped, a blocker/major takes exactly one re-check — with no adjudicator
+> and no round-count soft cap. See `standards/adversarial-review-protocol.md` § "One-round stop rule"
+> and the ADR below.
 
 **Decision:** at the 3-round soft cap, the orchestrator first declares whether it **concedes** —
 judges at least one open defect warrants a fix — before anything else happens. On a concession,
@@ -583,10 +689,85 @@ skipped rather than a silent gap — not that a false concession is structurally
 
 ## System-level change (definition)
 
+> **Superseded 2026-07-17 (#587):** the two-independent-reviewer, both-must-PASS bar this section
+> describes is retired, along with `tools/verdict-core.ps1` and its `$SYSTEM_PATH_REGEX`/
+> `$EXPERIMENTAL_PATH_REGEX` regexes. The **surface** this section defines is not gone, though — it is
+> now the frozen governing-artifact surface named in `CLAUDE.md` § "Governance freeze": a change to it
+> before 2026-08-08 needs recorded owner approval instead of a stricter reviewer count. The
+> `agents/reviewer-*.md` carve-out below is moot post-teardown (reviewer charters take the same single-
+> reviewer bar as everything else now), but the rest of the surface list is the freeze's own list.
+
 A **system-level change** is one that alters the development system itself rather than the wedding app's features. The gate (`tools/verdict-core.ps1`) treats a staged path as system-level when it is under `.githooks/`, `tools/`, `standards/`, `agents/`, `skills/`, `.github/`, or `.claude/`, or is `docs/north-star.md`, `DESIGN.md`, `CLAUDE.md`, or `AGENTS.md` — **except** files matching `agents/reviewer-*.md` (reviewer charters, including new lens charters), which take the routine bar (#218). `skills/` is included deliberately: the runner's own logic lives there, so editing it must trip the stricter bar. These changes use the stricter two-independent-reviewer, both-must-PASS bar in `standards/adversarial-review-protocol.md`, because a defect there weakens every future change rather than one feature. (This prose and the regexes in `tools/verdict-core.ps1` — `$SYSTEM_PATH_REGEX` and the `$EXPERIMENTAL_PATH_REGEX` carve-out — must list the same surface.)
 
 **Why the charter carve-out is safe there and nowhere else (#218):** charter iteration is where governance experimentation happens, and the governance ledger (separate issue in the same overhaul set; not yet landed) will make a weakened charter detectable after the fact via falling catch-rates. Bar-definitions, hooks, and evidence writers fail **silently** when weakened — nothing downstream measures them — so they stay kernel. `standards/design-philosophy.md` stays kernel because it lives under `standards/`, not under `agents/reviewer-*.md` — the carve-out is a path match, not a judgment about the file's content, and it never applies to the bar-definitions and evidence writers that check the certifier.
 
 ## Security lens (#222)
 
+> **Retired 2026-07-17 (#587):** the ≥3-reviewer escalation bar this section's last sentence describes
+> is gone. A major/blocker security finding now takes the standard one-round stop rule like any other
+> finding — see `standards/adversarial-review-protocol.md` § "One-round stop rule" and the ADR below.
+> The rest of this section (conditional firing, advisory status, the four trigger surfaces) is unchanged.
+
 The security lens (`agents/reviewer-security.md`) is **conditional**, not universal: it fires only on diffs touching upload/intake, auth, file-serving/static, or admin routes, because running a security-focused read on every change (a badge-copy tweak, a CSS fix) would be pure cost for no catch — the escaped defects it targets (#196, #180) were both on those four surfaces, nowhere else. It ships **advisory**, per the standard lifecycle (`standards/adversarial-review-protocol.md` § "Advisory-lens lifecycle"): a new lens earns gating status on recorded evidence over a trial, not on day one. The one exception is the escalation rule — a major/blocker security finding flags the change `security` and forces the existing ≥3-reviewer bar immediately, because a real vulnerability must be able to block even mid-trial; the advisory status only shields the lens's routine (minor/nit) findings while its catch-rate is unproven.
+
+## ADR: Governance teardown and freeze (#587)
+
+**Date:** 2026-07-17. **Status:** accepted, owner-authorized.
+
+**What changed.** The proof layer this repo had built up around code review — evidence-store files
+bound to a staged tree (`tools/verdict-core.ps1`, `persist-review.ps1`, `review_verdict.ps1`,
+`validate-verdict.ps1`), verdict capture and a citation-validating runner (`capture-reviewer-verdict.ps1`,
+`review-runner.ps1`), a committed governance ledger with a CI-only writer
+(`.github/workflows/ledger.yml`, `scripts/ledger-harvest.js`, `scripts/ledger-push.js`,
+`scripts/buildlog-render.js`), a server-side review-authenticity CI check (`review-artifact-present`,
+`scripts/check-review-artifact.js`), a bias-gate audit step with its own evidence artifacts
+(`persist-bias-gate.ps1`), a severity adjudicator and a contest/concede fork at a 3-round soft cap
+(`agents/severity-adjudicator.md`), a run-tier classifier that routed issues to a same-model
+Sonnet-only review tier (`tools/classify-issue-run.ps1`), event-mode (a wedding-day evidence-gate
+bypass window, `tools/set-event-mode.ps1` and friends), a trivial-dep-bump classifier
+(`tools/classify-trivial-commit.ps1`), and wave-alignment tooling
+(`tools/check-wave-alignment.ps1`, `start-run.ps1`, `stop-run.ps1`) — all of it is deleted. In its
+place: `.githooks/commit-msg` runs one cheap check (a code commit must name a GitHub issue);
+`standards/adversarial-review-protocol.md` runs a one-round stop rule (minor/nit fixed inline and
+shipped, a blocker/major takes exactly one re-check); and the governing-artifact surface this
+machinery lived on is **frozen until 2026-08-08** — see `CLAUDE.md` § "Governance freeze". Kept,
+unmechanized: one issue reviewer, one PR reviewer plus the design-philosophy reviewer, the visual-
+approval loop, worktree isolation, CI (lint/test/smoke/docker-build/CodeQL/Dependabot), and the
+Dependabot auto/review tiering (`tools/classify-dep-pr.ps1`).
+
+**Why.** Measured 2026-07-17: merge throughput ran 20–33 issues/day through 2026-07-12, then fell to
+3–10/day — the cliff coincides with the proof layer landing (#447/#449/#474/#455/#427, 2026-07-11/12).
+The governance machinery itself grew 2,865 lines (07-04) to 7,099 lines (07-17) — 2.5x in two weeks —
+while reviewers found zero blocker/major defects in app code since 07-11 across roughly 200 review-
+ledger entries: the machinery had become the only defect-rich surface left, and the pipeline was
+converting its own defects into issues (25 filed 07-17 alone, a majority of them governance issues).
+The proof layer also kept failing on ordinary git life it was never built to survive: #580 (a rebase
+after review silently invalidated the tree-bound evidence), #584 (the wrong changed-path set), #536
+(would have blocked every Dependabot PR). Its flagship check, `review-artifact-present` (#48), was
+never activated as a required check in the first place, and #431 had closed "done" with nothing
+built — `definition-of-done.md` § 10 already records this failure class. Issue review itself had
+become the bottleneck it was meant to police: 7 rounds to define one issue's acceptance criteria
+(#541), 6 rounds on a robots.txt test probe (#555), 4 bias-gate audits of a single reviewer briefing
+(#543) — review effort was being spent on process artifacts, not the product, with three weeks left
+before guests arrive.
+
+**Superseded records.** § "Branch protection on main" above recorded `required_status_checks.strict =
+true` as a binding decision; the owner turned `strict` off on 2026-07-17, before this issue was filed,
+so that section's `strict = true` line is stale as of this ADR — the required-check set itself is also
+retargeted to `{lint, test, smoke, Analyze (javascript)}` by this issue (`tools/apply-branch-
+protection.ps1`), dropping the proof-layer checks. § "Fable: available, owner-signal only (#453)"
+recorded that `tools/persist-self-certification.ps1` and `tests/persist-self-certification.test.js`
+"intentionally remain on disk as dormant mechanism — a future owner-signaled Fable use could reactivate
+them." This ADR **reverses that dormant-retention decision**, not just the live policy it described:
+both files are deleted along with the rest of the proof layer (`persist-bias-gate.ps1` likewise). A
+future Fable-specific review mechanism, if the owner ever wants one, is designed fresh against
+whatever the pipeline looks like after 2026-08-08 — it does not un-delete this dormant code.
+
+**What is not retired.** Review practice itself — an independent reviewer on a different model reading
+a change against a standard, citing evidence, returning PASS/FAIL — continues exactly as before. What
+is gone is the machinery that tried to mechanically _prove_ a review happened. `WHAT-IT-CHECKS.md` states
+this distinction to the owner directly.
+
+**Revisit.** This freeze and teardown are scoped to 2026-07-17 through 2026-08-08. Whether any retired
+mechanism is worth rebuilding — with a leaner design informed by what actually broke here — is a
+post-wedding decision, not a foregone conclusion either way.

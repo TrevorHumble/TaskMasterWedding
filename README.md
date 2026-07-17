@@ -68,7 +68,7 @@ Running more than one AI build session against this repo at once? Give each one 
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/new-agent-worktree.ps1 -Branch <name>
 ```
 
-This creates a sibling folder checked out on `<name>`, sharing this repo's history. It prints the folder's path once ready — `cd` there and work as normal; the commit gate is already active.
+This creates a sibling folder checked out on `<name>`, sharing this repo's history. It prints the folder's path once ready — `cd` there and work as normal; the commit-msg hook (issue-reference check) is already active.
 
 **Clean up when a session is done:** a worktree that is created but never removed leaves a full second source copy on disk. If one shows up nested inside this checkout (`.claude/worktrees/<name>/`, seen after issue #319), delete that folder and remove its entry from git's worktree list:
 
