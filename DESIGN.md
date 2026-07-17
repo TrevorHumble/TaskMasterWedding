@@ -781,3 +781,67 @@ this distinction to the owner directly.
 **Revisit.** This freeze and teardown are scoped to 2026-07-17 through 2026-08-08. Whether any retired
 mechanism is worth rebuilding — with a leaner design informed by what actually broke here — is a
 post-wedding decision, not a foregone conclusion either way.
+
+## ADR: Backup split — database and photos get opposite cadences (#558)
+
+**Date:** 2026-07-17. **Status:** accepted.
+
+**What changed.** `scripts/backup.js` no longer treats the database and the photo directories as one
+unit copied together on every run. It now runs in three modes — `--db-only`, `--photos-only`, and the
+flagless default (both) — and the two halves are backed up differently:
+
+- The **database** is small and changes minute to minute (points, likes, comments). `--db-only` still
+  uses the same WAL-safe `better-sqlite3` online-backup path as before, writing a new timestamped
+  snapshot folder under `BACKUP_DIR`, and stays cheap enough to run often. `BACKUP_RETENTION_COUNT`
+  prunes these timestamped snapshots exactly as it did before this issue (issue #287) — that logic is
+  unchanged.
+- **Photos** are write-once (`src/services/photos.js:203-236` never rewrites an existing stored file
+  under its own name). `--photos-only` (and the default run) copies a file into a single shared,
+  append-only store at `BACKUP_DIR/photos/{uploads,thumbs}` only if a file of that name is not already
+  there — never a fresh per-run copy of the whole photo set. Because the filename alone already
+  identifies identical content, this is a skip-if-exists comparison, not a content hash.
+
+Before the split, every run — including the default, still-recommended one — did a full
+`fs.cpSync(srcDir, destDir, { recursive: true })` of `uploads/` and `thumbs/` into each new timestamped
+folder. At `docs/deploy.md`'s previously-recommended hourly cadence with `BACKUP_RETENTION_COUNT=48`,
+that meant every wedding photo existed on disk up to 49 times over (`retention + 1`), multiplying
+whatever the live photo set weighed by up to 49x — on a host whose disk is shared with the live app.
+
+**Why the shared photo store is never pruned.** Under the new shape, a photo is retained in the store
+exactly once, for as long as the store exists. Giving that store its own retention count — "keep only
+the last N runs' worth of new photos" — would delete the only backup copy of a photo that was
+uploaded, backed up once, and never touched again, on nothing but the passage of time. That is the
+opposite of what a backup exists to do. Removing a photo from the store is therefore a manual, one-off
+act, not a scheduled one: `docs/deploy.md` § "Restore" documents the case that makes this concrete — a
+**hard** takedown (deleted from `uploads/` outright, as opposed to a moderation hide, which never
+touches `uploads/`) must also be deleted from `BACKUP_DIR/photos/` by hand, or the next restore returns
+it to the live set.
+
+**The pre-flight disk-budget guard.** Before the first copy in any mode, `scripts/backup.js` sizes
+exactly what that mode is about to write (`D` for `--db-only`, the bytes of not-yet-stored photos for
+`--photos-only`, both for the default) against the free space on `BACKUP_DIR`, and aborts before
+starting any copy if there is not room — naming the free and needed bytes. This runs for every mode,
+not only the default, so a low-disk host is never blocked from the megabytes-sized database snapshot by
+a large photo set it is not touching that run.
+
+**The projected-total report reads the raw retention env, and 0 means unbounded.** Alongside the
+required bytes, the guard reports a projected retained high-water mark once the schedule catches up:
+`S + (N + 1) × D` (the photo set once, plus `N + 1` database snapshots). This must match what
+`pruneBackups` actually does, and `pruneBackups` treats any `keep <= 0` — or a non-finite one — as "keep
+everything." So a retention that does not positively bound the snapshots (unset, blank, `0`, negative,
+non-numeric) is reported as `unbounded`, not as a number: reporting `S + D` for those would tell an
+operator whose snapshots grow forever that their backups cost exactly one snapshot. Distinguishing an
+unset env from an explicit `0` is why `planBackup` reads `process.env.BACKUP_RETENTION_COUNT` directly
+rather than `config.BACKUP_RETENTION_COUNT`: config's `parseInt(...) || 0` coercion collapses "unset"
+and "0" into the same `0`, which is lossy for the report even though both resolve to the same unbounded
+runtime behavior. That is a deliberate, single-purpose second read of one env var — the projection's need
+to see "unset" — not a second owner of the retention _policy_, which stays with `pruneBackups`.
+
+**The free-space seam moved.** `hasFreeSpace`/`setFreeSpaceReader`/`defaultFreeSpaceReader` moved from
+`src/services/rate-limit.js` (issue #247/#283's home for it) to a new `src/utils/free-space.js`, joining
+`initials.js`, `semaphore.js`, and `shutdown.js`. `scripts/backup.js` needed the same injectable
+disk-space primitive the rate limiter already had, and importing it from a module named after a
+different concern — and duplicating the underlying `fs.statfs` call to avoid that — would have given one
+fact (how much free space is on a volume) two independent owners. `rate-limit.js` re-exports the same
+three names unchanged, so every existing caller (`src/routes/guest.js`) and test
+(`tests/memories.test.js`) keeps working without knowing the code moved.

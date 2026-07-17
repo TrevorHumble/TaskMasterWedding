@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const Database = require('better-sqlite3');
-const { backupData, pruneBackups } = require('../scripts/backup');
+const { backupDatabase, backupPhotos, pruneBackups } = require('../scripts/backup');
 
 // This test builds its own isolated temp DB/dirs directly with better-sqlite3
 // rather than going through tests/helpers/testApp.js: backup.js operates on
@@ -165,19 +165,22 @@ function seedAdminHashFile(adminHashPath) {
 }
 
 /**
- * Mirror the restore steps documented in README.md: create a fresh data/,
- * then copy the snapshot's app.db, uploads/, thumbs/, and (if present)
- * admin.hash back into it.
- * @param {string} snapshotDir
+ * Mirror the restore steps documented in docs/deploy.md's shipped shape
+ * (issue #558): app.db (+ admin.hash, if present) comes from the chosen
+ * timestamped DB snapshot; uploads/ and thumbs/ come from the shared,
+ * append-only photo store at BACKUP_DIR/photos/ -- NOT from inside the
+ * snapshot folder, which no longer carries a per-snapshot photo copy.
+ * @param {string} snapshotDir - the chosen timestamped DB snapshot folder
+ * @param {string} photoStoreDir - BACKUP_DIR/photos/
  * @param {string} restoredDataDir
  */
-function restoreFromSnapshot(snapshotDir, restoredDataDir) {
+function restoreFromBackup(snapshotDir, photoStoreDir, restoredDataDir) {
   fs.mkdirSync(restoredDataDir, { recursive: true });
   fs.copyFileSync(path.join(snapshotDir, 'app.db'), path.join(restoredDataDir, 'app.db'));
-  fs.cpSync(path.join(snapshotDir, 'uploads'), path.join(restoredDataDir, 'uploads'), {
+  fs.cpSync(path.join(photoStoreDir, 'uploads'), path.join(restoredDataDir, 'uploads'), {
     recursive: true,
   });
-  fs.cpSync(path.join(snapshotDir, 'thumbs'), path.join(restoredDataDir, 'thumbs'), {
+  fs.cpSync(path.join(photoStoreDir, 'thumbs'), path.join(restoredDataDir, 'thumbs'), {
     recursive: true,
   });
   const snapshotAdminHash = path.join(snapshotDir, 'admin.hash');
@@ -188,17 +191,13 @@ function restoreFromSnapshot(snapshotDir, restoredDataDir) {
 
 describe('scripts/backup.js', () => {
   it('AC1/AC2: produces a consistent snapshot -- app.db alone reports the true submissions count', async () => {
-    const { root, dbPath, uploadsDir, thumbsDir } = makeTempLayout();
+    const { root, dbPath } = makeTempLayout();
     const db = openSchemaDb(dbPath);
     seedFixture(db);
-    seedUploadFiles(uploadsDir);
-    // thumbsDir is deliberately never created -- exercises the missing-source guard.
 
     const backupDir = path.join(root, 'backups');
-    const destDir = await backupData({
+    const destDir = await backupDatabase({
       dbPath,
-      uploadsDir,
-      thumbsDir,
       backupDir,
       timestamp: '20260807-000000',
     });
@@ -209,10 +208,11 @@ describe('scripts/backup.js', () => {
     expect(fs.existsSync(snapshotDbPath)).toBe(true);
 
     // AC2: open the snapshot read-only and confirm the exact count. If
-    // backupData had done a naive fs.copyFile of a WAL-mode app.db instead of
-    // the online .backup(), this could read a torn/partial file (0 rows, or
-    // a file SQLite refuses to open) instead of the true 25 -- so this
-    // assertion actually distinguishes "consistent snapshot" from "torn copy".
+    // backupDatabase had done a naive fs.copyFile of a WAL-mode app.db
+    // instead of the online .backup(), this could read a torn/partial file
+    // (0 rows, or a file SQLite refuses to open) instead of the true 25 --
+    // so this assertion actually distinguishes "consistent snapshot" from
+    // "torn copy".
     const snapshotDb = new Database(snapshotDbPath, { readonly: true });
     const count = snapshotDb.prepare('SELECT COUNT(*) AS n FROM submissions').get().n;
     snapshotDb.close();
@@ -229,24 +229,25 @@ describe('scripts/backup.js', () => {
     const originalHashBytes = fs.readFileSync(adminHashPath);
 
     const backupDir = path.join(root, 'backups');
-    const destDir = await backupData({
+    const destDir = await backupDatabase({
       dbPath,
-      uploadsDir,
-      thumbsDir,
       adminHashPath,
       backupDir,
       timestamp: '20260807-010000',
     });
+    backupPhotos({ uploadsDir, thumbsDir, backupDir });
     db.close();
 
     // Simulate the disaster: the live data/ directory is gone.
     fs.rmSync(path.join(root, 'data'), { recursive: true, force: true });
     expect(fs.existsSync(path.join(root, 'data'))).toBe(false);
 
-    // Documented restore: copy app.db + uploads/ + thumbs/ + admin.hash back
-    // into a fresh data/.
+    // Documented restore (issue #558's shipped shape): app.db + admin.hash
+    // from the chosen DB snapshot, uploads/ + thumbs/ from the shared photo
+    // store, back into a fresh data/.
     const restoredDataDir = path.join(root, 'data');
-    restoreFromSnapshot(destDir, restoredDataDir);
+    const photoStoreDir = path.join(backupDir, 'photos');
+    restoreFromBackup(destDir, photoStoreDir, restoredDataDir);
 
     const restoredDb = new Database(path.join(restoredDataDir, 'app.db'), { readonly: true });
     const guestCount = restoredDb.prepare('SELECT COUNT(*) AS n FROM guests').get().n;
@@ -272,29 +273,20 @@ describe('scripts/backup.js', () => {
     expect(restoredHashBytes.equals(originalHashBytes)).toBe(true);
   });
 
-  it('guards a missing source directory instead of throwing (thumbs/ never created)', async () => {
-    const { root, dbPath, uploadsDir, thumbsDir } = makeTempLayout();
-    const db = openSchemaDb(dbPath);
-    seedFixture(db);
-    db.close();
+  it('backupPhotos guards missing source directories instead of throwing (issue #558)', () => {
+    const { root, uploadsDir, thumbsDir } = makeTempLayout();
     // uploadsDir and thumbsDir both left uncreated.
-
     const backupDir = path.join(root, 'backups');
-    const destDir = await backupData({
-      dbPath,
-      uploadsDir,
-      thumbsDir,
-      backupDir,
-      timestamp: '20260807-020000',
-    });
 
-    expect(fs.existsSync(path.join(destDir, 'app.db'))).toBe(true);
-    expect(fs.existsSync(path.join(destDir, 'uploads'))).toBe(false);
-    expect(fs.existsSync(path.join(destDir, 'thumbs'))).toBe(false);
+    const copied = backupPhotos({ uploadsDir, thumbsDir, backupDir });
+
+    expect(copied).toBe(0);
+    expect(fs.existsSync(path.join(backupDir, 'photos', 'uploads'))).toBe(false);
+    expect(fs.existsSync(path.join(backupDir, 'photos', 'thumbs'))).toBe(false);
   });
 
   it('AC1 (#315): copies admin.hash into the snapshot, byte-identical to the source', async () => {
-    const { root, dbPath, uploadsDir, thumbsDir, adminHashPath } = makeTempLayout();
+    const { root, dbPath, adminHashPath } = makeTempLayout();
     const db = openSchemaDb(dbPath);
     seedFixture(db);
     db.close();
@@ -302,10 +294,8 @@ describe('scripts/backup.js', () => {
     const sourceBytes = fs.readFileSync(adminHashPath);
 
     const backupDir = path.join(root, 'backups');
-    const destDir = await backupData({
+    const destDir = await backupDatabase({
       dbPath,
-      uploadsDir,
-      thumbsDir,
       adminHashPath,
       backupDir,
       timestamp: '20260807-030000',
@@ -322,7 +312,7 @@ describe('scripts/backup.js', () => {
   });
 
   it('guards a missing admin.hash instead of throwing (backup still succeeds with no admin.hash in the snapshot)', async () => {
-    const { root, dbPath, uploadsDir, thumbsDir, adminHashPath } = makeTempLayout();
+    const { root, dbPath, adminHashPath } = makeTempLayout();
     const db = openSchemaDb(dbPath);
     seedFixture(db);
     db.close();
@@ -332,10 +322,8 @@ describe('scripts/backup.js', () => {
     expect(fs.existsSync(adminHashPath)).toBe(false);
 
     const backupDir = path.join(root, 'backups');
-    const destDir = await backupData({
+    const destDir = await backupDatabase({
       dbPath,
-      uploadsDir,
-      thumbsDir,
       adminHashPath,
       backupDir,
       timestamp: '20260807-040000',
@@ -439,10 +427,10 @@ describe('backup.js CLI (issue #287 AC4)', () => {
   });
 
   afterEach(() => {
-    // backupData creates the destination snapshot folder before opening the
-    // DB, so a run that fails to open a missing dbPath still leaves an empty
-    // timestamped folder behind under tempBackupDir -- clean the whole temp
-    // dir rather than asserting it is empty.
+    // backupDatabase creates the destination snapshot folder before opening
+    // the DB, so a run that fails to open a missing dbPath still leaves an
+    // empty timestamped folder behind under tempBackupDir -- clean the whole
+    // temp dir rather than asserting it is empty.
     fs.rmSync(tempBackupDir, { recursive: true, force: true });
   });
 

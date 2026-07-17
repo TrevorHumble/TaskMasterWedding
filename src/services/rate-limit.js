@@ -11,11 +11,13 @@
 //     if it would exceed it. A denied attempt is NOT recorded (so a guest who
 //     waits out the window is not permanently penalised by rejected tries).
 //
-//   - hasFreeSpace(minFreeBytes): the global disk-space guard. Reads free
-//     bytes on config.DATA_DIR and returns true iff at least minFreeBytes are
-//     free. The free-space reader is INJECTABLE (see setFreeSpaceReader /
-//     the `read` parameter) so tests exercise the guard without manipulating
-//     a real disk.
+//   - hasFreeSpace(minFreeBytes): the global disk-space guard, re-exported
+//     from src/utils/free-space.js (moved there by issue #558 so
+//     scripts/backup.js can use the same disk primitive without depending on
+//     this rate-limiting module). Reads free bytes on config.DATA_DIR and
+//     returns true iff at least minFreeBytes are free. The free-space reader
+//     is INJECTABLE (see setFreeSpaceReader) so tests exercise the guard
+//     without manipulating a real disk.
 //
 // WHY IN-PROCESS / IN-MEMORY: this app is a single Node process serving one
 // weekend event on one laptop. A Map keyed by guest id is the right weight —
@@ -35,8 +37,8 @@
 
 'use strict';
 
-const fs = require('fs');
 const config = require('../../config');
+const { hasFreeSpace, setFreeSpaceReader, defaultFreeSpaceReader } = require('../utils/free-space');
 
 // ---------------------------------------------------------------------------
 // Per-guest sliding-window rate limiter.
@@ -143,60 +145,11 @@ function _resetRateLimiter() {
 }
 
 // ---------------------------------------------------------------------------
-// Global disk-space guard.
+// Global disk-space guard -- implementation lives in src/utils/free-space.js
+// (moved there by issue #558); hasFreeSpace/setFreeSpaceReader/
+// defaultFreeSpaceReader are re-exported below unchanged so every existing
+// caller and test keeps working without knowing the code moved.
 // ---------------------------------------------------------------------------
-
-/**
- * Default free-space reader: free bytes on config.DATA_DIR via fs.statfs.
- *
- * fs.statfs (Node >= 18.15; confirmed available on this app's Node 24) yields
- * a StatFs whose `bsize` (block size) times `bavail` (blocks available to an
- * unprivileged process) is the free bytes an app may actually write. We use
- * bavail, not bfree, because bfree includes root-reserved blocks a normal
- * process cannot use.
- *
- * @param {string} dir - directory on the volume to measure.
- * @returns {Promise<number>} free bytes available on that volume.
- */
-function defaultFreeSpaceReader(dir) {
-  return new Promise((resolve, reject) => {
-    fs.statfs(dir, (err, stats) => {
-      if (err) return reject(err);
-      resolve(stats.bsize * stats.bavail);
-    });
-  });
-}
-
-// The active free-space reader. Swappable via setFreeSpaceReader so the app
-// wires the real fs.statfs reader while a test injects a stub returning a
-// chosen byte count — no real disk manipulation needed (AC12).
-let freeSpaceReader = defaultFreeSpaceReader;
-
-/**
- * Replace the free-space reader. A test passes a stub `(dir) => Promise<number>`
- * (or a plain number-returning function) to simulate a full or ample disk;
- * passing nothing restores the real fs.statfs reader.
- * @param {((dir: string) => (number|Promise<number>)) | null} reader
- */
-function setFreeSpaceReader(reader) {
-  freeSpaceReader = reader || defaultFreeSpaceReader;
-}
-
-/**
- * Is there at least `minFreeBytes` free on the data volume?
- *
- * Deep by design: the caller passes only the threshold it cares about and gets
- * a boolean; which directory is measured (config.DATA_DIR) and how free space
- * is read (the injectable reader) stay inside this module.
- *
- * @param {number} [minFreeBytes=config.MIN_FREE_DISK_BYTES]
- * @param {string} [dir=config.DATA_DIR] - volume to measure (override for tests).
- * @returns {Promise<boolean>} true iff free space >= minFreeBytes.
- */
-async function hasFreeSpace(minFreeBytes = config.MIN_FREE_DISK_BYTES, dir = config.DATA_DIR) {
-  const free = await freeSpaceReader(dir);
-  return free >= minFreeBytes;
-}
 
 module.exports = {
   recordMemoryAttempt,

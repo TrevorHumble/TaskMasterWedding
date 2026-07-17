@@ -23,8 +23,8 @@ Set these in a `.env` file in the project root (copy `.env.example`; the `.env` 
 | `TRUST_PROXY`                         | Yes (behind a proxy) | Set to `true` so Express reads the real guest IP from the reverse proxy's `X-Forwarded-For` header instead of the proxy's own address. Unset means "no proxy," which is wrong for every shape below.                                                                                                                                                                                                                                                                                                                                        |
 | `PORT`                                | Option B only        | The port the bare Node process listens on. **Docker/Compose path (Option A): leave this unset.** The container always listens on 3000 internally; changing it there desyncs the image's `EXPOSE`/`HEALTHCHECK` from where the app actually listens, and the container restart-loops reporting unhealthy. To serve Option A on a different host port, edit the host side of `docker-compose.yml`'s `ports:` mapping instead — keep the `127.0.0.1:` prefix (e.g. `127.0.0.1:8080:3000`); dropping it republishes the app on every interface. |
 | `DATA_DIR`                            | No                   | Overrides where the database, uploads, thumbnails, and admin hash live. Leave unset for the default (`./data`, bind-mounted in Option A).                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `BACKUP_DIR`                          | No                   | Overrides where `scripts/backup.js` writes snapshots. Leave unset for the default (`./backups`, bind-mounted in Option A).                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `BACKUP_RETENTION_COUNT`              | No                   | How many snapshots under `BACKUP_DIR` a scheduled backup run keeps; older ones are pruned after each run. Unset (`0`) keeps everything — see Scheduled backups below before turning on a cron/timer schedule.                                                                                                                                                                                                                                                                                                                               |
+| `BACKUP_DIR`                          | No                   | Overrides where `scripts/backup.js` writes the database snapshots and the shared photo store. Leave unset for the default (`./backups`, bind-mounted in Option A).                                                                                                                                                                                                                                                                                                                                                                          |
+| `BACKUP_RETENTION_COUNT`              | No                   | How many **database snapshots** under `BACKUP_DIR` a scheduled backup run keeps; older ones are pruned after each run that writes a new snapshot. Applies only to the timestamped DB snapshots — it never prunes `BACKUP_DIR/photos/`, the shared photo store, which has no retention setting at all (see Scheduled backups below). Unset keeps every DB snapshot forever, which is also the setting a real disk-budget calculation can least afford — see Scheduled backups before turning on a cron/timer schedule.                       |
 | `MAINTENANCE`                         | No                   | Set to `1` or `true` to serve guests a 503 maintenance page while `/admin` stays reachable.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `RATE_LIMIT_WINDOW_MS`                | No                   | Fixed window (ms) shared by every route-level rate limiter below (issue #283). Default `600000` (10 minutes).                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `RATE_LIMIT_IP_MAX`                   | No                   | Per-IP cap on `POST /join` and `POST /login` (each has its own counter). Default `300` per window — sized to clear the whole ~100-guest list joining/logging in from one venue-NAT IP at once with headroom, while still stopping a scripted flood.                                                                                                                                                                                                                                                                                         |
@@ -182,70 +182,87 @@ journalctl -u garden-party # Option B, unit name from your systemd file
 
 ## Backups
 
-Run `scripts/backup.js` for a one-off snapshot (safe against a live database):
+`scripts/backup.js` splits the database and the photos into two independent pieces, because they have opposite cadences (issue #558): the database changes minute to minute and is small; photos are write-once and can be large. Three modes:
 
 ```bash
-docker compose exec app node scripts/backup.js   # Option A
-node scripts/backup.js                           # Option B
+node scripts/backup.js --db-only       # database snapshot (app.db + admin.hash) only, no photos
+node scripts/backup.js --photos-only   # incremental photos only, no database snapshot
+node scripts/backup.js                 # default: both
 ```
 
-This writes a timestamped folder under `BACKUP_DIR` (default `./backups`) with a consistent copy of the database, the photo directories, and the admin password hash.
+(Prefix with `docker compose exec app` for Option A.) Passing both flags together is rejected — the run exits non-zero rather than silently letting one win.
+
+- `--db-only` writes a new timestamped folder under `BACKUP_DIR` (default `./backups`) with a WAL-safe snapshot of `app.db` plus the admin password hash.
+- `--photos-only` (and the default run) copies any file in `uploads/`/`thumbs/` not already present, by name, into **one shared, append-only store** at `BACKUP_DIR/photos/{uploads,thumbs}` — never a fresh per-run copy. A photo is write-once, so "already at this name" means "already backed up"; a re-run only pays for what changed since the last one.
+
+Before writing anything, every mode runs a **disk budget** check: it sizes exactly what that mode is about to copy, compares it to the free space on `BACKUP_DIR`, and aborts non-zero — naming the free bytes and the bytes needed, starting no copy at all — if there isn't room. See below for the numbers that check is protecting.
 
 ## Scheduled backups
 
 A production host should not depend on a human remembering to run `scripts/backup.js`. Put it on the host's own scheduler — cron or a systemd timer — not an in-app `setInterval`, so a wedged app process cannot also silently stop backups.
 
+**The disk budget.** `data/` (the live database and photos) shares one disk with `BACKUP_DIR`. What that disk must hold, once the backup schedule has run long enough to catch up, is:
+
+```
+photo-size + (retention + 1) x db-size
+```
+
+`photo-size` is the full live photo set, counted **once** — the shared store never keeps a second copy of a photo, so it does not multiply with retention. `db-size` is the live `app.db`; `retention` is `BACKUP_RETENTION_COUNT`; the `+1` is because a new snapshot briefly exists before the prune-after-success step deletes the oldest one down to `retention`. This is the number the disk-budget check enforces per run and the number to size a host against — **not** an unqualified "run it hourly" example: at even a modest few GB of wedding photos, an hourly cadence with a large retention count multiplies only the small `db-size` term, which is exactly the point of the split (the old, pre-#558 shape multiplied the whole photo set instead, and could fill a small host's disk outright).
+
+**Split cadence, sized to a 60 GB host (the #544 droplet).** Run the cheap, frequent thing often; run the expensive, rare thing rarely:
+
 **cron (Option B):**
 
 ```
-17 * * * * cd /srv/taskmasterwedding && /usr/bin/node scripts/backup.js >> /var/log/tmw-backup.log 2>&1
+*/15 * * * *  cd /srv/taskmasterwedding && /usr/bin/node scripts/backup.js --db-only     >> /var/log/tmw-backup.log 2>&1
+17 3  * * *   cd /srv/taskmasterwedding && /usr/bin/node scripts/backup.js --photos-only >> /var/log/tmw-backup.log 2>&1
 ```
 
-Hourly, offset 17 minutes past the hour to avoid top-of-hour load on the host. Adjust the working directory to match your checkout.
+`app.db` is a few MB for this event's scale (~100 guests), so `--db-only` every 15 minutes costs almost nothing even at a generous retention. `--photos-only` (or a plain, flagless run) once a day at 3:17am is enough to keep the store caught up between events; running it more often only saves the size of that day's new photos, which the incremental store makes cheap either way.
 
-**Docker Compose (Option A):**
+**Docker Compose (Option A):** same schedule, prefixed with `docker compose exec -T app` instead of `/usr/bin/node`. The `-T` flag disables the pseudo-TTY that `docker compose exec` allocates by default, which cron's non-interactive environment doesn't have. The compose file already bind-mounts `./backups`, so both the snapshots and the shared photo store land on the host at the usual path.
 
-```
-17 * * * * cd /srv/taskmasterwedding && docker compose exec -T app node scripts/backup.js >> /var/log/tmw-backup.log 2>&1
-```
-
-The `-T` flag disables the pseudo-TTY that `docker compose exec` allocates by default, which cron's non-interactive environment doesn't have. The compose file already bind-mounts `./backups`, so snapshots land on the host at the usual path.
-
-**Retention.** Set `BACKUP_RETENTION_COUNT` in `.env` to the number of snapshots to keep; each backup run prunes older ones down to that count after it finishes writing the new snapshot. Unset (the default) keeps every snapshot forever — fine for a laptop doing occasional manual backups, wrong for an hourly production schedule that would otherwise fill the disk over the weeks before the event.
+**Retention.** Set `BACKUP_RETENTION_COUNT` in `.env` to the number of **database snapshots** to keep; each `--db-only` (or default) run prunes older ones down to that count after it finishes writing the new snapshot. This has no effect on `BACKUP_DIR/photos/` — the shared store is never pruned by this tool (see below). Unset keeps every DB snapshot forever, which is the setting the disk-budget formula above is least forgiving of — pick a number once a schedule is running:
 
 ```
 # .env
-BACKUP_RETENTION_COUNT=48
+BACKUP_RETENTION_COUNT=192
 ```
 
-`48` matches an hourly schedule with two days of history. Scale it to your cadence — e.g. `14` for daily backups with two weeks of history.
+`192` matches the 15-minute `--db-only` cadence above with two days of history (`4 x 24 x 2`). Scale `retention` in the formula above to whatever cadence and history you choose — the database term stays cheap at almost any reasonable number, because `db-size` itself is small.
 
-**Off-host copy.** A snapshot on the same disk as `data/` protects against an app bug (a bad write, a corrupted table) — it does not protect against losing that disk, or the whole host. Copy `BACKUP_DIR` somewhere else too:
+**Why the photo store has no retention setting.** Each photo lands in `BACKUP_DIR/photos/` exactly once, ever. Deleting from that store on any schedule would delete the only backup copy of a photo no longer in `uploads/` — the exact loss a backup exists to prevent. Removing a photo from the store is a deliberate, manual act (see the hard-takedown note under Restore below), not something a retention count should ever do automatically.
+
+**Off-host copy.** A snapshot or the photo store on the same disk as `data/` protects against an app bug (a bad write, a corrupted table) — it does not protect against losing that disk, or the whole host, and it does not relieve how much local disk `BACKUP_DIR` itself needs (the disk-budget formula above is about the _local_ copy; this step is a second, independent copy elsewhere). Copy `BACKUP_DIR` (both the snapshots and `photos/`) somewhere else too:
 
 - **rclone** (works with S3, Backblaze B2, Google Drive, and most other cloud storage — configure the remote once with `rclone config`, then):
   ```bash
   rclone sync ./backups remote:wedding-backups
   ```
-  See [rclone's own docs](https://rclone.org/docs/) for configuring `remote`.
+  `rclone sync` is itself incremental — like the local photo store, a re-run only transfers what changed since the last sync — which is why it stays the real off-host safety net rather than a full re-upload every time. See [rclone's own docs](https://rclone.org/docs/) for configuring `remote`.
 - **scp/rsync** (to a second host or NAS you control):
   ```bash
   rsync -a ./backups/ user@second-host:/srv/wedding-backups/
   ```
 
-Add either as its own cron line after the backup job, offset a few minutes later so it copies a finished snapshot rather than one mid-write.
+Add either as its own cron line after the backup jobs, offset a few minutes later so it copies finished files rather than ones mid-write.
 
 ## Restore
 
+A restore combines two independent pieces (issue #558): the database comes from one chosen timestamped snapshot; the photos come from the single shared store, not from inside that snapshot.
+
 1. Stop the app (`docker compose down` or `systemctl stop garden-party`).
 2. Make sure `./data` is empty or does not exist — restoring on top of an existing `data/` overwrites it.
-3. Delete any stale WAL files left from the prior run, then copy the chosen snapshot's contents back into `./data`:
+3. Delete any stale WAL files left from the prior run, then copy the chosen snapshot's `app.db` plus the shared store's `photos/` back into `./data`:
    ```bash
    mkdir -p data
    rm -f data/app.db-wal data/app.db-shm
    cp backups/<timestamp>/app.db data/app.db
-   cp -r backups/<timestamp>/uploads data/uploads
-   cp -r backups/<timestamp>/thumbs data/thumbs
    cp backups/<timestamp>/admin.hash data/admin.hash   # skip if the snapshot has none
+   cp -r backups/photos/uploads data/uploads
+   cp -r backups/photos/thumbs data/thumbs
    ```
 4. Fix ownership if needed (Option A): `sudo chown -R 1000:1000 ./data`
 5. Start the app again (`docker compose up -d` or `systemctl start garden-party`).
+
+**Hard takedown vs. the shared store.** A **hard** takedown — a photo deleted from `uploads/` outright, not hidden by moderation — removes it from the live app but leaves it sitting in `BACKUP_DIR/photos/`, because the store is append-only by design (see Scheduled backups above). If you don't also delete that file from `BACKUP_DIR/photos/` by hand, the next restore copies it straight back into the live set. A moderation hide does not have this problem — it never touches `uploads/`, so there is nothing to remove from the store.
