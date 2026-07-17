@@ -28,12 +28,54 @@ const CHECK_SCRIPT = path.join(REPO_ROOT, 'tools', 'check-visual-approval.ps1');
 // A small, low-risk tracked file inside the visual surface to flip during the
 // drift test. robots.txt is plain text and trivial to restore byte-for-byte.
 const PROBE_FILE = path.join(REPO_ROOT, 'src', 'public', 'robots.txt');
+const PROBE_RELATIVE_PATH = path.relative(REPO_ROOT, PROBE_FILE).split(path.sep).join('/');
 
 function runPs(scriptPath, args = []) {
   return spawnSync(PS, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
   });
+}
+
+// Pure predicate: given the git-cleanliness result for the probe file (from
+// `git diff --quiet HEAD`, computed by isProbeCleanRelativeToHead below) and
+// its repo-relative path, says whether the drift test may safely mutate the
+// probe. Kept separate from the spawnSync call so it is unit-testable
+// without touching the real tracked file (issue #555 — polluting
+// robots.txt to test the guard would reintroduce the exact hazard this
+// issue closes).
+function checkProbeCleanliness(isClean, relPath) {
+  if (isClean) return { ok: true };
+  return {
+    ok: false,
+    reason:
+      `visual-approval probe: ${relPath} differs from HEAD. Restore it ` +
+      `(git checkout -- ${relPath}) or commit your edit before running this suite.`,
+  };
+}
+
+// Issue #555 design constraint 3: "unmodified" means `git diff --quiet
+// HEAD`, NOT a byte comparison against `git show`. core.autocrlf=true and
+// src/public/** is not pinned to eol=lf, so a byte comparison goes red on a
+// pristine Windows checkout while staying green on Linux CI — git's own
+// diff check already accounts for autocrlf and is the only
+// platform-consistent probe.
+function isProbeCleanRelativeToHead() {
+  const res = spawnSync('git', ['diff', '--quiet', 'HEAD', '--', PROBE_RELATIVE_PATH], {
+    cwd: REPO_ROOT,
+  });
+  // Distinguish "git could not run" from "the probe is dirty". `git diff
+  // --quiet` answers the question with 0 (clean) or 1 (differs); anything
+  // else — a spawn failure (null), or git's own error exit 128 (not a git
+  // repository, unborn HEAD, bad revision) — is git failing to answer, not
+  // an answer of "dirty". Without this, those cases would fall through to
+  // the dirty branch and tell the operator to `git checkout` a file that is
+  // not the problem.
+  if (res.error || (res.status !== 0 && res.status !== 1)) {
+    const why = res.error ? res.error.message : `git exited ${res.status}`;
+    throw new Error(`visual-approval probe: could not run git diff — ${why}`);
+  }
+  return res.status === 0;
 }
 
 // APPROVAL_PATH is derived by calling tools/visual-surface.ps1's own
@@ -115,6 +157,17 @@ maybeDescribe('visual-approval freeze (AC3)', () => {
     const persistRes = runPs(PERSIST_SCRIPT, ['-Approver', 'test-suite']);
     expect(persistRes.status).toBe(0);
 
+    // Precondition guard (issue #555 AC1/AC2): refuse to mutate a probe
+    // file that has already drifted from HEAD, rather than snapshotting
+    // whatever is currently on disk (possibly pollution left by an
+    // interrupted prior run) as the restore baseline. This runs before
+    // savedProbeBytes is ever assigned, so a guard failure leaves nothing
+    // for afterEach to restore.
+    const precheck = checkProbeCleanliness(isProbeCleanRelativeToHead(), PROBE_RELATIVE_PATH);
+    if (!precheck.ok) {
+      throw new Error(precheck.reason);
+    }
+
     savedProbeBytes = fs.readFileSync(PROBE_FILE);
     fs.writeFileSync(
       PROBE_FILE,
@@ -142,6 +195,34 @@ maybeDescribe('visual-approval freeze (AC3)', () => {
     expect(relRecordPath.startsWith('src/views/')).toBe(false);
     expect(relRecordPath.startsWith('src/public/')).toBe(false);
     expect(relRecordPath.startsWith('.review_state/')).toBe(true);
+  });
+});
+
+describe('probe-cleanliness guard predicate (issue #555)', () => {
+  // AC1 (a polluted probe) and AC2 (a legitimate uncommitted edit) intentionally
+  // collapse to the same `isClean === false` branch here: per the issue's Design
+  // constraint 2 the guard must NOT inspect the bytes to decide which kind of
+  // drift it has found — it refuses either way and leaves the operator to decide
+  // which bytes are garbage. So there is deliberately no AC2-specific case below.
+  // These test the extracted predicate directly with synthetic booleans,
+  // not the real git state — proving the guard's own logic without ever
+  // writing a probe marker into the tracked src/public/robots.txt (which
+  // would reintroduce the pollution hazard this issue closes). The
+  // suite-level promise (a real drift on disk makes the drift test fail
+  // loudly, and a real uncommitted edit survives byte-for-byte) is not
+  // provable here without polluting the tracked file; it was demonstrated by
+  // a one-time manual drill whose output is recorded in this change's PR
+  // description (issue #555), per the implementation plan.
+
+  it('is ok when the probe is clean relative to HEAD (AC3 — clean path unaffected)', () => {
+    expect(checkProbeCleanliness(true, PROBE_RELATIVE_PATH)).toEqual({ ok: true });
+  });
+
+  it('fails and names the file when the probe has drifted from HEAD (AC1)', () => {
+    const result = checkProbeCleanliness(false, PROBE_RELATIVE_PATH);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain(PROBE_RELATIVE_PATH);
+    expect(result.reason).toContain(`git checkout -- ${PROBE_RELATIVE_PATH}`);
   });
 });
 
