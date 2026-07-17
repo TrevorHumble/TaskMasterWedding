@@ -117,7 +117,9 @@ describe('avatar upload limit shares photos.MAX_UPLOAD_BYTES — issue #118', ()
     const guest = db
       .prepare('SELECT onboarded, avatar_path FROM guests WHERE contact = ?')
       .get('limit-over@example.com');
-    expect(guest.onboarded).toBe(1);
+    // Issue #564: onboarded starts at the schema default (0) after signup —
+    // only GET /how-to-play ever flips it.
+    expect(guest.onboarded).toBe(0);
     // The oversized file itself was rejected by multer's fileSize limit and
     // never saved — this is the actual "over the limit" assertion.
     expect(guest.avatar_path).toBeNull();
@@ -143,7 +145,9 @@ describe('avatar upload limit shares photos.MAX_UPLOAD_BYTES — issue #118', ()
     const guest = db
       .prepare('SELECT onboarded, avatar_path FROM guests WHERE contact = ?')
       .get('limit-under@example.com');
-    expect(guest.onboarded).toBe(1);
+    // Issue #564: onboarded starts at the schema default (0) after signup —
+    // only GET /how-to-play ever flips it.
+    expect(guest.onboarded).toBe(0);
     expect(guest.avatar_path).toMatch(/\.jpg$/);
   });
 });

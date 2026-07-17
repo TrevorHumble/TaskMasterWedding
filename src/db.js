@@ -587,6 +587,35 @@ function getGuestByContact(contact) {
   return db.prepare(`SELECT * FROM guests WHERE contact = ?`).get(contact);
 }
 
+// Flip a guest's onboarded flag to 1 (issue #564). The single writer of this
+// column outside its own schema default — GET /how-to-play (src/routes/
+// guest.js) is the only caller, invoked on the RENDER of the rules card, not
+// on arrival at the route, so a guest who never actually sees the page keeps
+// onboarded = 0 and is shown the rules again next login/signup (the intended
+// "shown once ever, only after they've actually seen it" behavior).
+//
+// `UPDATE ... SET onboarded = 1 WHERE id = ?` is naturally idempotent — a
+// guest refreshing the rules page twice writes the same value twice, not an
+// error — so no read-before-write guard is needed for correctness. The
+// falsy-id guard below is defensive only: GET /how-to-play runs behind
+// requireGuest, so res.locals.guest is never null there in practice, but a
+// no-op on a bad id is cheap insurance against ever handing this a stray
+// undefined instead of throwing.
+const stmtMarkGuestOnboarded = db.prepare('UPDATE guests SET onboarded = 1 WHERE id = ?');
+
+/**
+ * Mark a guest as having seen the how-to-play rules. No-ops (no statement
+ * run) if `guestId` is falsy rather than letting a bad id reach the prepared
+ * statement.
+ * @param {number} guestId
+ */
+function markGuestOnboarded(guestId) {
+  if (!guestId) {
+    return;
+  }
+  stmtMarkGuestOnboarded.run(guestId);
+}
+
 module.exports = {
   db,
   ensurePhotoBonusColumn,
@@ -603,4 +632,5 @@ module.exports = {
   getGuestByToken,
   getGuestById,
   getGuestByContact,
+  markGuestOnboarded,
 };

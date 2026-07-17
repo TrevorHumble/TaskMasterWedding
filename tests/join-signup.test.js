@@ -1,14 +1,15 @@
 // tests/join-signup.test.js
 // Issue #240: a shared entry link at GET /join, self-serve signup (name +
 // email-or-phone contact + self-chosen 4-digit PIN + optional avatar), with
-// signup itself acting as onboarding (onboarded = 1 on insert, no separate
-// /onboard step).
+// signup itself acting as account creation, no separate /onboard step.
 //
 // AC1: GET /join is public and its body carries the form field names and the
 //      exact PIN-helper phrase "not your bank PIN".
 // AC2: POST /join with a fresh contact creates a playing guest (normalized
-//      contact, onboarded = 1, unique token) and signs them in via a `gsid`
-//      cookie, redirecting to /.
+//      contact, unique token) and signs them in via a `gsid` cookie,
+//      redirecting to /how-to-play (issue #564: onboarded starts at its
+//      schema default 0, "not yet shown the rules" — see
+//      tests/onboarding-how-to-play.test.js for the once-ever contract).
 // AC3: POST /join with a contact that already has a guest routes to /login
 //      instead of creating a second account.
 // AC4: a malformed PIN is rejected with a flash containing "4-digit"; no row
@@ -63,7 +64,7 @@ describe('AC1: GET /join is public', () => {
 });
 
 describe('AC2: POST /join creates a playing guest and signs them in', () => {
-  it('normalizes the contact, marks onboarded, and sets the gsid cookie', async () => {
+  it('normalizes the contact, leaves onboarded at its not-yet-seen default, and sets the gsid cookie', async () => {
     const before = countGuests();
 
     const res = await request(app)
@@ -72,7 +73,9 @@ describe('AC2: POST /join creates a playing guest and signs them in', () => {
       .send({ name: 'Lilly', contact: ' Lilly@Example.COM ', pin: '0412' });
 
     expect(res.status).toBe(302);
-    expect(res.headers.location).toBe('/');
+    // Issue #564: a fresh signup is routed to the rules card first, not
+    // straight home.
+    expect(res.headers.location).toBe('/how-to-play');
 
     const cookies = joinedCookies(res);
     expect(cookies).toContain('gsid=');
@@ -83,7 +86,10 @@ describe('AC2: POST /join creates a playing guest and signs them in', () => {
     expect(row).toBeTruthy();
     expect(row.contact_type).toBe('email');
     expect(row.pin).toBe('0412');
-    expect(row.onboarded).toBe(1);
+    // Issue #564: onboarded now starts at the schema default (0, "not yet
+    // shown the rules") instead of being hardcoded to 1 at signup — GET
+    // /how-to-play is the only thing that ever flips it.
+    expect(row.onboarded).toBe(0);
     expect(typeof row.token).toBe('string');
     expect(row.token.length).toBeGreaterThan(0);
   });
@@ -176,7 +182,9 @@ describe('AC6: an optional avatar at signup is saved', () => {
       .attach('avatar', jpeg, { filename: 'a.jpg', contentType: 'image/jpeg' });
 
     expect(res.status).toBe(302);
-    expect(res.headers.location).toBe('/');
+    // Issue #564: same fresh-signup redirect as AC2, whether or not an
+    // avatar was attached.
+    expect(res.headers.location).toBe('/how-to-play');
 
     const row = db
       .prepare('SELECT avatar_path FROM guests WHERE contact = ?')

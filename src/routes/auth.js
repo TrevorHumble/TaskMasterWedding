@@ -160,11 +160,16 @@ router.post('/join', joinRateLimiter, (req, res, next) => {
         return;
       }
 
+      // onboarded is deliberately NOT set here (issue #564) — it takes the
+      // guests.onboarded schema default of 0, so this new guest is shown the
+      // how-to-play rules once via the redirect below. GET /how-to-play
+      // (src/routes/guest.js) is the only writer that ever flips it to 1, and
+      // only on that page's actual render.
       const token = makeUniqueToken();
       const info = db
         .prepare(
-          `INSERT INTO guests (token, name, onboarded, contact, contact_type, pin)
-           VALUES (?, ?, 1, ?, ?, ?)`
+          `INSERT INTO guests (token, name, contact, contact_type, pin)
+           VALUES (?, ?, ?, ?, ?)`
         )
         .run(token, name, contact.value, contact.type, req.body.pin);
       const guestId = info.lastInsertRowid;
@@ -186,7 +191,11 @@ router.post('/join', joinRateLimiter, (req, res, next) => {
       }
 
       res.cookie('gsid', token, cookieOpts(config.GUEST_COOKIE_MAX_AGE_MS));
-      res.redirect('/');
+      // Issue #564: every fresh signup has onboarded = 0 (see the INSERT
+      // above), so a brand-new guest always lands on the rules card first,
+      // not the home page — this is the "shown once, right after joining"
+      // half of the once-ever contract (AC1).
+      res.redirect('/how-to-play');
     } catch (e) {
       // Anything unexpected in this async callback (e.g. a DB write failure)
       // must not become an unhandled rejection that kills the process —
@@ -406,7 +415,15 @@ router.post('/login', loginRateLimiter, (req, res) => {
   if (pinOk) {
     guestLockoutState.delete(key);
     res.cookie('gsid', guest.token, cookieOpts(config.GUEST_COOKIE_MAX_AGE_MS));
-    res.redirect('/');
+    // Issue #564: the "shown once, right after joining OR the rare re-entry
+    // that never saw it" half of the once-ever contract (AC3/AC4). `guest`
+    // is already the row getGuestByContact(key) loaded above for the pinOk
+    // check — no second lookup needed to read its onboarded column. Every
+    // existing guest at ship time already has onboarded = 1 (it was
+    // hardcoded at signup before this issue), so this branch is a live path
+    // only for a guest who signed up after this change and lost their
+    // session before ever reaching /how-to-play.
+    res.redirect(guest.onboarded ? '/' : '/how-to-play');
     return;
   }
 

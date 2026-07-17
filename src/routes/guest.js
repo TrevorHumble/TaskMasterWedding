@@ -6,9 +6,12 @@ const router = express.Router();
 
 const config = require('../../config');
 
-// db.js exports an OBJECT { db, getGuestByToken, getGuestById }. Destructure the
-// better-sqlite3 connection itself, or db.prepare(...) is undefined.
-const { db } = require('../db');
+// db.js exports an OBJECT { db, getGuestByToken, getGuestById, ... }.
+// Destructure the better-sqlite3 connection itself, or db.prepare(...) is
+// undefined. markGuestOnboarded (issue #564) is the single writer of
+// guests.onboarded outside its own schema default — called below from GET
+// /how-to-play.
+const { db, markGuestOnboarded } = require('../db');
 
 // requireGuest comes from section 03. It loads the current guest into
 // res.locals.guest (and req.guest) from the signed gsid cookie, or
@@ -294,6 +297,16 @@ router.get('/how-to-play', function (req, res) {
         LIMIT 1`
     )
     .get(guest.id);
+
+  // Issue #564: mark the guest onboarded on the RENDER of the rules, not on
+  // arrival at the route — a guest who somehow never reaches the render
+  // below is not marked, so they see the rules again next time (AC2). This
+  // route runs behind router.use(requireGuest) above, so res.locals.guest is
+  // always a real row here; markGuestOnboarded's falsy-id guard is defensive
+  // only. Idempotent by design (see markGuestOnboarded's own comment) — an
+  // already-onboarded guest re-reading this page (AC5) just writes the same
+  // 1 again, no state change that matters.
+  markGuestOnboarded(guest.id);
 
   res.render('how-to-play', {
     title: 'How to play',
