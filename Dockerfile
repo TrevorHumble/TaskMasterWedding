@@ -49,13 +49,24 @@ USER node
 
 ENV NODE_ENV=production
 
+# The commit currently running (issue #562). tools/deploy.sh passes
+# --build-arg GIT_SHA=$(git rev-parse HEAD) at build time; GET /healthz
+# reports it (config.js's GIT_SHA) so a human or monitor can always tell
+# which commit is live. Empty/unset when the image is built without the arg
+# (e.g. a local `docker build .`) — config.js, not this file, owns the
+# 'unknown' fallback; never fabricate a value here.
+ARG GIT_SHA
+ENV GIT_SHA=$GIT_SHA
+
 # The app listens on 3000 INSIDE the container, always — this is not the
 # env-settable PORT from config.js. Changing the host-facing port is done by
-# remapping the host side of the compose `ports:` entry (e.g. "8080:3000"),
-# not by setting PORT — see docs/deploy.md's environment-variable table and
-# "PORT and the container path" note. EXPOSE below and the HEALTHCHECK probe
-# must always agree with this: both stay pinned to 3000, and CMD below never
-# reads config.PORT internally either.
+# remapping the HOST_PORT segment of the compose `ports:` entry's
+# HOST_IP:HOST_PORT:CONTAINER_PORT mapping (e.g. "127.0.0.1:8080:3000"),
+# always keeping the "127.0.0.1:" host IP (#561) — dropping it republishes
+# the app on every interface. Never do this by setting PORT — see
+# docs/deploy.md's environment-variable table. EXPOSE below and the
+# HEALTHCHECK probe must always agree with this: both stay pinned to 3000,
+# and CMD below never reads config.PORT internally either.
 EXPOSE 3000
 
 # The platform's process supervisor needs a liveness/readiness signal.

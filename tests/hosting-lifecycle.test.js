@@ -30,7 +30,11 @@ describe('/healthz answers without any cookie (AC1)', () => {
   it('GET /healthz -> 200, {"ok":true}, Content-Type application/json', async () => {
     const res = await request(app).get('/healthz');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    // toMatchObject, not toEqual: issue #562 adds an additive `commit` field
+    // (tests/healthz-commit.test.js owns asserting its actual value) that
+    // toEqual's exact deep-equality would otherwise reject.
+    expect(res.body).toMatchObject({ ok: true });
+    expect(typeof res.body.commit).toBe('string');
     expect(res.headers['content-type']).toContain('application/json');
   });
 });
@@ -41,7 +45,9 @@ describe('/healthz stays up during maintenance mode (AC2)', () => {
     try {
       const res = await request(app).get('/healthz');
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ ok: true });
+      // toMatchObject, not toEqual — see the AC1 note above (issue #562).
+      expect(res.body).toMatchObject({ ok: true });
+      expect(typeof res.body.commit).toBe('string');
     } finally {
       config.MAINTENANCE = false;
     }

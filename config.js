@@ -101,6 +101,16 @@ const config = {
   // Server
   PORT: parseInt(process.env.PORT, 10) || 3000,
   BASE_URL: process.env.BASE_URL || 'http://localhost:3000',
+  // Git commit SHA of the running build (issue #562). The Dockerfile's
+  // GIT_SHA build ARG sets this env var inside the image; tools/deploy.sh
+  // passes --build-arg GIT_SHA=$(git rev-parse HEAD) so the two never drift.
+  // GET /healthz reports this, so a human or monitor can always answer
+  // "what version are the guests on?" without shelling into the host.
+  // NEVER fabricate a value here: the literal 'unknown' is the honest answer
+  // when no SHA was supplied at build time (a local `npm run dev`, or an
+  // image built without the arg) — never a guess that could be mistaken for
+  // a real commit.
+  GIT_SHA: process.env.GIT_SHA || 'unknown',
   // Express `trust proxy` setting. false = Express default (trust nothing);
   // a positive integer = number of proxy hops to trust. See resolveTrustProxy
   // above for the parsing rule.
