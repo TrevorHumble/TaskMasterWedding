@@ -41,30 +41,19 @@
 
         <div class="feed-actionbar">
           <div class="feed-actions-left">
-            <% if (guest) { %>
-              <form method="post" action="/p/<%= p.submission_id %>/like" class="like-form">
-                <button
-                  type="submit"
-                  class="like-button<%= p.viewer_liked ? ' like-button-liked' : '' %>"
-                  aria-pressed="<%= p.viewer_liked ? 'true' : 'false' %>"
-                  aria-label="Like this photo"
-                >
-                  <svg class="like-heart" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/>
-                  </svg>
-                  <span class="like-count"><%= p.like_count %></span>
-                </button>
-              </form>
-            <% } else { %>
-              <%# No session, no toggle — the same glyph/count rendered read-only
-                  so an anonymous viewer still sees how many guests liked it. %>
-              <span class="like-button like-button-static">
+            <form method="post" action="/p/<%= p.submission_id %>/like" class="like-form">
+              <button
+                type="submit"
+                class="like-button<%= p.viewer_liked ? ' like-button-liked' : '' %>"
+                aria-pressed="<%= p.viewer_liked ? 'true' : 'false' %>"
+                aria-label="Like this photo"
+              >
                 <svg class="like-heart" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/>
                 </svg>
                 <span class="like-count"><%= p.like_count %></span>
-              </span>
-            <% } %>
+              </button>
+            </form>
 
             <button
               type="button"
@@ -157,7 +146,7 @@
                     admin.js on this page, so it runs the same confirm check
                     itself before the fetch. data-delete-comment is the no-JS
                     form's progressive-enhancement hook. %>
-                <% if (guest && c.guest_id === guest.id) { %>
+                <% if (c.guest_id === guest.id) { %>
                   <details class="comment-menu">
                     <summary class="comment-menu-trigger" aria-label="Comment actions">&#8943;</summary>
                     <form
@@ -177,31 +166,29 @@
               </div>
             <% }); %>
           </div>
-          <% if (guest) { %>
-            <%# Composer, Instagram pattern: viewer avatar, borderless
-                auto-growing textarea (src/public/js/feed.js), Post as a
-                plain text control muted while the field is empty. %>
-            <form
-              method="post"
-              action="/p/<%= p.submission_id %>/comments"
-              class="comment-form comments-dialog-form"
-            >
-              <% if (guest.avatar_path) { %>
-                <img class="comments-dialog-avatar" src="/uploads/<%= guest.avatar_path %>" alt="" />
-              <% } else { %>
-                <span class="comments-dialog-avatar comments-dialog-avatar-initials" aria-hidden="true"><%= initials(guest.name) || '?' %></span>
-              <% } %>
-              <textarea
-                name="body"
-                rows="1"
-                maxlength="<%= commentMaxLength %>"
-                placeholder="Add a comment"
-                aria-label="Add a comment"
-                required
-              ></textarea>
-              <button type="submit" class="comment-post">Post</button>
-            </form>
-          <% } %>
+          <%# Composer, Instagram pattern: viewer avatar, borderless
+              auto-growing textarea (src/public/js/feed.js), Post as a
+              plain text control muted while the field is empty. %>
+          <form
+            method="post"
+            action="/p/<%= p.submission_id %>/comments"
+            class="comment-form comments-dialog-form"
+          >
+            <% if (guest.avatar_path) { %>
+              <img class="comments-dialog-avatar" src="/uploads/<%= guest.avatar_path %>" alt="" />
+            <% } else { %>
+              <span class="comments-dialog-avatar comments-dialog-avatar-initials" aria-hidden="true"><%= initials(guest.name) || '?' %></span>
+            <% } %>
+            <textarea
+              name="body"
+              rows="1"
+              maxlength="<%= commentMaxLength %>"
+              placeholder="Add a comment"
+              aria-label="Add a comment"
+              required
+            ></textarea>
+            <button type="submit" class="comment-post">Post</button>
+          </form>
         </dialog>
       </article>
     <% }); %>

@@ -6,18 +6,15 @@
 // the like/comment routes' not-found arms, the leaderboard podium's rank>3
 // stop and multi-tie-group arms, and the public-profile not-found arms.
 //
-// EVERY route in this file requires a SIGNED-IN guest, including the ones
-// community.js's own comments call "public": src/routes/guest.js mounts at
-// '/' with a blanket `router.use(requireGuest)` (no path filter) BEFORE
-// communityRouter is mounted (see src/app.js's comment: "guest.js applies
-// requireGuest to every path under '/'"). That blanket middleware runs for
-// ANY request that reaches it — matched route or not — and 403s an
-// anonymous request before it ever reaches community.js. Confirmed
-// empirically: `request(app).get('/u/<id>')` with no signed-in agent returns
-// 403 "Private Link Needed", never reaching community.js's own logic. So
-// attachViewerLikes' `!guestId` arm (community.js:116) is UNREACHABLE via
-// the live HTTP app under the current routing and is not exercised here —
-// see the handoff note.
+// EVERY route in this file requires a SIGNED-IN guest: src/routes/community.js
+// carries its own path-scoped `router.use([...], requireGuest)` (issue #466)
+// covering every route this file exercises. That middleware redirects an
+// anonymous request to `/join` (302) before it ever reaches the route
+// handler. Confirmed empirically: `request(app).get('/u/<id>')` with no
+// signed-in agent returns a 302 to `/join`, never reaching community.js's own
+// logic. So attachViewerLikes' `!guestId` arm is UNREACHABLE via the live
+// HTTP app under the current routing and is not exercised here — see the
+// handoff note.
 //
 // REQUIRE ORDER: config/db/app are required only AFTER loadApp() sets
 // DATA_DIR/DB_PATH (same pattern as tests/photo-likes.test.js).

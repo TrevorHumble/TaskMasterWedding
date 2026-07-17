@@ -11,8 +11,8 @@ const feed = require('../services/feed');
 // src/services/rate-limit.js (owns POST /memories and the HEIC-decode
 // throttle elsewhere) — see src/middleware/rate-limit.js's file comment for
 // the boundary. Guest-keyed (falls back to an IP bucket for the signed-out
-// case, which requireGuest below would 403 anyway before either handler body
-// runs). One SHARED instance across POST /p/:id/like and POST
+// case, which requireGuest below would redirect to /join anyway before
+// either handler body runs). One SHARED instance across POST /p/:id/like and POST
 // /p/:id/comments — a guest reacting AND commenting draws from the same
 // budget, config.RATE_LIMIT_SOCIAL_MAX. This is a SEPARATE instance from
 // src/routes/guest.js's POST /bug-report limiter, even though both read the
@@ -28,9 +28,18 @@ const socialRateLimiter = createRateLimiter({
   keyFn: guestOrIpKey,
 });
 
-// Community pages are public. res.locals.guest (when signed in) is supplied
-// by the global app.use(session.attachGuest) mount in src/app.js, which runs
-// on every request — no router-level mount needed here.
+// Community pages are guest-gated by this router's own path-scoped
+// requireGuest below (issue #466), not by src/app.js's mount order. Both
+// `req.guest` (what requireGuest reads) and `res.locals.guest` (what the
+// views render from — feed.ejs dereferences guest.id and guest.avatar_path
+// unguarded, and res.render('feed', ...) passes no `guest` key of its own)
+// are supplied by the global app.use(attachGuest) mount in src/app.js
+// (src/middleware/session.js), which runs on every request before this router
+// is reached. Neither is redundant: pruning res.locals.guest 500s /feed.
+// The guard list below is this router's complete set of route prefixes: any
+// NEW route prefix added to this file must be added to it too, or that route
+// ships ungated.
+router.use(['/gallery', '/feed', '/leaderboard', '/p', '/badge', '/u'], requireGuest);
 
 /**
  * Parse a guest's social_links JSON string into a safe array of links.
@@ -133,6 +142,10 @@ function attachViewerLikes(photos, guestId) {
   if (photos.length === 0) {
     return photos;
   }
+  // Unreachable via the live HTTP app: this router's own requireGuest gate
+  // (see the router.use(...) call near the top of this file) means guestId
+  // is always set by the time a handler calls this function. Retained
+  // defensively, per #466.
   if (!guestId) {
     for (const p of photos) {
       p.viewer_liked = false;
@@ -403,12 +416,12 @@ router.get('/feed', (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /p/:submissionId/like  — toggle the signed-in guest's like on a photo.
 //
-// Guest-only (requireGuest 403s anonymous requests before this handler runs,
-// so no likes row is ever created for AC4). One like per guest per photo is
-// the schema's job (UNIQUE (submission_id, guest_id)) — this handler just
-// decides which half of the toggle to run: a row already exists → remove it;
-// otherwise add it. A taken-down or missing submission 404s, mirroring the
-// GET /p/:submissionId handler below.
+// Guest-only (requireGuest redirects an anonymous request to /join before
+// this handler runs, so no likes row is ever created for AC4). One like per
+// guest per photo is the schema's job (UNIQUE (submission_id, guest_id)) —
+// this handler just decides which half of the toggle to run: a row already
+// exists → remove it; otherwise add it. A taken-down or missing submission
+// 404s, mirroring the GET /p/:submissionId handler below.
 //
 // Two response shapes (issue #194 AC3): the plain form POST redirects back to
 // the bounded feed page CONTAINING this photo (/feed?from=<id>#photo-<id>),
@@ -463,14 +476,14 @@ router.post('/p/:submissionId/like', requireGuest, socialRateLimiter, (req, res)
 // ---------------------------------------------------------------------------
 // POST /p/:submissionId/comments  — a signed-in guest leaves a comment.
 //
-// Guest-only (requireGuest 403s anonymous requests before this handler runs,
-// so no comments row is ever created for AC8). A taken-down or missing
-// submission 404s, mirroring the like route above. The body is trimmed and
-// rejected (no insert) if empty or over COMMENT_MAX_LENGTH — for a plain
-// form post that rejection is silent (redirect, no row), matching the
-// issue's server-side-cap AC4; there is no separate error page because
-// "your comment didn't post" needs no more ceremony than the redirect back
-// to the same photo.
+// Guest-only (requireGuest redirects an anonymous request to /join before
+// this handler runs, so no comments row is ever created for AC8). A
+// taken-down or missing submission 404s, mirroring the like route above. The
+// body is trimmed and rejected (no insert) if empty or over
+// COMMENT_MAX_LENGTH — for a plain form post that rejection is silent
+// (redirect, no row), matching the issue's server-side-cap AC4; there is no
+// separate error page because "your comment didn't post" needs no more
+// ceremony than the redirect back to the same photo.
 //
 // Two response shapes (#248 amendment AC8, mirroring the like route): the
 // plain form POST redirects back to the bounded feed page CONTAINING this
@@ -529,15 +542,15 @@ router.post('/p/:submissionId/comments', requireGuest, socialRateLimiter, (req, 
 // POST /p/:submissionId/comments/:commentId/delete  — a guest deletes their
 // own comment (issue #338).
 //
-// Guest-only (requireGuest 403s anonymous requests before this handler runs).
-// A taken-down or missing submission 404s, mirroring the routes above. An
-// unknown commentId, or one that does not belong to this submission (covers
-// "already deleted" too — a second delete attempt finds no row the second
-// time), also 404s. Authorization is absolute and server-side: a comment
-// whose guest_id is not the caller's is refused with 403 and the row is left
-// untouched — the Delete control never renders for another guest's comment
-// (src/views/feed.ejs), but this check is what actually stops a forged
-// request, not the hidden control.
+// Guest-only (requireGuest redirects an anonymous request to /join before
+// this handler runs). A taken-down or missing submission 404s, mirroring the
+// routes above. An unknown commentId, or one that does not belong to this
+// submission (covers "already deleted" too — a second delete attempt finds no
+// row the second time), also 404s. Authorization is absolute and server-side:
+// a comment whose guest_id is not the caller's is refused with 403 and the
+// row is left untouched — the Delete control never renders for another
+// guest's comment (src/views/feed.ejs), but this check is what actually stops
+// a forged request, not the hidden control.
 //
 // This is a HARD delete (issue design: "no edited/removed tombstone, the row
 // is gone") — unlike admin moderation's taken_down flag (owned by
@@ -763,11 +776,11 @@ router.get('/leaderboard', (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /badge/:code  — what one badge is for, and who has it (issue #488)
 //
-// Guest-gated: this router is mounted after src/routes/guest.js, whose
-// router.use(requireGuest) (no path filter) runs first and redirects any
-// request without a guest session to /join — so an anonymous visitor never
-// reaches this handler, exactly like GET /u/:id. AC5's 404 is therefore
-// observed by a signed-in guest. Unknown code -> 404 (AC5).
+// Guest-gated: this router's own path-scoped router.use(requireGuest) above
+// redirects any request without a guest session to /join before this handler
+// runs — so an anonymous visitor never reaches this handler, exactly like GET
+// /u/:id. AC5's 404 is therefore observed by a signed-in guest. Unknown code
+// -> 404 (AC5).
 //
 // scoring.badgeWithHolders(code) already carries every field either rendered
 // shape needs; the ONE thing this route decides — and the ONLY place it is
