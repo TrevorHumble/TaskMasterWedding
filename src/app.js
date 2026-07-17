@@ -149,9 +149,9 @@ app.use('/thumbs', photos.blockTakenDownThumb, express.static(config.THUMBS_DIR)
 app.get('/healthz', (req, res) => {
   try {
     db.prepare('SELECT 1').get();
-    res.json({ ok: true });
+    res.json({ ok: true, commit: config.GIT_SHA });
   } catch {
-    res.status(503).json({ ok: false });
+    res.status(503).json({ ok: false, commit: config.GIT_SHA });
   }
 });
 

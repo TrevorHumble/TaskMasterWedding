@@ -147,6 +147,30 @@ server {
    ```
    This must **fail to connect** (connection refused / timed out). If it returns any HTTP response, the app is exposed in the clear beside the TLS site — stop and fix the `docker-compose.yml` `ports:` binding (it must read `127.0.0.1:3000:3000`, not `3000:3000`) and the firewall step above before letting any guest near the poster.
 
+## Push-button deploy and rollback
+
+Once the site is live, shipping a fix or reverting a bad one is a **push-button deploy**: one script, `tools/deploy.sh`, invoked either by hand over SSH from your own laptop or by a GitHub Actions button — never automatically.
+
+**Deliberately manual, not on every merge to `main`.** Once invitations go out, real guests are on this site for weeks and the wedding itself is a fixed date. A merge that rebuilds prod unattended — at 11pm, mid-reception, or while a guest is mid-upload — is a failure mode this event cannot absorb: `docker compose up -d` restarts the container, and `restart: unless-stopped` does not make that restart invisible. A human chooses the moment; nothing in this repo deploys on its own.
+
+**Deploy a commit** (from your laptop, using your own SSH agent — no repo secret needed):
+
+```bash
+ssh <host> 'cd /srv/taskmasterwedding && tools/deploy.sh <commit>'
+```
+
+`<commit>` defaults to `origin/main` if you omit it. `tools/deploy.sh` runs on the host: it refuses to proceed if the checkout has uncommitted changes to tracked files (naming them, so a hand-edit on the box is never silently overwritten or shipped), fetches, checks out `<commit>`, rebuilds the image with that commit baked in as the `GIT_SHA` build argument, restarts the container, and polls `/healthz` (bounded, with a timeout) until it reports the exact commit you asked for — never printing success without verifying the app that came up actually matches.
+
+**Rollback is the identical command with an older commit instead of a newer one** — there is no separate rollback procedure to remember or to get wrong under pressure:
+
+```bash
+ssh <host> 'cd /srv/taskmasterwedding && tools/deploy.sh <previous-commit-sha>'
+```
+
+**The GitHub Actions button.** `.github/workflows/deploy.yml` is a `workflow_dispatch`-only workflow (repo → Actions tab → "Deploy" → "Run workflow", with `commit` and `host` inputs) that SSHes in and runs the identical command above. Arming it needs **exactly one repo secret** (`SSH_PRIVATE_KEY`) **and exactly one repo variable** (`SSH_KNOWN_HOSTS`, the droplet's host key, captured once from your hosting provider's console — see [`DESIGN.md`](../DESIGN.md) § Hosted deployment for why it is pinned there rather than fetched at runtime). **Both are required — the button fails closed if either is missing.** The laptop command above needs neither; it authenticates with the operator's own SSH agent.
+
+**Do not deploy during the reception.** A deploy restarts the container, and any request in flight at that moment is dropped. Ship a fix well before the event starts, or well after it ends — not while guests are actively uploading photos or checking the leaderboard.
+
 ## Logs
 
 The app logs to stdout only — there is no file logging. Read logs with:

@@ -1,0 +1,77 @@
+name: Deploy
+
+# workflow_dispatch AND NOTHING ELSE (issue #562 AC6). schedule,
+# repository_dispatch, and workflow_run are unattended triggers too, not just
+# push/pull_request — an unattended deploy is the exact failure mode this
+# workflow exists to prevent (DESIGN.md § Hosted deployment), so the trigger
+# is an allowlist of one, asserted by tests/deploy-script.test.js, not a
+# denylist that would silently admit one of those.
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit or ref to deploy (passed straight to tools/deploy.sh on the host)'
+        required: false
+        default: 'origin/main'
+      host:
+        description: 'SSH destination to deploy to (user@host or host, matching your ssh config)'
+        required: false
+        default: 'lillyandaxel.com'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Exactly ONE repo secret (SSH_PRIVATE_KEY) plus one repo variable
+      # (SSH_KNOWN_HOSTS) — both required, per docs/deploy.md. The host key is
+      # public data pinned once from the provider console, so it is a
+      # variable, not a secret; it is deliberately NOT scanned at runtime
+      # (see the comment below).
+      - name: Install SSH key and pinned host key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pinned from the provider console (DESIGN.md § Hosted deployment),
+          # never scanned here. A runtime `ssh-keyscan` would fetch the host
+          # key over the same unauthenticated path the `ssh` below then uses —
+          # an on-path attacker could answer the keyscan with its own key, and
+          # StrictHostKeyChecking=yes would match and proceed against it,
+          # authenticating nothing. Pinning from the console is what makes
+          # StrictHostKeyChecking=yes (kept below, never "no") mean anything.
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # Runs the exact one-liner docs/deploy.md documents for a laptop deploy
+      # (AC5) — the button and the laptop path share one command, so there is
+      # only one thing to test and one thing to remember under pressure.
+      - name: Run tools/deploy.sh on the host
+        env:
+          DEPLOY_HOST: ${{ inputs.host }}
+          DEPLOY_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          # The commit input is interpolated into a remote shell command below,
+          # so constrain it to the characters a real git ref/SHA/branch/tag can
+          # contain before it ever reaches that shell. A legitimate target never
+          # holds a quote, space, or shell metacharacter; rejecting them fails
+          # fast with a clear message rather than letting a stray character break
+          # the remote quoting. (dispatch is owner-only, so this is robustness,
+          # not a trust boundary — but a fat-fingered input under pressure should
+          # error legibly, not mangle the command.)
+          case "$DEPLOY_COMMIT" in
+            '' | *[!A-Za-z0-9/._-]*)
+              echo "deploy: refusing commit input '$DEPLOY_COMMIT' — allowed characters are A-Za-z0-9 / . _ - only." >&2
+              exit 1
+              ;;
+          esac
+          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key "$DEPLOY_HOST" \
+            "cd /srv/taskmasterwedding && tools/deploy.sh '$DEPLOY_COMMIT'"
