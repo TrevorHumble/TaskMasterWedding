@@ -1949,9 +1949,6 @@ textarea {
   font-family: var(--font-body);
   font-size: var(--fs-small);
 }
-.like-button-static {
-  cursor: default;
-}
 .like-heart {
   width: 24px;
   height: 24px;

@@ -222,7 +222,7 @@ agents to originate design changes — the north-star's "agents do not redesign"
 
 **Decision (2026-07-07):** the app moves from the laptop-and-tunnel model to a rented host. SQLite and local-disk photos are deliberately retained — the host's persistent disk makes them safe at this scale, so the single-file-database decision above is not revisited. TLS terminates at the reverse proxy; the app itself still serves plain HTTP on localhost, as it always did. `TRUST_PROXY` (`config.js`) tells Express to honor the proxy's forwarded-for headers so downstream code sees the real guest IP rather than the proxy's. The public hostname is now stable and load-bearing: the QR codes printed for the event encode it, so it cannot change between print and party the way a tunnel URL could.
 
-The public gallery pages are deliberately non-indexable (`robots.txt` plus a `noindex` response header and meta tag, decided 2026-07-07) — a hosted app with a stable, guessable-shaped URL is discoverable in a way a per-run tunnel URL never was, and guest photos are not meant to surface in search.
+The gallery pages are guest-gated; the noindex posture behind that gate (`robots.txt` plus a `noindex` response header and meta tag, decided 2026-07-07) is defense-in-depth, not the access control — it keeps guest photos out of search results if the gate is ever weakened or a page is served outside it.
 
 **Naming note:** `TRUST_PROXY` and the other names recorded in this ADR are the spec — #282 implements exactly these names. A forced divergence updates this ADR in the implementing PR.
 

@@ -301,8 +301,8 @@ alert itself was already dismissed at the time of writing.
 The flagged handler is `POST /p/:submissionId/comments/:commentId/delete`
 (lines 527–577), added by issue #338 alongside its sibling
 `POST /p/:submissionId/comments` (lines 456–499). Both routes are gated by
-`requireGuest`, which 403s an anonymous caller before either handler body
-runs — the same auth-gated shape the original `js/missing-rate-limiting`
+`requireGuest`, which redirects an anonymous caller to `/join` before either
+handler body runs — the same auth-gated shape the original `js/missing-rate-limiting`
 disposition above already covers for "most guest and admin routes." This is
 not a new code defect; it is a fresh instance of that already-accepted rule
 class, surfaced because CodeQL scores each new route independently rather
