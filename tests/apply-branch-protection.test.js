@@ -63,7 +63,7 @@ maybeDescribe('apply-branch-protection -EmitPayload', () => {
     expect(r.stdout).not.toContain('"contexts"');
   });
 
-  // AC2: -RequireSmoke adds the sixth check, `smoke`, alongside the base five.
+  // AC2: -RequireSmoke adds the check `smoke` alongside the base five.
   it('AC2: -RequireSmoke -EmitPayload -> six checks including smoke', () => {
     const r = run(['-RequireSmoke']);
     expect(r.status).toBe(0);
@@ -123,6 +123,51 @@ maybeDescribe('apply-branch-protection -EmitPayload', () => {
       'lint',
       'merge-association',
       'review-artifact-present',
+      'smoke',
+      'test',
+    ]);
+  });
+
+  // #233 AC2: -RequireEventModeExpiry adds event-mode-expiry to the base
+  // five, alone -- and independently, since it excludes smoke and
+  // review-artifact-present.
+  it('AC2: -RequireEventModeExpiry -EmitPayload -> six checks including event-mode-expiry, excludes smoke/review-artifact-present', () => {
+    const r = run(['-RequireEventModeExpiry']);
+    expect(r.status).toBe(0);
+
+    const body = JSON.parse(r.stdout);
+    const checks = body.required_status_checks.checks;
+    expect(checks).toHaveLength(6);
+
+    const sortedContexts = checks.map((c) => c.context).sort();
+    expect(sortedContexts).toEqual([
+      'Analyze (javascript)',
+      'commit-gate-integrity',
+      'event-mode-expiry',
+      'lint',
+      'merge-association',
+      'test',
+    ]);
+    expect(sortedContexts).not.toContain('smoke');
+    expect(sortedContexts).not.toContain('review-artifact-present');
+  });
+
+  // #233 AC2: -RequireSmoke -RequireEventModeExpiry composed -- proves the
+  // switches are independent and composable, not coupled. Named for its
+  // composition (smoke + event-mode-expiry), distinct from the
+  // smoke + review-artifact-present seven-check case above.
+  it('AC2: -RequireSmoke -RequireEventModeExpiry -EmitPayload -> seven checks, smoke and event-mode-expiry both added', () => {
+    const r = run(['-RequireSmoke', '-RequireEventModeExpiry']);
+    expect(r.status).toBe(0);
+
+    const body = JSON.parse(r.stdout);
+    const sortedContexts = body.required_status_checks.checks.map((c) => c.context).sort();
+    expect(sortedContexts).toEqual([
+      'Analyze (javascript)',
+      'commit-gate-integrity',
+      'event-mode-expiry',
+      'lint',
+      'merge-association',
       'smoke',
       'test',
     ]);

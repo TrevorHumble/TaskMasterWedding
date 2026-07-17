@@ -35,6 +35,8 @@ jobs:
   # still carries the expired flag — until the flag is cleared via
   # tools/set-event-mode.ps1 -Clear, which itself refuses until every freeze
   # commit has its retro-review PASS. The cleanup PR (flag removed) is green.
+  # Becomes required once `-RequireEventModeExpiry` is run (#233) -- until
+  # then it is advisory signal only.
   event-mode-expiry:
     runs-on: ubuntu-latest
     steps:

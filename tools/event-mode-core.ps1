@@ -44,7 +44,8 @@ function Read-EventModeFlag {
 #   NONE     no flag file
 #   INVALID  file exists but is not a valid em1 flag (fail closed: enables nothing)
 #   ACTIVE   valid flag, now < expires (the ONLY state that enables the bypass)
-#   EXPIRED  valid flag, now >= expires (enables nothing; CI forces cleanup)
+#   EXPIRED  valid flag, now >= expires (enables nothing; CI forces cleanup
+#            once `-RequireEventModeExpiry` is run (#233) -- until then advisory)
 # -NowUtc is a test hook; production callers pass only -FlagPath.
 function Get-EventModeState {
   param(
