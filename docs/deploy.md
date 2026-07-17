@@ -141,11 +141,11 @@ server {
 4. Restart the app so `BASE_URL` takes effect if it was changed after first boot.
 5. Print the entry poster (`/admin/poster`) — one page, shared by every guest.
 6. Run one end-to-end test from a phone: scan the poster's QR code, sign up, complete a task, view the leaderboard.
-7. **Blocks go-live if it fails:** from a device that is NOT the host (your phone on cellular data, a laptop off the venue network), confirm port 3000 is not reachable:
+7. **Blocks go-live if it fails:** find the port you actually published — the `HOST_PORT` segment of `docker-compose.yml`'s `ports:` entry (`3000` unless you remapped it per the `PORT` row above). From a device that is NOT the host (your phone on cellular data, a laptop off the venue network), confirm that port is not reachable at the host's raw IP, not the domain:
    ```bash
    curl http://<host-ip>:3000
    ```
-   This must **fail to connect** (connection refused / timed out). If it returns any HTTP response, the app is exposed in the clear beside the TLS site — stop and fix the `docker-compose.yml` `ports:` binding (it must read `127.0.0.1:3000:3000`, not `3000:3000`) and the firewall step above before letting any guest near the poster.
+   Replace `3000` with your published port if you remapped it. This must **fail to connect** (connection refused / timed out) — and it must be a refusal on the right port. A connection-refused on a port nothing is bound to is not evidence the app is unexposed: if you remapped the host port and curl the old `3000`, a clean refusal there proves nothing, because `3000` is simply not published anymore. The port you curl must be the one `docker-compose.yml`'s `ports:` entry actually publishes. If that port returns any HTTP response, the app is exposed in the clear beside the TLS site — stop and fix the `docker-compose.yml` `ports:` binding (it must keep the `127.0.0.1:` prefix, e.g. `127.0.0.1:3000:3000` or `127.0.0.1:8080:3000`, never a bare `3000:3000`) and the firewall step above before letting any guest near the poster.
 
 ## Push-button deploy and rollback
 
