@@ -5,16 +5,28 @@ services:
   app:
     build: .
     ports:
+      # Bound to 127.0.0.1, not 0.0.0.0: the reverse proxy (Caddy/nginx) is
+      # the only public entrance, reaching the app over loopback exactly as
+      # docs/deploy.md's "Reverse proxy + TLS" section describes. Do not drop
+      # the "127.0.0.1:" prefix — a bare "3000:3000" publishes the app on
+      # every interface, serving guest traffic (and Secure cookies that then
+      # silently fail) in the clear beside the TLS site (#561). A firewall
+      # rule does NOT fix a wrong binding here: Docker inserts its own
+      # iptables rules ahead of ufw's INPUT chain, so `ufw deny 3000` does
+      # not close a docker-published port. The binding, not the firewall, is
+      # the control.
+      #
       # Host port on the left, container port on the right. The container
       # always listens on 3000 internally (Dockerfile EXPOSE / HEALTHCHECK
       # are both pinned to it) — to serve the app on a different host port,
-      # change the LEFT side only (e.g. "8080:3000"). Do not use the PORT
-      # env var to do this: env_file below would pass PORT through to the
-      # app inside the container, which would then listen on a port this
-      # mapping's right side and the HEALTHCHECK no longer match, so the
-      # container would restart-loop reporting unhealthy. Leave PORT unset
-      # in .env for this compose path; see docs/deploy.md.
-      - '3000:3000'
+      # change the HOST_PORT segment only (e.g. "127.0.0.1:8080:3000"), always
+      # keeping the "127.0.0.1:" prefix. Do not use the PORT env var to do
+      # this: env_file below would pass PORT through to the app inside the
+      # container, which would then listen on a port this mapping's right
+      # side and the HEALTHCHECK no longer match, so the container would
+      # restart-loop reporting unhealthy. Leave PORT unset in .env for this
+      # compose path; see docs/deploy.md.
+      - '127.0.0.1:3000:3000'
     env_file: .env
     volumes:
       # The persistence boundary: everything the app must not lose lives in
