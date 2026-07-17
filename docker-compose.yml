@@ -5,16 +5,28 @@ services:
   app:
     build: .
     ports:
-      # Host port on the left, container port on the right. The container
-      # always listens on 3000 internally (Dockerfile EXPOSE / HEALTHCHECK
-      # are both pinned to it) — to serve the app on a different host port,
-      # change the LEFT side only (e.g. "8080:3000"). Do not use the PORT
-      # env var to do this: env_file below would pass PORT through to the
-      # app inside the container, which would then listen on a port this
-      # mapping's right side and the HEALTHCHECK no longer match, so the
-      # container would restart-loop reporting unhealthy. Leave PORT unset
-      # in .env for this compose path; see docs/deploy.md.
-      - '3000:3000'
+      # Bound to 127.0.0.1 (loopback) only, deliberately: the app is reached
+      # through the reverse proxy (Caddy/nginx) already running on this same
+      # host, never directly from the internet. Do not widen this to 0.0.0.0
+      # or drop the host IP — a docker-published port is DNAT'd in nat's
+      # PREROUTING and routed on to FORWARD (Docker's own chains), so it
+      # never traverses INPUT, where ufw's rules live. `ufw deny 3000` does
+      # NOT close a docker-published port: ufw is bypassed, not merely
+      # out-ordered. The loopback bind, not the firewall, is what keeps this
+      # port off the public internet. See docs/deploy.md's firewall step and
+      # DESIGN.md § Hosted deployment.
+      #
+      # Shape is HOST_IP:HOST_PORT:CONTAINER_PORT. The container always
+      # listens on 3000 internally (Dockerfile EXPOSE / HEALTHCHECK are both
+      # pinned to it) — to serve the app on a different HOST port, change
+      # the middle segment only (e.g. "127.0.0.1:8080:3000"), keeping the
+      # 127.0.0.1 host IP. Do not use the PORT env var to do this: env_file
+      # below would pass PORT through to the app inside the container, which
+      # would then listen on a port this mapping's right side and the
+      # HEALTHCHECK no longer match, so the container would restart-loop
+      # reporting unhealthy. Leave PORT unset in .env for this compose path;
+      # see docs/deploy.md.
+      - '127.0.0.1:3000:3000'
     env_file: .env
     volumes:
       # The persistence boundary: everything the app must not lose lives in
