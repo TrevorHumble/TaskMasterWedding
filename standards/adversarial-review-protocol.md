@@ -304,7 +304,7 @@ A pre-declared, expiring window in which a mid-event hotfix ships on green autom
 
 **Single writer.** `tools/set-event-mode.ps1` is the only writer of the flag (`-ExpiresUtc <date> -Reason <text>` / `-Clear`). The flag file is never hand-edited, and committing its creation or removal takes the normal gate.
 
-**Retro-review consumer.** Each freeze shipment produces a `freeze:true` ledger row (harvest marks merged PRs carrying a `hotfix: ` commit subject). `tools/set-event-mode.ps1 -Clear` **refuses** to remove the flag while any such row since the flag's creation lacks a review PASS bound to that commit's tree (recorded via `tools/persist-review.ps1`). The CI job `event-mode-expiry` goes red while an expired flag remains in the tree, forcing the cleanup — and through it, the retro reviews. A retro review applies this protocol's full stance to the shipped tree; it is a real review that happened late, not a rubber stamp.
+**Retro-review consumer.** Each freeze shipment produces a `freeze:true` ledger row (harvest marks merged PRs carrying a `hotfix: ` commit subject). `tools/set-event-mode.ps1 -Clear` **refuses** to remove the flag while any such row since the flag's creation lacks a review PASS bound to that commit's tree (recorded via `tools/persist-review.ps1`). The CI job `event-mode-expiry` goes red while an expired flag remains in the tree — once `-RequireEventModeExpiry` is run (#233) that red blocks merges and forces the cleanup, and through it the retro reviews; until then it is advisory signal. A retro review applies this protocol's full stance to the shipped tree; it is a real review that happened late, not a rubber stamp.
 
 ---
 

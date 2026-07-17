@@ -42,5 +42,5 @@ Hard-coded values a template turns into variables:
 - `tools/classify-dep-pr.ps1` — the wedding-critical dependency list (drift-guarded by `tests/classify-dep-pr.test.js`, which moves with it)
 - `CLAUDE.md` — North Star restatement and the dependency-tier summary
 - `agents/reviewer-tracker-sync.md` — the epic issue number (#126) it audits against
-- `.github/workflows/` — any job pinned to this repo's check-run names (see `tools/apply-branch-protection.ps1`'s five required checks)
+- `.github/workflows/` — any job pinned to this repo's check-run names (see `tools/apply-branch-protection.ps1`'s five base required checks)
 - `tools/apply-branch-protection.ps1` — the required-check list (the repo slug is resolved at runtime via `gh repo view`, not hard-coded)

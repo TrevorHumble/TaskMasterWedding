@@ -5,8 +5,9 @@
 # tree means the freeze window ended without cleanup -- and cleanup is where
 # the retro-review obligation is enforced (tools/set-event-mode.ps1 -Clear
 # refuses until every freeze commit has its retro-review PASS). So CI goes
-# red while an expired (or invalid) flag is present, forcing the cleanup
-# commit and, through it, the retro reviews.
+# red while an expired (or invalid) flag is present -- once
+# `-RequireEventModeExpiry` is run (#233) that red forces the cleanup commit
+# and, through it, the retro reviews; until then it is advisory signal.
 #
 # Thin wrapper over the ONE flag reader (tools/event-mode-core.ps1) so the
 # validity rules live in exactly one place. CI runs it under pwsh
