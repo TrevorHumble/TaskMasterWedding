@@ -6,9 +6,10 @@
 // this worktree. Nothing about the printed link, the scratch DATA_DIR, or the
 // picked port ever touches a real event's data (AC2).
 //
-// Deliberately kept in scripts/, not tools/ — outside tools/verdict-core.ps1's
-// $SYSTEM_PATH_REGEX, so this launcher stays routine-tier and cheap to change
-// (per the issue's implementation plan step 1).
+// Deliberately kept in scripts/, not tools/ — tools/ is on the frozen
+// governing-artifact surface (CLAUDE.md § "Governance freeze"), so keeping
+// this launcher in scripts/ keeps it cheap to change (per the issue's
+// implementation plan step 1).
 //
 // Mechanism, reusing existing prior art rather than reinventing it:
 //   - Scratch DATA_DIR + free port + seed-as-a-child-process: the same shape

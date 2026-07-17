@@ -1,11 +1,9 @@
 # tools/classify-dep-pr-core.ps1 — shared tier-classification logic for
 # Dependabot-shaped dependency bumps. Dot-source this file; do not run it
-# directly (mirrors the -core.ps1 convention of tools/verdict-core.ps1,
-# tools/issue-core.ps1, tools/event-mode-core.ps1).
+# directly (mirrors the -core.ps1 convention of tools/issue-core.ps1).
 #
 # Single source of truth for the auto/review precedence rules (#448), reused by:
 #   - tools/classify-dep-pr.ps1 (thin CLI: classifies one real Dependabot PR)
-#   - tools/classify-trivial-commit.ps1 (classifies a staged hand-built bump)
 # See CLAUDE.md § "Dependency updates (Dependabot)" and DESIGN.md for the policy.
 #
 # Windows PowerShell 5.1-compatible: no ternary, no ??, no &&, no ||.

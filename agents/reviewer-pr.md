@@ -28,8 +28,6 @@ Do not assert an AC is met from reading the diff alone. For any AC asserting a b
 
 Some clauses describe a condition that is only checkable AFTER merge — most notably "Done means live" (clause 10), whose manual/post-merge step cannot have run yet while the PR is under review, and to a lesser degree "Clean test run" (clause 6, verified via the CI run) and "Visual changes need owner approval" (clause 9, verified via the owner's live-preview loop). For these, apply the clause at PR-review time by confirming the manual or post-merge step is **recorded** (named in the issue or PR, with a concrete trigger for when it runs) and that the issue cannot auto-close as done before that step runs — not by requiring the step to already be live or already have run. Full liveness for clause 10 is confirmed at issue-closure against the deployed state, not against the diff. For every other clause, "an unmet clause is a defect" stands as written — it is checkable against the diff now, so check it now.
 
-**Coverage-first instruction for `sonnet-only` runs.** When this review is conducted as part of a `sonnet-only` run, report every finding identified — including low-confidence and low-severity ones — tagged with its own severity and confidence. Do not silently drop a finding judged minor; the orchestrator, not the reviewer, decides what to act on. This instruction does not promise a downstream filtering step (on the common single-round PASS path none runs) — it exists because Sonnet follows "be conservative / only report serious issues" phrasing literally and under-reports as a result, so non-suppression is the rule and severity-tagging is the triage mechanism. This is scoped to the `sonnet-only` run only; it does not override the standing "retract your own over-flags" bar for Opus reviews in `standards/adversarial-review-protocol.md`.
-
 ## Bias check
 
 If the spawning prompt names what the artifact is supposed to accomplish, or expresses an expected outcome, halt immediately and return `FAIL` with the finding: "Spawner injected intent — reviewer bias risk."
@@ -38,7 +36,7 @@ If the spawning prompt names what the artifact is supposed to accomplish, or exp
 
 **Governing standard:** the `## Acceptance criteria` section of the linked issue is the operative standard for this review, read per `issue-standards.md` § "Acceptance criteria" — each criterion is a promise, not a checklist item graded on wording alone: a diff that keeps the promise passes even if a criterion's wording is imprecise, while a diff that satisfies every criterion's letter while breaking the promise FAILs.
 
-**Input:** the absolute path to the PR diff (or list of changed files) and the absolute path to its linked issue file. Read both, and read `standards/adversarial-review-protocol.md`, `standards/issue-standards.md` (for the acceptance-criteria bar referenced above), and `definition-of-done.md` (repo root, for the DoD checklist applied above). Read nothing else unless a changed file path is listed and must be inspected for AC compliance. The spawn prompt also assigns this reviewer instance a distinct `reviewerId` (e.g. `reviewer-pr-1`) — use that exact value in the JSON block below; do not invent one.
+**Input:** the absolute path to the PR diff (or list of changed files) and the absolute path to its linked issue file. Read both, and read `standards/adversarial-review-protocol.md`, `standards/issue-standards.md` (for the acceptance-criteria bar referenced above), and `definition-of-done.md` (repo root, for the DoD checklist applied above). Read nothing else unless a changed file path is listed and must be inspected for AC compliance.
 
 **Output:**
 
@@ -54,25 +52,6 @@ AC2: PASS|FAIL — verified by: …
 ```
 
 One token verdict, then one `verified by` line per AC, then the numbered defect list. A `verified by` field is sufficient if it states a concrete input→output pair, a `file:line`, or the specific test checked; it counts as unverified = FAIL only when it has none of those (e.g. just "looks fine"). Verdict maps directly to AC coverage: every AC must have an explicit finding (pass or fail). An AC with no finding is itself a FAIL. A PASS with any open blocker or major is not a PASS.
-
-**In addition to** the prose review above — not instead of it — emit a single trailing fenced ```json block conforming to `tools/review-verdict.schema.md`. It is a complete object: `reviewerId` (the id the spawn prompt assigned), `verdict` (`PASS` or `FAIL`, matching the prose token), and `defects` (an array mirroring the numbered defect list above; each entry carries `severity` — one of `blocker`/`major`/`minor`/`nit` — `category` — one of `correctness`/`security`/`test-coverage`/`docs`/`design`/`simplification`/`style` — `text`, and, when the finding cites a location, `file` and 1-based `line`). Example:
-
-```json
-{
-  "reviewerId": "reviewer-pr-1",
-  "verdict": "FAIL",
-  "defects": [
-    {
-      "severity": "blocker",
-      "category": "correctness",
-      "text": "unhandled null deref",
-      "file": "src/db.js",
-      "line": 42
-    },
-    { "severity": "nit", "category": "style", "text": "naming style" }
-  ]
-}
-```
 
 ## Checklist
 

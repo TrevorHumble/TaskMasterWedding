@@ -78,7 +78,6 @@ A ready-issue must include all of the following before it can be reviewed:
 - **Acceptance criteria** — each criterion in **Given/When/Then** form; see § "Acceptance criteria" above for what a criterion must be.
 - **implementation plan** — at least three numbered steps, each naming a file path or concrete deliverable.
 - **Dependency map** — `Depends on`, `Blocks`, and `Touches` all present.
-- **`**Run tier:**` field** — a `**Run tier:**` line whose value is `sonnet-only` or `opus`. The declared value must equal `tools/classify-issue-run.ps1`'s output for the issue's `Touches` paths and flags (security-flagged, escalated, schema-or-data-migration) — the classifier is the single source of truth for eligibility. A backlog-tier issue defers its run tier to graduation: it carries no `**Run tier:**` field, and the field is filled in when the orchestrator opens the graduated ready-issue.
 
 The reviewer applies the full checklist to a ready-issue.
 
@@ -106,7 +105,7 @@ The block has four required fields, each non-empty:
 
 - **Spawned by** — the spawning issue `#`, PR `#`, or run identifier the finding came from (provenance).
 - **Why** — the defect or gap the new work addresses (the need).
-- **Why separable** — why the work is more work, not absorbed into the spawning change. The value must name one of the three defer categories `standards/adversarial-review-protocol.md` § "Finding disposition" defines — that section is the single owner of the categories' substance; this section only requires citing one of them, it does not restate them.
+- **Why separable** — why the work is more work, not absorbed into the spawning change. The value must name one of the three defer categories `standards/adversarial-review-protocol.md` § "Finding disposition" defines — that section is the single owner of the categories' substance; this section only requires citing one of them, it does not restate them. During the governance freeze (`CLAUDE.md` § "Governance freeze"), a spawned finding that would otherwise become a new issue is instead one line in the single parking issue per that same section — the `## Spawn justification` block below is required only for work that is actually filed as its own issue.
 - **Why not solved in the spawning session** — the concrete blocker that kept the work out of the spawning change (e.g. needs an owner design decision; outside the spawning change's touched files; would exceed the change's bounded scope).
 
 Example block:
@@ -134,7 +133,6 @@ A `spawned-in-run` issue missing the block, or with any of the four fields empty
 - [ ] PASS/FAIL — Implementation plan is present and contains at least three numbered steps, each naming a file path or a concrete deliverable.
 - [ ] PASS/FAIL — Dependency map contains all three fields: `Depends on`, `Blocks`, `Touches`.
 - [ ] PASS/FAIL — No FINAL, LAST, or TRULY_FINAL in filenames or section headers referenced by this issue.
-- [ ] PASS/FAIL — Reviewer independently derives the run tier by running `tools/classify-issue-run.ps1` against the issue's `Touches` paths and flags, and confirms it matches the issue's declared `**Run tier:**` value.
 
 ### Backlog-tier checklist
 
@@ -154,6 +152,6 @@ An issue that requires an `external/paid API`, a `non-Anthropic model key`, or a
 
 ## Definition of Done ownership
 
-`definition-of-done.md` (repo root) lives outside the governing-artifact surface `tools/verdict-core.ps1` `$SYSTEM_PATH_REGEX` matches, so changing it does not take the system-level two-independent-reviewer bar — it takes the routine one-reviewer bar like any other non-kernel change. That placement is deliberate: the DoD needs to stay cheap to amend as the project learns what "done" actually requires.
+`definition-of-done.md` (repo root) is not on the frozen governing-artifact surface (`CLAUDE.md` § "Governance freeze"), so changing it takes the routine one-reviewer bar like any other change. That placement is deliberate: the DoD needs to stay cheap to amend as the project learns what "done" actually requires.
 
 Cheap to review is not the same as unowned. Changing `definition-of-done.md` requires **owner approval** before it merges — the owner is the one person who can add or loosen a clause that every future PR review will be judged against. This is a recorded rule, not a mechanically enforced one: on this solo-maintainer repo (`required_approving_review_count = 0`), a CODEOWNERS-style gate cannot force owner sign-off, so the check is tamper-evident, not tamper-proof, the same honest posture as the rest of this pipeline (`DESIGN.md` § "Issue-review gate").

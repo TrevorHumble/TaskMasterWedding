@@ -4,4 +4,4 @@
 $top = (& git rev-parse --show-toplevel 2>$null)
 if (-not $top) { Write-Error 'setup-hooks: not inside a git repo'; exit 1 }
 & git config core.hooksPath .githooks
-Write-Output "core.hooksPath -> .githooks (pre-commit gate active)"
+Write-Output "core.hooksPath -> .githooks (commit-msg issue-reference hook active)"

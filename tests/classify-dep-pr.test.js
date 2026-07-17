@@ -118,10 +118,10 @@ maybeDescribe('classify-dep-pr', () => {
 // Drift-guard: tools/classify-dep-pr.ps1 is the single source of truth for the
 // wedding-critical list. CLAUDE.md and .github/dependabot.yml must mirror it exactly.
 describe('wedding-critical drift guard', () => {
-  // #448: the $WeddingCritical array literal moved into the dot-sourceable
-  // core (tools/classify-dep-pr-core.ps1) so tools/classify-trivial-commit.ps1
-  // can share it without a second copy. classify-dep-pr.ps1's CLI contract
-  // (path, params, stdout, exit code) is unchanged.
+  // #448: the $WeddingCritical array literal lives in the dot-sourceable
+  // core (tools/classify-dep-pr-core.ps1), the single copy of the tier rules.
+  // classify-dep-pr.ps1's CLI contract (path, params, stdout, exit code) is
+  // unchanged.
   const scriptPath = path.join(__dirname, '..', 'tools', 'classify-dep-pr-core.ps1');
   const claudePath = path.join(__dirname, '..', 'CLAUDE.md');
   const dependabotPath = path.join(__dirname, '..', '.github', 'dependabot.yml');

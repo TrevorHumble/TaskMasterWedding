@@ -70,21 +70,5 @@ if ($addExit -ne 0) {
   exit 1
 }
 
-# Assert the gate is live INSIDE the new worktree -- don't just assume the shared
-# hooksPath config resolves the way this comment says it does.
-Push-Location $path
-try {
-  $gateOut = (& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $path 'tools/check-gate.ps1'))
-  $gateOk = ($LASTEXITCODE -eq 0)
-} finally {
-  Pop-Location
-}
-
-if (-not $gateOk) {
-  [Console]::Error.WriteLine("new-agent-worktree: worktree created at $path but its commit gate is not live. Run: powershell -File tools/setup-hooks.ps1")
-  exit 1
-}
-
 $absPath = (Resolve-Path $path).Path
-Write-Output $gateOut
 Write-Output "worktree ready: $absPath (branch '$Branch'). cd into it to work."

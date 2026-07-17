@@ -30,8 +30,9 @@ equal — see DESIGN.md "Source of truth". The sync rule:
   `backlog` / `low priority`). The issue body can summarize and link the file.
 - **On merge to `main` (via pull request)** → `gh issue close` the matching card, referencing the commit.
 - **On graduation/supersession** → update the card (re-label, or close with a pointer to the successor).
-- Never leave the board disagreeing with the issue files / BUILDLOG; `agents/reviewer-tracker-sync.md`
-  FAILs a commit that does.
+- Never leave the board disagreeing with the issue files / BUILDLOG; the orchestrator's own
+  close-out step keeps them in sync as part of merging a PR — there is no separate reviewer
+  gate for board drift.
 
 ```powershell
 & "C:\Program Files\GitHub CLI\gh.exe" issue create `

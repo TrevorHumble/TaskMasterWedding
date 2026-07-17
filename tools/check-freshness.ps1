@@ -1,7 +1,6 @@
 # check-freshness: read-only staleness + overlap check, shared by the owner-review
 # path (skills/session-brief.md, README.md) and the build-session path
-# (.claude/commands/build.md step 0, tools/check-wave-alignment.ps1,
-# .claude/commands/realign.md). Build sessions work in isolated worktrees, push
+# (.claude/commands/build.md step 0, .claude/commands/realign.md). Build sessions work in isolated worktrees, push
 # branches, and merge on GitHub; nothing ever pulls those merges back into
 # C:\wedding-scavenger-hunt, so drift can accumulate silently on either side of
 # that boundary (#200: the owner's local main was 32 commits behind and nobody
@@ -17,12 +16,11 @@
 #
 # Single-homed constants and helpers (#357 architecture-review finding 1): the
 # carve-out list and MAX_DRIFT_COMMITS threshold are defined ONCE, in this
-# file, and both tools/check-wave-alignment.ps1 and .claude/commands/realign.md
-# consume them from here (the wave-alignment tool dot-sources this file; the
-# realign command invokes this file's own CLI rather than reimplementing the
-# list) -- so the two tools can never quietly disagree about what counts as a
-# hard collision. Do not copy $CARVE_OUT_PATHS, $MAX_DRIFT_COMMITS,
-# Test-CarvedOut, or Get-OverlapFiles into another file; extend them here.
+# file, and .claude/commands/realign.md consumes them from here (the realign
+# command invokes this file's own CLI rather than reimplementing the list) --
+# so nothing else can quietly disagree about what counts as a hard collision.
+# Do not copy $CARVE_OUT_PATHS, $MAX_DRIFT_COMMITS, Test-CarvedOut, or
+# Get-OverlapFiles into another file; extend them here.
 param(
   # Explicit file list to check for overlap against the drift range (an
   # issue's Touches list, or a wave's combined Touches), as one

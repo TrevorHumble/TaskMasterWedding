@@ -4,9 +4,8 @@
 #   review - held for a tracked decision before merge
 #
 # Thin CLI over the shared classification core in tools/classify-dep-pr-core.ps1
-# (#448) — tools/classify-trivial-commit.ps1 dot-sources that same core, so the
-# tier rules have exactly one copy. This file's CLI contract (path, params,
-# stdout, exit code) is unchanged by the refactor.
+# (#448), the single copy of the auto/review tier rules. This file's CLI
+# contract (path, params, stdout, exit code) is unchanged by the refactor.
 #
 # Compatible with Windows PowerShell 5.1 and pwsh 7+ on Linux/macOS.
 # No ternary, no &&/||, no null-coalescing -- WinPS 5.1 constraints.

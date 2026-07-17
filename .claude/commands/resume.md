@@ -4,24 +4,27 @@ description: Re-orient after compaction or a break. Usage: /resume
 
 Re-read these files in order — they carry the context you need:
 
-1. `CLAUDE.md` — this repo's operating contract (behavioral rules, model policy, pipeline). Read this first.
+1. `CLAUDE.md` — this repo's operating contract (behavioral rules, model policy, pipeline, and the
+   governance freeze). Read this first.
 2. `agents/orchestrator.md` — the pipeline, model policy, and ship flow for this repo.
 3. `docs/RESUME-STATE.md` — where the work is: last commit, backlog priority order, the current merge policy, and gotchas. Do not duplicate it here — read it there.
 4. `docs/north-star.md` — the four goals every change must serve.
 
 Optionally, if you have access to the user's global `~/.claude/CLAUDE.md`, read it afterward for personal working-style preferences. It is secondary to the repo's own `CLAUDE.md` and not required for safe operation in this repo.
 
-Then confirm the gates are live:
+Then confirm the commit-msg hook is armed:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools/check-enforcement.ps1
+git config --get core.hooksPath
 ```
 
-This checks the commit gate (wired to `.githooks/pre-commit`), the goal gate, and the loop gate, and tells you in plain English whether each is on or off.
+This should print `.githooks`. If it does not, run `powershell -ExecutionPolicy Bypass -File tools/setup-hooks.ps1`.
 
 Report back:
 
-- Current branch and the last entry from the **live** per-merge log — the `ledger`-branch rendered `BUILDLOG.md` (`git show ledger:BUILDLOG.md`, or regenerate locally with `node scripts/buildlog-render.js`). Since #447, `main`'s own `BUILDLOG.md` no longer receives a per-merge entry: it carries only the frozen pre-cutover history plus exceptional `[HALT]`/`[AUDIT]`/wave entries, so its tail is not the last merge — do not report it as such. Also report the last **Live-log ledger line** from the `## Live log` section of `docs/RESUME-STATE.md` (that ledger is the per-increment record of where the autonomous run left off).
+- Current branch and the last entry in `BUILDLOG.md` on `main`.
 - Where the work stands (one sentence from `RESUME-STATE.md`).
-- Gate status from `check-enforcement.ps1`.
+- Whether `core.hooksPath` is armed.
 - The next item in the priority backlog.
+- Whether the governance freeze (`CLAUDE.md` § "Governance freeze", through 2026-08-08) is still in
+  effect, and if so, that any work on the governing-artifact surface needs recorded owner approval.

@@ -33,13 +33,12 @@ export default defineConfig({
     // parallel load is ~5.1s (5137ms) against that 5000ms budget -- missed
     // by a hair, not by an order of magnitude. Set to 30000 rather than to
     // something nearer that measurement because Linux CI's `pwsh` cold start
-    // is much slower than this Windows one (tests/review-runner.test.js:19-21),
-    // so 5137ms is a lower bound on CI, not an estimate of it; 30000 is also
-    // the smallest value the .ps1-spawning tests already chose for this same
-    // cold-start problem, so it is this tree's settled answer rather than a
-    // new guess. This is a DEFAULT, not a floor: any per-test third-argument
-    // timeout still wins, whether larger (tests/event-mode.test.js: 120000)
-    // or smaller (tests/login-lockout-releases.test.js:51: 10000).
+    // is much slower than this Windows one, so 5137ms is a lower bound on
+    // CI, not an estimate of it; 30000 is also the smallest value the
+    // .ps1-spawning tests already chose for this same cold-start problem, so
+    // it is this tree's settled answer rather than a new guess. This is a
+    // DEFAULT, not a floor: any per-test third-argument timeout still wins,
+    // whether larger or smaller (tests/login-lockout-releases.test.js:51: 10000).
     testTimeout: 30000,
     coverage: {
       provider: 'v8',
@@ -56,7 +55,6 @@ export default defineConfig({
         'src/public/**',
         'tests/**',
         'scripts/serve-resilient.js',
-        'scripts/ledger-push.js',
         'scripts/loadtest.js',
         'scripts/smoke.js',
         // heic-worker.js runs in a worker_threads thread (#281). The main-process
@@ -66,15 +64,6 @@ export default defineConfig({
         // scripts above — exclude from the coverage denominator rather than pad
         // with fake tests; the worker's behavior is gated by the integration tests.
         'src/services/heic-worker.js',
-        // check-review-artifact.js (#48) is a CI status-check CLI: its tests spawn
-        // it as a real `node` subprocess (tests/check-review-artifact.test.js drives
-        // every AC1–AC4 path plus the governing-artifact drift-guard through
-        // spawnSync), which the main-process v8 provider cannot instrument, so it
-        // always reports 0% here. Same rationale as heic-worker and the process-
-        // level scripts above — exclude from the coverage denominator rather than
-        // pad with fake in-process tests; its behavior is gated end-to-end by those
-        // subprocess tests and by the live `review-artifact-present` CI job.
-        'scripts/check-review-artifact.js',
         // scripts/preview.js (#378) spawns the app as a CHILD process (by
         // design — see its own file header — so it never shares this test
         // process's config/db module cache with the app it boots). Its

@@ -2,9 +2,8 @@
 // Vitest tests for tools/check-freshness.ps1 (#357 Component A): behind-count
 // reporting, the MAX_DRIFT_COMMITS boundary, and overlap detection including
 // the append-only carve-out. Windows PowerShell 5.1 is the launcher on win32;
-// pwsh on other platforms. Mirrors the git-scratch-repo pattern already used
-// by tests/event-mode.test.js (makeRepo) and the -File/-Command split used by
-// tests/verdict-gate.test.js and tests/classify-dep-pr.test.js.
+// pwsh on other platforms. Mirrors the git-scratch-repo (makeRepo) and
+// -File/-Command split pattern used by tests/classify-dep-pr.test.js.
 'use strict';
 
 const { execFileSync, spawnSync } = require('child_process');
@@ -282,9 +281,7 @@ describe('MAX_DRIFT_COMMITS single-homing (AC7)', () => {
 });
 
 // Pure-function tests for the shared Test-CarvedOut / Get-OverlapFiles helpers
-// via dot-source, mirroring tests/verdict-gate.test.js's runGetRequiredBar
-// pattern -- fast, no git repo needed, and this is the exact logic
-// tools/check-wave-alignment.ps1 reuses (see its own drift-guard test below).
+// via dot-source -- fast, no git repo needed.
 function runOverlapHelper(driftFiles, touchFiles) {
   const driftExpr = driftFiles.map((p) => `'${p.replace(/'/g, "''")}'`).join(',');
   const touchExpr = touchFiles.map((p) => `'${p.replace(/'/g, "''")}'`).join(',');

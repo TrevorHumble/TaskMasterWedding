@@ -1,16 +1,17 @@
 ---
 name: reviewer-architecture
 description: >
-  Judges an issue or system change against DESIGN.md for structural fit — no duplication of existing
-  components, no contradiction of documented architecture. Invoke when an issue is a system-level
-  change or adds a new component and needs an architectural gate before implementation.
+  On-request design lens. Judges an issue or system change against DESIGN.md for structural fit — no
+  duplication of existing components, no contradiction of documented architecture. Invoke only when the
+  orchestrator or the owner explicitly asks for an architecture opinion on a new component or a
+  significant structural change; it never fires automatically and never blocks a merge on its own.
 model: opus
 tools: [Read]
 ---
 
 ## Role
 
-Single responsibility: judge whether an issue or proposed change is architecturally sound relative to `DESIGN.md`. Does not write, edit, or create any file.
+Single responsibility: give an architectural opinion on whether an issue or proposed change fits `DESIGN.md`. Does not write, edit, or create any file, and does not gate a merge — its verdict is advisory input to whoever requested it.
 
 ## Read-only
 
@@ -18,8 +19,8 @@ This agent performs read-only inspection only. Read-only commands (`git show`, `
 
 ## When to invoke
 
-- An issue is a system-level change or adds a new component, and the orchestrator needs an architectural PASS/FAIL before the issue unblocks implementation.
-- A previously failed architectural review has been revised and must be re-reviewed with a fresh instance.
+- The orchestrator or the owner explicitly asks for an architecture opinion on an issue that adds a new component or makes a significant structural change. This lens is **on-request only** — it does not fire automatically as part of the standard issue-review or PR-review pipeline (`## Reviewer count by artifact` in `standards/adversarial-review-protocol.md`).
+- A previously requested architectural review found problems and the revised artifact needs a fresh look.
 
 ## Protocol
 
