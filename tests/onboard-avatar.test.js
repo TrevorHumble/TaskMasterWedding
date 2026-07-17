@@ -16,7 +16,8 @@
 // tests now check against /join.
 //
 // AC1: corrupt bytes with Content-Type image/jpeg -> signup still succeeds
-//      (302 to /), the guest has no avatar_path, and the server survives.
+//      (302 to /how-to-play, issue #564), the guest has no avatar_path, and
+//      the server survives.
 // AC2: a non-image type (application/pdf) gets the same silent-drop
 //      treatment, writes nothing to UPLOADS_DIR, and the process stays alive.
 //
@@ -53,9 +54,10 @@ describe('AC1: corrupt avatar bytes do not block signup or kill the process', ()
       .field('pin', '1234')
       .attach('avatar', CORRUPT_JPEG, { filename: 'fake.jpg', contentType: 'image/jpeg' });
 
-    // Signup is not blocked by a bad avatar — straight home, not a 400 re-render.
+    // Signup is not blocked by a bad avatar — straight to the rules card
+    // (issue #564), not a 400 re-render.
     expect(res.status).toBe(302);
-    expect(res.headers.location).toBe('/');
+    expect(res.headers.location).toBe('/how-to-play');
 
     const row = db
       .prepare('SELECT name, avatar_path, onboarded FROM guests WHERE contact = ?')
@@ -63,7 +65,9 @@ describe('AC1: corrupt avatar bytes do not block signup or kill the process', ()
     expect(row).toBeTruthy();
     expect(row.name).toBe('Crash Test Guest');
     expect(row.avatar_path).toBeNull();
-    expect(row.onboarded).toBe(1);
+    // Issue #564: onboarded starts at the schema default (0) — GET
+    // /how-to-play is the only thing that ever flips it, not signup itself.
+    expect(row.onboarded).toBe(0);
 
     // The server answers the next request (same session) — the corrupt
     // decode never crashed it.
@@ -87,10 +91,10 @@ describe('AC2: non-image types are silently dropped, nothing written to disk', (
         contentType: 'application/pdf',
       });
 
-    // Straight home, same as any other signup — a rejected file type is not
-    // itself a signup error.
+    // Straight to the rules card, same as any other fresh signup (issue
+    // #564) — a rejected file type is not itself a signup error.
     expect(res.status).toBe(302);
-    expect(res.headers.location).toBe('/');
+    expect(res.headers.location).toBe('/how-to-play');
 
     const row = db
       .prepare('SELECT name, avatar_path FROM guests WHERE contact = ?')

@@ -112,7 +112,10 @@ describe('AC1: guest happy path (sign up -> submit -> see points)', () => {
         pin: '4815',
       });
     expect(joinRes.status).toBe(302);
-    expect(joinRes.headers.location).toBe('/');
+    // Issue #564: a fresh signup lands on the rules card first, not home —
+    // this journey does not visit /how-to-play, which is fine: nothing below
+    // gates on onboarded (no guest-facing wall exists for it).
+    expect(joinRes.headers.location).toBe('/how-to-play');
 
     const guest = db.prepare('SELECT id FROM guests WHERE name = ?').get('Priya Shah');
 

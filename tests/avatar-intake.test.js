@@ -76,7 +76,9 @@ describe('AC2: signup avatar upload stores a real file and sets avatar_path', ()
     const row = db
       .prepare('SELECT avatar_path, onboarded FROM guests WHERE contact = ?')
       .get('join-avatar-ac2@example.com');
-    expect(row.onboarded).toBe(1);
+    // Issue #564: onboarded starts at the schema default (0) after signup —
+    // only GET /how-to-play ever flips it.
+    expect(row.onboarded).toBe(0);
     expect(row.avatar_path).toMatch(/\.jpg$/);
     expect(fs.existsSync(avatarAbsPath(row.avatar_path))).toBe(true);
   });
