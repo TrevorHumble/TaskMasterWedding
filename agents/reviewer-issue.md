@@ -40,7 +40,7 @@ If the spawning prompt names what the artifact is supposed to accomplish, or exp
 
 ## Input / output contract
 
-**Input:** the absolute path to the issue file under review. Read that file, `standards/issue-standards.md`, `standards/adversarial-review-protocol.md`, `definition-of-done.md` (repo root, for the trapped-vs-wanting test applied below), and — for a ready-tier issue only — `tools/classify-issue-run.ps1`, whose encoded eligibility rules are the single source of truth for the `**Run tier:**` check. Read nothing else.
+**Input:** the absolute path to the issue file under review. Read that file, `standards/issue-standards.md`, `standards/adversarial-review-protocol.md`, `definition-of-done.md` (repo root, for the trapped-vs-wanting test applied below), and — for a ready-tier issue only — `tools/classify-issue-run.ps1`, whose encoded eligibility rules are the single source of truth for the `**Run tier:**` check. Beyond that, read only files in this repository needed to test a claim the issue makes — including confirming that a file path named in the implementation plan or `Touches` list resolves to a real file, or is genuinely new.
 
 **Output:**
 
