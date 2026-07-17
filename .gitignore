@@ -18,6 +18,12 @@ data-stor*/
 # Environment secrets
 .env
 
+# Local per-box compose override (#571): docker-compose merges this
+# automatically if present, so a committed one would silently republish the
+# app past the drift guard in tests/compose-port-binding.test.js. It is a
+# per-box escape hatch, never checked in.
+docker-compose.override.yml
+
 # Local enforcement state, per working copy -- never commit:
 #  - .review_state/ : commit-gate verdicts (a committed or forged verdict defeats the gate)
 #  - .run_state/    : timed-run + loop-gate state (machine-local run.json / STOP sentinel)
