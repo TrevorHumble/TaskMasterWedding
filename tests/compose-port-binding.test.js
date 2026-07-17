@@ -11,6 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const config = require('../config');
 
 // A compose port entry has the form `[HOST_IP:]HOST_PORT:CONTAINER_PORT`.
@@ -55,6 +56,56 @@ function findHostIpForContainerPort(composeYaml, containerPort) {
   return undefined;
 }
 
+// Issue #571: `ports:` is not the only publish mechanism. `network_mode: host`
+// makes the container share the host's network namespace directly — Docker
+// ignores `ports:` entirely in that mode — so the app listens on every host
+// interface even though the `ports:` block above still reads
+// "127.0.0.1:3000:3000". This walks the `app:` service block by indentation
+// (same style as findHostIpForContainerPort) and reads a direct
+// `network_mode:` child.
+//
+// Only `network_mode: host` is a hazard here. `network_mode: bridge` (the
+// default) and a `networks:` key are not — bridge mode still honors `ports:`
+// host-IP binding. `network_mode: "service:foo"` / `"container:foo"` share
+// another container's network namespace, not the host's, and are excluded
+// deliberately: joining another container's namespace does not make the app
+// reachable from off-host by itself (that other container's own publish
+// surface, if any, is a separate concern for its own compose entry).
+function findAppServiceNetworkMode(composeYaml) {
+  const lines = composeYaml.split('\n');
+  let inServices = false;
+  let servicesIndent = 0;
+  let inAppService = false;
+  let appIndent = 0;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line === '') continue;
+    const indent = rawLine.length - rawLine.trimStart().length;
+    if (line === 'services:') {
+      inServices = true;
+      servicesIndent = indent;
+      continue;
+    }
+    if (inServices && indent <= servicesIndent) {
+      inServices = false;
+    }
+    if (!inServices) continue;
+    if (!inAppService && line === 'app:') {
+      inAppService = true;
+      appIndent = indent;
+      continue;
+    }
+    if (inAppService && indent <= appIndent) {
+      inAppService = false;
+    }
+    if (!inAppService) continue;
+    if (line.startsWith('network_mode:')) {
+      return line.slice('network_mode:'.length).trim().replace(/^['"]/, '').replace(/['"]$/, '');
+    }
+  }
+  return undefined;
+}
+
 describe('findHostIpForContainerPort (fixture cases)', () => {
   it('returns null (no host IP) for the bare "3000:3000" form — the defect this issue removes', () => {
     const fixture = ['services:', '  app:', '    ports:', "      - '3000:3000'"].join('\n');
@@ -86,5 +137,70 @@ describe('AC1/AC5: docker-compose.yml publishes port 3000 loopback-only', () => 
   it('AC5 negative case: the guard fails against the old bare "3000:3000" fixture', () => {
     const preFixCompose = ['services:', '  app:', '    ports:', "      - '3000:3000'"].join('\n');
     expect(findHostIpForContainerPort(preFixCompose, 3000)).not.toBe('127.0.0.1');
+  });
+
+  it('AC2: the committed file declares no network_mode key at all', () => {
+    expect(findAppServiceNetworkMode(compose)).toBeUndefined();
+  });
+});
+
+describe('findAppServiceNetworkMode (fixture cases)', () => {
+  it('AC1: detects network_mode: host alongside an otherwise-correct loopback bind', () => {
+    const fixture = [
+      'services:',
+      '  app:',
+      '    build: .',
+      '    network_mode: host',
+      '    ports:',
+      "      - '127.0.0.1:3000:3000'",
+    ].join('\n');
+    expect(findAppServiceNetworkMode(fixture)).toBe('host');
+  });
+
+  it('does not flag network_mode: bridge (the default, harmless)', () => {
+    const fixture = ['services:', '  app:', '    network_mode: bridge', '    ports:'].join('\n');
+    expect(findAppServiceNetworkMode(fixture)).not.toBe('host');
+  });
+
+  it('does not flag a plain networks: key', () => {
+    const fixture = ['services:', '  app:', '    networks:', '      - default'].join('\n');
+    expect(findAppServiceNetworkMode(fixture)).toBeUndefined();
+  });
+
+  it('does not flag network_mode: "service:foo" (shares another container\'s namespace, not the host\'s)', () => {
+    const fixture = ['services:', '  app:', '    network_mode: "service:db"'].join('\n');
+    expect(findAppServiceNetworkMode(fixture)).not.toBe('host');
+  });
+
+  it('does not flag network_mode: "container:foo"', () => {
+    const fixture = ['services:', '  app:', "    network_mode: 'container:db'"].join('\n');
+    expect(findAppServiceNetworkMode(fixture)).not.toBe('host');
+  });
+
+  it('does not read network_mode from a different, later service', () => {
+    const fixture = [
+      'services:',
+      '  app:',
+      '    ports:',
+      "      - '127.0.0.1:3000:3000'",
+      '  sidecar:',
+      '    network_mode: host',
+    ].join('\n');
+    expect(findAppServiceNetworkMode(fixture)).toBeUndefined();
+  });
+});
+
+describe('AC4/AC5: docker-compose.override.yml cannot be silently merged in', () => {
+  it('is not a git-tracked file (a tracked override would be auto-merged by Docker at runtime, bypassing this guard)', () => {
+    const tracked = execFileSync('git', ['ls-files', 'docker-compose.override.yml'], {
+      cwd: config.ROOT,
+      encoding: 'utf8',
+    }).trim();
+    expect(tracked).toBe('');
+  });
+
+  it('is listed in .gitignore so a careless `git add .` cannot sweep it in', () => {
+    const gitignore = fs.readFileSync(path.join(config.ROOT, '.gitignore'), 'utf8');
+    expect(gitignore).toMatch(/^docker-compose\.override\.yml$/m);
   });
 });
