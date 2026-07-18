@@ -1420,6 +1420,29 @@ textarea {
 .avatar-current {
   margin-bottom: var(--space-4);
 }
+/* ---------------- Remove profile photo (issue #528) ----------------
+   Quiet destructive text under the current avatar on /me/edit, its own
+   standalone form (see me-edit.ejs), shown only when an avatar is set. Same
+   no-box treatment as .comment-delete. */
+.avatar-remove-form {
+  margin: var(--space-2) 0 0;
+}
+.avatar-remove {
+  display: inline-block;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.avatar-remove:hover {
+  color: var(--color-primary);
+}
+/* .avatar-remove joins the shared tap-highlight-transparent and :focus-visible
+   selector groups below (the repo's single-source treatment for quiet no-box
+   controls) rather than re-declaring those properties here. */
 
 /* ----------------------- Badges / pill chips ----------------------- */
 /* badge-item (issue #487, restyled to a divider row by #518): a clean row
@@ -1853,7 +1876,8 @@ textarea {
 .comment-delete,
 .comment-menu-trigger,
 .comments-dialog-close,
-.comments-dialog-thread .feed-comment a {
+.comments-dialog-thread .feed-comment a,
+.avatar-remove {
   -webkit-tap-highlight-color: transparent;
 }
 /* Keyboard users still need a visible focus ring — :focus-visible (not
@@ -1871,7 +1895,8 @@ textarea {
 .comment-menu-trigger:focus-visible,
 .comments-dialog-close:focus-visible,
 .comments-dialog-thread .feed-comment a:focus-visible,
-.badge-dialog .badge-done:focus-visible {
+.badge-dialog .badge-done:focus-visible,
+.avatar-remove:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }

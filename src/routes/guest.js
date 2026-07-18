@@ -851,4 +851,52 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
   });
 });
 
+// ---------------------------------------------------------------------------
+// POST /me/avatar/delete  — issue #528: clear the signed-in guest's own
+// profile photo. A STANDALONE form on me-edit.ejs (deliberately not a submit
+// button of the profile-edit form — see that view's comment), so it reads no
+// request body: the target guest comes ONLY from res.locals.guest (set by
+// requireGuest above, from the signed gsid cookie), never from req.body/query
+// (AC2 — no cross-guest removal via a manipulated field).
+//
+// Clearing avatar_path is the only write needed for the #409 interplay
+// (AC4): starterTaskContribution/getPoints derive "done" from
+// `!!avatar_path` alone, so the starter tile reverts to to-do automatically
+// once this runs. guests.avatar_point_awarded is left untouched — it is the
+// one-time award guard (awardProfilePhotoPoint), not a photo-presence flag —
+// so the already-banked point stays banked and a later re-upload finds the
+// flag already 1 and does not re-award (mirrors POST /me/edit's replace
+// path).
+//
+// No-op-but-safe when the guest has no avatar (idempotent redirect) — same
+// "nothing to delete" shape as POST /me/edit's replace-avatar branch, which
+// also only calls deleteOriginalFile when an old avatar actually exists.
+//
+// The file unlink is wrapped non-fatal, and the avatar_path UPDATE runs
+// regardless — the same ordering POST /me/edit's replace branch uses (guest.js
+// ~836). deleteOriginalFile swallows ENOENT but rethrows a non-ENOENT failure
+// (e.g. a transient Windows lock while express.static serves the file); letting
+// that throw would 500 the request and leave avatar_path set, so "Remove photo"
+// would silently fail as to state. Clearing the column is the user-visible
+// contract; a rare orphaned file on disk is the lesser evil.
+// ---------------------------------------------------------------------------
+// uploadRateLimiter (shared with POST /me/edit, the sibling avatar-write path):
+// this handler does filesystem + DB work, so it gets the same per-guest budget
+// its sibling does rather than being an unthrottled fs/db endpoint.
+router.post('/me/avatar/delete', uploadRateLimiter, function (req, res) {
+  const guest = res.locals.guest;
+
+  if (guest.avatar_path) {
+    try {
+      photos.deleteOriginalFile(guest.avatar_path);
+    } catch (e) {
+      // Non-fatal — the column clear below is the contract, not the unlink.
+    }
+    db.prepare('UPDATE guests SET avatar_path = NULL WHERE id = ?').run(guest.id);
+    setFlash(res, 'success', 'Photo removed.');
+  }
+
+  return res.redirect('/me/edit');
+});
+
 module.exports = router;
