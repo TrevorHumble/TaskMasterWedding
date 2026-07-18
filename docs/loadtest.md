@@ -120,3 +120,36 @@ PASS: within Goal A thresholds.
 ```
 
 Zero `networkFailures` at the identical request count/concurrency that previously dropped 25 -- the upload-concurrency cap (default 6 concurrent heavy pipelines; env-overridable via `MAX_CONCURRENT_UPLOADS`) keeps enough of the accept backlog free that no incoming connection was shed. `server5xx` stayed 0 throughout, matching the before run and confirming the fix did not trade dropped connections for a new failure mode of its own. As with every other recorded run here, this is a **local** measurement (see the caveat above), not a substitute for the documented hosted-URL confirmation (issue #292).
+
+## Hosted run (provisional — issue #525)
+
+**2026-07-18** — the first load run on the **real production host** (the rented droplet), weeks ahead of #292's final proof, so a hosting-capacity or configuration failure surfaces with buffer instead of days. Every run above this line was on the event laptop; this one is on the host guests will actually reach.
+
+**Target host:** the production droplet — 2 vCPU, ~2 GB RAM, 58 GB disk. The load ran against the same Docker image serving the live site (`taskmasterwedding-app:latest`, built from commit `6e8602f`), so it exercises the host's real CPU, memory, and disk and the exact code guests run.
+
+**Isolation — the live event was never touched.** `docs/deploy.md` § "First data" forbids seeding production data, and the harness uploads a photo on every lap, so the run used a **short-lived, fully isolated instance**, never the live container or the real `data/`:
+
+- a throwaway app container from the live image, with its own ephemeral `DATA_DIR` (inside the container layer — nothing bind-mounted) and its own single-use `COOKIE_SECRET`, on a private Docker network with no published ports;
+- seeded with a fresh 100-guest event (`node scripts/seed-event.js --guests 100` → 100 guests, 20 active tasks);
+- driven from a **separate** container on the same network (`scripts/loadtest.js --base-url http://<app-container>:3000 --concurrency 100 --duration 30`), so the app container's CPU/memory readings reflect the server alone, not the harness sharing its cores;
+- torn down at the end — the ephemeral data dir vanished with the container. The live container stayed `healthy` with 0 restarts, and host disk use was unchanged (8%) before and after.
+
+**Load profile:** 100 concurrent virtual guests for 30 s, each looping the read paths (`/`, `/tasks`, `/gallery`, `/feed`, `/leaderboard`) plus a real photo submit to `/tasks/:id/submit`.
+
+**Measured numbers:**
+
+```
+Summary: count=7050 server5xx=0 networkFailures=0 p50=206ms p95=1240ms p99=1478ms rps=221.6
+PASS: within Goal A thresholds.
+```
+
+App-container resource use, sampled every 2 s during the run (server only): CPU peaked at ~137 % of the 200 % two-core ceiling (≈1.4 of 2 cores), memory peaked at ~121 MiB of 1.9 GiB, no OOM kill, exit code 0, 0 restarts. Seeded data dir reached 12 MB.
+
+**Verdict per surface:**
+
+- **Read paths + upload (all paths):** **PASS.** `server5xx=0` and `networkFailures=0` across all 7,050 requests — nothing broke or dropped. p95 `1240ms` is under the 2000 ms Goal-A bar.
+- **Host capacity:** **PASS, CPU is the binding resource.** Memory and disk had wide headroom; CPU is what moves. At a sustained flat-out 100-concurrent run the two cores peaked around 1.4 used, leaving ~30 % headroom — and a real reception is bursty, not 30 s of every guest hammering at once. No resource ceiling was hit. No follow-up issue is filed, because no surface reached a concern.
+
+p95 here (`1240ms`) is higher than the laptop baselines above (`562ms` after #311) — expected: this host is two shared cloud vCPUs, not the event laptop, and this is a full sustained 30 s run. Zero server errors at that latency on the real hardware is the signal that matters this far out.
+
+**What this run does _not_ cover:** the driver hit the app container directly over the host's private Docker network, so this measures the host's hardware and the app image — **not** the public `https://` URL, the reverse-proxy/TLS hop, or real venue-wifi (radio contention, weak signal). Those remain issue #292's job: the final, feature-complete confirmation against the public URL, ideally with several phones at once. This provisional run narrows nothing about #292 — it only buys an early capacity signal.
