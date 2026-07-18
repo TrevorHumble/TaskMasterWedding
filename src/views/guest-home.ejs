@@ -109,6 +109,21 @@
         <span class="menu-label">How to play</span>
       </a>
     </li>
+    <%# Log out (issue #529) — a POST form styled as a menu row, not a GET link,
+        so a crawler/prefetcher can never end a guest's session. Sits between
+        How to play and Report a bug per owner's 2026-07-18 placement call. %>
+    <li class="menu-row">
+      <form method="post" action="/logout" class="menu-logout-form">
+        <button type="submit" class="menu-link menu-link-button">
+          <span class="menu-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">
+              <path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5v-2H5V5h5V3zm7.5 5.5-1.4 1.4L18.2 12H9v2h9.2l-2.1 2.1 1.4 1.4L22 13l-4.5-4.5z"/>
+            </svg>
+          </span>
+          <span class="menu-label">Log out</span>
+        </button>
+      </form>
+    </li>
     <li class="menu-row">
       <a class="menu-link menu-link-muted" href="/bug-report">
         <span class="menu-icon" aria-hidden="true">

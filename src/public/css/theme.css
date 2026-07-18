@@ -2750,6 +2750,19 @@ body:has(dialog[open]) {
   color: var(--color-text-muted);
   font-weight: 400;
 }
+.menu-logout-form {
+  margin: 0;
+}
+/* The logout menu row is a real POST button (issue #529); reset the native
+   button box so it reads identically to the <a class="menu-link"> rows. */
+.menu-link-button {
+  width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
 .photo-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
