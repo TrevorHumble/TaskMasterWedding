@@ -5,6 +5,27 @@
   <p class="back-link"><a href="/">&#8592; Back to my profile</a></p>
   <h1 class="page-title">Edit My Profile</h1>
 
+  <%# Current avatar + remove (issue #528): a STANDALONE form, deliberately
+      OUTSIDE the profile-edit form below, so "Remove photo" is not a submit
+      button of the profile form — pressing Enter in a profile text field can
+      never trigger an avatar deletion — and it stays valid HTML (no nested
+      forms). The remove control renders only when an avatar is set (AC3). %>
+  <div class="form-row">
+    <span class="form-label">Current avatar</span>
+    <div class="avatar-current">
+      <% if (guest.avatar_path) { %>
+        <img src="/uploads/<%= guest.avatar_path %>" alt="Your current avatar" class="avatar-img" />
+        <form method="post" action="/me/avatar/delete" class="avatar-remove-form">
+          <button type="submit" class="avatar-remove">Remove photo</button>
+        </form>
+      <% } else { %>
+        <div class="avatar-placeholder" aria-hidden="true">
+          <%= (guest.name || '?').trim().charAt(0).toUpperCase() || '?' %>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
   <form action="/me/edit"
         method="POST"
         enctype="multipart/form-data">
@@ -17,19 +38,6 @@
              maxlength="80"
              value="<%= guest.name %>"
              class="text-input" />
-    </div>
-
-    <div class="form-row">
-      <label class="form-label">Current avatar</label>
-      <div class="avatar-current">
-        <% if (guest.avatar_path) { %>
-          <img src="/uploads/<%= guest.avatar_path %>" alt="Your current avatar" class="avatar-img" />
-        <% } else { %>
-          <div class="avatar-placeholder" aria-hidden="true">
-            <%= (guest.name || '?').trim().charAt(0).toUpperCase() || '?' %>
-          </div>
-        <% } %>
-      </div>
     </div>
 
     <div class="form-row">
