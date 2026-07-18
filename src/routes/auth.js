@@ -749,4 +749,27 @@ router.post('/admin/logout', (req, res) => {
   res.redirect('/admin/login');
 });
 
+// --- Guest logout (issue #529) -----------------------------------------------
+
+// POST /logout — end a guest's session, mirroring POST /admin/logout above.
+// Only the `gsid` cookie is cleared (AC4) — this never touches the `admin`
+// cookie, so a shared-device admin session survives a guest logging out of
+// their own session on the same browser.
+//
+// clearCookie only needs to match the cookie's `path` to delete it (browsers
+// key deletion on name+path+domain, not on the other attributes like
+// httpOnly/sameSite/secure) — same one-attribute clear as /admin/logout,
+// which sets the whole cookieOpts() shape but clears with only { path: '/' }.
+//
+// Note: attachGuest (src/middleware/session.js) already re-issued a fresh
+// gsid Set-Cookie earlier in this same request's middleware chain (the
+// rolling-refresh, issue #242) before this handler ever runs — so this
+// response carries TWO Set-Cookie: gsid headers. The expiring one written
+// here is the later header, which is what browsers and supertest cookie
+// jars apply as the cookie's final state (AC1).
+router.post('/logout', (req, res) => {
+  res.clearCookie('gsid', { path: '/' });
+  res.redirect('/join');
+});
+
 module.exports = router;
