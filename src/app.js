@@ -114,8 +114,34 @@ app.set('views', config.VIEWS_DIR);
 // ---------------------------------------------------------------------------
 // Parse form posts (multipart photo uploads are handled separately by multer
 // in the routes that need it).
-app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
+//
+// Explicit 16kb limit on both parsers (issue #553). Bounds per-frame memory
+// on the unauthenticated bcrypt path: POST /admin/login runs bcrypt.compare
+// on the main thread for every caller before anyone is known to be the real
+// admin (issue #543's CPU-bound gate), and body-parser's own 100 KB default
+// would otherwise let an attacker pin an ~100 KB password per accumulated
+// request frame -- ~600x the ~170 bytes a real credential costs -- on a
+// ~2 GB host under a login flood. 16kb leaves at least an order of magnitude
+// of headroom over every real form field in src/views/ (AC4).
+app.use(express.urlencoded({ extended: false, limit: '16kb' }));
+app.use(express.json({ limit: '16kb' }));
+// 413 passthrough (issue #553). body-parser signals an over-limit body by
+// calling next(err) with a 413 PayloadTooLargeError (err.type ===
+// 'entity.too.large'), but the catch-all error handler below (section 8)
+// renders a 500 for EVERY error -- so without this, an oversized body from
+// either parser above would surface as 500, not the 413 AC2/AC3 require.
+// This only sees errors from middleware registered before it (the two
+// parsers above), so a malformed-JSON 400 or any other route/error still
+// falls through to the catch-all unchanged -- no regression there.
+app.use((err, req, res, next) => {
+  if (err && err.type === 'entity.too.large') {
+    res.status(413).render('error', {
+      message: 'That request was too large. Please try again.',
+    });
+    return;
+  }
+  next(err);
+});
 // Signed cookies. The same secret signs the guest (gsid) and admin cookies.
 app.use(cookieParser(config.COOKIE_SECRET));
 // Response header: keep every page and file out of search-engine indexes
