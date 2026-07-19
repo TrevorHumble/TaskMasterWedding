@@ -1,0 +1,49 @@
+<%# src/views/partials/photo-owner-menu.ejs
+    Owner-only ⋯ menu on a photo the signed-in guest posted (issue #387): two
+    actions — Edit caption (opens a popup dialog) and Delete (take the photo
+    down). Mirrors the own-comment menu (.comment-menu, issue #338): a native
+    <details>/<summary> whose ⋯ glyph is the only affordance. Renders nothing
+    for a non-owner or an anonymous visitor. The menu being hidden is NOT the
+    access control — each route re-checks req.guest.id === submission.guest_id
+    server-side and 403s otherwise. Expects locals: `guest` (may be null) and
+    `photo` exposing submission_id, guest_id, caption. %>
+<% if (guest && photo && guest.id === photo.guest_id) { %>
+  <details class="photo-owner-menu">
+    <summary class="photo-owner-menu-trigger" aria-label="Photo options">&#8943;</summary>
+    <div class="photo-owner-menu-panel">
+      <button
+        type="button"
+        class="photo-owner-menu-item"
+        data-edit-caption="<%= photo.submission_id %>"
+      >Edit caption</button>
+      <form
+        class="photo-owner-delete-form"
+        method="post"
+        action="/p/<%= photo.submission_id %>/delete"
+        data-confirm="Take this photo down? It leaves the feed and gallery right away."
+      >
+        <button type="submit" class="photo-owner-menu-item photo-owner-delete">Delete</button>
+      </form>
+    </div>
+  </details>
+
+  <%# Edit-caption popup, opened via showModal() by photo-owner-menu.js — the
+      same native <dialog> pattern the comments thread uses (#248). %>
+  <dialog class="caption-dialog" id="caption-dialog-<%= photo.submission_id %>" aria-labelledby="caption-title-<%= photo.submission_id %>">
+    <form method="post" action="/p/<%= photo.submission_id %>/caption" class="caption-dialog-form">
+      <h2 class="caption-dialog-title" id="caption-title-<%= photo.submission_id %>">Edit caption</h2>
+      <textarea
+        id="caption-input-<%= photo.submission_id %>"
+        name="caption"
+        maxlength="<%= captionMaxLength %>"
+        rows="3"
+        class="caption-dialog-input"
+        placeholder="Say something about this photo&hellip;"
+      ><%= photo.caption || '' %></textarea>
+      <div class="caption-dialog-actions">
+        <button type="button" class="caption-dialog-cancel" data-close-caption>Cancel</button>
+        <button type="submit" class="btn caption-dialog-save">Save</button>
+      </div>
+    </form>
+  </dialog>
+<% } %>

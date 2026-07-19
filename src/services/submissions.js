@@ -68,15 +68,21 @@ const stmtInsertMemory = db.prepare(
    VALUES (?, NULL, ?, ?, ?, 0)`
 );
 
+// The single owner of the caption length cap. Exported (issue #387) so the
+// edit-caption view's textarea maxlength reads THIS value instead of a
+// hand-copied literal that could drift from the server rule — the same
+// single-source shape COMMENT_MAX_LENGTH uses for the comment composer.
+const CAPTION_MAX_LENGTH = 500;
+
 /**
  * Trim and cap a caption to the stored column's limit. A missing or non-string
  * caption (the field is optional in the upload form) becomes '' rather than
  * throwing, mirroring the defensive read the route used to do inline.
  * @param {*} caption - req.body.caption, or any caller-supplied value
- * @returns {string} the value to store, always a string of length <= 500
+ * @returns {string} the value to store, always a string of length <= CAPTION_MAX_LENGTH
  */
 function normalizeCaption(caption) {
-  return typeof caption === 'string' ? caption.trim().slice(0, 500) : '';
+  return typeof caption === 'string' ? caption.trim().slice(0, CAPTION_MAX_LENGTH) : '';
 }
 
 /**
@@ -278,4 +284,6 @@ async function submitMemoryBatch({ guestId, files, caption }) {
 module.exports = {
   submitPhoto,
   submitMemoryBatch,
+  normalizeCaption,
+  CAPTION_MAX_LENGTH,
 };
