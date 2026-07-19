@@ -1,6 +1,6 @@
 # Garden Party Pastels — Wedding Scavenger Hunt
 
-A photo scavenger-hunt web app for the wedding of **Axel Fenwick & Lily Sckeiky**. Around 100 guests, each on their own phone, scan one shared QR code on a poster, sign up with no password, and complete tasks by uploading photos. Each completed task earns a point, badges unlock automatically, and there is a public leaderboard and a shared photo gallery. A password-protected admin (the "Task Master") manages tasks, awards bonus points and special badges, hides photos, and exports everything at the end.
+A photo scavenger-hunt web app for the wedding of **Axel Fenwick & Lily Sckeiky**. Around 100 guests, each on their own phone, scan one shared QR code on a poster, sign up with no password, and complete tasks by uploading photos. Each completed task earns a point, badges unlock automatically, and there is a leaderboard and shared photo gallery visible to every signed-in guest. A password-protected admin (the "Task Master") manages tasks, awards bonus points and special badges, hides photos, and exports everything at the end.
 
 It runs on a small rented Linux host with a persistent disk, reachable over HTTPS through the host's reverse proxy at a stable domain the QR codes point to; see [`docs/deploy.md`](docs/deploy.md) for the full deploy runbook. It originally ran on a laptop behind a temporary Cloudflare tunnel.
 
@@ -9,7 +9,7 @@ It runs on a small rented Linux host with a persistent disk, reachable over HTTP
 - **QR sign-up, no guest passwords.** One shared QR code, printed once on a poster, opens `/join` for every guest, who signs up with a name, contact, and a self-chosen 4-digit PIN. A returning guest re-enters at `/login` with that same contact + PIN on any device.
 - **Photo tasks.** One photo per task per guest marks that task done and adds +1 point.
 - **Badges.** Auto badges unlock at 5 / 10 / 15 completed tasks; special badges are hand-awarded by the admin; metric and transferable badges are computed by the badge engine from live data (e.g. a "most photos" badge that can change hands); and the admin can create further `custom` badges. Not a fixed set.
-- **Leaderboard + gallery.** A public ranking and one shared photo gallery with a lightbox.
+- **Leaderboard + gallery.** A ranking and one shared photo gallery with a lightbox, visible to every signed-in guest.
 - **Feed, likes, comments.** A live `/feed` shows recent photos; guests can like and comment on any photo.
 - **Profiles.** Avatar, name, badges, submissions, and optional social links. Guests can view each other's profiles.
 - **Admin panel.** View and edit a guest's contact and re-entry PIN (or delete a guest), print the shared entry poster, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, work a bug-report queue, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
