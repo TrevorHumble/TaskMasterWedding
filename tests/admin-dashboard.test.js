@@ -9,9 +9,13 @@
 //   AC3 — the newest visible submission's guest name appears on the pulse
 //         line ("Last photo ... <name>").
 //   AC4 — the action rows render as a single <ul class="menu-list"> of
-//         exactly five <li class="menu-row"> rows, labels in the specified
-//         order, each with a .menu-icon, none carrying a bespoke
-//         primary/emphasis modifier class.
+//         exactly six <li class="menu-row"> rows (the five plain-link rows
+//         plus issue #468's "Play slideshow" dialog-opening button, added by
+//         that issue's owner-approved AC6), labels in the specified order,
+//         each with a .menu-icon; none of the five <a class="menu-link">
+//         rows carries a bespoke primary/emphasis modifier class (the sixth
+//         row is a <button>, not an <a>, and is intentionally exempt from
+//         that assertion — see #468).
 // Plus a unit test for src/services/relative-time.js's relativeTime().
 //
 // REQUIRE ORDER: config / db / app are required only via loadApp() — see
@@ -135,14 +139,14 @@ describe("AC3: the pulse line names the newest visible submission's guest", () =
 });
 
 describe('AC4: action rows render as a single cohesive menu-list', () => {
-  test('exactly five menu-row rows, exact label order, each with a menu-icon, no modifier class', async () => {
+  test('exactly six menu-row rows, exact label order, each with a menu-icon, no modifier class on the <a> rows', async () => {
     resetTables();
 
     const res = await adminAgent.get('/admin');
     expect(res.status).toBe(200);
 
     const rowMatches = res.text.match(/<li class="menu-row">/g) || [];
-    expect(rowMatches.length).toBe(5);
+    expect(rowMatches.length).toBe(6);
 
     const listMatch = res.text.match(/<ul class="menu-list">([\s\S]*?)<\/ul>/);
     expect(listMatch).not.toBeNull();
@@ -161,11 +165,12 @@ describe('AC4: action rows render as a single cohesive menu-list', () => {
       'Manage guests',
       'Print QR place-cards',
       'Download export (ZIP + spreadsheet)',
+      'Play slideshow',
     ]);
 
-    // Every row has a menu-icon.
+    // Every row has a menu-icon (including the "Play slideshow" button row).
     const iconCount = (listHtml.match(/class="menu-icon"/g) || []).length;
-    expect(iconCount).toBe(5);
+    expect(iconCount).toBe(6);
 
     // No bespoke primary/emphasis modifier class on any row's link — every
     // .menu-link in this list carries exactly the base class, nothing else

@@ -98,6 +98,48 @@
         <span class="menu-label">Download export (ZIP + spreadsheet)</span>
       </a>
     </li>
+    <%# Slideshow is a moment, not a page: one row that opens the options popup
+        (issue #468) instead of a permanent panel of controls on the dashboard. %>
+    <li class="menu-row">
+      <button type="button" class="menu-link menu-link-button" data-open-slideshow aria-haspopup="dialog">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">
+            <path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm6 3.5v6l5-3-5-3zM8 20h8v1.5H8V20z"/>
+          </svg>
+        </span>
+        <span class="menu-label">Play slideshow</span>
+      </button>
+    </li>
   </ul>
+
+  <%# Options popup — native <dialog> opened by the row above, mirroring the
+      #248 comments dialog (showModal, close button + backdrop click; Escape
+      closes natively). The form is a plain GET to /slideshow so Start opens
+      the full-screen show in a new tab with the chosen sources + mode. %>
+  <dialog class="slideshow-dialog" id="slideshow-dialog" aria-labelledby="slideshow-dialog-title">
+    <form class="slideshow-dialog-form" method="get" action="/slideshow" target="_blank">
+      <div class="slideshow-dialog-header">
+        <h2 class="slideshow-dialog-title" id="slideshow-dialog-title">Play slideshow</h2>
+        <button type="button" class="slideshow-dialog-close" data-close-slideshow aria-label="Close">&times;</button>
+      </div>
+      <div class="slideshow-dialog-body">
+        <div class="sl-modes">
+          <label class="sl-mode">
+            <input type="radio" name="mode" value="auto" checked>
+            <span class="sl-mode-title">Auto</span>
+          </label>
+          <label class="sl-mode">
+            <input type="radio" name="mode" value="directed">
+            <span class="sl-mode-title">Directed</span>
+          </label>
+        </div>
+      </div>
+      <div class="slideshow-dialog-foot">
+        <button type="submit" class="btn btn-primary">Start slideshow</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/js/slideshow-launch.js" defer></script>
 
 <%- include('partials/footer') %>
