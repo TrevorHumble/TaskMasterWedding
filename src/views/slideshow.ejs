@@ -1,0 +1,103 @@
+<%# src/views/slideshow.ejs — full-screen end-of-night slideshow (issue #468).
+    A venue-display takeover: no site header/footer chrome. The head partial
+    supplies the doctype, self-hosted fonts, and theme.css; this page closes
+    its own <body>/<html>.
+
+    The reel is grouped by task: a title card announces each task, then that
+    task's photos play. /js/slideshow.js drives auto-advance (Auto mode) and
+    the shared navigation (arrows, tap the left/right of the screen, arrow
+    keys). All controls live in a chrome layer that stays hidden until the
+    mouse moves, so an idle screen is just the photo. %>
+<%- include('partials/head') %>
+
+<div class="slideshow" id="slideshow" data-mode="<%= mode %>">
+
+  <% if (!sequence || sequence.length === 0) { %>
+    <div class="slideshow-empty">
+      <p class="slideshow-empty-script">Nothing on screen yet</p>
+      <p class="slideshow-empty-line">Star a few favorites and they&rsquo;ll play here.</p>
+    </div>
+  <% } else { %>
+
+    <div class="stage" id="stage">
+      <% sequence.forEach(function (item, i) { %>
+        <% if (item.type === 'title') { %>
+          <%# Section title card. %>
+          <div class="slide slide-title<%= i === 0 ? ' on' : '' %>" data-dwell="4500">
+            <div class="title-card">
+              <p class="title-eyebrow"><%= item.kicker %></p>
+              <h2 class="title-task"><%= item.title %></h2>
+              <span class="title-rule" aria-hidden="true"></span>
+              <p class="title-count"><%= item.count %> <%= item.count === 1 ? 'moment' : 'moments' %></p>
+              <% if (item.pending) { %>
+                <p class="title-note">Lights up with the couple&rsquo;s gold hearts (#647)</p>
+              <% } %>
+            </div>
+          </div>
+        <% } else {
+             var who = item.guest_name || 'A guest';
+             var what = item.task_title
+               ? 'for “' + item.task_title + '”'
+               : (item.caption ? item.caption : 'a shared memory');
+        %>
+          <%# Photo slide. The last photo of a section is its winner: it carries
+              the gold notoriety tag and holds a couple seconds longer. %>
+          <div class="slide slide-photo<%= item.winner ? ' winner' : '' %><%= i === 0 ? ' on' : '' %>"
+               data-dwell="<%= item.winner ? 11000 : 8000 %>">
+            <div class="backdrop" style="background-image:url('/uploads/<%= item.photo_path %>')"></div>
+            <div class="scrim"></div>
+            <img class="photo" src="/uploads/<%= item.photo_path %>" alt="<%= item.task_title || 'a shared memory' %>">
+            <% if (item.rank) { %>
+              <%# Rank marker, top-left (where the badge used to sit). The
+                  section's #1 gets the gold trophy + winner label; 2nd–5th
+                  show their place, so a section plays as a countdown. %>
+              <div class="rank-tag<%= item.winner ? ' rank-tag-winner' : '' %>">
+                <% if (item.winner) { %>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 4h12v2h3v2a4 4 0 0 1-4 4 6 6 0 0 1-4 3.9V18h3v2H8v-2h3v-2.1A6 6 0 0 1 7 12a4 4 0 0 1-4-4V6h3V4zm0 4H5v0a2 2 0 0 0 1 1.7V8zm12 0v1.7A2 2 0 0 0 19 8h-1z"/></svg>
+                <% } %>
+                <span class="rank-tag-label"><%= item.rankLabel %></span>
+              </div>
+            <% } %>
+            <div class="caption">
+              <div class="who"><%= who %></div>
+              <div class="what"><%= what %></div>
+              <% if (item.like_count > 0) { %>
+                <div class="likes">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0112 6.6a4.8 4.8 0 018.5 3.2C20.5 15.7 12 21 12 21z"/></svg>
+                  <%= item.like_count %> like<%= item.like_count === 1 ? '' : 's' %>
+                </div>
+              <% } %>
+            </div>
+          </div>
+        <% } %>
+      <% }); %>
+    </div>
+
+    <%# Chrome layer — hidden until the mouse moves (see .show-chrome). The nav
+        zones are click/tap affordances only (tabindex -1 so keyboard arrows
+        never focus them and draw an outline down the screen). %>
+    <div class="slideshow-chrome" id="chrome">
+      <button type="button" class="nav-zone nav-prev" id="navPrev" tabindex="-1" aria-hidden="true">
+        <span class="nav-arrow">&lsaquo;</span>
+      </button>
+      <button type="button" class="nav-zone nav-next" id="navNext" tabindex="-1" aria-hidden="true">
+        <span class="nav-arrow">&rsaquo;</span>
+      </button>
+
+      <a class="exit" href="/admin" aria-label="End slideshow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </a>
+    </div>
+
+    <div class="wordmark" aria-hidden="true">
+      <div class="names">Lilly &amp; Axel</div>
+    </div>
+
+    <div class="paused-badge" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5h3v14H8zM13 5h3v14h-3z"/></svg></div>
+
+  <% } %>
+</div>
+
+<script src="/js/slideshow.js" defer></script>
+</body>
+</html>

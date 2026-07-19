@@ -41,7 +41,7 @@ const socialRateLimiter = createRateLimiter({
 // The guard list below is this router's complete set of route prefixes: any
 // NEW route prefix added to this file must be added to it too, or that route
 // ships ungated.
-router.use(['/gallery', '/feed', '/leaderboard', '/p', '/badge', '/u'], requireGuest);
+router.use(['/gallery', '/feed', '/leaderboard', '/p', '/badge', '/u', '/slideshow'], requireGuest);
 
 /**
  * Parse a guest's social_links JSON string into a safe array of links.
@@ -414,6 +414,21 @@ router.get('/feed', (req, res) => {
     olderHref,
     newerHref,
   });
+});
+
+// ---------------------------------------------------------------------------
+// GET /slideshow  — end-of-night full-screen slideshow (issue #468).
+//
+// feed.slideshowSequence() owns the Most-Liked-opener + per-task sectioning,
+// ranking, and winner selection entirely; this route's only decision is Auto
+// vs Directed. mode is whitelisted here (not left to the view or the client
+// script) so a garbage ?mode= value degrades to Auto rather than the client
+// having to also defend against an arbitrary string.
+// ---------------------------------------------------------------------------
+router.get('/slideshow', (req, res) => {
+  const mode = req.query.mode === 'directed' ? 'directed' : 'auto';
+  const sequence = feed.slideshowSequence();
+  return res.render('slideshow', { title: 'Slideshow — Lilly & Axel', sequence, mode });
 });
 
 // ---------------------------------------------------------------------------

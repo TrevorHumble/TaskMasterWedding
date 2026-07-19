@@ -467,6 +467,188 @@ function newestVisibleSubmission() {
   return stmtNewestVisible.get() || null;
 }
 
+// ---------------------------------------------------------------------------
+// GET /slideshow's play sequence (issue #468).
+// ---------------------------------------------------------------------------
+
+// How many photos one section (the Most Liked opener, or a task group) holds
+// at most, and how many task sections the reel carries at most. Both are the
+// issue's own numbers ("the 5 highest-liked...", "the fullest up-to-5
+// tasks") — named here so they read as intent, not magic numbers, at every
+// call site below.
+const SLIDESHOW_SECTION_SIZE = 5;
+const SLIDESHOW_MAX_TASK_SECTIONS = 5;
+
+// Rank-label text for a section's non-winner photos (2nd through 5th place).
+// The winner (rank 1) never reads from this map — its label is the section's
+// own winnerLabel ("Crowd favorite" for the Most Liked opener, "Top shot" for
+// a task section), passed into buildSlideshowSection below.
+const SLIDESHOW_ORDINAL_LABELS = { 2: '2nd place', 3: '3rd place', 4: '4th place', 5: '5th place' };
+
+/**
+ * One section's flat [title, ...photos] slice, in the view's `sequence`
+ * contract. `rows` must already be sorted BEST-FIRST by the section's rank
+ * metric (so `rows[0]` is the winner) — this takes the top
+ * SLIDESHOW_SECTION_SIZE, assigns rank 1..N and a label, then reverses them
+ * into ascending (worst-first) order so the winner (rank 1) renders LAST —
+ * the "countdown to the winner" AC1/AC3 require.
+ *
+ * @param {object[]} rows - best-first rows (each carrying photo_path,
+ *   guest_name, task_title, caption, like_count).
+ * @param {{title: string, kicker: string}} titleItem - the section's title
+ *   card, minus `count` (filled in here from the photos actually kept).
+ * @param {string} winnerLabel - the rank-1 photo's label ("Crowd favorite" or
+ *   "Top shot").
+ * @returns {object[]} title item followed by up to SLIDESHOW_SECTION_SIZE
+ *   photo items, worst-first / winner-last.
+ */
+function buildSlideshowSection(rows, titleItem, winnerLabel) {
+  const top = rows.slice(0, SLIDESHOW_SECTION_SIZE);
+  const photoItems = top.map((row, i) => {
+    const rank = i + 1;
+    const winner = rank === 1;
+    return {
+      type: 'photo',
+      photo_path: row.photo_path,
+      guest_name: row.guest_name,
+      task_title: row.task_title,
+      caption: row.caption,
+      like_count: row.like_count,
+      rank,
+      winner,
+      rankLabel: winner ? winnerLabel : SLIDESHOW_ORDINAL_LABELS[rank],
+    };
+  });
+  photoItems.reverse();
+  return [
+    { type: 'title', title: titleItem.title, kicker: titleItem.kicker, count: top.length },
+  ].concat(photoItems);
+}
+
+/**
+ * The end-of-night slideshow's play sequence (issue #468): a "Most Liked"
+ * opener (the 5 highest-liked visible photos) followed by one section per
+ * task (the fullest up-to-SLIDESHOW_MAX_TASK_SECTIONS tasks among the
+ * REMAINING photos, up to SLIDESHOW_SECTION_SIZE photos each) — a photo
+ * already used in the opener is never repeated ("show once"). Every section
+ * plays as a countdown: its winner (rank 1) renders last.
+ *
+ * Owns no new visibility rule — composes VISIBLE_WHERE and ORDER_NEWEST_FIRST
+ * like every other query in this file. The base query already returns rows
+ * newest-first; every rank below is built by chaining STABLE sorts
+ * (Array.prototype.sort has been a stable sort since ES2019) from
+ * least-significant key to most-significant, so a tie at the primary metric
+ * falls through to the secondary metric, and a tie at both falls through to
+ * the base query's own newest-first order — without hand-rolling a
+ * created_at/id comparator here.
+ *
+ * Rank metric per section:
+ *   - Most Liked opener: like_count, ties broken by points.
+ *   - Task groups: scoring.photoPoints(photo_bonus, hasTask), ties broken by
+ *     like_count.
+ *
+ * @returns {object[]} flat `sequence` matching the frozen slideshow view's
+ *   contract (src/views/slideshow.ejs): `{ type: 'title', title, kicker,
+ *   count }` and `{ type: 'photo', photo_path, guest_name, task_title,
+ *   caption, like_count, rank, winner, rankLabel }`. `[]` when there are no
+ *   visible submissions (the view's empty state, AC4).
+ */
+function slideshowSequence() {
+  // Lazy require, not a top-level one: scoring.js requires feed.js (for
+  // VISIBLE_WHERE) at ITS OWN top level, so a top-level require here would
+  // create a load-order-sensitive cycle — whichever of the two modules
+  // happens to load first would see the other's module.exports still
+  // mid-assembly (missing keys) at the moment it destructures from it.
+  // Deferring this require to call time sidesteps the cycle entirely: by the
+  // time any route calls slideshowSequence(), both modules have long since
+  // finished loading, and require() memoizes so this costs nothing beyond
+  // the first call.
+  const scoring = require('./scoring');
+
+  const rows = db
+    .prepare(
+      `SELECT s.id            AS submission_id,
+              s.photo_path    AS photo_path,
+              s.caption       AS caption,
+              s.photo_bonus   AS photo_bonus,
+              s.task_id       AS task_id,
+              g.name          AS guest_name,
+              t.title         AS task_title,
+              (SELECT COUNT(*) FROM likes l WHERE l.submission_id = s.id) AS like_count
+         FROM submissions s
+         JOIN guests g ON g.id = s.guest_id
+         LEFT JOIN tasks  t ON t.id = s.task_id
+        WHERE ${VISIBLE_WHERE}
+        ${ORDER_NEWEST_FIRST}`
+    )
+    .all();
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  for (const row of rows) {
+    // hasTask false only for a memory (task_id IS NULL, issue #247) — same
+    // flag community.js's attachPhotoPoints passes to this same function.
+    row.points = scoring.photoPoints(row.photo_bonus, row.task_id !== null);
+  }
+
+  // --- Most Liked opener --------------------------------------------------
+  // Ranked likes-first, points as the tiebreak; a full tie falls through to
+  // the base query's newest-first order (Array.prototype.sort is stable).
+  const byLikes = rows.slice().sort((a, b) => b.like_count - a.like_count || b.points - a.points);
+
+  const opener = byLikes.slice(0, SLIDESHOW_SECTION_SIZE);
+  const openerIds = new Set(opener.map((r) => r.submission_id));
+
+  const sequence = buildSlideshowSection(
+    byLikes,
+    { title: 'Most Liked', kicker: "The crowd's five favorites" },
+    'Crowd favorite'
+  );
+
+  // --- Task groups ---------------------------------------------------------
+  // Only task-linked rows (task_id !== null) group into a task section — a
+  // memory (issue #247) has no task to join. A row already shown in the
+  // opener is dropped here, so it is never repeated ("show once").
+  const remaining = rows.filter((r) => r.task_id !== null && !openerIds.has(r.submission_id));
+
+  const byTaskId = new Map();
+  for (const row of remaining) {
+    if (!byTaskId.has(row.task_id)) {
+      byTaskId.set(row.task_id, []);
+    }
+    byTaskId.get(row.task_id).push(row);
+  }
+
+  const taskGroups = Array.from(byTaskId.entries()).map(([taskId, taskRows]) => {
+    // Ranked points-first, likes as the tiebreak; a full tie falls through to
+    // the base query's newest-first order (Array.prototype.sort is stable).
+    const sorted = taskRows
+      .slice()
+      .sort((a, b) => b.points - a.points || b.like_count - a.like_count);
+    return { taskId, taskTitle: taskRows[0].task_title, rows: sorted };
+  });
+
+  // Fullest task first (most remaining photos); ties broken by task id
+  // ascending — the issue specifies "the fullest up-to-5 tasks" but not a
+  // tiebreak, so this picks the deterministic, stable option (older task
+  // wins the tie) rather than leaving group order to Map iteration.
+  taskGroups.sort((a, b) => b.rows.length - a.rows.length || a.taskId - b.taskId);
+
+  for (const group of taskGroups.slice(0, SLIDESHOW_MAX_TASK_SECTIONS)) {
+    sequence.push(
+      ...buildSlideshowSection(
+        group.rows,
+        { title: group.taskTitle, kicker: 'Up next' },
+        'Top shot'
+      )
+    );
+  }
+
+  return sequence;
+}
+
 module.exports = {
   GALLERY_PAGE_SIZE,
   FEED_PAGE_SIZE,
@@ -484,4 +666,5 @@ module.exports = {
   detail,
   neighbors,
   newestVisibleSubmission,
+  slideshowSequence,
 };
