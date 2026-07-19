@@ -177,7 +177,7 @@ router.get('/', function (req, res) {
       : Math.max(0, Math.min(100, Math.round((completedTasksWithStarter / totalTasks) * 100)));
 
   res.render('guest-home', {
-    title: 'My Garden',
+    title: 'Home',
     points: points,
     badges: badges,
     submissions: submissions,

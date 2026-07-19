@@ -113,9 +113,10 @@ router.get('/join', (req, res) => {
 // with an optional avatar, and sign them in immediately.
 //
 // photos.uploadAvatar is invoked with an explicit callback (same pattern as
-// POST /onboard above) so a fileFilter/size rejection or a sharp-undecodable
-// image never falls through to the global 500 handler or crashes the process
-// (Express 4 does not catch async-handler rejections; issue #187).
+// POST /me/edit in guest.js) so a fileFilter/size rejection or a
+// sharp-undecodable image never falls through to the global 500 handler or
+// crashes the process (Express 4 does not catch async-handler rejections;
+// issue #187).
 router.post('/join', joinRateLimiter, (req, res, next) => {
   photos.uploadAvatar(req, res, async (err) => {
     try {
