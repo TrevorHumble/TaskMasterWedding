@@ -270,33 +270,16 @@ router.get('/tasks', function (req, res) {
 //
 // taskCount is the LIVE count of active tasks (owner directive: never a
 // hard-coded number, so the copy tracks admin changes to the task list).
-// firstTaskHref points at this guest's own lowest-sort_order undone task —
-// the same "todo, ordered by sort_order" shape /tasks already computes above,
-// just narrowed to id-only and LIMIT 1 here since this route only needs the
-// first row, not the whole list.
+// The closing button always links to /tasks (the task board), never an
+// individual task — issue #663: the owner wants the guest landing on the
+// whole list to choose where to start, not dropped into one arbitrarily
+// picked first-undone task.
 // ---------------------------------------------------------------------------
 router.get('/how-to-play', function (req, res) {
   const guest = res.locals.guest;
 
   const taskCountRow = db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get();
   const taskCount = taskCountRow.n;
-
-  // Lowest sort_order active task this guest has not (visibly) submitted for.
-  // taken_down submissions do not count as done, matching /tasks above.
-  const firstUndone = db
-    .prepare(
-      `SELECT t.id
-         FROM tasks t
-         LEFT JOIN submissions s
-                ON s.task_id = t.id
-               AND s.guest_id = ?
-               AND s.taken_down = 0
-        WHERE t.is_active = 1
-          AND s.id IS NULL
-        ORDER BY t.sort_order ASC, t.id ASC
-        LIMIT 1`
-    )
-    .get(guest.id);
 
   // Issue #564: mark the guest onboarded on the RENDER of the rules, not on
   // arrival at the route — a guest who somehow never reaches the render
@@ -311,7 +294,6 @@ router.get('/how-to-play', function (req, res) {
   res.render('how-to-play', {
     title: 'How to play',
     taskCount: taskCount,
-    firstTaskHref: firstUndone ? '/tasks/' + firstUndone.id : '/tasks',
     showSkip: req.query.first === '1',
   });
 });
