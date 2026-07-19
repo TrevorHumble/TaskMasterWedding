@@ -1,5 +1,5 @@
 // src/app.js
-// Express bootstrap for Garden Party Pastels.
+// Express bootstrap for Wedding Master.
 //
 // All config reads below use the canonical UPPER_SNAKE_CASE keys from config.js.
 
@@ -244,7 +244,7 @@ app.use((err, req, res, next) => {
 if (require.main === module) {
   const server = app.listen(config.PORT, () => {
     console.log('');
-    console.log('  Garden Party Pastels is running.');
+    console.log('  Wedding Master is running.');
     console.log('  Local:   http://localhost:' + config.PORT);
     if (config.BASE_URL) {
       console.log('  Public:  ' + config.BASE_URL);

@@ -40,6 +40,6 @@ describe('single <main> per page', () => {
     signInGuest(app, 'seedtoken', agent);
     const res = await agent.get('/');
     expect(res.status).toBe(200);
-    expect(res.text).not.toContain('Garden Party Pastels server is running');
+    expect(res.text).not.toContain('Wedding Master server is running');
   });
 });

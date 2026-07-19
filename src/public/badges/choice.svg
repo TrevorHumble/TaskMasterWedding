@@ -1,5 +1,5 @@
 <!-- src/public/badges/choice.svg -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Task Master's Choice badge">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Wedding Master's Choice badge">
   <circle cx="60" cy="60" r="56" fill="#ffffff" stroke="#467058" stroke-width="4"/>
   <circle cx="60" cy="60" r="47" fill="none" stroke="#aebbb2" stroke-width="1.5"/>
   <path d="M48 68 L42 96 L52 90 L58 100 L62 74 Z" fill="#6e8478"/>

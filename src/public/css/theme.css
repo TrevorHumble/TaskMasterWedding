@@ -235,8 +235,9 @@ p {
   align-items: center;
   gap: var(--space-2);
 }
-/* ---- Admin brand line (unchanged appearance; renamed off the old brand
-   wrapper/label pair so that pair is fully retired — see issue #252 AC1) ---- */
+/* ---- Admin brand line (renamed off the old brand wrapper/label pair so
+   that pair is fully retired — see issue #252 AC1; wordmark added for brand
+   parity with the guest masthead, issue #354) ---- */
 .admin-brand {
   display: inline-flex;
   align-items: center;
@@ -260,6 +261,26 @@ p {
   color: var(--color-primary);
   letter-spacing: var(--tracking-display);
   text-transform: uppercase;
+}
+/* The same script wordmark as the guest masthead, sized down and stacked
+   over the couple's names to sit on the compact admin brand row instead of
+   the guest page's large centered treatment (issue #354 / #426). The
+   wordmark rule is scoped under .admin-brand so it wins over the later
+   .brand-script guest-scale rule (equal single-class specificity would lose
+   to source order). */
+.admin-brand-stack {
+  display: flex;
+  flex-direction: column;
+}
+.admin-brand .admin-brand-wordmark {
+  font-size: 24px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.admin-brand-stack .admin-brand-text {
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
 }
 /* ---- Guest masthead (issue #252) ----
    Script wordmark over a letter-spaced names line, hearts both sides. */
@@ -3694,7 +3715,7 @@ body:has(dialog[open]) {
   color: var(--color-primary);
 }
 
-/* Task Master badge: one award per row. The name, points, and the host's
+/* Wedding Master badge: one award per row. The name, points, and the host's
    note sit on the LEFT, always starting at the same left edge whether or not
    a photo is present; the earning photo (when still visible) anchors the
    RIGHT. A note-only award (no photo) therefore never rags out of line, and

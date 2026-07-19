@@ -42,7 +42,7 @@ const BADGES = [
     type: 'special',
     threshold: null,
     art_path: '/badges/earlybird.svg',
-    description: 'Awarded by the Task Master for early arrival.',
+    description: 'Awarded by the Wedding Master for early arrival.',
   },
   {
     code: 'SHUTTERBUG',
@@ -50,7 +50,7 @@ const BADGES = [
     type: 'special',
     threshold: null,
     art_path: '/badges/shutterbug.svg',
-    description: 'Awarded by the Task Master for great photography.',
+    description: 'Awarded by the Wedding Master for great photography.',
   },
   {
     code: 'CROWDFAV',
@@ -58,15 +58,15 @@ const BADGES = [
     type: 'special',
     threshold: null,
     art_path: '/badges/crowdfav.svg',
-    description: 'Awarded by the Task Master as the crowd favorite.',
+    description: 'Awarded by the Wedding Master as the crowd favorite.',
   },
   {
     code: 'CHOICE',
-    name: "Task Master's Choice",
+    name: "Wedding Master's Choice",
     type: 'special',
     threshold: null,
     art_path: '/badges/choice.svg',
-    description: 'Awarded by the Task Master as their personal pick.',
+    description: 'Awarded by the Wedding Master as their personal pick.',
   },
   {
     code: 'COMPLETIONIST',
