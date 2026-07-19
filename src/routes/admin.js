@@ -15,10 +15,12 @@
 //   POST /admin/tasks/:id/delete         delete a task (cascades submissions)
 //   POST /admin/tasks/:id/active         toggle is_active
 //   POST /admin/tasks/reorder            move a task up/down (sort_order)
-//   GET  /admin/photos                   ALL submissions incl. taken-down
+//   GET  /admin/photos                   guest-gallery-parity photo wall (issue #259)
 //   POST /admin/photos/:id/takedown      hide a photo + recompute auto-badges
 //   POST /admin/photos/:id/restore       unhide a photo + recompute auto-badges
 //   POST /admin/photos/:id/points        set a photo's bonus points (absolute set)
+//   POST /admin/photos/:id/favorite      toggle the host-scoped favorite flag (issue #259)
+//   POST /admin/photos/:id/badge         award/remove a photo as a give-a-badge winner (issue #259)
 //   GET  /admin/comments                 ALL comments incl. taken-down
 //   POST /admin/comments/:id/hide        hide a comment
 //   POST /admin/comments/:id/restore     unhide a comment
@@ -38,6 +40,8 @@ const qr = require('../services/qr');
 const scoring = require('../services/scoring');
 const photos = require('../services/photos');
 const taskBadges = require('../services/task-badges');
+const favoritesSvc = require('../services/favorites');
+const photoBadges = require('../services/photo-badges');
 const feed = require('../services/feed');
 const { streamExportZip } = require('../services/export');
 const { normalizeContact, isValidPin } = require('../services/identity');
@@ -69,6 +73,40 @@ function redirectWithMsg(res, path, msg, anchor) {
   const sep = path.indexOf('?') === -1 ? '?' : '&';
   const hash = anchor ? '#' + anchor : '';
   res.redirect(303, path + sep + 'msg=' + encodeURIComponent(msg) + hash);
+}
+
+// Redirect back to GET /admin/photos after a favorite/badge/moderation
+// mutation, preserving the admin's current view/q (issue #259 AC7: "a
+// restore/takedown POST returns to the same view") instead of resetting to
+// Recent. Every mutating admin-photos form carries hidden `view`/`q`/`panel`
+// fields (src/views/admin-photos.ejs) so a POST from a filtered/grouped view,
+// or from inside the inline feed, lands back exactly there. `panel=feed`
+// additionally anchors the redirect at the acted-on photo's feed card
+// (#feed-photo-<id>) so the give-a-badge/favorite dialog's own JS can detect
+// the fragment on load and re-open the feed scrolled to it (see the
+// bottom-of-page <script> in admin-photos.ejs).
+//
+// Reuses redirectWithMsg's own encodeURIComponent scheme for `msg` (query
+// string is built manually here, not via URLSearchParams, specifically so the
+// two helpers can never disagree on how a message is escaped —
+// tests/admin-moderation-guards.test.js's `toContain(encodeURIComponent(...))`
+// check depends on the exact %20-style escaping encodeURIComponent produces,
+// not URLSearchParams' '+'-for-space form). When no view/q was submitted
+// (e.g. the existing not-found-guard tests, which POST an empty body) this
+// degrades to the exact same '/admin/photos?msg=...' redirectWithMsg already
+// produced before this issue, so that pre-existing coverage is unaffected.
+function redirectToPhotos(req, res, msg, submissionId) {
+  const view = typeof req.body.view === 'string' ? req.body.view.trim() : '';
+  const q = typeof req.body.q === 'string' ? req.body.q.trim() : '';
+  const panel = typeof req.body.panel === 'string' ? req.body.panel.trim() : '';
+
+  const parts = [];
+  if (view) parts.push('view=' + encodeURIComponent(view));
+  if (q) parts.push('q=' + encodeURIComponent(q));
+  const path = '/admin/photos' + (parts.length ? '?' + parts.join('&') : '');
+
+  const anchor = panel === 'feed' && submissionId ? 'feed-photo-' + submissionId : undefined;
+  redirectWithMsg(res, path, msg, anchor);
 }
 
 // ---------------------------------------------------------------------------
@@ -729,13 +767,58 @@ router.post('/tasks/reorder', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /admin/photos  — ALL submissions, including taken-down ones
+// GET /admin/photos  — the full guest-gallery-parity screen (issue #259).
+//
+// view=recent (default): every submission (including taken-down — an admin
+//              wall shows everything, moderation state is a visual overlay,
+//              not a filter; the guest gallery's own taken-down EXCLUSION does
+//              not apply here). No search box (AC3).
+// view=fav:    every FAVORITED submission, same "show everything" rule as
+//              recent (a photo favorited before a later takedown still shows,
+//              marked taken-down, rather than silently vanishing). No search
+//              box (AC3).
+// view=task:   LIVE (taken-down excluded) submissions grouped by task,
+//              q-filtered by heading. Search box shown (AC3).
+// view=user:   LIVE submissions grouped by guest, q-filtered by heading.
+//              Search box shown (AC3).
+// Anything else falls back to recent (HTTP 200, no error) — same contract as
+// GET /gallery (src/routes/community.js).
+//
+// The inline feed panel (src/views/admin-photos.ejs; no separate route per
+// the issue's Touches list) always renders the FULL submission set
+// (including taken-down, matching Recent) so tapping any tile from any view
+// can land on that photo's card.
 // ---------------------------------------------------------------------------
+const VALID_PHOTO_VIEWS = new Set(['recent', 'task', 'user', 'fav']);
+
+// Partition `list` into groups by `keyFn`, in first-seen order. `list` is
+// already newest-first (the caller's SQL ORDER BY), so a group's first-seen
+// position is exactly its newest photo's position — no separate "order
+// groups by recency" pass is needed, unlike feed.js's grouped() (which also
+// caps each group at 6 preview tiles for the guest gallery; the admin wall
+// intentionally shows every photo in a group, uncapped, so a host can act on
+// any of them).
+function groupPhotos(list, keyFn, headingFn) {
+  const byKey = new Map();
+  const order = [];
+  for (const p of list) {
+    const key = keyFn(p);
+    if (!byKey.has(key)) {
+      byKey.set(key, { heading: headingFn(p), photos: [] });
+      order.push(key);
+    }
+    byKey.get(key).photos.push(p);
+  }
+  return order.map((key) => byKey.get(key));
+}
+
 router.get('/photos', (req, res) => {
+  const view = VALID_PHOTO_VIEWS.has(req.query.view) ? req.query.view : 'recent';
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+
   // LEFT JOIN tasks (not JOIN): a memory (issue #247, s.task_id IS NULL) has
-  // no task row to join — it must still appear here (so admins can award its
-  // per-photo bonus, AC5) with task_title coming back NULL; the view falls
-  // back to the literal "Memory" label.
+  // no task row to join — it must still appear here, with task_title coming
+  // back NULL; the view falls back to "a shared memory" / "Memories".
   const photoRows = db
     .prepare(
       `SELECT s.id          AS id,
@@ -757,9 +840,47 @@ router.get('/photos', (req, res) => {
     )
     .all();
 
+  // Real favorite + badge-winner state, attached once so every derived view
+  // below (and the inline feed) shares the same row objects — no view can
+  // disagree with another about a given photo's state within one request.
+  const favIds = favoritesSvc.favoriteIdSet();
+  for (const p of photoRows) {
+    p._fav = favIds.has(p.id);
+    p._winnerCodes = photoBadges.winnerCodesFor(p.id);
+    p._badged = p._winnerCodes.length > 0;
+  }
+
+  const favorites = photoRows.filter((p) => p._fav);
+
+  let groups = [];
+  if (view === 'task' || view === 'user') {
+    const livePhotos = photoRows.filter((p) => !p.taken_down);
+    groups =
+      view === 'task'
+        ? groupPhotos(
+            livePhotos,
+            (p) => (p.task_id == null ? 'memory' : 't' + p.task_id),
+            (p) => p.task_title || 'Memories'
+          )
+        : groupPhotos(
+            livePhotos,
+            (p) => 'g' + p.guest_id,
+            (p) => p.guest_name || 'Guest #' + p.guest_id
+          );
+    if (q !== '') {
+      const needle = q.toLowerCase();
+      groups = groups.filter((g) => g.heading.toLowerCase().includes(needle));
+    }
+  }
+
   res.render('admin-photos', {
     title: 'Photos',
     photos: photoRows,
+    favorites,
+    groups,
+    view,
+    q,
+    badgeCatalog: photoBadges.catalogWithCounts(),
     msg: req.query.msg || '',
     isAdmin: true,
   });
@@ -768,26 +889,80 @@ router.get('/photos', (req, res) => {
 // POST /admin/photos/:id/takedown  — hide a photo. photos.hideSubmission is the
 // single writer of taken_down for moderation: it flips the flag and recomputes
 // the guest's auto-badges in one transaction, so a hidden photo can never keep
-// counting toward points or auto-badges even for an instant.
+// counting toward points or auto-badges even for an instant. Reachable from
+// the give-a-badge dialog's moderate control (issue #259 AC7).
 router.post('/photos/:id/takedown', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const guestId = photos.hideSubmission(id);
   if (guestId === undefined) {
-    return redirectWithMsg(res, '/admin/photos', 'Submission not found.');
+    return redirectToPhotos(req, res, 'Submission not found.', id);
   }
-  redirectWithMsg(res, '/admin/photos', 'Photo taken down.');
+  redirectToPhotos(req, res, 'Photo taken down.', id);
 });
 
 // POST /admin/photos/:id/restore  — unhide a photo. photos.restoreSubmission
 // flips the flag and recomputes the guest's auto-badges in one transaction —
-// see the takedown route above.
+// see the takedown route above. Reachable from the same give-a-badge dialog
+// control (issue #259 AC7).
 router.post('/photos/:id/restore', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const guestId = photos.restoreSubmission(id);
   if (guestId === undefined) {
-    return redirectWithMsg(res, '/admin/photos', 'Submission not found.');
+    return redirectToPhotos(req, res, 'Submission not found.', id);
   }
-  redirectWithMsg(res, '/admin/photos', 'Photo restored.');
+  redirectToPhotos(req, res, 'Photo restored.', id);
+});
+
+// POST /admin/photos/:id/favorite  — toggle the host-scoped favorite flag on
+// a photo (issue #259 AC4). Reachable from a tile's heart or the inline
+// feed's heart, both real form posts (favorites.js persists it, so it survives
+// a reload — no client-only state).
+router.post('/photos/:id/favorite', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const submission = db.prepare('SELECT id FROM submissions WHERE id = ?').get(id);
+  if (!submission) {
+    return redirectToPhotos(req, res, 'Submission not found.', id);
+  }
+  const nowFavorited = favoritesSvc.toggleFavorite(id);
+  redirectToPhotos(req, res, nowFavorited ? 'Added to favorites.' : 'Removed from favorites.', id);
+});
+
+// POST /admin/photos/:id/badge  — award OR remove a photo as one of a
+// give-a-badge category's winners (issue #259 AC6/AC8).
+// Body: code = one of the five photo-badges.js catalog codes,
+//       action = "award", "remove", or "toggle" ("toggle" resolves against
+//       the photo's current winner state server-side, mirroring POST
+//       /admin/guests/:id/badge's own toggle action — the dialog's Award/
+//       Remove label is a client-side hint, not the source of truth, so a
+//       stale label can never award/remove the wrong direction).
+// Writes NO points (points/ranking are issue #661 — this table only records
+// "who's a candidate winner").
+router.post('/photos/:id/badge', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const code = (req.body.code || '').trim().toUpperCase();
+  const action = (req.body.action || 'toggle').trim();
+
+  const submission = db.prepare('SELECT id FROM submissions WHERE id = ?').get(id);
+  if (!submission) {
+    return redirectToPhotos(req, res, 'Submission not found.', id);
+  }
+  if (!photoBadges.isValidCode(code)) {
+    return redirectToPhotos(req, res, 'Unknown badge.', id);
+  }
+
+  let effective = action;
+  if (effective !== 'award' && effective !== 'remove') {
+    effective = photoBadges.isWinner(code, id) ? 'remove' : 'award';
+  }
+
+  const name = photoBadges.badgeName(code);
+  if (effective === 'remove') {
+    photoBadges.remove(code, id);
+    redirectToPhotos(req, res, 'Removed "' + name + '" badge.', id);
+  } else {
+    photoBadges.award(code, id);
+    redirectToPhotos(req, res, 'Awarded "' + name + '".', id);
+  }
 });
 
 // POST /admin/photos/:id/points  — set a photo's bonus points (issue #89).

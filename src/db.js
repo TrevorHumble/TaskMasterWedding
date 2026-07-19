@@ -117,6 +117,40 @@ db.exec(`
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
+  -- Host-scoped favorite marker on a submission (issue #259). This app has
+  -- exactly one shared admin login (no per-admin identity — requireAdmin
+  -- checks a single signed cookie, see src/middleware/session.js), so "host-
+  -- scoped" means one shared flag per photo, not one row per admin user.
+  -- Presence of a row IS the favorite (no boolean column needed); the UNIQUE
+  -- constraint on submission_id makes a repeat favorite a plain INSERT OR
+  -- IGNORE no-op (see src/services/favorites.js).
+  CREATE TABLE IF NOT EXISTS admin_favorites (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    submission_id INTEGER NOT NULL UNIQUE REFERENCES submissions(id) ON DELETE CASCADE,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- "Photo is a winner of badge X" records for the give-a-badge screen (issue
+  -- #259). Distinct from the guest-award badges/guest_badges tables (a
+  -- DIFFERENT concept: those hand a badge to a GUEST via POST
+  -- /admin/guests/:id/badge; these mark a PHOTO as a category winner). badge_code
+  -- is one of the five fixed codes in src/services/photo-badges.js — not a
+  -- foreign key, since that catalog is a code constant, not a DB table (no
+  -- host-facing CRUD for it in this issue). UNIQUE(badge_code, submission_id)
+  -- makes a repeat award idempotent (INSERT OR IGNORE, src/services/photo-badges.js)
+  -- and is what a badge's "N/5" count derives from (COUNT of rows per code).
+  -- No points column: points/ranking are issue #661, which reads this table.
+  CREATE TABLE IF NOT EXISTS badge_winners (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    badge_code    TEXT    NOT NULL,
+    submission_id INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    CONSTRAINT uq_badge_winner UNIQUE (badge_code, submission_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_badge_winners_code
+    ON badge_winners(badge_code);
+
   CREATE INDEX IF NOT EXISTS idx_bug_reports_resolved
     ON bug_reports(resolved, created_at DESC);
 

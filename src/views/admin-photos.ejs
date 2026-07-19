@@ -2,64 +2,419 @@
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
-  <h1 class="display-title">Photos &amp; takedowns</h1>
+<%
+  // =====================================================================
+  // Issue #259 — full guest-gallery parity, wired to real data. This
+  // transcribes the owner-approved phase-1 prototype (visual loop,
+  // 2026-07-19): same classes/markup shape, real server-side view/search
+  // (GET /admin/photos ?view=/?q=, src/routes/admin.js), real favorite +
+  // give-a-badge state (src/services/favorites.js, src/services/photo-badges.js),
+  // real moderation. Locals from the route: photos (EVERY submission,
+  // incl. taken-down — an admin wall shows everything; the guest gallery's
+  // taken-down exclusion does not apply here), favorites (favorited
+  // submissions, same "show everything" rule), groups (view=task/user only,
+  // already q-filtered, LIVE submissions only), view, q, badgeCatalog
+  // (the 5 give-a-badge choices with their current N/5 counts).
+  //
+  // View switching and search are real navigation (mirrors src/views/gallery.ejs
+  // exactly) — only the grid<->feed toggle is client-side, because the inline
+  // feed is not a separate route (issue #259's Touches list keeps this one
+  // view file / one route).
+  var showGroups = view === 'task' || view === 'user';
+  var showSearch = showGroups;
+%>
 
-  <% if (msg) { %>
-    <p class="flash"><%= msg %></p>
-  <% } %>
+<h1 class="page-title gallery-title" data-gallery-heading data-gallery-chrome>
+  Photos
+  <span class="gallery-count"><%= photos.length %> photo<%= photos.length === 1 ? '' : 's' %></span>
+</h1>
 
-  <p><a class="btn" href="/admin">&larr; Dashboard</a></p>
+<% if (msg) { %>
+  <p class="flash flash-ok" role="status"><%= msg %></p>
+<% } %>
 
-  <p class="muted">
-    Taken-down photos are hidden from the gallery, profiles, and scoring, but
-    the files stay on disk so they are still included in the export. (Deleting a
-    GUEST, by contrast, permanently removes that guest's photo files from disk.)
-  </p>
+<!-- View switcher — same chip pattern as the guest gallery (real navigation,
+     mirrors gallery.ejs), plus a heart-only Favorites pill. -->
+<nav class="task-filters" aria-label="Photo views" data-gallery-chrome>
+  <a class="chip-filter<%= view === 'recent' ? ' chip-filter-active' : '' %>" href="?view=recent">Recent</a>
+  <a class="chip-filter<%= view === 'task'   ? ' chip-filter-active' : '' %>" href="?view=task">By task</a>
+  <a class="chip-filter<%= view === 'user'   ? ' chip-filter-active' : '' %>" href="?view=user">By person</a>
+  <a class="chip-filter chip-fav<%= view === 'fav' ? ' chip-filter-active' : '' %>" href="?view=fav" aria-label="Favorites" title="Favorites">
+    <svg viewBox="0 0 24 24" aria-hidden="true" class="chip-fav-heart">
+      <path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/>
+    </svg>
+  </a>
+</nav>
 
-  <div class="photo-admin-grid">
-    <% photos.forEach(function (p) { %>
-      <div class="photo-admin-card <%= p.taken_down ? 'is-down' : '' %>">
-        <img src="/thumbs/<%= p.thumb_path %>"
-             alt="Photo by <%= p.guest_name || ('guest #' + p.guest_id) %> for <%= p.task_title || 'Memory' %>"
-             loading="lazy" />
-        <p class="photo-meta">
-          <strong><%= p.guest_name || ('Guest #' + p.guest_id) %></strong><br />
-          <span class="muted"><%= p.task_title || 'Memory' %></span>
-        </p>
-        <% if (p.caption) { %>
-          <p class="photo-caption"><%= p.caption %></p>
-        <% } %>
-        <form action="/admin/photos/<%= p.id %>/points" method="post" class="photo-points-form">
-          <label>
-            Bonus points
-            <input type="number" name="bonus" min="0" step="1" value="<%= p.photo_bonus %>" />
-          </label>
-          <button type="submit" class="btn btn-sm">Set points</button>
-        </form>
-        <% if (p.taken_down) { %>
-          <p class="status-down">TAKEN DOWN</p>
-          <% if (p.resubmitted) { %>
-            <!-- Issue #190: the guest replaced this photo while it was still
-                 taken down (sticky takedown). It stays hidden until Restore
-                 is pressed below; this marker is the only thing that tells
-                 the host a new photo is waiting behind the old one. -->
-            <p class="status-down">RESUBMITTED — awaiting your decision</p>
+<!-- Search — only on By task / By person (Recent & Favorites are plain
+     walls, AC3). Real GET form, same shape as gallery.ejs. -->
+<% if (showSearch) { %>
+  <form class="gallery-search" method="get" data-gallery-chrome>
+    <input type="hidden" name="view" value="<%= view %>">
+    <input
+      type="search"
+      name="q"
+      value="<%= q %>"
+      placeholder="<%= view === 'user' ? 'Search people' : 'Search tasks' %>"
+      aria-label="<%= view === 'user' ? 'Search people' : 'Search tasks' %>"
+    >
+  </form>
+<% } %>
+
+<%
+  // ---- Gallery tile: square thumbnail (opens the feed at that photo) with a
+  //      hover-reveal quick favorite heart + give-a-badge button. ----
+  function adminTile(p, panel) {
+%>
+  <figure class="gallery-item admin-tile<%= p.taken_down ? ' is-down' : '' %>">
+    <button
+      type="button"
+      class="gallery-thumb-btn admin-tile-open"
+      aria-label="Open photo by <%= p.guest_name || ('Guest #' + p.guest_id) %> in the feed"
+      data-open-feed="<%= p.id %>"
+    >
+      <img
+        class="gallery-thumb"
+        src="/thumbs/<%= p.thumb_path %>"
+        alt="<%= p.task_title || 'a shared memory' %>"
+        loading="lazy"
+        width="400"
+        height="400"
+      />
+    </button>
+
+    <% if (p.taken_down) { %>
+      <span class="admin-tile-down">Taken down</span>
+      <% if (p.resubmitted) { %>
+        <span class="admin-tile-resub">Resubmitted &mdash; review</span>
+      <% } %>
+    <% } %>
+
+    <div class="admin-tile-actions">
+      <form method="post" action="/admin/photos/<%= p.id %>/favorite">
+        <input type="hidden" name="view" value="<%= view %>">
+        <input type="hidden" name="q" value="<%= q %>">
+        <input type="hidden" name="panel" value="<%= panel %>">
+        <button
+          type="submit"
+          class="admin-tile-btn admin-fav<%= p._fav ? ' admin-fav-on' : '' %>"
+          aria-pressed="<%= p._fav ? 'true' : 'false' %>"
+          aria-label="Favorite this photo"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/>
+          </svg>
+        </button>
+      </form>
+      <button
+        type="button"
+        class="admin-tile-btn admin-badge-tilebtn<%= p._badged ? ' admin-badge-on' : '' %>"
+        aria-pressed="<%= p._badged ? 'true' : 'false' %>"
+        aria-label="Give this photo a badge"
+        data-badge-open
+        data-id="<%= p.id %>"
+        data-guest-name="<%= p.guest_name || ('Guest #' + p.guest_id) %>"
+        data-task-title="<%= p.task_title || 'Memory' %>"
+        data-thumb="<%= p.thumb_path %>"
+        data-down="<%= p.taken_down ? '1' : '0' %>"
+        data-winner-codes="<%= p._winnerCodes.join(',') %>"
+        data-panel="<%= panel %>"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="9" r="6"/><path d="M9 14l-2 7 5-3 5 3-2-7"/>
+        </svg>
+      </button>
+    </div>
+  </figure>
+<% } %>
+
+<%
+  function adminGrid(list, panel) {
+%>
+  <div class="gallery-grid">
+    <% list.forEach(function (p) { %><%- adminTile(p, panel) %><% }); %>
+  </div>
+<% } %>
+
+<div data-gallery-chrome>
+  <% if (showGroups) { %>
+    <% groups.forEach(function (g) { %>
+      <section class="gallery-group">
+        <div class="gallery-group-head">
+          <% if (view === 'user') { %>
+            <span class="gallery-person-avatar"><%= initials(g.heading) || '?' %></span>
           <% } %>
-          <form action="/admin/photos/<%= p.id %>/restore" method="post">
-            <button type="submit" class="btn btn-sm">Restore</button>
-          </form>
-        <% } else { %>
-          <form action="/admin/photos/<%= p.id %>/takedown" method="post"
-                data-confirm="Take down this photo? It will be hidden from the gallery, profiles, and scoring.">
-            <button type="submit" class="btn btn-sm btn-danger">Take down</button>
-          </form>
-        <% } %>
-      </div>
+          <h2 class="gallery-group-heading"><%= g.heading %></h2>
+          <span class="gallery-group-count"><%= g.photos.length %> photo<%= g.photos.length === 1 ? '' : 's' %></span>
+        </div>
+        <%- adminGrid(g.photos, '') %>
+      </section>
     <% }); %>
+  <% } else if (view === 'fav') { %>
+    <% if (favorites.length === 0) { %>
+      <p class="muted">No favorites yet. Tap the heart on a photo to pin it here.</p>
+    <% } else { %>
+      <%- adminGrid(favorites, '') %>
+    <% } %>
+  <% } else { %>
     <% if (photos.length === 0) { %>
       <p class="muted">No photos submitted yet.</p>
+    <% } else { %>
+      <%- adminGrid(photos, '') %>
     <% } %>
+  <% } %>
+</div>
+
+<!-- ===================== FEED (parity with guest feed) ===================== -->
+<!-- Client-side only (no separate route, issue #259): tapping any tile above
+     shows this same server-rendered section, scrolled to that photo. Same
+     card shape as src/views/feed.ejs; like -> favorite, comment -> give-a-badge. -->
+<section data-view-panel="feed" hidden>
+  <p class="back-link"><a href="?view=<%= view %><%= q ? '&q=' + encodeURIComponent(q) : '' %>" data-feed-back>&larr; Back to photos</a></p>
+  <div class="feed">
+    <% photos.forEach(function (p) { %>
+      <article id="feed-photo-<%= p.id %>" class="feed-item admin-feed-item<%= p.taken_down ? ' is-down' : '' %>">
+        <p class="feed-by"><%= p.guest_name || ('Guest #' + p.guest_id) %></p>
+
+        <img
+          class="feed-photo"
+          src="/thumbs/<%= p.thumb_path %>"
+          alt="<%= p.task_title || 'a shared memory' %>"
+          loading="lazy"
+        />
+        <% if (p.taken_down) { %><p class="admin-feed-downline">Taken down — hidden from guests<% if (p.resubmitted) { %> · <strong>resubmitted, awaiting your review</strong><% } %></p><% } %>
+
+        <% if (p.caption) { %>
+          <p class="feed-caption"><%= p.caption %></p>
+        <% } %>
+
+        <div class="feed-actionbar">
+          <div class="feed-actions-left">
+            <form method="post" action="/admin/photos/<%= p.id %>/favorite" class="like-form">
+              <input type="hidden" name="view" value="<%= view %>">
+              <input type="hidden" name="q" value="<%= q %>">
+              <input type="hidden" name="panel" value="feed">
+              <button
+                type="submit"
+                class="like-button admin-feed-fav<%= p._fav ? ' like-button-liked' : '' %>"
+                aria-pressed="<%= p._fav ? 'true' : 'false' %>"
+                aria-label="Favorite this photo"
+              >
+                <svg class="like-heart" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/>
+                </svg>
+                <span class="like-count">Favorite</span>
+              </button>
+            </form>
+
+            <button
+              type="button"
+              class="comment-button admin-feed-badge<%= p._badged ? ' is-badged' : '' %>"
+              aria-pressed="<%= p._badged ? 'true' : 'false' %>"
+              aria-label="Give this photo a badge"
+              data-badge-open
+              data-id="<%= p.id %>"
+              data-guest-name="<%= p.guest_name || ('Guest #' + p.guest_id) %>"
+              data-task-title="<%= p.task_title || 'Memory' %>"
+              data-thumb="<%= p.thumb_path %>"
+              data-down="<%= p.taken_down ? '1' : '0' %>"
+              data-winner-codes="<%= p._winnerCodes.join(',') %>"
+              data-panel="feed"
+            >
+              <svg class="comment-bubble" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <path d="M9 14l-2 7 5-3 5 3-2-7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+              </svg>
+              <span>Badge</span>
+            </button>
+          </div>
+
+          <span class="points-count"><%= p.photo_bonus %> <%= p.photo_bonus === 1 ? 'point' : 'points' %></span>
+        </div>
+
+        <% if (p.task_title) { %>
+          <p class="feed-task-line">for &ldquo;<%= p.task_title %>&rdquo;</p>
+        <% } else { %>
+          <p class="feed-task-line">a shared memory</p>
+        <% } %>
+      </article>
+    <% }); %>
+  </div>
+  <p class="back-link"><a href="?view=<%= view %><%= q ? '&q=' + encodeURIComponent(q) : '' %>" data-feed-back>&larr; Back to photos</a></p>
+</section>
+
+<!-- ===================== Give-a-badge menu (the dialog you liked) ===================== -->
+<dialog class="comments-dialog admin-badge-dialog" id="adminBadgeDialog" aria-labelledby="adminBadgeTitle">
+  <div class="comments-dialog-header">
+    <img class="comments-dialog-thumb" id="adminBadgeThumb" src="" alt="" />
+    <h2 class="comments-dialog-title" id="adminBadgeTitle">Give a badge</h2>
+    <button type="button" class="comments-dialog-close" data-badge-close aria-label="Close">&times;</button>
   </div>
 
+  <div class="admin-badge-body">
+    <p class="admin-badge-sub muted" id="adminBadgeMeta"></p>
+
+    <fieldset class="admin-badge-picker">
+      <legend>Which badge?</legend>
+      <div class="admin-badge-choices" id="adminBadgeChoices">
+        <% badgeCatalog.forEach(function (b, i) { %>
+          <label class="admin-badge-choice<%= i === 0 ? ' is-selected' : '' %>">
+            <input type="radio" name="code" value="<%= b.code %>"<%= i === 0 ? ' checked' : '' %> />
+            <svg class="admin-badge-ribbon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="9" r="6"/><path d="M9 14l-2 7 5-3 5 3-2-7"/>
+            </svg>
+            <span class="admin-badge-count"><%= b.chosen %>/5</span>
+            <span class="admin-badge-name"><%= b.name %></span>
+          </label>
+        <% }); %>
+      </div>
+    </fieldset>
+
+    <p class="admin-badge-hint muted">Award points once all badges are awarded.</p>
+
+    <div class="admin-badge-buttons">
+      <form method="post" id="adminBadgeModerateForm" data-confirm="Take this photo down? Guests will no longer see it.">
+        <input type="hidden" name="view" value="<%= view %>">
+        <input type="hidden" name="q" value="<%= q %>">
+        <input type="hidden" name="panel" id="adminBadgeModeratePanel" value="">
+        <button type="submit" class="btn btn-danger" id="adminBadgeModerate">Take down</button>
+      </form>
+      <form method="post" id="adminBadgeAwardForm">
+        <input type="hidden" name="view" value="<%= view %>">
+        <input type="hidden" name="q" value="<%= q %>">
+        <input type="hidden" name="panel" id="adminBadgeAwardPanel" value="">
+        <input type="hidden" name="action" value="toggle">
+        <input type="hidden" name="code" id="adminBadgeSelectedCode" value="<%= badgeCatalog[0] ? badgeCatalog[0].code : '' %>">
+        <button type="submit" class="btn" id="adminBadgeAward">Award badge</button>
+      </form>
+    </div>
+  </div>
+</dialog>
+
 <script src="/js/admin.js" defer></script>
+<script>
+  (function () {
+    // ------- Grid <-> Feed toggle -------
+    // View/search are real navigation now (server-rendered per ?view=/?q=,
+    // src/routes/admin.js); only the inline feed needs client-side show/hide,
+    // since it is not a separate route (issue #259's Touches list).
+    var chrome = document.querySelectorAll('[data-gallery-chrome]');
+    var feedPanel = document.querySelector('[data-view-panel="feed"]');
+
+    function showFeed() {
+      chrome.forEach(function (el) { el.hidden = true; });
+      if (feedPanel) feedPanel.hidden = false;
+    }
+    function showGrid() {
+      chrome.forEach(function (el) { el.hidden = false; });
+      if (feedPanel) feedPanel.hidden = true;
+    }
+    function openFeedAt(id) {
+      showFeed();
+      var card = document.getElementById('feed-photo-' + id);
+      if (card) card.scrollIntoView({ block: 'start' });
+      else window.scrollTo(0, 0);
+    }
+
+    document.addEventListener('click', function (e) {
+      var open = e.target.closest('[data-open-feed]');
+      if (!open) return;
+      openFeedAt(open.getAttribute('data-open-feed'));
+    });
+    document.addEventListener('click', function (e) {
+      if (!e.target.closest('[data-feed-back]')) return;
+      e.preventDefault();
+      showGrid();
+      window.scrollTo(0, 0);
+    });
+
+    // A favorite/badge/moderation action posted from inside the feed carries
+    // panel=feed, so the server's redirect lands back here with
+    // #feed-photo-<id> (src/routes/admin.js's redirectToPhotos) — reopen the
+    // feed at that card instead of showing the grid on reload.
+    (function () {
+      var m = /^#feed-photo-(\d+)$/.exec(window.location.hash);
+      if (m) openFeedAt(m[1]);
+    })();
+
+    // ------- Give-a-badge menu -------
+    var dlg = document.getElementById('adminBadgeDialog');
+    var meta = document.getElementById('adminBadgeMeta');
+    var thumb = document.getElementById('adminBadgeThumb');
+    var choicesEl = document.getElementById('adminBadgeChoices');
+    var selectedCodeInput = document.getElementById('adminBadgeSelectedCode');
+    var awardBtn = document.getElementById('adminBadgeAward');
+    var awardForm = document.getElementById('adminBadgeAwardForm');
+    var awardPanelInput = document.getElementById('adminBadgeAwardPanel');
+    var moderateBtn = document.getElementById('adminBadgeModerate');
+    var moderateForm = document.getElementById('adminBadgeModerateForm');
+    var moderatePanelInput = document.getElementById('adminBadgeModeratePanel');
+    var currentWinnerCodes = [];
+
+    // The Award/Remove label (and the picker's is-selected highlight) is a
+    // client-side hint from the tapped photo's data-winner-codes — the
+    // server always resolves the real award-vs-remove direction itself
+    // (action=toggle, src/routes/admin.js), so a stale label here can never
+    // cause the wrong write.
+    function syncAwardLabel() {
+      var code = selectedCodeInput.value;
+      var held = currentWinnerCodes.indexOf(code) !== -1;
+      awardBtn.textContent = held ? 'Remove badge' : 'Award badge';
+      awardBtn.classList.toggle('btn-danger', held);
+      choicesEl.querySelectorAll('.admin-badge-choice').forEach(function (lab) {
+        var input = lab.querySelector('input');
+        lab.classList.toggle('is-selected', input.value === code);
+      });
+    }
+
+    choicesEl.addEventListener('change', function (e) {
+      if (e.target.name === 'code') {
+        selectedCodeInput.value = e.target.value;
+        syncAwardLabel();
+      }
+    });
+
+    document.addEventListener('click', function (e) {
+      var open = e.target.closest('[data-badge-open]');
+      if (open) {
+        var id = open.getAttribute('data-id');
+        meta.textContent = open.getAttribute('data-guest-name') + ' — ' + open.getAttribute('data-task-title');
+        thumb.src = '/thumbs/' + open.getAttribute('data-thumb');
+
+        var down = open.getAttribute('data-down') === '1';
+        moderateBtn.textContent = down ? 'Restore' : 'Take down';
+        moderateBtn.classList.toggle('btn-danger', !down);
+        moderateForm.action = '/admin/photos/' + id + '/' + (down ? 'restore' : 'takedown');
+        // Confirm copy must match the action the button will take — restoring
+        // is not destructive, so it must not reuse the takedown warning.
+        if (down) {
+          moderateForm.setAttribute('data-confirm', 'Restore this photo? Guests will see it again.');
+        } else {
+          moderateForm.setAttribute('data-confirm', 'Take this photo down? Guests will no longer see it.');
+        }
+        awardForm.action = '/admin/photos/' + id + '/badge';
+
+        var panelVal = open.getAttribute('data-panel') || '';
+        moderatePanelInput.value = panelVal;
+        awardPanelInput.value = panelVal;
+
+        currentWinnerCodes = (open.getAttribute('data-winner-codes') || '').split(',').filter(Boolean);
+        var firstRadio = choicesEl.querySelector('input[name="code"]');
+        var defaultCode = currentWinnerCodes[0] || (firstRadio ? firstRadio.value : '');
+        choicesEl.querySelectorAll('input[name="code"]').forEach(function (input) {
+          input.checked = input.value === defaultCode;
+        });
+        selectedCodeInput.value = defaultCode;
+        syncAwardLabel();
+
+        if (typeof dlg.showModal === 'function') dlg.showModal();
+        return;
+      }
+      if (e.target.closest('[data-badge-close]')) {
+        dlg.close();
+      }
+    });
+  })();
+</script>
+
 <%- include('partials/footer') %>

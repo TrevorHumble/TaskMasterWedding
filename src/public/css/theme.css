@@ -3787,3 +3787,275 @@ body:has(dialog[open]) {
   border-radius: var(--radius-input);
   display: block;
 }
+
+/* =====================================================================
+   Admin photos — parity prototype (issue #259 visual loop).
+   Reuses the guest gallery wall (.gallery-*) and the guest feed
+   (.feed-*, .like-button, .comment-button). Adds the heart-only
+   Favorites pill, the hover quick-actions, and the give-a-badge menu.
+   ===================================================================== */
+
+.task-filters button.chip-filter {
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Favorites pill: heart glyph only. */
+.chip-fav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.chip-fav-heart {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
+/* Tile: the whole thumbnail is a button that opens the feed at this photo. */
+.admin-tile-open {
+  position: absolute;
+  inset: 0;
+}
+
+/* Quick actions, bottom-right of a tile — hidden until hover/focus (the
+   "hover contact point"); a favorited heart stays lit so state is legible. */
+.admin-tile-actions {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.admin-tile:hover .admin-tile-actions,
+.admin-tile:focus-within .admin-tile-actions,
+.admin-tile-actions:has(.admin-fav-on),
+.admin-tile-actions:has(.admin-badge-on) {
+  opacity: 1;
+}
+.admin-tile-btn {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(20, 30, 24, 0.6);
+  color: #fff;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.admin-tile-btn svg {
+  width: 19px;
+  height: 19px;
+}
+.admin-fav svg {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+}
+/* Favorite = red (badge = gold), so the two are countable at a glance. */
+.admin-fav-on {
+  background: rgba(214, 69, 69, 0.95);
+}
+.admin-fav-on svg {
+  fill: #fff;
+  stroke: #fff;
+}
+/* Feed favorite reuses the guest like button; recolor its heart red when on. */
+.admin-feed-fav.like-button-liked .like-heart {
+  fill: #d64545;
+  stroke: #d64545;
+}
+.admin-badge-tilebtn svg {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+.admin-badge-tilebtn:hover,
+.admin-badge-tilebtn.admin-badge-on {
+  background: rgba(214, 158, 46, 0.95);
+}
+
+/* Taken-down tile: dim + white label. */
+.admin-tile.is-down .gallery-thumb {
+  filter: grayscale(1) brightness(0.55);
+}
+.admin-tile-down {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(20, 30, 24, 0.7);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+}
+/* Resubmitted-while-hidden marker (issue #190 signal, kept in the parity
+   redesign): amber "needs attention", stacked under the Taken-down pill, so
+   a host sees a replacement is waiting behind a photo they took down. */
+.admin-tile-resub {
+  position: absolute;
+  top: 30px;
+  left: 6px;
+  z-index: 2;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--err-ink);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* -------- Feed parity: reuse .feed-*/
+.like-button/.comment-button -------- */ .admin-feed-item.is-down .feed-photo {
+  filter: grayscale(1) brightness(0.7);
+}
+.admin-feed-downline {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-small);
+  color: var(--err-ink);
+}
+/* A photo that has been given a badge stays highlighted (gold), the same way
+   a favorited photo's heart stays filled — so the state is legible at a
+   glance without any "already awarded" explanation. */
+.admin-feed-badge.is-badged {
+  color: #b9822a;
+}
+.admin-feed-badge.is-badged svg circle {
+  fill: currentColor;
+}
+/* Points post later (once a badge's 5 winners are all chosen), so a badged
+   photo reads "Points pending" until then. */
+.admin-points-pending {
+  color: #b9822a;
+  font-style: italic;
+}
+
+/* -------- Give-a-badge menu (scrim/header reuse .comments-dialog) -------- */
+.admin-badge-dialog {
+  max-width: 440px;
+}
+.admin-badge-body {
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.admin-badge-sub {
+  margin: 0;
+}
+.admin-badge-picker {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.admin-badge-picker legend {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  color: var(--color-heading);
+  padding: 0;
+  margin-bottom: var(--space-2);
+}
+.admin-badge-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.admin-badge-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-input, 8px);
+  cursor: pointer;
+}
+.admin-badge-choice.is-selected {
+  border-color: var(--color-primary);
+  background: var(--green-50);
+}
+.admin-badge-choice input {
+  margin: 0;
+}
+.admin-badge-ribbon {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  flex: none;
+}
+.admin-badge-name {
+  color: var(--color-text);
+}
+/* "N/5" ranks-awarded tally before the badge name. */
+.admin-badge-count {
+  flex: none;
+  min-width: 34px;
+  text-align: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--green-50);
+  color: var(--color-text-muted);
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+}
+
+/* -------- Point pills (1..5) -------- */
+.admin-points {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.admin-points-label {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.admin-points-pills {
+  display: flex;
+  gap: 6px;
+}
+.admin-point-pill {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-primary);
+  background: var(--white);
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.admin-point-pill.is-selected {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.admin-point-pill.is-used {
+  border-color: var(--color-hairline);
+  background: var(--green-50);
+  color: var(--color-hairline);
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+.admin-points-note {
+  margin: 0;
+  font-size: var(--fs-eyebrow);
+}
+.admin-badge-buttons {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
