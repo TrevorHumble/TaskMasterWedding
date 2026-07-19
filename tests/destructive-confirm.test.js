@@ -86,14 +86,21 @@ it('AC-1: guest delete form has data-confirm and method="post"', async () => {
 
 // ---------------------------------------------------------------------------
 // AC-2: photo takedown form
+//
+// Issue #259 (2026-07-19 owner-approved redesign) moved takedown/restore
+// behind the shared give-a-badge dialog: ONE <form id="adminBadgeModerateForm">
+// whose `action` is set by client-side JS to the tapped photo's
+// .../takedown or .../restore endpoint when the dialog opens (there is no
+// longer a static per-photo form with a literal numeric id in the action,
+// since the dialog is reused for every photo). The confirm guard itself
+// still lives on that one static form, so this asserts its real new shape
+// instead of the superseded per-photo form.
 // ---------------------------------------------------------------------------
-it('AC-2: photo takedown form has data-confirm and method="post"', async () => {
+it('AC-2: the give-a-badge dialog\'s moderate (takedown/restore) form has data-confirm and method="post"', async () => {
   const res = await adminAgent.get('/admin/photos');
   expect(res.status).toBe(200);
 
-  // The takedown action path contains /takedown (not /restore).
-  const takedownActionRe = /action="\/admin\/photos\/\d+\/takedown"/i;
-  const tag = extractFormTag(res.text, takedownActionRe);
+  const tag = extractFormTag(res.text, /id="adminBadgeModerateForm"/i);
 
   expect(tag).not.toBeNull();
   expect(tag).toMatch(/data-confirm=/i);

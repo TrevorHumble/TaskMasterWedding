@@ -317,19 +317,39 @@ describe('feed per-photo points exclude a memory base point', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC5 — /admin/photos renders a memory's card labeled "Memory" with the
-// existing per-photo bonus form.
+// AC5 — /admin/photos distinguishes a memory (no task) from a task photo.
+//
+// Issue #259 (2026-07-19 owner-approved redesign) replaced the old
+// photo-admin-card layout — which showed a literal "Memory" label plus a
+// per-photo points-bonus form — with the guest-gallery-parity screen: a
+// memory's tile alt text reads "a shared memory" (mirroring the guest feed,
+// src/views/feed.ejs) and its By-task group heading is "Memories"; the
+// per-photo points form is gone entirely (points/ranking now belong to
+// issue #661, out of this screen's scope). This reasserts the same
+// memory-vs-task distinction the old AC guarded, against the new markup.
 // ---------------------------------------------------------------------------
-describe('AC5: admin photos card labels a memory "Memory"', () => {
-  it('shows "Memory" and the bonus-points form posting to /admin/photos/<id>/points', async () => {
+describe('AC5: admin photos distinguishes a memory from a task photo', () => {
+  it('a memory tile reads "a shared memory"; the By-task view groups it under "Memories"', async () => {
     const { guestId } = insertGuest('AC5 Guest');
-    const { submissionId } = insertSubmission({ guestId, caption: 'ac5 memory' });
+    const { submissionId, thumbPath } = insertSubmission({ guestId, caption: 'ac5 memory' });
 
     const adminAgent = await makeAdminAgent(app, 'ac5-admin-pw');
     const res = await adminAgent.get('/admin/photos');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('Memory');
-    expect(res.text).toContain('action="/admin/photos/' + submissionId + '/points"');
+
+    const imgAt = res.text.indexOf('src="/thumbs/' + thumbPath + '"');
+    expect(imgAt).toBeGreaterThan(-1);
+    const start = res.text.lastIndexOf('<figure', imgAt);
+    const end = res.text.indexOf('</figure>', imgAt);
+    expect(res.text.slice(start, end)).toContain('alt="a shared memory"');
+
+    const taskViewRes = await adminAgent.get('/admin/photos?view=task');
+    expect(taskViewRes.status).toBe(200);
+    expect(taskViewRes.text).toContain('<h2 class="gallery-group-heading">Memories</h2>');
+
+    // The retired per-photo points form is gone from this screen (#661 owns
+    // points now).
+    expect(res.text).not.toContain('action="/admin/photos/' + submissionId + '/points"');
   });
 });
 

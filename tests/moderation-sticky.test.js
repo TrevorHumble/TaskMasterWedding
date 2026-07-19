@@ -6,8 +6,11 @@
 //         photo stays absent from GET /feed and GET /gallery.
 //   AC2 — GET /tasks/:id for that guest reads "with the hosts", and does not
 //         present the task as not-done.
-//   AC3 — GET /admin/photos (as admin) shows a RESUBMITTED marker alongside
-//         the existing TAKEN DOWN state and Restore button.
+//   AC3 — GET /admin/photos (as admin) still reaches Restore for a
+//         resubmitted-while-hidden photo, and the resubmitted flag itself
+//         is set/cleared correctly (issue #259's 2026-07-19 owner-approved
+//         redesign dropped the page's RESUBMITTED/TAKEN DOWN text markers —
+//         see that test's own comment below for the updated shape).
 //   AC4 — a normal (never-taken-down) replace stays visible: status quo.
 //   AC5 — GET /leaderboard's total excludes the still-hidden submission.
 //   Plus: restoreSubmission clears the resubmitted flag (src/services/photos.js).
@@ -140,10 +143,23 @@ it('AC2: GET /tasks/:id for a taken-down submission reads "with the hosts", not 
 });
 
 // ---------------------------------------------------------------------------
-// AC3: the admin photos page shows a RESUBMITTED marker alongside TAKEN DOWN
-// and the Restore button.
+// AC3: the admin photos page still surfaces a resubmitted-while-hidden photo
+// as taken-down, with Restore reachable.
+//
+// Issue #259 (2026-07-19 owner-approved redesign) replaced the old
+// photo-admin-card layout — which rendered a per-photo <form
+// action=".../restore"> plus literal "TAKEN DOWN"/"RESUBMITTED" text badges —
+// with the guest-gallery-parity screen: a shared give-a-badge dialog whose
+// moderate form's `action` is set by client-side JS per tapped photo (so no
+// static per-photo restore-form markup exists to match against), and a tile
+// state that reads "Taken down" (not the old uppercase copy) with no
+// dedicated resubmitted indicator. This reasserts what the new screen DOES
+// still guarantee: the photo's tile shows the taken-down state, and the
+// underlying resubmitted flag (this issue's real subject) is correct — the
+// stronger, page-independent checks in AC1/AC5/the final "restoreSubmission
+// clears resubmitted" test below already cover the flag's behavior in full.
 // ---------------------------------------------------------------------------
-it('AC3: GET /admin/photos shows RESUBMITTED alongside TAKEN DOWN for a resubmitted-while-hidden photo', async () => {
+it('AC3: GET /admin/photos shows the taken-down state for a resubmitted-while-hidden photo', async () => {
   const guest = await signedInGuest('sticky-ac3-' + crypto.randomUUID(), 'AC3 Guest');
   const taskId = insertTask('AC3 Task');
 
@@ -152,22 +168,28 @@ it('AC3: GET /admin/photos shows RESUBMITTED alongside TAKEN DOWN for a resubmit
 
   await adminAgent.post('/admin/photos/' + row.id + '/takedown');
   await postPhoto(guest.agent, taskId, 'ac3-second.jpg');
-  expect(getSubmission(guest.guestId, taskId).resubmitted).toBe(1);
+  const afterResubmit = getSubmission(guest.guestId, taskId);
+  expect(afterResubmit.resubmitted).toBe(1);
+  expect(afterResubmit.taken_down).toBe(1);
 
   const adminPhotosPage = await adminAgent.get('/admin/photos');
   expect(adminPhotosPage.status).toBe(200);
 
-  // Slice out this card's chunk so the assertion cannot bleed into another
+  // Slice out this row's tile so the assertion cannot bleed into another
   // photo's markup (other tests in this file also seed rows into the same
   // shared temp DB).
-  const marker = 'action="/admin/photos/' + row.id + '/restore"';
-  const start = adminPhotosPage.text.indexOf(marker);
-  expect(start).toBeGreaterThan(-1);
-  const cardStart = adminPhotosPage.text.lastIndexOf('photo-admin-card', start);
-  const chunk = adminPhotosPage.text.slice(cardStart, start + marker.length + 100);
+  const imgAt = adminPhotosPage.text.indexOf('src="/thumbs/' + afterResubmit.thumb_path + '"');
+  expect(imgAt).toBeGreaterThan(-1);
+  const start = adminPhotosPage.text.lastIndexOf('<figure', imgAt);
+  const end = adminPhotosPage.text.indexOf('</figure>', imgAt);
+  const chunk = adminPhotosPage.text.slice(start, end);
 
-  expect(chunk).toContain('TAKEN DOWN');
-  expect(chunk).toContain('RESUBMITTED');
+  expect(chunk).toContain('admin-tile is-down');
+  expect(chunk).toContain('Taken down');
+
+  // Restore is reachable from the shared give-a-badge dialog (the
+  // destructive-confirm.test.js AC-2 update covers its data-confirm guard).
+  expect(adminPhotosPage.text).toContain('id="adminBadgeModerateForm"');
 });
 
 // ---------------------------------------------------------------------------
