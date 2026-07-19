@@ -53,15 +53,24 @@ timestamps (`2026-06-15`), or descriptive deltas (`add-bias-gate`).
 
 ## Documentation split
 
-| File        | Contains                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------- |
-| `DESIGN.md` | Architecture decisions, rationale, tradeoffs. Answers "why is it built this way?"                       |
-| `CLAUDE.md` | Behavioral rules for the AI agent operating in this repo. Conventions, constraints, working agreements. |
-| `README.md` | Getting-started and reference for human users. What it is, how to install/run, what commands exist.     |
+| File         | Contains                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
+| `DESIGN.md`  | Architecture decisions, rationale, tradeoffs. Answers "why is it built this way?"                       |
+| `CLAUDE.md`  | Behavioral rules for the AI agent operating in this repo. Conventions, constraints, working agreements. |
+| `README.md`  | Getting-started and reference for human users. What it is, how to install/run, what commands exist.     |
+| `CONTEXT.md` | Domain-model glossary — the domain's vocabulary, defined once. A fourth doc type, below.                |
 
 Do not mix these. Behavioral rules in README confuse humans. Architecture rationale in
 CLAUDE.md bloats the agent context. Getting-started prose in DESIGN.md misleads
 readers about the scope of the decision log.
+
+**Domain-model docs are a fourth recognized doc type**, maintained by the
+`domain-modeling` skill; `CONTEXT.md` is this repo's instance. A domain-model doc
+answers "what does this term mean, and where does it intersect the rest of the
+system?" — unlike the three docs above, it may carry the domain's seams and the
+design-skills conventions inline: scattering a glossary's own cross-references
+into `DESIGN.md`/`CLAUDE.md` fragments the one place a reader goes to look up a
+word. This is not an exemption from the split — it is the split's fourth cell.
 
 ---
 
