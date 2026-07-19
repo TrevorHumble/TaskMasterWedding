@@ -54,10 +54,10 @@ Standards live in `standards/`. Agent definitions live in `agents/`. Both are po
 
 Every spawned agent sets its `model` explicitly. Never rely on a default that may escalate silently.
 
-| Role         | Model                                                                    |
-| ------------ | ------------------------------------------------------------------------ |
-| Orchestrator | Opus                                                                     |
-| Implementer  | Sonnet                                                                   |
+| Role         | Model                                                                   |
+| ------------ | ----------------------------------------------------------------------- |
+| Orchestrator | Opus                                                                    |
+| Implementer  | Sonnet                                                                  |
 | Reviewers    | Opus by default, a different model from the implementer — see exception |
 
 Reviewers run on a different model than the implementer, on every issue by default, so they do not inherit the implementer's correlated blind spots. A reviewer must never review its own output.

@@ -19,9 +19,9 @@ issue → adversarial review of issue → implement → adversarial review of PR
 Every spawned agent sets `model` explicitly. No silent default.
 
 | Role         | Model                                                  | Responsibility                                                |
-| ------------ | ------------------------------------------------------- | ------------------------------------------------------------- |
-| Orchestrator | Opus                                                    | Spawns agents, runs the pipeline, verifies reviewer verdicts. |
-| Implementer  | Sonnet                                                  | Writes the change to satisfy the issue's acceptance criteria. |
+| ------------ | ------------------------------------------------------ | ------------------------------------------------------------- |
+| Orchestrator | Opus                                                   | Spawns agents, runs the pipeline, verifies reviewer verdicts. |
+| Implementer  | Sonnet                                                 | Writes the change to satisfy the issue's acceptance criteria. |
 | Reviewers    | Opus by default (different model from the implementer) | Attack the artifact against the issue and standards.          |
 
 Reviewers must run on a different model than the implementer to avoid correlated blind spots, on every issue by default. The one exception is an issue the issue reviewer awarded `sonnet-only` (`standards/issue-standards.md` § "Sonnet tier eligibility"), whose implementer and reviewers both run on Sonnet — a judgment call made once at issue-review time, not a run-tier classifier. A producing agent never reviews its own output, even as a secondary reviewer.

@@ -17,11 +17,11 @@ This pipeline requires the orchestrator to run on **Opus**. If the current sessi
 
 Model policy (by reference — authoritative text is in `agents/orchestrator.md` and `CLAUDE.md`):
 
-| Role                 | Model                                                          |
-| -------------------- | --------------------------------------------------------------- |
-| Orchestrator         | Opus                                                            |
-| Implementation agent | Sonnet                                                          |
-| All reviewers        | Opus by default — and a different model from the implementer   |
+| Role                 | Model                                                        |
+| -------------------- | ------------------------------------------------------------ |
+| Orchestrator         | Opus                                                         |
+| Implementation agent | Sonnet                                                       |
+| All reviewers        | Opus by default — and a different model from the implementer |
 
 Set `model:` explicitly on every spawn call. Never rely on defaults.
 
