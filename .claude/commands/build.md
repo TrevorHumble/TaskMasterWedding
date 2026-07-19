@@ -17,13 +17,18 @@ This pipeline requires the orchestrator to run on **Opus**. If the current sessi
 
 Model policy (by reference — authoritative text is in `agents/orchestrator.md` and `CLAUDE.md`):
 
-| Role                 | Model                                             |
-| -------------------- | ------------------------------------------------- |
-| Orchestrator         | Opus                                              |
-| Implementation agent | Sonnet                                            |
-| All reviewers        | Opus — and a different model from the implementer |
+| Role                 | Model                                                          |
+| -------------------- | --------------------------------------------------------------- |
+| Orchestrator         | Opus                                                            |
+| Implementation agent | Sonnet                                                          |
+| All reviewers        | Opus by default — and a different model from the implementer   |
 
 Set `model:` explicitly on every spawn call. Never rely on defaults.
+
+**Exception — the `sonnet-only` award (#680).** An issue the issue reviewer awarded `AWARD
+sonnet-only` (`standards/issue-standards.md` § "Sonnet tier eligibility") runs its implementer and
+reviewers both on Sonnet; the orchestrator still runs Opus. Full mechanics: `agents/orchestrator.md` §
+"Model policy".
 
 ## Goal
 

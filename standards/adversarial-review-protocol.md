@@ -112,8 +112,11 @@ to the orchestrator, exercised sparingly, not to a mechanical rule.
   automatically and never blocks a merge on its own.
 
 Reviewers run on **Opus**, a different and non-weaker model than the implementer
-(`standards/agent-standards.md`), on every issue — there is no run-tier classifier that
-downgrades this.
+(`standards/agent-standards.md`), on every issue by default. The one exception is an
+issue the issue reviewer awarded `sonnet-only` (`standards/issue-standards.md` §
+"Sonnet tier eligibility"): its implementer and reviewers both run on Sonnet. That
+award is a judgment call the issue reviewer makes once, at issue-review time — not a
+run-tier classifier script.
 
 ---
 

@@ -632,9 +632,13 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 ### Sonnet-only run tier (#427)
 
-> **Retired 2026-07-17 (#587):** `tools/classify-issue-run.ps1` is deleted, the `Run tier` issue field
-> is dropped from `standards/issue-standards.md`, and there is no same-model review carve-out. Every
-> reviewer, on every issue, runs on Opus, on a different model from the implementer. See the ADR below.
+> **Retired 2026-07-17 (#587), reinstated 2026-07-19 (#680) as a reviewer judgment, not a script.**
+> `tools/classify-issue-run.ps1` and the `Run tier` issue field stay deleted — the mechanism section
+> below describes them for history only, and is no longer how eligibility is decided. The tier itself
+> is back: every reviewer, on every issue, runs on Opus, on a different model from the implementer, by
+> default — except an issue the issue reviewer awarded `sonnet-only`, whose implementer and reviewers
+> both run on Sonnet. See "ADR: Sonnet-only tier reinstated as reviewer judgment (#680)" below for the
+> current mechanism.
 
 **Decision:** a genuinely routine issue's whole pipeline — orchestrator, implementer, and every reviewer that fires — may run on Sonnet instead of the standard Opus reviewer policy, gated by a deterministic classifier (`tools/classify-issue-run.ps1`, mirroring `tools/classify-dep-pr.ps1`) rather than owner judgment per issue. Sonnet now carries a separate cost bucket, so this is a real saving with no shared-budget tradeoff on the issues it covers — but it is restricted to issues where all three eligibility gates hold: off the system-level governing-artifact surface (and not security-flagged or escalated), off the wedding-critical guest paths (join/auth, upload, moderation, gallery/export core), and small/reversible (no schema or data migration). Borderline cases default to `opus`.
 
@@ -654,7 +658,7 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 **What this trades away, stated honestly.** The old rule bought determinism — an agent verifying an issue mechanically, with no judgment call. That is knowingly given up: two reviewers may disagree on the same criterion under the new bar. The trade is accepted because the old determinism was purchased by producing criteria nobody could hold — a worse failure than occasional reviewer disagreement.
 
-**Interaction with the `sonnet-only` tier (#427) — retired 2026-07-17 (#587).** This paragraph described a now-deleted mechanism: the `sonnet-only` tier and its classifier are gone, so every reviewer is Opus and this interaction no longer applies. Left here as history, not current behavior.
+**Interaction with the `sonnet-only` tier (#427).** This paragraph described the classifier-based mechanism retired 2026-07-17 (#587); that classifier stays deleted. The tier itself was reinstated 2026-07-19 as a reviewer judgment (#680, see "ADR: Sonnet-only tier reinstated as reviewer judgment (#680)" below) — so "every reviewer is Opus" is now the default, not an absolute. The original interaction this paragraph named doesn't carry forward as written: the sonnet-tier award is a judgment the issue reviewer makes reading the issue's own criteria and touched paths, not a script matching acceptance-criteria text against a path regex. Left here as history of the classifier-era interaction, not current behavior.
 
 ### No severity adjudicator when the orchestrator concedes a rewrite (#540)
 
@@ -773,14 +777,68 @@ both files are deleted along with the rest of the proof layer (`persist-bias-gat
 future Fable-specific review mechanism, if the owner ever wants one, is designed fresh against
 whatever the pipeline looks like after 2026-08-08 — it does not un-delete this dormant code.
 
-**What is not retired.** Review practice itself — an independent reviewer on a different model reading
-a change against a standard, citing evidence, returning PASS/FAIL — continues exactly as before. What
-is gone is the machinery that tried to mechanically _prove_ a review happened. `WHAT-IT-CHECKS.md` states
-this distinction to the owner directly.
+**What is not retired.** Review practice itself — an independent reviewer, by default on a different
+model, reading a change against a standard, citing evidence, returning PASS/FAIL — continues exactly
+as before, with one addition made 2026-07-19: the `sonnet-only` tier reinstated by #680 lets a
+reviewer judgment call put the implementer and reviewer on the same model for a bounded, low-stakes
+slice of work — see "ADR: Sonnet-only tier reinstated as reviewer judgment (#680)" below. What is gone
+is the machinery that tried to mechanically _prove_ a review happened. `WHAT-IT-CHECKS.md` states this
+distinction to the owner directly.
 
 **Revisit.** This freeze and teardown are scoped to 2026-07-17 through 2026-08-08. Whether any retired
 mechanism is worth rebuilding — with a leaner design informed by what actually broke here — is a
 post-wedding decision, not a foregone conclusion either way.
+
+## ADR: Sonnet-only tier reinstated as reviewer judgment (#680)
+
+**Date:** 2026-07-19. **Status:** accepted, owner-authorized (the freeze-exception approval for this
+change, and the six-plus-one-plus-one governing files it touches, is recorded in `CLAUDE.md` §
+"Governance freeze" and issue #680 itself).
+
+**What changed.** The `sonnet-only` run tier retired in the #587 teardown (originally #427) is back,
+but its eligibility decision moves from a maintained classifier script to a judgment the existing
+Opus issue reviewer (`reviewer-issue`) makes once, at issue-review time. No new script, tool, or
+agent is added. The reviewer's verdict now carries `AWARD sonnet-only` or `DENY sonnet-only`, decided
+against three eligibility gates — governance surface, guest-critical paths, and small-and-reversible —
+owned in full by `standards/issue-standards.md` § "Sonnet tier eligibility", with any borderline case
+defaulting to `DENY`. On an `AWARD`, the orchestrator
+applies the `sonnet-only` GitHub label and runs both the implementer and the PR + design-philosophy
+reviewers on Sonnet for that issue; the orchestrator itself stays Opus. Mechanics:
+`agents/orchestrator.md` § "Model policy".
+
+**Why a judgment, not a script.** The original #427 mechanism (`tools/classify-issue-run.ps1`)
+hard-coded a guest-critical path list and needed its own drift-guard test just to keep that list
+honest as the app was renamed and restructured through each wave — a maintained bug surface layered
+on top of the tier it was supposed to gate cheaply. The issue reviewer already reads the issue and
+every path in its `Touches` list before it can pass review at all; folding the eligibility call into
+that existing read removes the drift-prone list rather than reinstating it. There is nothing left to
+go stale, because there is nothing left to maintain.
+
+**Decided once; escalation is manual.** Eligibility is decided a single time, at issue review — not
+re-checked continuously through the run. If implementation or PR review turns up a guest-critical or
+governance-surface path the issue did not declare, the remainder of that run escalates to Opus by the
+manual judgment of whoever spotted it — the implementer or the PR reviewer — not an automatic re-run
+and not a script re-testing the gates mid-flight. This trades a small chance a human misses the
+trigger against the certainty that a scripted mid-run re-check would need the same maintained path
+list this decision removes.
+
+**What this trades away, stated honestly.** Same-model review still inherits correlated blind
+spots — the errors the implementer makes are the ones a same-model reviewer is likeliest to
+miss — exactly the tradeoff the original #427 decision accepted, and exactly what
+`standards/agent-standards.md` § "Reviewer independence" states plainly as the default rule's
+rationale. Reinstatement does not dispute that; it accepts the same tradeoff again, on the same
+bounded, low-stakes slice of work (routine, reversible, off every guest-critical and governance
+surface), for the same reason it was tolerable the first time: the differently-chartered
+design-philosophy lens (`agents/reviewer-design-philosophy.md`) still runs even when it shares a
+model with the implementer, and a different lens catches what a same-charter reviewer misses,
+independent of which model runs it. The second mitigation carries forward unchanged from #427: every
+sonnet-tier reviewer spawn carries a coverage-first instruction — report every finding, tagged with
+its own severity and confidence, and never defer to a downstream filter — to counter Sonnet's
+documented tendency to under-report when told to be conservative; on the common single-round PASS
+path, no downstream filter exists to catch what that under-reporting would otherwise lose.
+
+**Not built by this issue.** #680 is itself a governance-surface change and runs the full Opus
+pipeline throughout — it is not itself `sonnet-only`-eligible.
 
 ## ADR: Backup split — database and photos get opposite cadences (#558)
 

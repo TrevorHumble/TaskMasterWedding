@@ -54,15 +54,17 @@ Standards live in `standards/`. Agent definitions live in `agents/`. Both are po
 
 Every spawned agent sets its `model` explicitly. Never rely on a default that may escalate silently.
 
-| Role         | Model                                            |
-| ------------ | ------------------------------------------------ |
-| Orchestrator | Opus                                             |
-| Implementer  | Sonnet                                           |
-| Reviewers    | Opus, and a different model from the implementer |
+| Role         | Model                                                                    |
+| ------------ | ------------------------------------------------------------------------ |
+| Orchestrator | Opus                                                                     |
+| Implementer  | Sonnet                                                                   |
+| Reviewers    | Opus by default, a different model from the implementer — see exception |
 
-Reviewers run on a different model than the implementer, on every issue, so they do not inherit the implementer's correlated blind spots. There is no exception tier. A reviewer must never review its own output.
+Reviewers run on a different model than the implementer, on every issue by default, so they do not inherit the implementer's correlated blind spots. A reviewer must never review its own output.
 
-**Phase-1 visual edits are the one carve-out (#378).** During the live-preview loop (`agents/orchestrator.md` § "Visual-approval loop"), the orchestrator (Opus) edits `views/**/*.ejs` and `src/public/**` directly instead of spawning the Sonnet implementer for each owner-requested tweak — the implementer has no memory of the phase-1 conversation, so it cannot know what the owner already rejected two refreshes ago, and spawning it per five-second edit would re-litigate settled taste calls for no benefit. This holds only while nothing commits. The **phase-2 tree** — once the owner has approved, the pixels are frozen, and the criteria are transcribed — is not exempted: it goes through the normal implementer-then-reviewer bar in the table above, unchanged.
+**The one exception is the `sonnet-only` tier (#680).** An issue the issue reviewer (`reviewer-issue`) awarded `AWARD sonnet-only` — per `standards/issue-standards.md` § "Sonnet tier eligibility" — runs its implementer and reviewers both on Sonnet; the orchestrator itself still runs Opus. This is a judgment call the issue reviewer makes once, at issue-review time, reading the issue's own touched paths — not a run-tier classifier script, and not a standing carve-out for any issue that merely looks routine. Every issue without that award keeps the default Opus-reviewer bar in the table above. Full mechanics, including the coverage-first instruction appended to sonnet-tier reviewer spawns and manual mid-run escalation: `agents/orchestrator.md` § "Model policy".
+
+**Phase-1 visual edits are one carve-out (#378).** During the live-preview loop (`agents/orchestrator.md` § "Visual-approval loop"), the orchestrator (Opus) edits `views/**/*.ejs` and `src/public/**` directly instead of spawning the Sonnet implementer for each owner-requested tweak — the implementer has no memory of the phase-1 conversation, so it cannot know what the owner already rejected two refreshes ago, and spawning it per five-second edit would re-litigate settled taste calls for no benefit. This holds only while nothing commits. The **phase-2 tree** — once the owner has approved, the pixels are frozen, and the criteria are transcribed — is not exempted: it goes through the normal implementer-then-reviewer bar in the table above, unchanged.
 
 **Fable (#453).** Fable is an available model, used only on the owner's explicit per-use signal. Absent that signal, every implementer — Fable included — goes through the standard independent adversarial review per the table above; there is no standing Fable-specific review handling until the owner specifies one.
 
