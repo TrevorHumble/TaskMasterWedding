@@ -1,5 +1,7 @@
 # Garden Party Pastels — Domain Context
 
+**As the AI agent working in this repo, I need the domain vocabulary defined once, so I use the same words the code and product use.**
+
 Wedding photo scavenger hunt: guests complete tasks by submitting photos, earn points and badges, and the couple's Task Master steers the game and moderates the result.
 
 ## Language
