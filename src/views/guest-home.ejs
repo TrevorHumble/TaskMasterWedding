@@ -62,19 +62,19 @@
     <% } else { %>
       <ul class="photo-grid">
         <% submissions.forEach(function (s) { %>
+          <% var captionText = s.task_id ? s.task_title : s.caption; %>
+          <% var photoName = captionText || 'a shared memory'; %>
           <li class="photo-item">
-            <%# A memory (issue #247, s.task_id IS NULL) has no task to link
-                to — no /tasks/<task_id> anchor, and the caption stands in for
-                the task title (AC8). %>
-            <% if (s.task_id) { %>
-              <a href="/tasks/<%= s.task_id %>">
-                <img src="/thumbs/<%= s.thumb_path %>" alt="Photo for <%= s.task_title %>" class="photo-thumb" />
-              </a>
-              <span class="photo-caption"><%= s.task_title %></span>
-            <% } else { %>
-              <img src="/thumbs/<%= s.thumb_path %>" alt="<%= s.caption || 'a shared memory' %>" class="photo-thumb" />
-              <span class="photo-caption"><%= s.caption %></span>
-            <% } %>
+            <%# Every thumbnail opens the photo detail view at /p/:id (issue
+                #613), mirroring the anchor-around-thumbnail pattern already
+                shipped on public-profile.ejs (:92-105). A memory (issue #247,
+                s.task_id IS NULL) has no task to link to — the accessible
+                name and caption fall back to the memory's own caption, or
+                "a shared memory" if there's no caption either (AC4/AC8). %>
+            <a href="/p/<%= s.id %>" aria-label="View photo for <%= photoName %>">
+              <img src="/thumbs/<%= s.thumb_path %>" alt="<%= photoName %>" class="photo-thumb" />
+            </a>
+            <span class="photo-caption"><%= captionText %></span>
           </li>
         <% }); %>
       </ul>
