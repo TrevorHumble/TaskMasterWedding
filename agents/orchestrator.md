@@ -54,30 +54,33 @@ name from `PLAN.md`. All prior-art paths must exist on disk.
 
 ## Pipeline (ordered)
 
-1. **Issue** — read an existing issue, or create a new one with `skills/issue-create.md`. For a new issue,
+1. **Research** — delegate to `agents/researcher.md` using `skills/research-prior-art.md`.
+   Local prior art first, then the relevant dependency/framework documentation, then a short web check only
+   if needed. Do not research what prior art already answers.
+2. **Visual-approval loop** — if the work is a **visual change** (see "Visual-approval loop" below
+   for the trigger and full mechanics), the loop runs **before** the issue is drafted, before it is
+   reviewed, and before an implementer is ever spawned for the visual surface: the orchestrator settles
+   the look live against the owner, freezes it, and only then does step 3 draft the now-transcribed
+   issue and step 5's implementation get written. Before the owner approves the look, **only
+   `views/**` and `src/public/**` may be edited** — routes, services, and tests must not be written;
+   rendering realistic data does not authorize production logic, because phase-1 backing is disposable.
+   A non-visual change skips this step entirely and proceeds straight from step 1 to step 3.
+3. **Issue** — read an existing issue, or create a new one with `skills/issue-create.md`. For a new issue,
    **open its GitHub issue first** (`gh issue create --label needs-issue-review`, plus any tier label),
    capture the assigned number `N`, then write the local draft as `data/wip-issues/<N>-slug.md` — so the board
    reflects it from the start carrying the `needs-issue-review` label — GitHub is the single source of truth
    (see `skills/github-write.md`). After the issue-review PASSes, clear the marker:
    `gh issue edit <N> --remove-label needs-issue-review`.
-2. **Issue review** — spawn exactly **one** `agents/reviewer-issue.md` (Opus) via `skills/spawn-adversarial-review.md`. Issues always use a single reviewer — never a panel. Fix every blocking defect. Re-review with a fresh reviewer instance. A FAIL is fixed, never overridden.
-3. **Research** — delegate to `agents/researcher.md` using `skills/research-prior-art.md`.
-   Local prior art first, then the relevant dependency/framework documentation, then a short web check only
-   if needed. Do not research what prior art already answers.
-4. **Implementation** — spawn `agents/implementation-agent.md` (Sonnet) with full handoff: the
+4. **Issue review** — spawn exactly **one** `agents/reviewer-issue.md` (Opus) via `skills/spawn-adversarial-review.md`. Issues always use a single reviewer — never a panel. Fix every blocking defect. Re-review with a fresh reviewer instance. A FAIL is fixed, never overridden.
+5. **Implementation** — spawn `agents/implementation-agent.md` (Sonnet) with full handoff: the
    passing issue + all prior-art file paths.
-5. **Visual-approval loop** — if the work is a **visual change** (see "Visual-approval loop" below
-   for the trigger and full mechanics), the loop runs **before** an implementer is ever spawned for
-   the visual surface: the orchestrator settles the look live against the owner, freezes it, and
-   only then does step 4's implementation (and its criteria) get written. A non-visual change skips
-   this step entirely and proceeds straight from step 4 to step 6.
 6. **Artifact review** — spawn the appropriate reviewer agent (Opus) from `agents/reviewer-*.md` via `skills/spawn-adversarial-review.md`. Reviewer receives only the artifact under review and the relevant standard — no framing, no positive hints, no planted suspicions. **Reviewer count and cadence follow `standards/adversarial-review-protocol.md` § "Reviewer count by artifact"** (authoritative; not restated here to avoid drift): code round 1 uses one PR reviewer plus the design-philosophy reviewer, both must PASS; a blocker/major finding on any later round takes exactly one re-check with one fresh reviewer, scoped to the fix — see § "One-round stop rule". **If the diff touches the source surface defined in § "Doc-currency step", dispatch the `doc-currency` step concurrently with this review** — see § "Doc-currency step" below.
 7. **Commit** — once per run, before the first commit, confirm the hooks are live: `git config core.hooksPath` should print `.githooks` (if not, run `tools/setup-hooks.ps1`; never proceed assuming a gate that isn't on — an unconfigured clone enforces nothing). On the reviewers' PASS (and, for a blocker/major finding, once it is fixed and confirmed per the one-round stop rule), `git commit` with a short message that includes `(#N)` referencing the issue. **`commit-msg` checks that the commit message names a GitHub issue** — a code commit with no `(#N)`, closing keyword, or `issue-N` branch is blocked; a doc-only (`*.md`) commit is exempt. There is no review-evidence file to record — review practice is unmechanized during the freeze (`CLAUDE.md` § "Governance freeze").
    Then **close the GitHub issue** for this work (`gh issue close`, referencing the commit) so the board
    matches reality. The board is kept current at every transition: issue created → `gh issue` opened;
    committed to `main` → `gh issue` closed. Append a one-line entry to `BUILDLOG.md` naming the issue,
    a short summary, and the commit/PR reference.
-   - **Ship flow — branch → PR → CI → merge on green.** After committing, push the branch and run `gh pr create` to open a pull request. Watch CI to green. Once the adversarial review has passed and CI is green, merge the PR — for every non-visual change type. A visual change additionally requires the step-5 "Visual-approval loop" to have reached explicit owner approval before this merge. The owner does not perform merges; owner control is upstream (issue-speccing), downstream (revert via git history), and — for visual changes only — the pre-merge visual-approval loop. `main` is never knowingly left red. If CI goes red, fix the cause or revert the commit before proceeding — a red `main` is a stop-and-fix condition, not something to push past.
+   - **Ship flow — branch → PR → CI → merge on green.** After committing, push the branch and run `gh pr create` to open a pull request. Watch CI to green. Once the adversarial review has passed and CI is green, merge the PR — for every non-visual change type. A visual change additionally requires the step-2 "Visual-approval loop" to have reached explicit owner approval before this merge. The owner does not perform merges; owner control is upstream (issue-speccing), downstream (revert via git history), and — for visual changes only — the pre-merge visual-approval loop. `main` is never knowingly left red. If CI goes red, fix the cause or revert the commit before proceeding — a red `main` is a stop-and-fix condition, not something to push past.
 
 ---
 
@@ -105,6 +108,12 @@ finalized:
 3. The owner refreshes the open tab and looks. "Arrows are clutter" → two lines gone → refresh → five
    seconds. Repeat until the owner says **approved**, explicitly.
 
+**Edit-scope fence — before approval, only `views/**` and `src/public/**`.** Phase 1 is a fence, not
+just a permission: before the owner approves the look, the orchestrator may edit only `views/**` and
+`src/public/**`. Routes, services, and tests must not be written during phase 1. Rendering realistic
+data on the preview link does not authorize production logic — fake it in the view instead, because
+phase-1 backing is disposable and gets thrown away once the look is approved and phase 2 begins.
+
 **Nothing commits during phase 1.** The commit gate is unmoved and still fires later, exactly as
 before; phase 1 is entirely the part _before_ the gate, where every edit anyone has ever made already
 lives. No review runs during phase 1, no criteria are checked against it, and no PR opens for it.
@@ -123,7 +132,7 @@ approved.
 
 **Phase 2 — write it down, then ship.** The acceptance criteria for the visual surface **transcribe**
 what the owner already approved; they do not (re)define it. Only now does issue review run against
-those criteria, step 4 spawns `agents/implementation-agent.md` to add the wiring and tests the
+those criteria (step 4), step 5 spawns `agents/implementation-agent.md` to add the wiring and tests the
 faked phase-1 behavior needs, and step 6 (artifact review) runs the normal reviewer bar against the
 resulting tree — the freeze protects the owner's pixels from the phase-2 implementer, which can no
 longer quietly redecorate something already blessed.
@@ -247,7 +256,7 @@ review it."
   never exempt bookkeeping.
 - **A change to the frozen governing-artifact surface is not built at all during the freeze** unless it
   blocks a guest-facing path or CI and carries recorded owner approval — see `CLAUDE.md` § "Governance
-  freeze". This is a precondition on step 1, not a review outcome: the pipeline never opens an issue that
+  freeze". This is a precondition on the Issue step (step 3), not a review outcome: the pipeline never opens an issue that
   would touch the frozen surface without that approval already on record.
 
 ---
@@ -365,9 +374,14 @@ spawning `agents/implementation-agent.md` for each owner-requested tweak. Reason
 none of the phase-1 conversation — it cannot remember what the owner already rejected two refreshes
 ago, so spawning it per tweak would re-litigate settled taste calls and burn a round trip per five-
 second edit. This is a narrow, named exception to "the orchestrator does not author deliverable
-artifacts" (see Constraints below), scoped to phase-1 visual edits only, while nothing commits. The
-**phase-2 tree — once the criteria are transcribed and an implementer adds wiring/tests — is not
-exempted**: it takes the normal `agents/implementation-agent.md` + reviewer bar below, unchanged.
+artifacts" (see Constraints below), scoped to phase-1 visual edits only, while nothing commits.
+
+**The carve-out is a fence, not a blanket permission.** It permits editing only `views/**` and
+`src/public/**` before the owner approves the look — it does not authorize route, service, or test
+edits under any framing, including "the preview needs to render real data." Faked data in the view is
+sufficient to settle a look; production logic is not phase-1 work. The **phase-2 tree — once the
+criteria are transcribed and an implementer adds wiring/tests — is not exempted**: it takes the normal
+`agents/implementation-agent.md` + reviewer bar below, unchanged.
 
 The orchestrator runs on **Opus**. Implementation agent and non-reviewer spawned agents (researcher,
 etc.) run on **Sonnet**. Reviewers (all `reviewer-*.md` agents) run on **Opus** — a different model
