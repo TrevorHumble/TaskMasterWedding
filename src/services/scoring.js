@@ -1,6 +1,6 @@
 // src/services/scoring.js
 //
-// Scoring engine and badge logic for Garden Party Pastels.
+// Scoring engine and badge logic for Wedding Master.
 //
 // Responsibilities:
 //   - getPoints / getCompletedCount: how many points a guest has.
@@ -699,7 +699,7 @@ function getGuestBadges(guestId) {
 
 // Every holder of one badge, with the fields the badge detail page needs for
 // EITHER of its two rendered shapes (issue #488): a system badge only reads
-// guest_id/guest_name; a Task Master (custom) badge also reads
+// guest_id/guest_name; a Wedding Master (custom) badge also reads
 // points/note/submission_id/thumb_path per award. One shared query serves
 // both — the view decides what to display, this statement never branches on
 // badge type.

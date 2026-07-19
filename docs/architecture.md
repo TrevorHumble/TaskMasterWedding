@@ -1,6 +1,6 @@
 # Architecture
 
-How a request travels through Garden Party Pastels, and how the data is shaped. For the reasoning behind these choices see [`DESIGN.md`](../DESIGN.md).
+How a request travels through Wedding Master, and how the data is shaped. For the reasoning behind these choices see [`DESIGN.md`](../DESIGN.md).
 
 ## Request path
 

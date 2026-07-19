@@ -1,6 +1,6 @@
-# Garden Party Pastels — Wedding Scavenger Hunt
+# Wedding Master
 
-A photo scavenger-hunt web app for the wedding of **Axel Fenwick & Lily Sckeiky**. Around 100 guests, each on their own phone, scan one shared QR code on a poster, sign up with no password, and complete tasks by uploading photos. Each completed task earns a point, badges unlock automatically, and there is a leaderboard and shared photo gallery visible to every signed-in guest. A password-protected admin (the "Task Master") manages tasks, awards bonus points and special badges, hides photos, and exports everything at the end.
+A photo task game for the wedding of **Axel Fenwick & Lilly Sckeiky**. Around 100 guests, each on their own phone, scan one shared QR code on a poster, sign up with no password, and complete tasks by uploading photos — goofy, funny, or touching, building a shared record of memories the couple keeps: one keepsake of the whole day. Each completed task earns a point, badges unlock automatically, and there is a leaderboard and shared photo gallery visible to every signed-in guest. A password-protected admin (the Wedding Master) manages tasks, awards bonus points and special badges, hides photos, and exports everything at the end.
 
 It runs on a small rented Linux host with a persistent disk, reachable over HTTPS through the host's reverse proxy at a stable domain the QR codes point to; see [`docs/deploy.md`](docs/deploy.md) for the full deploy runbook. It originally ran on a laptop behind a temporary Cloudflare tunnel.
 
@@ -36,7 +36,7 @@ Requires **Node.js 20+** on Windows (PowerShell) for local development. Producti
 
 ```powershell
 npm install
-node scripts/set-admin-password.js <password>   # sets the admin (Task Master) password
+node scripts/set-admin-password.js <password>   # sets the admin (Wedding Master) password
 node scripts/seed.js                  # creates tables, badges, and sample data
 npm run serve                         # starts the server on port 3000
 ```

@@ -776,7 +776,7 @@ router.post('/photos/:id/restore', (req, res) => {
 // Body: bonus = the new photo_bonus value.
 // This is an ABSOLUTE SET (submissions.photo_bonus = bonus), unlike the
 // per-guest points route above, which is additive (bonus_points = bonus_points
-// + delta). A photo's award is a single Task Master judgment on that one
+// + delta). A photo's award is a single Wedding Master judgment on that one
 // photo, replaced whenever re-judged — there is no "stack of past awards" to
 // accumulate, so a set is the natural operation, not a delta.
 // Only a non-negative integer is accepted; anything else redirects with a

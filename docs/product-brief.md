@@ -1,4 +1,4 @@
-# Product Brief — Garden Party Pastels
+# Product Brief — Wedding Master
 
 > **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
 
@@ -12,14 +12,14 @@ What the owner asked for, in his own words, captured from discovery. This is the
 
 |                     |                                                                                               |
 | ------------------- | --------------------------------------------------------------------------------------------- |
-| **What**            | A phone web app that turns a wedding into a photo scavenger hunt                              |
+| **What**            | A phone web app that runs a wedding photo task game                                           |
 | **Couple**          | Lilly & Axel                                                                                  |
-| **Theme**           | "Garden Party Pastels" (soft pastel palette; reference: the bouquet photo the owner provided) |
+| **Theme**           | A soft green ramp (reference: the bouquet photo the owner provided)                           |
 | **Guests**          | ~100, each on their own phone                                                                 |
 | **Sign-in**         | Tap a personal link (no email, no password)                                                   |
 | **The game**        | Complete admin-set photo tasks → 1 point each → badges → leaderboard                          |
 | **Sharing**         | One shared gallery everyone can see; personal profiles                                        |
-| **Run by**          | A "task master" admin who edits tasks, awards bonus points/badges, removes photos             |
+| **Run by**          | The Wedding Master admin who edits tasks, awards bonus points/badges, removes photos          |
 | **Hosting**         | Self-hosted on the owner's Windows laptop for the wedding weekend; cheap/free                 |
 | **After**           | Export everything (photos + a record), likely post to Flickr + email blast, then take it down |
 | **Scale of photos** | ~1,500 total (≈15 per guest × 100 guests)                                                     |
@@ -28,7 +28,7 @@ What the owner asked for, in his own words, captured from discovery. This is the
 
 - **Couple:** Lilly & Axel.
 - **Dates:** the wedding weekend is **Aug 7–9, 2026** — Fri the 7th welcome dinner, Sat the 8th wedding + party, Sun the 9th brunch. The app must be live for guests by **Friday, Aug 7**.
-- **Theme:** "Garden Party Pastels" — a soft pastel palette, referenced by a bouquet photo the owner supplied. Visual design is the owner's call; agents do not redesign.
+- **Theme:** a soft green ramp, referenced by a bouquet photo the owner supplied. Visual design is the owner's call; agents do not redesign.
 - **Hashtag / monogram:** none requested.
 
 ## Who uses it
@@ -38,7 +38,7 @@ What the owner asked for, in his own words, captured from discovery. This is the
 - **One device per person.** Not designed for couples sharing a phone.
 - **A private admin view is required** for the person running the event.
 
-## The scavenger hunt
+## The game
 
 - **Tasks are written and edited in the admin view**, not hard-coded. The admin can add, change, and remove tasks anytime.
 - **Number of tasks: however many the admin adds.** No fixed count.
@@ -50,9 +50,9 @@ What the owner asked for, in his own words, captured from discovery. This is the
 ## Badges
 
 - **Auto badges are earned by completing a number of tasks:** about **3 badges**, one every **5 tasks** (so at 5, 10, and 15 completed).
-- **Special badges** exist that **the task master awards** by hand (not earned automatically).
+- **Special badges** exist that **the Wedding Master awards** by hand (not earned automatically).
 - **Metric and transferable badges** are computed from live standings (e.g. a "most photos" badge that can change hands as the leaderboard moves), built out in the implementation beyond the original discovery scope.
-- **The task master can also create `custom` badges** — the catalog is not a fixed list.
+- **The Wedding Master can also create `custom` badges** — the catalog is not a fixed list.
 - **Placeholder badge art is fine** — the owner is OK with designed placeholders.
 - **Badges are visible to everyone**, not private.
 

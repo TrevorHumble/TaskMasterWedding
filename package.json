@@ -1,7 +1,7 @@
 {
-  "name": "garden-party-pastels",
+  "name": "weddingmaster",
   "version": "1.0.0",
-  "description": "Wedding scavenger hunt web app for Lilly & Axel.",
+  "description": "Wedding Master — a wedding photo task game for Axel Fenwick & Lilly Sckeiky.",
   "private": true,
   "type": "commonjs",
   "engines": {

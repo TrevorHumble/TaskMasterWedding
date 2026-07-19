@@ -221,7 +221,7 @@ describe('GET /admin/export — headers', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toBe('application/zip');
     expect(res.headers['content-disposition']).toMatch(
-      /attachment; filename="garden-party-export-\d{4}-\d{2}-\d{2}\.zip"/
+      /attachment; filename="weddingmaster-export-\d{4}-\d{2}-\d{2}\.zip"/
     );
   });
 });

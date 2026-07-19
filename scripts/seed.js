@@ -11,30 +11,30 @@ const { db } = require('../src/db');
 const { ensureBadgeCatalog } = require('./badge-catalog');
 
 // ---------------------------------------------------------------------------
-// 2) Sample scavenger-hunt tasks for a garden-party wedding.
+// 2) Sample photo tasks for the wedding.
 //    The admin can edit/add/remove these later; these just seed a starting set.
 //    sort_order controls display order (0 first).
 // ---------------------------------------------------------------------------
 const TASKS = [
   {
     title: 'Snap the happy couple',
-    description: 'Get a photo with Axel and Lily together. Bonus charm for a candid one.',
+    description: 'Get a photo with Axel and Lilly together. Bonus charm for a candid one.',
   },
   {
     title: 'Catch someone on the dance floor',
     description: 'Photograph a guest mid-dance move. Blurry feet are encouraged.',
   },
   {
-    title: 'Find the prettiest flower',
-    description: 'Hunt the garden for the bloom you think is the most beautiful and photograph it.',
+    title: 'The prettiest bloom',
+    description: 'Track down the bloom you think steals the show and photograph it.',
   },
   {
     title: 'Toast with a stranger',
     description: 'Clink glasses with someone you have not met yet and capture the cheers.',
   },
   {
-    title: 'Pastel outfit spotting',
-    description: 'Find a guest dressed in our garden-party pastels and snap their look.',
+    title: 'Best-dressed guest',
+    description: 'Find the guest most dressed to impress and snap their look.',
   },
   {
     title: 'Sweet treat selfie',

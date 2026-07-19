@@ -69,7 +69,7 @@ function fmtDate(value) {
  */
 async function buildSummaryBuffer() {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Garden Party Pastels';
+  workbook.creator = 'Wedding Master';
   workbook.created = new Date();
 
   // ---- Pull data once -----------------------------------------------------
@@ -273,9 +273,9 @@ async function buildSummaryBuffer() {
  * ALL originals are included (taken-down photos too) so nothing is lost.
  */
 async function streamExportZip(res) {
-  // Filename like garden-party-export-2026-06-27.zip
+  // Filename like weddingmaster-export-2026-06-27.zip
   const stamp = new Date().toISOString().slice(0, 10);
-  const zipName = `garden-party-export-${stamp}.zip`;
+  const zipName = `weddingmaster-export-${stamp}.zip`;
 
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
@@ -342,7 +342,7 @@ async function streamExportZip(res) {
         const task = taskById.get(s.task_id);
         const sortOrder = task ? task.sort_order : 0;
         const titlePart = safeName(task ? task.title : `task-${s.task_id}`, `task-${s.task_id}`);
-        // e.g. Lily-Sckeiky-3/task-2-Find-the-cake.jpg
+        // e.g. Lilly-Sckeiky-3/task-2-Find-the-cake.jpg
         entryName = `${folder}/task-${sortOrder}-${titlePart}${ext}`;
       }
 
