@@ -32,7 +32,10 @@ beforeAll(async () => {
   app = loaded.app;
   db = loaded.db;
 
-  db.prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`).run('myphotos-token', 'Photo Link Guest');
+  db.prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`).run(
+    'myphotos-token',
+    'Photo Link Guest'
+  );
   agent = request.agent(app);
   signInGuest(app, 'myphotos-token', agent);
 
