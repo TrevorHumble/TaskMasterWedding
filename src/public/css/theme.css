@@ -905,6 +905,29 @@ p {
   color: var(--color-text-muted);
   margin-top: var(--space-1);
 }
+/* Issue #256 — every stat cell is a tappable <a>; strip the link chrome so it
+   reads as a card, not a hyperlink, and lift on hover for a tap affordance. */
+a.stat {
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+a.stat:hover {
+  background: var(--green-50);
+  text-decoration: none;
+}
+/* Open-bug-reports count turns red only when there is something to act on;
+   at zero it stays the ordinary primary green (AC2). */
+.stat-num-danger {
+  color: var(--err-ink);
+}
+
+/* Activity pulse line under the stat grid. */
+.pulse-line {
+  margin: var(--space-3) 0 var(--space-5);
+  text-align: center;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
 
 /* ----------------------- Progress bar ----------------------- */
 .progress {
@@ -3320,14 +3343,6 @@ body:has(dialog[open]) {
 }
 .btn--primary:hover {
   background: var(--color-primary-hover);
-}
-
-/* ----------------------- Admin nav links ----------------------- */
-.admin-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  margin-bottom: var(--space-6);
 }
 
 /* ----------------------- Admin inline / stacked forms in cells ---- */

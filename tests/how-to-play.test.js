@@ -2,9 +2,9 @@
 // Covers issue #246 acceptance criteria — the "How to play" rules card:
 //   AC1 — the active-task count is LIVE: 32 active tasks -> "32 photo
 //         missions"; deactivating one -> "31 photo missions" on the next render
-//   AC2 — the CTA href points at the guest's lowest-sort_order undone task,
-//         or falls back to /tasks when nothing is undone (including zero
-//         tasks posted at all)
+//   AC2 (issue #663) — the CTA always reads "See your list of tasks" and
+//         links to /tasks (the task board), regardless of undone tasks,
+//         never an individual /tasks/<id>
 //   AC3 — ?first=1 shows "Skip for now"; a plain GET /how-to-play does not.
 //         (Issue #244 retired the separate POST /onboard step that used to
 //         redirect here with ?first=1 after signup — nothing currently lands
@@ -86,12 +86,12 @@ describe('AC1: taskCount is a live count of active tasks', () => {
   });
 });
 
-describe('AC2: CTA href is the first undone task, or /tasks as a fallback', () => {
-  test("href points at the guest's lowest-sort_order undone task, ignoring a done lower-order task", async () => {
+describe('AC2 (issue #663): closing button always links to /tasks, never an individual task', () => {
+  test('with undone tasks present, the button still reads "See your list of tasks" and links to /tasks, not the lowest-sort_order undone task', async () => {
     resetTables();
     const guestId = insertGuest('ac2-first-token', true);
-    const taskDoneLow = insertTask('Done, low order', 1); // done, would otherwise win on order
-    const taskUndoneNext = insertTask('Undone, next order', 2); // lowest undone -> should win
+    const taskDoneLow = insertTask('Done, low order', 1);
+    const taskUndoneNext = insertTask('Undone, next order', 2); // would have won under the old first-undone logic
     insertTask('Undone, later order', 3);
     markDone(guestId, taskDoneLow);
 
@@ -99,12 +99,14 @@ describe('AC2: CTA href is the first undone task, or /tasks as a fallback', () =
     const res = await agent.get('/how-to-play');
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain('href="/tasks/' + taskUndoneNext + '"');
-    // Not the done task, and not the later-order undone task either.
+    expect(res.text).toContain('href="/tasks">See your list of tasks</a>');
+    // Never an individual task href, old or new.
+    expect(res.text).not.toContain('href="/tasks/' + taskUndoneNext + '"');
     expect(res.text).not.toContain('href="/tasks/' + taskDoneLow + '"');
+    expect(res.text).not.toMatch(/href="\/tasks\/\d+"/);
   });
 
-  test('falls back to href="/tasks" when the guest has zero undone tasks', async () => {
+  test('with zero undone tasks, the button still links to /tasks', async () => {
     resetTables();
     const guestId = insertGuest('ac2-zero-token', true);
     const taskId = insertTask('The only task', 1);
@@ -114,11 +116,11 @@ describe('AC2: CTA href is the first undone task, or /tasks as a fallback', () =
     const res = await agent.get('/how-to-play');
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain('href="/tasks"');
+    expect(res.text).toContain('href="/tasks">See your list of tasks</a>');
     expect(res.text).not.toMatch(/href="\/tasks\/\d+"/);
   });
 
-  test('falls back to href="/tasks" when no tasks exist at all (taskCount 0)', async () => {
+  test('with no tasks posted at all (taskCount 0), the button still links to /tasks', async () => {
     resetTables();
     insertGuest('ac2-notasks-token', true);
 
@@ -126,7 +128,7 @@ describe('AC2: CTA href is the first undone task, or /tasks as a fallback', () =
     const res = await agent.get('/how-to-play');
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain('href="/tasks"');
+    expect(res.text).toContain('href="/tasks">See your list of tasks</a>');
     expect(res.text).toContain('0 photo missions');
   });
 });

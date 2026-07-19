@@ -443,6 +443,30 @@ function neighbors(submissionId) {
   };
 }
 
+// The single newest VISIBLE submission with its guest's name — the admin
+// dashboard's activity pulse line (issue #256). Owns the same visibility
+// predicate and newest-first ordering as every other query in this file, so
+// the pulse never surfaces a taken-down photo and always agrees with the
+// gallery on "which one is newest".
+const stmtNewestVisible = db.prepare(`
+  SELECT s.created_at AS created_at,
+         g.name       AS name
+    FROM submissions s
+    JOIN guests g ON g.id = s.guest_id
+   WHERE ${VISIBLE_WHERE}
+   ${ORDER_NEWEST_FIRST}
+   LIMIT 1
+`);
+
+/**
+ * The newest visible submission, joined to its guest for display.
+ * @returns {{ name: string, created_at: string } | null} null when there are
+ *   no visible submissions.
+ */
+function newestVisibleSubmission() {
+  return stmtNewestVisible.get() || null;
+}
+
 module.exports = {
   GALLERY_PAGE_SIZE,
   FEED_PAGE_SIZE,
@@ -459,4 +483,5 @@ module.exports = {
   guestPhotos,
   detail,
   neighbors,
+  newestVisibleSubmission,
 };

@@ -42,8 +42,10 @@ const photos = require('../services/photos');
 const taskBadges = require('../services/task-badges');
 const favoritesSvc = require('../services/favorites');
 const photoBadges = require('../services/photo-badges');
+const feed = require('../services/feed');
 const { streamExportZip } = require('../services/export');
 const { normalizeContact, isValidPin } = require('../services/identity');
+const { relativeTime } = require('../services/relative-time');
 
 const router = express.Router();
 
@@ -134,7 +136,6 @@ router.get('/qrsheet', renderNotFound);
 router.get('/', (req, res) => {
   const counts = {
     guests: db.prepare('SELECT COUNT(*) AS n FROM guests').get().n,
-    tasks: db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n,
     activeTasks: db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get().n,
     submissions: db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
     livePhotos: db.prepare('SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 0').get().n,
@@ -142,9 +143,25 @@ router.get('/', (req, res) => {
     badgesAwarded: db.prepare('SELECT COUNT(*) AS n FROM guest_badges').get().n,
   };
 
+  // Sixth stat cell (issue #256 / #245): unresolved bug-report count.
+  const openBugs = db.prepare('SELECT COUNT(*) AS n FROM bug_reports WHERE resolved = 0').get().n;
+
+  // Pulse line (issue #256): the newest VISIBLE submission. feed.js owns the
+  // visibility predicate and newest-first ordering (its VISIBLE_WHERE /
+  // ORDER_NEWEST_FIRST single owners), so this route consumes
+  // feed.newestVisibleSubmission() rather than re-typing the SQL — the pulse
+  // then agrees with the gallery on "which is newest" and never surfaces a
+  // photo the admin just took down.
+  const newestVisible = feed.newestVisibleSubmission();
+  const lastPhoto = newestVisible
+    ? { rel: relativeTime(newestVisible.created_at), name: newestVisible.name || '' }
+    : null;
+
   res.render('admin-dashboard', {
     title: 'Admin Dashboard',
     counts,
+    openBugs,
+    lastPhoto,
     msg: req.query.msg || '',
     isAdmin: true,
   });
@@ -371,8 +388,9 @@ router.post('/guests/:id/points', (req, res) => {
     return redirectWithMsg(res, '/admin/guests', 'Enter a non-zero point amount.');
   }
   // scoring.addBonusPoints is additive (bonus_points = bonus_points + delta).
-  // It does NOT clamp at 0 (per section 06), so a large negative delta can drive
-  // a guest's bonus below zero. The admin sees the running total in the UI.
+  // It IS floor-clamped at 0: the UPDATE's MAX(0, ...) (scoring.js's
+  // stmtAddBonus) means a large negative delta can never drive a guest's
+  // bonus below zero. The admin sees the running total in the UI.
   scoring.addBonusPoints(id, delta);
   redirectWithMsg(
     res,

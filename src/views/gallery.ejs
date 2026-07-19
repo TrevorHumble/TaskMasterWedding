@@ -126,4 +126,7 @@
   <script src="/js/filter.js" defer></script>
   <script src="/js/gallery.js" defer></script>
 <% } %>
+<% if (groups.length === 0 && page < totalPages) { %>
+  <script src="/js/gallery-more.js" defer></script>
+<% } %>
 <%- include('partials/footer') %>

@@ -34,7 +34,7 @@ What the owner asked for, in his own words, captured from discovery. This is the
 ## Who uses it
 
 - **~100 guests.** This number drives the hosting choice (one laptop is enough; no cloud needed).
-- **Sign-in is a personal link** — no accounts, no email, no passwords. Possession of your link is how the app knows it's you. (Resolved in build as a per-guest QR link printed for each guest.)
+- **Sign-in is a personal link** — no accounts, no email, no passwords. Possession of your link is how the app knows it's you. (Resolved in build as one shared poster QR code: it opens `/join`, where a guest signs up with a name, contact, and a self-chosen PIN; a returning guest re-enters at `/login` with that same contact + PIN. Per-guest links were retired by #244.)
 - **One device per person.** Not designed for couples sharing a phone.
 - **A private admin view is required** for the person running the event.
 

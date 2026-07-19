@@ -265,7 +265,7 @@ review it."
 
 When invoked for a timed session ("work for N hours", "run autonomously"), the orchestrator runs a
 **time-driven, not task-driven, loop.** It ends only when real elapsed time reaches the budget — never
-because a queue emptied or the work "felt done." This section is the full procedure; the run's live state — budget, queue, and the per-increment Live-log ledger — is tracked in `docs/RESUME-STATE.md`.
+because a queue emptied or the work "felt done." This section is the full procedure; the run's live state — budget, queue, and the per-increment Live-log ledger — is tracked in `docs/live-log.md`.
 
 - **Arm the loop-gate (mechanical, not just discipline).** At run start, write `.run_state/run.json`
   directly (create the directory if needed) with `{ end_epoch: <now + N*60>, iters: 0, churn: 0,

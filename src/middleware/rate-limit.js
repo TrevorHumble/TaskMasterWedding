@@ -162,7 +162,7 @@ function createRateLimiter({
  * signed out" key rule shared by every guest-keyed limiter this app wires up
  * (src/routes/guest.js's upload/social limiters, src/routes/community.js's
  * like+comments limiter). A signed-out caller never actually reaches a
- * guest-gated handler (requireGuest redirects/403s first), so the IP
+ * guest-gated handler (requireGuest redirects to /join first), so the IP
  * fallback here is a defensive default, not a real bucket in practice — but
  * one function is still the single place that decision is written, instead
  * of each route file re-typing the same ternary.

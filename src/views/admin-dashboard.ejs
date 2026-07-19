@@ -9,34 +9,95 @@
   <% } %>
 
   <section class="stat-grid">
-    <div class="stat">
+    <a class="stat" href="/admin/guests">
       <span class="stat-num"><%= counts.guests %></span>
       <span class="stat-label">Guests</span>
-    </div>
-    <div class="stat">
+    </a>
+    <a class="stat" href="/admin/tasks">
       <span class="stat-num"><%= counts.activeTasks %></span>
-      <span class="stat-label">Active tasks (<%= counts.tasks %> total)</span>
-    </div>
-    <div class="stat">
+      <span class="stat-label">Active tasks</span>
+    </a>
+    <a class="stat" href="/admin/photos">
       <span class="stat-num"><%= counts.livePhotos %></span>
       <span class="stat-label">Live photos</span>
-    </div>
-    <div class="stat">
+    </a>
+    <a class="stat" href="/admin/photos">
       <span class="stat-num"><%= counts.takenDown %></span>
       <span class="stat-label">Taken down</span>
-    </div>
-    <div class="stat">
+    </a>
+    <a class="stat" href="/admin/guests">
       <span class="stat-num"><%= counts.badgesAwarded %></span>
       <span class="stat-label">Badges held</span>
-    </div>
+    </a>
+    <a class="stat" href="/admin/bugs">
+      <span class="stat-num<%= openBugs > 0 ? ' stat-num-danger' : '' %>"><%= openBugs %></span>
+      <span class="stat-label">Open bug reports</span>
+    </a>
   </section>
 
-  <nav class="admin-links">
-    <a class="btn btn-primary" href="/admin/guests">Manage guests</a>
-    <a class="btn" href="/admin/poster">Print entry poster</a>
-    <a class="btn" href="/admin/tasks">Manage tasks</a>
-    <a class="btn" href="/admin/photos">Photos &amp; takedowns</a>
-    <a class="btn btn-primary" href="/admin/export">Download export (ZIP + spreadsheet)</a>
-  </nav>
+  <p class="pulse-line">
+    <% if (lastPhoto) { %>
+      Last photo <%= lastPhoto.rel %> &middot; <%= lastPhoto.name %>
+    <% } else { %>
+      No photos yet — the QR cards are ready when you are.
+    <% } %>
+  </p>
+
+  <%# Action rows reuse the guest profile's menu-list verbatim (icon + label +
+      chevron, hairline dividers, no container box) per owner's 2026-07-19
+      visual call — one cohesive pattern, not a second bespoke one. Ordered by
+      wedding-day frequency. %>
+  <ul class="menu-list">
+    <li class="menu-row">
+      <a class="menu-link" href="/admin/photos">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">
+            <path d="M3 9a2 2 0 0 1 2-2h2.5l1-1.5h7l1 1.5H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9zm9 1.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/>
+          </svg>
+        </span>
+        <span class="menu-label">Photos &amp; takedowns</span>
+      </a>
+    </li>
+    <li class="menu-row">
+      <a class="menu-link" href="/admin/tasks">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">
+            <path d="M4 5h11v2H4V5zm0 6h11v2H4v-2zm0 6h11v2H4v-2zM19.5 4.6 20.9 6 17 9.9l-2.4-2.4 1.4-1.4 1 1 2.5-2.5z"/>
+          </svg>
+        </span>
+        <span class="menu-label">Manage tasks</span>
+      </a>
+    </li>
+    <li class="menu-row">
+      <a class="menu-link" href="/admin/guests">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">
+            <path d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm0 1.5c-3 0-6 1.5-6 4V19h12v-2.5c0-2.5-3-4-6-4zm7.5-1.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 1.5c-.6 0-1.15.07-1.66.2 1.3.9 2.16 2.16 2.16 3.8V19H21v-2.5c0-2.2-2.3-3.5-4.5-3.5z"/>
+          </svg>
+        </span>
+        <span class="menu-label">Manage guests</span>
+      </a>
+    </li>
+    <li class="menu-row">
+      <a class="menu-link" href="/admin/poster">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">
+            <path d="M7 3h10v4H7V3zM6 8h12a3 3 0 0 1 3 3v5h-4v4H7v-4H3v-5a3 3 0 0 1 3-3zm3 8v3h6v-5H9v2zm9-5.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/>
+          </svg>
+        </span>
+        <span class="menu-label">Print QR place-cards</span>
+      </a>
+    </li>
+    <li class="menu-row">
+      <a class="menu-link" href="/admin/export">
+        <span class="menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">
+            <path d="M11 3h2v9.2l3.1-3.1 1.4 1.4L12 16l-5.5-5.5 1.4-1.4L11 12.2V3zM5 18h14v2H5v-2z"/>
+          </svg>
+        </span>
+        <span class="menu-label">Download export (ZIP + spreadsheet)</span>
+      </a>
+    </li>
+  </ul>
 
 <%- include('partials/footer') %>
