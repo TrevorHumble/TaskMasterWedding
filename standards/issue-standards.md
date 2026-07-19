@@ -97,6 +97,20 @@ A backlog issue is never implemented in place. When its `Graduate after` conditi
 
 ---
 
+## Sonnet tier eligibility
+
+A ready-tier issue's implementation and review may run on Sonnet instead of the standard Opus reviewer policy — not by a classifier script, but by a judgment the issue reviewer (`reviewer-issue`) makes once, at issue-review time, since it already reads the issue and every path in its `Touches` list. The reviewer emits exactly one of `AWARD sonnet-only` or `DENY sonnet-only` as part of its verdict, per `agents/reviewer-issue.md`.
+
+An award requires all three gates to hold, stated once here:
+
+- **(a) Off the frozen governance surface, and not security-flagged or escalated** — the issue does not touch the surface named in `CLAUDE.md` § "Governance freeze", and nothing about it is security-flagged or has already been escalated to Opus.
+- **(b) Off guest-critical paths** — join/auth, upload, moderation, gallery/export core.
+- **(c) Small and reversible** — no schema or data migration.
+
+Any borderline case — a gate the reviewer cannot confidently confirm — is a `DENY`. The award is recorded by the `sonnet-only` GitHub label, applied by the orchestrator after reading the reviewer's verdict; the reviewer itself never applies the label or edits any file.
+
+---
+
 ## Spawn justification
 
 Any issue an agent creates **during a run** — as opposed to an issue the owner files directly — carries the `spawned-in-run` label and must contain a `## Spawn justification` section in its body. The label is the machine signal that this block is required; an issue without the label is not subject to it.

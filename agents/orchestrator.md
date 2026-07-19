@@ -385,9 +385,25 @@ criteria are transcribed and an implementer adds wiring/tests — is not exempte
 
 The orchestrator runs on **Opus**. Implementation agent and non-reviewer spawned agents (researcher,
 etc.) run on **Sonnet**. Reviewers (all `reviewer-*.md` agents) run on **Opus** — a different model
-from the implementer, per the independence rule in `standards/agent-standards.md`, on every issue.
-No tool classifies an issue into a model tier, and there is no same-model review carve-out. Set
-`model:` explicitly on every spawn call; never rely on defaults.
+from the implementer, per the independence rule in `standards/agent-standards.md`, on every issue by
+default. Set `model:` explicitly on every spawn call; never rely on defaults.
+
+**`sonnet-only` award (#680).** No tool classifies an issue into a model tier. The single exception is
+a judgment call the issue reviewer (`reviewer-issue`) makes once, at issue-review time, against the
+three gates in `standards/issue-standards.md` § "Sonnet tier eligibility": it emits `AWARD sonnet-only`
+or `DENY sonnet-only` as part of its verdict. On an `AWARD`, the orchestrator applies the
+`sonnet-only` GitHub label to the issue, then runs both the implementer (step 5) and the PR +
+design-philosophy reviewers (step 6) on **Sonnet** for that issue — the orchestrator itself stays
+Opus regardless. Every sonnet-tier reviewer spawn additionally carries a coverage-first instruction
+appended to its briefing: report every finding, tagged with its own severity and confidence, and never
+defer to a downstream filter — on the common single-round PASS path, no downstream filter runs to
+catch what an under-reporting reviewer left out.
+
+**Mid-run escalation is manual, not automatic.** If implementation or PR review on a sonnet-tier issue
+turns up a guest-critical or governance-surface path the issue did not declare, the remainder of that
+run escalates to Opus — implementer and reviewers alike — by the manual judgment of the implementer or
+PR reviewer that spotted it. There is no automatic re-run and no script that re-checks the gates
+mid-flight; whoever notices makes the call and the orchestrator carries it out.
 
 ---
 

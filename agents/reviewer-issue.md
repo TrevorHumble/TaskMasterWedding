@@ -32,6 +32,8 @@ For a ready-tier issue, judge whether it scopes a whole feature or only half of 
 
 **Visual-surface issues: the look must already be owner-approved.** An issue is on the visual surface when its `Touches` list includes `views/**`, `src/public/**`, badge art, or guest-/admin-facing rendered copy. For such an issue, `standards/issue-standards.md` § "the approved screen is the acceptance criterion" governs: the criteria must read as **transcribed** from a screen the owner already approved on the seeded preview link (`agents/orchestrator.md` § "Visual-approval loop"), not as a specification written before that approval. Tells that the loop ran in the wrong order — criteria describing a look in the future or conditional tense ("the badge should show…", "add a hover state that…") rather than a settled fact ("the badge shows…", per the approved screen); no reference anywhere in the issue to owner approval, a preview link, or `persist-visual-approval.ps1` having run — are a blocking **FAIL**. An issue whose visual criteria read as already-settled fact, with the approval traceable, is not penalized by this check.
 
+**Sonnet-tier award (ready-tier issues only).** After the checklist below, judge the issue against the three eligibility gates defined in `standards/issue-standards.md` § "Sonnet tier eligibility". If all three hold, emit `AWARD sonnet-only`; otherwise emit `DENY sonnet-only`. Either way, state a one-line reason naming which of the three gates decided the call. A borderline case — any gate you cannot confidently confirm — is a `DENY`. This is a judgment call recorded in the verdict, not a file edit: the reviewer never applies the `sonnet-only` label or touches any file — the orchestrator applies the label after reading the verdict. A backlog-tier issue is not judged for this award (it has no full `Touches` list yet to test against).
+
 ## Bias check
 
 If the spawning prompt names what the artifact is supposed to accomplish, or expresses an expected outcome, halt immediately and return `FAIL` with the finding: "Spawner injected intent — reviewer bias risk."
@@ -45,11 +47,14 @@ If the spawning prompt names what the artifact is supposed to accomplish, or exp
 ```
 PASS  (or)  FAIL
 
+AWARD sonnet-only  (or)  DENY sonnet-only  — <one-line reason naming the deciding gate>
+(ready-tier issues only)
+
 1. [blocker|major|minor|nit] <finding> — evidence: <file:line or quoted text>
 2. …
 ```
 
-One token verdict (`PASS` or `FAIL`) followed by the numbered defect list. A PASS with any open blocker or major is not a PASS. If no defects are found, state "0 defects found" and the evidence that each checklist item passed.
+One token verdict (`PASS` or `FAIL`) followed by the numbered defect list. A PASS with any open blocker or major is not a PASS. If no defects are found, state "0 defects found" and the evidence that each checklist item passed. For a ready-tier issue, the verdict also carries exactly one of `AWARD sonnet-only` or `DENY sonnet-only` with its one-line reason — see "Sonnet-tier award" under Protocol above. A backlog-tier issue carries no award line.
 
 ## Checklist (from `standards/issue-standards.md`)
 
@@ -64,3 +69,4 @@ One token verdict (`PASS` or `FAIL`) followed by the numbered defect list. A PAS
 - [ ] (Visual-surface issues only — `Touches` includes `views/**`, `src/public/**`, badge art, or guest-/admin-facing rendered copy) Is the look already owner-approved, and do the acceptance criteria read as transcribed from that approved screen rather than specified up front? Per `standards/issue-standards.md` § "the approved screen is the acceptance criterion": criteria written as a future/conditional spec, or an issue with no traceable owner approval (no mention of the preview link, the owner's approval, or `persist-visual-approval.ps1`), is a blocking FAIL — the tell that the visual-approval loop ran after implementation instead of before it.
 - [ ] In-license check (all tiers): an issue that requires an `external/paid API`, a `non-Anthropic model key`, or a `hosted third-party service` is `out of license` — return `FAIL`.
 - [ ] If the issue carries the `spawned-in-run` label, it must contain a complete `## Spawn justification` block per `standards/issue-standards.md` § "Spawn justification": all four fields (Spawned by; Why; Why separable; Why not solved in the spawning session) present and non-empty, and "Why separable" naming one of the three defer categories in `standards/adversarial-review-protocol.md` § "Finding disposition". A missing block, or any of the four fields empty, or a "Why separable" value that names none of the three defer categories, is a blocking FAIL — name the missing/empty field or the uncategorized value in the finding. An issue **without** the `spawned-in-run` label is not subject to this check.
+- [ ] (Ready-tier only) Sonnet-tier award: does the issue clear all three eligibility gates defined in `standards/issue-standards.md` § "Sonnet tier eligibility"? Emit `AWARD sonnet-only` if all three clear, otherwise `DENY sonnet-only`, either way with a one-line reason naming the deciding gate. A borderline case is a `DENY`.
