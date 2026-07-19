@@ -88,18 +88,20 @@ In production the host runs backups on a schedule and keeps the last `BACKUP_RET
 
 ### Manual run (dev)
 
-Run a backup any time the app is up (safe to run against a live, in-use database) — the right way to take a one-off local snapshot:
+Run a backup any time the app is up (safe to run against a live, in-use database) — the right way to take a one-off local snapshot. `scripts/backup.js` takes three modes; the default runs both halves:
 
 ```powershell
-node scripts/backup.js
+node scripts/backup.js                 # default: database snapshot + photo store, both
+node scripts/backup.js --db-only       # database snapshot only, no photos
+node scripts/backup.js --photos-only   # photo store only, no database snapshot
 ```
 
-This writes a timestamped snapshot to `backups/<YYYYMMDD-HHMMSS>/`, containing:
+This is a **split shape** (see [`docs/deploy.md`](docs/deploy.md) § "Backups" for the full rationale): the database and the photos are backed up independently, because they have opposite cadences.
 
-- `app.db` — a consistent copy of the database, taken with SQLite's own online backup API (not a plain file copy, which can read a torn/partial file while the app is writing in WAL mode)
-- `uploads/` — a copy of every uploaded photo and avatar
-- `thumbs/` — a copy of every generated thumbnail
-- `admin.hash` — the hashed admin password, if one has been set (a fresh event with no admin password configured yet has none to copy)
+- The `--db-only` half writes a timestamped folder to `backups/<YYYYMMDD-HHMMSS>/`, containing only:
+  - `app.db` — a consistent copy of the database, taken with SQLite's own online backup API (not a plain file copy, which can read a torn/partial file while the app is writing in WAL mode)
+  - `admin.hash` — the hashed admin password, if one has been set (a fresh event with no admin password configured yet has none to copy)
+- The `--photos-only` half (also run by default) copies any new file from `uploads/`/`thumbs/` into **one shared, append-only store** at `BACKUP_DIR/photos/{uploads,thumbs}` — not into the timestamped folder, and not re-copied per run. A photo is write-once, so this store is never pruned by retention and is never duplicated per snapshot.
 
 The backup folder location is controlled by the `BACKUP_DIR` config key. Its default resolves to `<ROOT>/backups` — a sibling of `<ROOT>/data`, i.e. outside `data/`, not a subfolder of it (see `config.js`). Set the `BACKUP_DIR` environment variable to point backups at a second drive or a mounted external location.
 
@@ -116,16 +118,16 @@ The hosted restore procedure is canonical — see the restore section of [`docs/
    ```powershell
    New-Item -ItemType Directory -Force data | Out-Null
    ```
-4. Copy the snapshot's database and photo folders back:
+4. Copy the database from the chosen timestamped snapshot, and the photos from the shared store — not from inside the snapshot folder:
    ```bash
    cp backups/<timestamp>/app.db data/app.db
-   cp -r backups/<timestamp>/uploads data/uploads
-   cp -r backups/<timestamp>/thumbs data/thumbs
+   cp -r backups/photos/uploads data/uploads
+   cp -r backups/photos/thumbs data/thumbs
    ```
    ```powershell
    Copy-Item backups\<timestamp>\app.db data\app.db
-   Copy-Item backups\<timestamp>\uploads data\uploads -Recurse
-   Copy-Item backups\<timestamp>\thumbs data\thumbs -Recurse
+   Copy-Item backups\photos\uploads data\uploads -Recurse
+   Copy-Item backups\photos\thumbs data\thumbs -Recurse
    ```
 5. Copy the admin password hash back, if the snapshot has one (skip this step if `admin.hash` isn't in the snapshot folder — that just means no admin password had been set yet). Without this step the restored app has no admin password configured, and the host cannot log into `/admin` until one is set again:
    ```bash
