@@ -9,7 +9,7 @@ It runs on a small rented Linux host with a persistent disk, reachable over HTTP
 - **QR sign-up, no guest passwords.** One shared QR code, printed once on a poster, opens `/join` for every guest, who signs up with a name, contact, and a self-chosen 4-digit PIN. A returning guest re-enters at `/login` with that same contact + PIN on any device.
 - **Photo tasks.** One photo per task per guest marks that task done and adds +1 point.
 - **Badges.** Auto badges unlock at 5 / 10 / 15 completed tasks; special badges are hand-awarded by the admin; metric and transferable badges are computed by the badge engine from live data (e.g. a "most photos" badge that can change hands); and the admin can create further `custom` badges. Not a fixed set.
-- **Leaderboard + gallery.** A ranking and one shared photo gallery with a lightbox, visible to every signed-in guest.
+- **Leaderboard + gallery.** A ranking and one shared photo gallery — tap a thumbnail to open its own photo page — visible to every signed-in guest.
 - **Feed, likes, comments.** A live `/feed` shows recent photos; guests can like and comment on any photo.
 - **Profiles.** Avatar, name, badges, submissions, and optional social links. Guests can view each other's profiles.
 - **Admin panel.** View and edit a guest's contact and re-entry PIN (or delete a guest), print the shared entry poster, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, work a bug-report queue, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).

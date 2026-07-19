@@ -1,6 +1,12 @@
-# Resume state — autonomous backlog run
+# Resume state — historical (archived)
 
-**Living handoff doc.** A fresh or compacted agent reads this to resume the backlog-clearing run precisely. Update it at every pause. This is operational state, not product documentation — the North Star is [`north-star.md`](north-star.md); the standards are in `standards/`.
+**Historical.** This file is a snapshot of the backlog-clearing run as of 2026-06-28; it is no longer
+updated and no longer reflects where the work stands. For live state, read: the issue board
+(`gh issue list` / `gh pr list`), the newest entry in [`BUILDLOG.md`](../BUILDLOG.md) on `main`, and
+[`docs/live-log.md`](live-log.md) (the per-increment ledger for timed autonomous runs). This is
+operational state, not product documentation — the North Star is [`north-star.md`](north-star.md);
+the standards are in `standards/`. The sections below are kept as a historical gotchas record, not a
+live-state source.
 
 - **Last updated:** 2026-06-28 (design-system + alpha push session)
 - **main HEAD at last update:** `8dc9447`
@@ -24,7 +30,7 @@ Verified live over real HTTP: every page returns 200 with the serif/heart/green 
 
 - **Merge policy:** non-visual change types — bug fixes, security, refactor, tests, correctness — auto-merge on adversarial-review PASS + green CI (owner pre-merge gate retired 2026-07-02; see the "Merge policy" decision in `DESIGN.md`). The owner reviews the live result after the fact and can request changes or revert; owner control is upstream (issue-speccing), not a pre-merge gate. **Visual / product-direction changes are the one exception (reinstated 2026-07-08, #294; mechanism replaced 2026-07-15, #378):** the owner settles the look **live**, before it is even written down — `npm run preview` hands him a seeded localhost link, the orchestrator edits the real front end directly against it while nothing commits, and he refreshes and says approved. Only then is the pixel-freeze recorded (`tools/persist-visual-approval.ps1`) and the normal criteria / issue-review / implementation / PR-review pipeline runs on the transcribed result. See `agents/orchestrator.md` § "Visual-approval loop" and `DESIGN.md` § "Visual-approval loop reinstated (#294) -- superseded by #378".
 - **5 derived decisions:** contained-sharing → lean ("after-party section, hidden until unlocked"); task changes → next-tap; new-feature UI → existing theme, minimal; test fixtures → generate a real image; admin password value stays the owner's (fix code only).
-- **OPEN owner question (non-blocking):** couple-name spelling. The design system says **"Lillian & Axel" / "Lilly & Axel"**; repo docs say **"Lily Sckeiky."** The redesign uses the design system's spelling. One-line sweep to change if the owner says otherwise.
+- **Couple-name spelling (resolved):** owner confirmed **Lilly** 2026-07-03; shipped across live surfaces by #354 (Wedding Master rebrand, merged 2026-07-19).
 
 ## The pipeline every change goes through (do not skip)
 
@@ -64,10 +70,4 @@ Per `CLAUDE.md` / `AGENTS.md` / `standards/`: file a GitHub issue (issue-standar
 
 ## Live log
 
-Per-increment ledger lines written by the orchestrator during autonomous timed runs. One line per increment, form:
-
-```
-[HH:MM] elapsed=Xm/budget=Ym | selector→{DO <item> | CASCADE | WRAP} | next=<item>
-```
-
-The `elapsed` value must be derived from a real system-clock read at that moment — never estimated or carried forward. A compacted instance verifies the loop is live by reading the last ledger line here.
+Relocated to [`docs/live-log.md`](live-log.md) — read/write the ledger there, not here.
