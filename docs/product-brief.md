@@ -10,19 +10,19 @@ What the owner asked for, in his own words, captured from discovery. This is the
 
 ## At a glance
 
-|                     |                                                                                               |
-| ------------------- | --------------------------------------------------------------------------------------------- |
-| **What**            | A phone web app that runs a wedding photo task game                                           |
-| **Couple**          | Lilly & Axel                                                                                  |
-| **Theme**           | A soft green ramp (reference: the bouquet photo the owner provided)                           |
-| **Guests**          | ~100, each on their own phone                                                                 |
-| **Sign-in**         | Tap a personal link (no email, no password)                                                   |
-| **The game**        | Complete admin-set photo tasks → 1 point each → badges → leaderboard                          |
-| **Sharing**         | One shared gallery everyone can see; personal profiles                                        |
-| **Run by**          | The Wedding Master admin who edits tasks, awards bonus points/badges, removes photos          |
-| **Hosting**         | Self-hosted on the owner's Windows laptop for the wedding weekend; cheap/free                 |
-| **After**           | Export everything (photos + a record), likely post to Flickr + email blast, then take it down |
-| **Scale of photos** | ~1,500 total (≈15 per guest × 100 guests)                                                     |
+|                     |                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| **What**            | A phone web app that runs a wedding photo task game                                             |
+| **Couple**          | Lilly & Axel                                                                                    |
+| **Theme**           | A soft green ramp (reference: the bouquet photo the owner provided)                             |
+| **Guests**          | ~100, each on their own phone                                                                   |
+| **Sign-in**         | Scan the shared entry poster (`/admin/poster`) to self-signup at `/join`; `/login` for re-entry |
+| **The game**        | Complete admin-set photo tasks → 1 point each → badges → leaderboard                            |
+| **Sharing**         | One shared gallery everyone can see; personal profiles                                          |
+| **Run by**          | The Wedding Master admin who edits tasks, awards bonus points/badges, removes photos            |
+| **Hosting**         | Self-hosted on the owner's Windows laptop for the wedding weekend; cheap/free                   |
+| **After**           | Export everything (photos + a record), likely post to Flickr + email blast, then take it down   |
+| **Scale of photos** | ~1,500 total (≈15 per guest × 100 guests)                                                       |
 
 ## The wedding & vibe
 
@@ -34,7 +34,7 @@ What the owner asked for, in his own words, captured from discovery. This is the
 ## Who uses it
 
 - **~100 guests.** This number drives the hosting choice (one laptop is enough; no cloud needed).
-- **Sign-in is a personal link** — no accounts, no email, no passwords. Possession of your link is how the app knows it's you. (Resolved in build as a per-guest QR link printed for each guest.)
+- **Sign-in is the shared entry poster** — one poster (`/admin/poster`), printed once, with a single QR code every guest scans. First scan self-signs-up at `/join` (no accounts, no email, no password up front); a returning guest re-enters via `/login`.
 - **One device per person.** Not designed for couples sharing a phone.
 - **A private admin view is required** for the person running the event.
 

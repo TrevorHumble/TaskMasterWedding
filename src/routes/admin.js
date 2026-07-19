@@ -333,8 +333,8 @@ router.post('/guests/:id/points', (req, res) => {
     return redirectWithMsg(res, '/admin/guests', 'Enter a non-zero point amount.');
   }
   // scoring.addBonusPoints is additive (bonus_points = bonus_points + delta).
-  // It does NOT clamp at 0 (per section 06), so a large negative delta can drive
-  // a guest's bonus below zero. The admin sees the running total in the UI.
+  // It IS clamped at 0 by stmtAddBonus's UPDATE (MAX(0, ...)) — a large negative
+  // delta cannot drive a guest's bonus below zero. The admin sees the running total in the UI.
   scoring.addBonusPoints(id, delta);
   redirectWithMsg(
     res,

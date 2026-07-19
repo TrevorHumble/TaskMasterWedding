@@ -265,7 +265,7 @@ review it."
 
 When invoked for a timed session ("work for N hours", "run autonomously"), the orchestrator runs a
 **time-driven, not task-driven, loop.** It ends only when real elapsed time reaches the budget — never
-because a queue emptied or the work "felt done." This section is the full procedure; the run's live state — budget, queue, and the per-increment Live-log ledger — is tracked in `docs/RESUME-STATE.md`.
+because a queue emptied or the work "felt done." This section is the full procedure; the run's live state (time budget and iteration counters) is tracked in `.run_state/run.json`, the work queue is the open issue board, and the per-increment Live-log ledger is tracked in `docs/live-log.md`.
 
 - **Arm the loop-gate (mechanical, not just discipline).** At run start, write `.run_state/run.json`
   directly (create the directory if needed) with `{ end_epoch: <now + N*60>, iters: 0, churn: 0,
@@ -284,7 +284,7 @@ start)/60`. **Never estimate, infer, or carry-forward `elapsed` by feel** — a 
   was not derived from a fresh clock read is invalid and must be discarded and re-taken. This is not
   bookkeeping hygiene: an over-estimate makes the loop hit the WRAP threshold and stop before the budget — the
   exact early-exit failure the never-stop loop exists to prevent. **At the end of every increment, emit one
-  ledger line to the Live log**, form: `[HH:MM] elapsed=Xm/budget=Ym | selector→{DO <item> | CASCADE | WRAP}
+  ledger line to the Live log (`docs/live-log.md`)**, form: `[HH:MM] elapsed=Xm/budget=Ym | selector→{DO <item> | CASCADE | WRAP}
 | next=<item>`. Worked example — clock reads `14:52`, run started `13:30` with a 180-minute budget, issue
   #142 is ready and #147 is behind it: `[14:52] elapsed=82m/budget=180m | selector→DO #142 | next=#147`.
   The selector result is a visible token the agent must produce before acting; a compacted
