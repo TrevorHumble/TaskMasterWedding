@@ -24,9 +24,12 @@
       <% if (photo.caption) { %>
         <p class="photo-detail-text"><%= photo.caption %></p>
       <% } %>
-      <p class="photo-detail-by muted">
-        by <a href="/u/<%= photo.guest_id %>"><%= photo.guest_name || 'Guest' %></a>
-      </p>
+      <div class="photo-detail-byrow">
+        <p class="photo-detail-by muted">
+          by <a href="/u/<%= photo.guest_id %>"><%= photo.guest_name || 'Guest' %></a>
+        </p>
+        <%- include('partials/photo-owner-menu', { guest: guest, photo: photo, captionMaxLength: captionMaxLength }) %>
+      </div>
     </figcaption>
   </figure>
 
@@ -47,5 +50,7 @@
       <span class="photo-next photo-nav-disabled">Older &rarr;</span>
     <% } %>
   </nav>
+
+  <script src="/js/photo-owner-menu.js" defer></script>
 
 <%- include('partials/footer') %>

@@ -214,7 +214,10 @@ describe('AC2: comment rows and the See-all line', () => {
     const commentButton = article.querySelector('.comment-button');
     expect(seeAll.getAttribute('data-open-comments')).toBe(String(submissionId));
     expect(commentButton.getAttribute('data-open-comments')).toBe(String(submissionId));
-    expect(article.querySelector('details')).toBeNull();
+    // No comment accordion on the card (comments open via the dialog). The
+    // owner ⋯ menu (issue #387) is a separate, intentional <details> and is
+    // excluded — this assertion is about comment controls, not that menu.
+    expect(article.querySelector('details:not(.photo-owner-menu)')).toBeNull();
   });
 
   it('a photo with exactly 3 comments renders exactly 3 rows', async () => {
@@ -343,11 +346,14 @@ describe('AC5: the comment field lives only inside the closed <dialog>', () => {
     const dom = new JSDOM(res.text);
     const article = dom.window.document.getElementById('photo-' + submissionId);
     const fields = article.querySelectorAll('input[type="text"], textarea');
-    // The field does exist (inside the dialog) — this is not a "removed
-    // entirely" assertion, only a "not inline" assertion.
+    // The field does exist (inside a dialog) — this is not a "removed
+    // entirely" assertion, only a "not inline" assertion. Any text field on
+    // the card must live inside a closed <dialog>, not in the card flow: the
+    // comment composer in dialog.comments-dialog, and (issue #387) the owner
+    // caption editor in dialog.caption-dialog — both closed by default.
     expect(fields.length).toBeGreaterThan(0);
     fields.forEach((field) => {
-      expect(field.closest('dialog.comments-dialog')).not.toBeNull();
+      expect(field.closest('dialog')).not.toBeNull();
     });
 
     const dialog = article.querySelector('dialog.comments-dialog');

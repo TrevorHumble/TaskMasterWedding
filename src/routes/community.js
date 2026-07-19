@@ -7,6 +7,8 @@ const { db } = require('../db');
 const { requireGuest } = require('../middleware/session');
 const scoring = require('../services/scoring');
 const feed = require('../services/feed');
+const photos = require('../services/photos');
+const submissions = require('../services/submissions');
 // Route-level rate limiting (issue #283). DISTINCT from
 // src/services/rate-limit.js (owns POST /memories and the HEIC-decode
 // throttle elsewhere) — see src/middleware/rate-limit.js's file comment for
@@ -408,6 +410,7 @@ router.get('/feed', (req, res) => {
     pageScript: 'feed.js',
     photos,
     commentMaxLength: COMMENT_MAX_LENGTH,
+    captionMaxLength: submissions.CAPTION_MAX_LENGTH,
     olderHref,
     newerHref,
   });
@@ -617,6 +620,97 @@ router.post('/p/:submissionId/comments/:commentId/delete', requireGuest, (req, r
 });
 
 // ---------------------------------------------------------------------------
+// POST /p/:submissionId/caption  — a guest edits the caption on their OWN
+// photo (issue #387).
+//
+// Guest-only (requireGuest redirects an anonymous request to /join before
+// this handler runs). Ownership is read from a direct SELECT rather than
+// feed.detail() — feed.detail() 404s a taken-down row and does not expose
+// guest_id, but a guest must still be able to fix the caption on a photo a
+// host (or the guest's own Delete) has taken down, and the row's existence
+// is a separate question from its visibility. An unknown/non-integer id, or
+// one with no matching row, 404s. A row that exists but belongs to another
+// guest 403s with NO write — the ⋯ menu never renders for a non-owner
+// (src/views/partials/photo-owner-menu.ejs), but that hidden control is not
+// what stops a forged request; this check is. The stored value always runs
+// through submissions.normalizeCaption — the same trim().slice(0,500) rule
+// the upload path applies — so an edit can never exceed the column's cap.
+// ---------------------------------------------------------------------------
+router.post('/p/:submissionId/caption', requireGuest, (req, res) => {
+  const submissionId = parseInt(req.params.submissionId, 10);
+  if (!Number.isInteger(submissionId) || submissionId < 1) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  const row = db
+    .prepare('SELECT id, guest_id, caption FROM submissions WHERE id = ?')
+    .get(submissionId);
+  if (!row) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  if (row.guest_id !== req.guest.id) {
+    return res.status(403).render('partials/message-card', {
+      title: "That's not your photo",
+      heading: 'Not Your Photo',
+      paragraphs: ['You can only edit the caption on photos you posted yourself.'],
+      links: [
+        { href: '/feed?from=' + submissionId + '#photo-' + submissionId, text: 'Back to the feed' },
+      ],
+    });
+  }
+
+  db.prepare('UPDATE submissions SET caption = ? WHERE id = ?').run(
+    submissions.normalizeCaption(req.body.caption),
+    submissionId
+  );
+
+  return res.redirect('/feed?from=' + submissionId + '#photo-' + submissionId);
+});
+
+// ---------------------------------------------------------------------------
+// POST /p/:submissionId/delete  — a guest takes down their OWN photo
+// (issue #387).
+//
+// Guest-only, same id-guard and ownership check as the caption route above
+// (direct SELECT, not feed.detail() — a guest must be able to take down a
+// photo regardless of its current visibility). "Delete" here means take
+// down, not destroy: photos.hideSubmission is this codebase's single writer
+// of taken_down for moderation (flips the flag AND recomputes the owning
+// guest's auto-badges in one transaction — see src/services/photos.js), the
+// same seam the admin takedown path uses. The file stays on disk for the
+// couple's export and a host can still restore it (Goal D, Goal C) — a
+// guest cannot unilaterally erase the couple's record, only hide their own
+// contribution from the feed/gallery/scoring.
+// ---------------------------------------------------------------------------
+router.post('/p/:submissionId/delete', requireGuest, (req, res) => {
+  const submissionId = parseInt(req.params.submissionId, 10);
+  if (!Number.isInteger(submissionId) || submissionId < 1) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  const row = db.prepare('SELECT id, guest_id FROM submissions WHERE id = ?').get(submissionId);
+  if (!row) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  if (row.guest_id !== req.guest.id) {
+    return res.status(403).render('partials/message-card', {
+      title: "That's not your photo",
+      heading: 'Not Your Photo',
+      paragraphs: ['You can only take down photos you posted yourself.'],
+      links: [
+        { href: '/feed?from=' + submissionId + '#photo-' + submissionId, text: 'Back to the feed' },
+      ],
+    });
+  }
+
+  photos.hideSubmission(submissionId);
+
+  return res.redirect('/feed');
+});
+
+// ---------------------------------------------------------------------------
 // GET /p/:submissionId  — full-resolution photo detail view
 //
 // Shows the original-resolution image, caption, task title, and uploader link.
@@ -647,6 +741,7 @@ router.get('/p/:submissionId', (req, res) => {
     title: photo.task_title,
     pageScript: 'photo.js',
     photo,
+    captionMaxLength: submissions.CAPTION_MAX_LENGTH,
     next: result.found && result.older !== null ? { submission_id: result.older } : null,
     prev: result.found && result.newer !== null ? { submission_id: result.newer } : null,
   });

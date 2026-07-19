@@ -2204,6 +2204,135 @@ body:has(dialog[open]) {
 .comment-delete:hover {
   color: var(--color-primary);
 }
+
+/* ---------------- Photo owner menu (⋯, issue #387) ----------------
+   The ⋯ menu on a photo the signed-in guest posted — two items: Edit caption
+   (opens the .caption-dialog popup) and Delete. Mirrors the own-comment
+   .comment-menu pattern: a native <details>/<summary> whose disclosure marker
+   is hidden so the ⋯ glyph is the only affordance, anchored on the same line
+   opposite the uploader's name, floating a small panel over the card so
+   opening it never reflows neighbors. */
+.feed-by {
+  display: flex;
+  align-items: center;
+}
+.photo-detail-byrow {
+  display: flex;
+  align-items: center;
+}
+.photo-owner-menu {
+  position: relative;
+  /* Pushed to the end of the name row so the ⋯ sits opposite the name. */
+  margin-left: auto;
+}
+.photo-owner-menu-trigger {
+  display: block;
+  list-style: none;
+  cursor: pointer;
+  padding: 0 var(--space-1);
+  font-size: var(--fs-body);
+  line-height: 1.2;
+  color: var(--color-text-muted);
+  -webkit-tap-highlight-color: transparent;
+}
+.photo-owner-menu-trigger::-webkit-details-marker {
+  display: none;
+}
+.photo-owner-menu-trigger:hover {
+  color: var(--color-primary);
+}
+.photo-owner-menu-trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+/* The open panel floats over the card (not in normal flow) so opening the
+   menu never shoves the photo below it. A tight two-row list. */
+.photo-owner-menu[open] .photo-owner-menu-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 2;
+  margin: 2px 0 0;
+  padding: var(--space-2) 0;
+  min-width: 9rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.photo-owner-delete-form {
+  margin: 0;
+}
+/* Each menu row: a full-width quiet text row, no button box. */
+.photo-owner-menu-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text);
+  padding: var(--space-2) var(--space-3);
+}
+.photo-owner-menu-item:hover {
+  background: var(--green-50);
+}
+.photo-owner-delete {
+  color: var(--color-danger, #b3261e);
+}
+
+/* ---------------- Edit-caption popup (issue #387) ----------------
+   A native <dialog> centered by showModal(); the same modal treatment the
+   comments dialog uses. */
+.caption-dialog {
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  padding: 0;
+  width: min(28rem, 92vw);
+  box-shadow: var(--shadow-card);
+}
+.caption-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+.caption-dialog-form {
+  margin: 0;
+  padding: var(--space-5);
+}
+.caption-dialog-title {
+  font-family: var(--font-display, var(--font-body));
+  font-size: var(--fs-h3);
+  margin: 0 0 var(--space-3);
+  color: var(--color-text);
+}
+.caption-dialog-input {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  line-height: 1.5;
+}
+.caption-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-5);
+  margin-top: var(--space-4);
+}
+.caption-dialog-cancel {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+/* Save reuses the app's primary .btn pill; this only softens the default
+   block padding to sit neatly in the dialog action row. */
+.caption-dialog-save {
+  padding: 12px 24px;
+}
+
 /* Composer, Instagram pattern: viewer avatar left, borderless auto-growing
    textarea (grown by feed.js from scrollHeight; the max-height caps it at
    ~5 lines, after which it scrolls internally), Post as a plain text
