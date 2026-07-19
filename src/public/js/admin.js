@@ -42,4 +42,41 @@
       );
     });
   });
+
+  // Dashboard export row (issue #256): best-effort "in progress" feedback
+  // while a potentially hundreds-of-MB ZIP builds. Mirrors upload.js's
+  // disable/swap-label/restore pattern, adapted for an <a> download instead
+  // of a form submit — GET /admin/export IS the navigation, so this never
+  // calls preventDefault; it only swaps the label and marks the row
+  // aria-disabled until the download starts (window regains focus) or 30s
+  // pass, whichever comes first, since a file download has no fetch response
+  // here to key the restore off of.
+  document.addEventListener('click', function (event) {
+    var link =
+      event.target && event.target.closest
+        ? event.target.closest('a.menu-link[href="/admin/export"]')
+        : null;
+    if (!link || link.getAttribute('aria-disabled') === 'true') {
+      return;
+    }
+
+    var labelEl = link.querySelector('.menu-label');
+    if (!labelEl) {
+      return;
+    }
+
+    var originalLabel = labelEl.textContent;
+    var preparingLabel = link.getAttribute('data-preparing-label') || 'Preparing your export…';
+
+    link.setAttribute('aria-disabled', 'true');
+    labelEl.textContent = preparingLabel;
+
+    var restore = function () {
+      link.removeAttribute('aria-disabled');
+      labelEl.textContent = originalLabel;
+      window.removeEventListener('focus', restore);
+    };
+    window.addEventListener('focus', restore);
+    window.setTimeout(restore, 30000);
+  });
 })();
