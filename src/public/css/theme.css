@@ -3900,8 +3900,8 @@ body:has(dialog[open]) {
   line-height: 1.4;
 }
 
-/* -------- Feed parity: reuse .feed-*/.like-button/.comment-button -------- */
-.admin-feed-item.is-down .feed-photo {
+/* -------- Feed parity: reuse .feed-*/
+.like-button/.comment-button -------- */ .admin-feed-item.is-down .feed-photo {
   filter: grayscale(1) brightness(0.7);
 }
 .admin-feed-downline {

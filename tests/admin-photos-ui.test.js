@@ -143,7 +143,9 @@ describe('AC2: server-side task/user grouping', () => {
   });
 
   it('?q= filters view=user groups by heading — only the matching person remains', async () => {
-    const res = await adminAgent.get('/admin/photos?view=user&q=' + encodeURIComponent('Cake Guest 5'));
+    const res = await adminAgent.get(
+      '/admin/photos?view=user&q=' + encodeURIComponent('Cake Guest 5')
+    );
     expect(res.status).toBe(200);
     const grid = gridOnly(res.text);
     expect(grid).toContain('<h2 class="gallery-group-heading">AC2 Cake Guest 5</h2>');
@@ -360,9 +362,7 @@ describe('AC6: awarding a badge records a winner, increments N/5, no points writ
       .type('form')
       .send({ code: 'NOPE', action: 'award' });
     expect(decodeURIComponent(res.headers.location)).toMatch(/Unknown badge\./);
-    const row = db
-      .prepare('SELECT 1 AS x FROM badge_winners WHERE badge_code = ?')
-      .get('NOPE');
+    const row = db.prepare('SELECT 1 AS x FROM badge_winners WHERE badge_code = ?').get('NOPE');
     expect(row).toBeUndefined();
   });
 

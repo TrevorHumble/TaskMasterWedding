@@ -44,7 +44,9 @@ const stmtDeleteWinner = db.prepare(
 const stmtIsWinner = db.prepare(
   'SELECT 1 FROM badge_winners WHERE badge_code = ? AND submission_id = ?'
 );
-const stmtCountForBadge = db.prepare('SELECT COUNT(*) AS n FROM badge_winners WHERE badge_code = ?');
+const stmtCountForBadge = db.prepare(
+  'SELECT COUNT(*) AS n FROM badge_winners WHERE badge_code = ?'
+);
 const stmtCodesForSubmission = db.prepare(
   'SELECT badge_code FROM badge_winners WHERE submission_id = ?'
 );

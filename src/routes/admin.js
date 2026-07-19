@@ -906,12 +906,7 @@ router.post('/photos/:id/favorite', (req, res) => {
     return redirectToPhotos(req, res, 'Submission not found.', id);
   }
   const nowFavorited = favoritesSvc.toggleFavorite(id);
-  redirectToPhotos(
-    req,
-    res,
-    nowFavorited ? 'Added to favorites.' : 'Removed from favorites.',
-    id
-  );
+  redirectToPhotos(req, res, nowFavorited ? 'Added to favorites.' : 'Removed from favorites.', id);
 });
 
 // POST /admin/photos/:id/badge  — award OR remove a photo as one of a
