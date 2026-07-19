@@ -48,9 +48,12 @@ function insertGuest(token, name) {
 }
 
 function insertBugReport(guestId, resolved) {
-  db.prepare(
-    'INSERT INTO bug_reports (guest_id, body, page, resolved) VALUES (?, ?, ?, ?)'
-  ).run(guestId, 'It broke.', '/tasks/1', resolved ? 1 : 0);
+  db.prepare('INSERT INTO bug_reports (guest_id, body, page, resolved) VALUES (?, ?, ?, ?)').run(
+    guestId,
+    'It broke.',
+    '/tasks/1',
+    resolved ? 1 : 0
+  );
 }
 
 function insertTask(title) {
@@ -103,7 +106,7 @@ describe('AC2: zero open bug reports render without the danger color class', () 
   });
 });
 
-describe('AC3: the pulse line names the newest visible submission\'s guest', () => {
+describe("AC3: the pulse line names the newest visible submission's guest", () => {
   test('newest visible submission by Ellie Patel renders "Last photo ... Ellie Patel"', async () => {
     resetTables();
     const taskId = insertTask('Selfie with the cake');
@@ -192,7 +195,7 @@ describe('relativeTime', () => {
     expect(relativeTime(new Date(Date.now() + 60 * 1000))).toBe('just now');
   });
 
-  test('a SQLite datetime(\'now\')-shaped UTC string parses correctly, not as local time', () => {
+  test("a SQLite datetime('now')-shaped UTC string parses correctly, not as local time", () => {
     // Mirrors the exact shape src/db.js's created_at columns store.
     const nowUtc = new Date();
     const sqliteShape = nowUtc
