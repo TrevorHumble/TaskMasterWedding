@@ -11,7 +11,7 @@ const config = require('../config');
 const photos = require('./services/photos');
 const initials = require('./utils/initials');
 const badgeIcons = require('./services/badge-icons');
-const { db } = require('./db');
+const { db, cleanupSelfLikes } = require('./db');
 
 const app = express();
 
@@ -226,6 +226,21 @@ app.use('/', guestRouter);
 
 const communityRouter = require('./routes/community'); // mounts at '/'
 app.use('/', communityRouter);
+
+// ---------------------------------------------------------------------------
+// 6a. One-time self-like data correction (issue #712), run at boot AFTER
+//     every router above (and therefore scoring, which admin.js/community.js
+//     pull in) is already required — db.js's cleanupSelfLikes() cannot call
+//     scoring itself without re-entering the db -> scoring -> db require
+//     cycle before db.js finishes exporting (see db.js's comment on
+//     cleanupSelfLikes). Only recompute the transferable badges (MOSTLIKED)
+//     if the cleanup actually removed a row -- on an empty or already-clean
+//     DB (every boot after the first) this is a zero-cost no-op.
+// ---------------------------------------------------------------------------
+const selfLikesRemoved = cleanupSelfLikes();
+if (selfLikesRemoved > 0) {
+  require('./services/scoring').recomputeTransferableBadges();
+}
 
 // ---------------------------------------------------------------------------
 // 7. 404 handler. Any request that matched no route lands here.
