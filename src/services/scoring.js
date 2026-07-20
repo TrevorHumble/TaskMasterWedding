@@ -161,6 +161,11 @@ const stmtSystemHoldersOfBadge = db.prepare(
   "SELECT guest_id FROM guest_badges WHERE badge_id = ? AND awarded_by = 'system'"
 );
 
+// Every guest id, used by recomputeAfterTaskChange to re-run the per-guest
+// pass for the whole event (issue #701). An empty guests table yields an
+// empty array, so the for-of loop below is a no-op — no guest, no crash.
+const stmtAllGuestIds = db.prepare('SELECT id FROM guests');
+
 // Adjust a guest's bonus points by a delta (can be negative), clamped at 0.
 // MAX(0, ...) enforces the floor (see section 1a, Decision B): a deduction can
 // never drive bonus_points below zero. Section 08's admin acceptance check
@@ -348,6 +353,41 @@ const recomputeTransferableBadges = db.transaction(() => {
  */
 const recomputeAfterSubmissionChange = db.transaction((guestId) => {
   recomputeBadges(guestId);
+  recomputeTransferableBadges();
+});
+
+/**
+ * The all-guests generalization of recomputeAfterSubmissionChange (issue
+ * #701): the seam a caller invokes after the ACTIVE-TASK SET changes
+ * (add/hide/un-hide/delete a task) rather than after one guest's own
+ * submissions change. Every metric badge (COMPLETIONIST) depends on the
+ * current active-task set, not just on the guest who happened to trigger the
+ * write, so a task-set change can make ANY guest's Completionist stale —
+ * this runs the per-guest pass (auto + metric) for every guest, then the
+ * global transferable pass once, same ordered pair and same reasoning as
+ * recomputeAfterSubmissionChange.
+ *
+ * Always runs the FULL pass (not a Completionist-only shortcut) because a
+ * task delete cascades its submissions away, which moves the inputs to the
+ * count-based auto badges (BLOOM/BOUQUET/GARDEN) and the transferable
+ * badges (MOSTPHOTOS/MOSTLIKED) too, not just COMPLETIONIST. For add/hide/
+ * un-hide, which touch no submission, the auto/transferable recompute for
+ * each guest is simply a cheap no-op (their inputs did not change) — no
+ * separate code path is worth the duplication.
+ *
+ * Idempotent (inherited from recomputeBadges/recomputeTransferableBadges,
+ * both idempotent themselves) and a safe no-op on an event with zero guests
+ * (the for-of loop below just never runs).
+ *
+ * Itself a db.transaction, and better-sqlite3 nests transaction functions
+ * via SAVEPOINTs, so it is safe to call from inside another db.transaction
+ * if a future caller needs to.
+ */
+const recomputeAfterTaskChange = db.transaction(() => {
+  const guestIds = stmtAllGuestIds.all();
+  for (const { id } of guestIds) {
+    recomputeBadges(id);
+  }
   recomputeTransferableBadges();
 });
 
@@ -767,6 +807,7 @@ module.exports = {
   recomputeBadges,
   recomputeTransferableBadges,
   recomputeAfterSubmissionChange,
+  recomputeAfterTaskChange,
   awardSpecialBadge,
   removeSpecialBadge,
   createCustomBadge,
