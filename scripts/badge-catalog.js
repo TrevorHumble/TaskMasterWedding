@@ -76,24 +76,6 @@ const BADGES = [
     art_path: '/badges/completionist.svg',
     description: 'Completed every active task. One-time; auto-revokes if a new task is added.',
   },
-  {
-    code: 'MOSTPHOTOS',
-    name: 'Most Photos',
-    type: 'transferable',
-    threshold: null,
-    art_path: '/badges/mostphotos.svg',
-    description:
-      'Holds the most visible photo submissions right now. Steal-able — catch up to take it.',
-  },
-  {
-    code: 'MOSTLIKED',
-    name: 'Most Liked',
-    type: 'transferable',
-    threshold: null,
-    art_path: '/badges/most-liked.svg',
-    description:
-      'Holds the most likes across their photos right now. Steal-able — earn more likes to take it.',
-  },
 ];
 
 /**

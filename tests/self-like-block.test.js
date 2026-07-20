@@ -5,8 +5,9 @@
 //         no recompute.
 //   AC2 — the exported db.cleanupSelfLikes() one-time cleanup removes exactly
 //         the self-like rows, leaves cross-guest likes intact, returns the
-//         removed count, and a MOSTLIKED-style transferable badge corrects
-//         once scoring.recomputeTransferableBadges() follows it.
+//         removed count, and the transferable-badge recompute seam
+//         (scoring.recomputeTransferableBadges()) still runs cleanly after it
+//         (the MOSTLIKED badge it used to feed was retired by #711).
 //   AC3 — a non-owner's like is unaffected (regression guard): the owner-block
 //         never fires for someone who isn't the photo's author.
 //
@@ -154,8 +155,8 @@ it('AC3: a non-owner liking the photo still creates the row and returns { liked,
 
 // ---------------------------------------------------------------------------
 // AC2: db.cleanupSelfLikes() removes exactly the self-like rows, leaves
-// cross-guest likes intact, and returns the removed count; a MOSTLIKED-style
-// transferable badge corrects once recomputeTransferableBadges() follows it.
+// cross-guest likes intact, and returns the removed count; the transferable
+// recompute seam still runs cleanly once it follows the cleanup.
 //
 // This test seeds rows DIRECTLY via db (bypassing the now-guarded route) to
 // simulate data that predates issue #712's route fix — loadApp() already ran
@@ -164,7 +165,7 @@ it('AC3: a non-owner liking the photo still creates the row and returns { liked,
 // it against pre-existing self-like data, per the repo's "tests bind to the
 // real guard" migration idiom.
 // ---------------------------------------------------------------------------
-it('AC2: cleanupSelfLikes deletes only self-likes, returns the count, and MOSTLIKED corrects after recompute', async () => {
+it('AC2: cleanupSelfLikes deletes only self-likes, returns the count, and the recompute seam runs cleanly after', async () => {
   const inflater = await signedInGuest('sl-cleanup-inflater', 'Inflater');
   const genuine = await signedInGuest('sl-cleanup-genuine', 'Genuine Favorite');
   const admirer = await signedInGuest('sl-cleanup-admirer', 'Admirer');
@@ -220,17 +221,10 @@ it('AC2: cleanupSelfLikes deletes only self-likes, returns the count, and MOSTLI
     .get(genuineSubmission, admirer.guestId);
   expect(survivingRow).toBeTruthy();
 
-  // Recompute picks up the corrected totals: the genuine favorite now holds
-  // MOSTLIKED (2 real likes), not the inflater (0 after their self-likes were
-  // deleted).
-  scoring.recomputeTransferableBadges();
-
-  const mostLikedBadge = db.prepare(`SELECT id FROM badges WHERE code = 'MOSTLIKED'`).get();
-  expect(mostLikedBadge).toBeTruthy();
-  const holderIds = db
-    .prepare(`SELECT guest_id FROM guest_badges WHERE badge_id = ?`)
-    .all(mostLikedBadge.id)
-    .map((row) => row.guest_id);
-  expect(holderIds).toContain(genuine.guestId);
-  expect(holderIds).not.toContain(inflater.guestId);
+  // The transferable-badge recompute this cleanup used to feed (the retired
+  // MOSTLIKED badge, #711) is gone, but the seam it ran through must still
+  // execute cleanly against the corrected like totals — proving cleanup and
+  // recompute compose without error is still worth asserting even with an
+  // empty transferable registry.
+  expect(() => scoring.recomputeTransferableBadges()).not.toThrow();
 });

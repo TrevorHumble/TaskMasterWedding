@@ -61,72 +61,6 @@ function isCompletionist(guestId) {
 }
 
 // ---------------------------------------------------------------------------
-// MOSTPHOTOS (transferable): the guest(s) with the strict-most visible TASK
-// submissions. Ties are ALL held simultaneously (AC2). The SQL below counts
-// only visible, task-linked rows (task_id IS NOT NULL) and groups per guest —
-// issue #247 excludes memory rows (task_id IS NULL) from this count, so a
-// guest cannot steal the badge by uploading many memories instead of
-// completing tasks. The "a guest with zero visible submissions never holds
-// it" rule is enforced in JS by the `if (max === 0) return new Set()` guard
-// below — without it, a fresh DB (max count 0) would make every guest a
-// co-"winner".
-// ---------------------------------------------------------------------------
-const stmtVisibleCountsByGuest = db.prepare(`
-  SELECT guest_id, COUNT(*) AS n
-    FROM submissions
-   WHERE taken_down = 0
-     AND task_id IS NOT NULL
-   GROUP BY guest_id
-`);
-
-/**
- * @returns {Set<number>} guest ids tied for the most visible submissions.
- */
-function mostPhotosHolders() {
-  const rows = stmtVisibleCountsByGuest.all();
-  let max = 0;
-  for (const row of rows) {
-    if (row.n > max) max = row.n;
-  }
-  if (max === 0) return new Set();
-  return new Set(rows.filter((row) => row.n === max).map((row) => row.guest_id));
-}
-
-// ---------------------------------------------------------------------------
-// MOSTLIKED (transferable): the guest(s) whose VISIBLE submissions have
-// collected the strict-most total likes, summed across every one of that
-// guest's visible photos (issue #484) — a per-guest total, parallel to
-// MOSTPHOTOS being a per-guest count of submissions rather than one photo's
-// count. Ties are ALL held simultaneously, same as MOSTPHOTOS. The join below
-// walks likes -> submissions and keeps only likes on a visible submission
-// (taken_down = 0), so a taken-down photo's likes drop out of its guest's
-// total; the "zero total likes never holds it" rule is the same
-// `if (max === 0) return new Set()` guard as mostPhotosHolders — without it a
-// fresh DB (max 0) would make every liked-nothing guest a co-"winner".
-// ---------------------------------------------------------------------------
-const stmtLikeTotalsByGuest = db.prepare(`
-  SELECT s.guest_id AS guest_id, COUNT(*) AS n
-    FROM likes l
-    JOIN submissions s ON s.id = l.submission_id
-   WHERE s.taken_down = 0
-   GROUP BY s.guest_id
-`);
-
-/**
- * @returns {Set<number>} guest ids tied for the most total likes on their
- *   visible submissions.
- */
-function mostLikedHolders() {
-  const rows = stmtLikeTotalsByGuest.all();
-  let max = 0;
-  for (const row of rows) {
-    if (row.n > max) max = row.n;
-  }
-  if (max === 0) return new Set();
-  return new Set(rows.filter((row) => row.n === max).map((row) => row.guest_id));
-}
-
-// ---------------------------------------------------------------------------
 // Registries.
 // ---------------------------------------------------------------------------
 
@@ -135,11 +69,13 @@ const METRIC_BADGES = {
   COMPLETIONIST: isCompletionist,
 };
 
+// No transferable badges are currently registered (MOSTPHOTOS/MOSTLIKED
+// retired by issue #711). recomputeTransferableBadges() in scoring.js still
+// iterates any badges.type = 'transferable' catalog rows and safely no-ops
+// on a row with no registry entry (`if (!computeHolders) continue`), so the
+// engine stays in place for a future transferable badge.
 /** code -> () => Set<guestId> */
-const TRANSFERABLE_BADGES = {
-  MOSTPHOTOS: mostPhotosHolders,
-  MOSTLIKED: mostLikedHolders,
-};
+const TRANSFERABLE_BADGES = {};
 
 module.exports = {
   METRIC_BADGES,

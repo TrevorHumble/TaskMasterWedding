@@ -71,18 +71,11 @@ beforeAll(() => {
   db.prepare('UPDATE tasks SET is_active = 0').run();
 });
 
-describe('AC6: seeded catalog contains COMPLETIONIST and MOSTPHOTOS', () => {
+describe('AC6: seeded catalog contains COMPLETIONIST', () => {
   it('COMPLETIONIST row is type=metric with non-empty art_path', () => {
     const row = db.prepare('SELECT * FROM badges WHERE code = ?').get('COMPLETIONIST');
     expect(row).toBeTruthy();
     expect(row.type).toBe('metric');
-    expect(row.art_path).toBeTruthy();
-  });
-
-  it('MOSTPHOTOS row is type=transferable with non-empty art_path', () => {
-    const row = db.prepare('SELECT * FROM badges WHERE code = ?').get('MOSTPHOTOS');
-    expect(row).toBeTruthy();
-    expect(row.type).toBe('transferable');
     expect(row.art_path).toBeTruthy();
   });
 });
@@ -113,42 +106,27 @@ describe('AC1: Completionist — one-time, auto-revokes', () => {
   });
 });
 
-describe('AC2: Most Photos — transferable, steal + tie', () => {
-  it('the strict leader holds MOSTPHOTOS alone, a new leader steals it, and a tie is held by both', () => {
+describe('AC2 (#711): transferable engine with an empty registry is a safe no-op', () => {
+  it('recomputeTransferableBadges() runs cleanly and grants no transferable badge to anyone', () => {
     const task1 = makeTask('AC2 Task 1');
     const task2 = makeTask('AC2 Task 2');
-    const task3 = makeTask('AC2 Task 3');
     const guestA = makeGuest('ac2-guest-a', 'A');
     const guestB = makeGuest('ac2-guest-b', 'B');
 
-    // A has 2 visible submissions, B has 0: A is the strict leader.
     submit(guestA, task1);
     submit(guestA, task2);
-    scoring.recomputeTransferableBadges();
-    expect(heldCodes(guestA)).toContain('MOSTPHOTOS');
-    expect(heldCodes(guestB)).not.toContain('MOSTPHOTOS');
-
-    // B catches up and passes A: B now has strictly the most (3 vs A's 2).
     submit(guestB, task1);
-    submit(guestB, task2);
-    submit(guestB, task3);
-    scoring.recomputeTransferableBadges();
-    expect(heldCodes(guestB)).toContain('MOSTPHOTOS');
-    expect(heldCodes(guestA)).not.toContain('MOSTPHOTOS');
 
-    // A catches up to tie B (3 vs 3): both hold it.
-    submit(guestA, task3);
-    scoring.recomputeTransferableBadges();
-    expect(heldCodes(guestA)).toContain('MOSTPHOTOS');
-    expect(heldCodes(guestB)).toContain('MOSTPHOTOS');
-  });
+    expect(() => scoring.recomputeTransferableBadges()).not.toThrow();
 
-  it('a taken-down submission does not count toward MOSTPHOTOS', () => {
-    const task = makeTask('AC2 Taken-down Task');
-    const guest = makeGuest('ac2-hidden-guest', 'Hidden');
-    submit(guest, task, 1); // taken_down = 1
-    scoring.recomputeTransferableBadges();
-    expect(heldCodes(guest)).not.toContain('MOSTPHOTOS');
+    const anyTransferableHeld = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM guest_badges gb
+           JOIN badges b ON b.id = gb.badge_id
+          WHERE b.type = 'transferable'`
+      )
+      .get().n;
+    expect(anyTransferableHeld).toBe(0);
   });
 });
 
@@ -242,13 +220,11 @@ describe('AC5: custom badges — created and awarded by the admin, survive recom
     ).toBeUndefined();
   });
 
-  it('awardSpecialBadge/removeSpecialBadge refuse a metric/transferable code — no guest_badges row written', () => {
+  it('awardSpecialBadge/removeSpecialBadge refuse a metric code — no guest_badges row written', () => {
     const guest = makeGuest('ac5-refuse-guest', 'AC5 Refuse Guest');
 
     expect(scoring.awardSpecialBadge(guest, 'COMPLETIONIST')).toBe(false);
-    expect(scoring.awardSpecialBadge(guest, 'MOSTPHOTOS')).toBe(false);
     expect(heldCodes(guest)).not.toContain('COMPLETIONIST');
-    expect(heldCodes(guest)).not.toContain('MOSTPHOTOS');
 
     // Also refuse a remove attempt on a system type (defense in depth — an
     // admin "remove" click on a system-owned code must not touch its row
@@ -333,7 +309,7 @@ describe('#193 AC3: engine badges fire on event-seeded data', () => {
   // seedEvent wipes submissions/guests and re-seeds event tasks, and this
   // block empties and rebuilds the badge catalog, so it must stay the LAST
   // state-mutating describe in this file (AC8 below only probes the schema).
-  it('a full-coverage guest gains COMPLETIONIST and every visible-submission leader holds MOSTPHOTOS', () => {
+  it('a full-coverage guest gains COMPLETIONIST on event-seeded data', () => {
     const { ensureBadgeCatalog } = require('../scripts/seed-event');
     const { seedEvent } = require('./helpers/event-fixture');
 
@@ -345,14 +321,14 @@ describe('#193 AC3: engine badges fire on event-seeded data', () => {
     db.prepare('DELETE FROM guest_badges').run();
     db.prepare('DELETE FROM badges').run();
     const { inserted, updated, unchanged } = ensureBadgeCatalog(db);
-    expect({ inserted, updated, unchanged }).toEqual({ inserted: 10, updated: 0, unchanged: 0 });
+    expect({ inserted, updated, unchanged }).toEqual({ inserted: 8, updated: 0, unchanged: 0 });
     const codes = db
       .prepare('SELECT code FROM badges ORDER BY code')
       .all()
       .map((r) => r.code);
     expect(codes).toContain('COMPLETIONIST');
-    expect(codes).toContain('MOSTPHOTOS');
-    expect(codes).toContain('MOSTLIKED');
+    expect(codes).not.toContain('MOSTPHOTOS');
+    expect(codes).not.toContain('MOSTLIKED');
 
     const { taskIds, guestIds } = seedEvent(db, { guests: 5 });
 
@@ -377,20 +353,6 @@ describe('#193 AC3: engine badges fire on event-seeded data', () => {
     scoring.recomputeTransferableBadges();
 
     expect(heldCodes(hero)).toContain('COMPLETIONIST');
-
-    // MOSTPHOTOS ties are held by all tied leaders, so assert set membership
-    // over the actual leader set rather than assuming a unique holder.
-    const counts = db
-      .prepare(
-        'SELECT guest_id, COUNT(*) AS n FROM submissions WHERE taken_down = 0 GROUP BY guest_id'
-      )
-      .all();
-    const max = Math.max(...counts.map((c) => c.n));
-    const leaders = counts.filter((c) => c.n === max).map((c) => c.guest_id);
-    expect(leaders.length).toBeGreaterThanOrEqual(1);
-    for (const leader of leaders) {
-      expect(heldCodes(leader)).toContain('MOSTPHOTOS');
-    }
   });
 });
 
@@ -444,33 +406,32 @@ describe('AC8: schema migration is guarded and idempotent', () => {
 
 describe('#314: badge catalog boot-heal — played-in databases missing new catalog rows', () => {
   // Runs last: the "#193 AC3" block above already reset `badges` to exactly
-  // the 10 canonical rows (it deletes everything, including AC5's BESTDRESSED,
+  // the 8 canonical rows (it deletes everything, including AC5's BESTDRESSED,
   // then rebuilds from scripts/seed-event's ensureBadgeCatalog), and AC8
   // cleans up its own AC8PROBE row, so this block starts from a known
-  // 10-row baseline.
+  // 8-row baseline.
 
-  it('AC1: a DB missing COMPLETIONIST/MOSTPHOTOS (8 rows) is healed to 10 by the boot-path ensure', () => {
+  it('AC1: a DB missing COMPLETIONIST (7 rows) is healed to 8 by the boot-path ensure', () => {
     const { ensureBadgeCatalog } = require('../src/db');
 
-    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(10);
-    db.prepare(`DELETE FROM badges WHERE code IN ('COMPLETIONIST', 'MOSTPHOTOS')`).run();
     expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(8);
+    db.prepare(`DELETE FROM badges WHERE code = 'COMPLETIONIST'`).run();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(7);
 
     // The boot-path ensure: src/db.js's own exported guard, the same one
     // called once automatically at module load — proving a database that
     // predates #193 gets healed on a later boot, not just on first creation.
     const result = ensureBadgeCatalog();
-    // The other 8 rows survived AC3's fresh reinsert untouched, so this heal
-    // inserts exactly the 2 deleted codes and re-syncs nothing else.
-    expect(result).toEqual({ inserted: 2, updated: 0, unchanged: 8 });
+    // The other 7 rows survived AC3's fresh reinsert untouched, so this heal
+    // inserts exactly the 1 deleted code and re-syncs nothing else.
+    expect(result).toEqual({ inserted: 1, updated: 0, unchanged: 7 });
 
-    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(10);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(8);
     const codes = db
       .prepare('SELECT code FROM badges')
       .all()
       .map((r) => r.code);
     expect(codes).toContain('COMPLETIONIST');
-    expect(codes).toContain('MOSTPHOTOS');
   });
 
   it('AC2: a guest covering every active task gains COMPLETIONIST via recomputeAfterSubmissionChange on the healed DB', () => {

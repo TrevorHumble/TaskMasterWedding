@@ -233,8 +233,9 @@ app.use('/', communityRouter);
 //     pull in) is already required — db.js's cleanupSelfLikes() cannot call
 //     scoring itself without re-entering the db -> scoring -> db require
 //     cycle before db.js finishes exporting (see db.js's comment on
-//     cleanupSelfLikes). Only recompute the transferable badges (MOSTLIKED)
-//     if the cleanup actually removed a row -- on an empty or already-clean
+//     cleanupSelfLikes). Only recompute the transferable badges (registry
+//     currently empty, #711) if the cleanup actually removed a row -- on an
+//     empty or already-clean
 //     DB (every boot after the first) this is a zero-cost no-op.
 // ---------------------------------------------------------------------------
 const selfLikesRemoved = cleanupSelfLikes();

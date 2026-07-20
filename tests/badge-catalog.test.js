@@ -40,7 +40,7 @@ describe('#193 AC1: art exists for every seeded badge', () => {
 
   it('every badges.art_path seeded by scripts/seed.js resolves to a real file under src/public', () => {
     const rows = db.prepare('SELECT code, art_path FROM badges ORDER BY code').all();
-    expect(rows.length).toBeGreaterThanOrEqual(9);
+    expect(rows.length).toBeGreaterThanOrEqual(8);
     for (const row of rows) {
       const resolved = path.join(__dirname, '..', 'src', 'public', row.art_path);
       expect(fs.existsSync(resolved), `${row.code}: art file missing for ${row.art_path}`).toBe(
@@ -104,7 +104,7 @@ describe('#193 AC4: one catalog, not two', () => {
     expect(readScript('seed-event.js')).not.toMatch(/const BADGES\s*=\s*\[/);
   });
 
-  it('the shared catalog holds all ten badge codes', () => {
+  it('the shared catalog holds all eight badge codes', () => {
     const { BADGES } = require('../scripts/badge-catalog');
     expect(BADGES.map((b) => b.code)).toEqual([
       'BLOOM',
@@ -115,8 +115,6 @@ describe('#193 AC4: one catalog, not two', () => {
       'CROWDFAV',
       'CHOICE',
       'COMPLETIONIST',
-      'MOSTPHOTOS',
-      'MOSTLIKED',
     ]);
   });
 });
@@ -130,7 +128,7 @@ describe('#655: ensureBadgeCatalog upserts a stale catalog row without touching 
   });
 
   beforeEach(() => {
-    // Reset to the canonical catalog before each case: the ten catalog rows
+    // Reset to the canonical catalog before each case: the eight catalog rows
     // exactly as the module seeds them, with no stale edit or extra row
     // carried over from a prior case. So every test below is understandable
     // and passes on its own, in any order.

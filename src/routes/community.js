@@ -464,7 +464,7 @@ router.post('/p/:submissionId/like', requireGuest, socialRateLimiter, (req, res)
   const feedAnchor = '/feed?from=' + submissionId + '#photo-' + submissionId;
 
   // A guest cannot like their own photo (issue #712) — self-likes would let
-  // a guest inflate their own MOSTLIKED total and today's-likes standings,
+  // a guest inflate their own like totals and today's-likes standings,
   // the exact crowd-favorite signal #625 depends on. feed.detail's
   // GALLERY_SELECT already exposes the owner as guest_id (feed.js:90), so
   // this is a plain comparison, no extra query. Refused BEFORE the toggle
@@ -492,7 +492,8 @@ router.post('/p/:submissionId/like', requireGuest, socialRateLimiter, (req, res)
     liked = true;
   }
 
-  // A like/unlike can move the MOSTLIKED holder set (issue #484), so
+  // A like/unlike could move a transferable badge's holder set (issue #484;
+  // the registry is currently empty per #711, so this is a no-op today), so
   // recompute the transferable badges here — once, after the toggle mutation
   // and before either response branch below — the same "recompute right
   // after the data that feeds it changes" rule submissions.js/photos.js
