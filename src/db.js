@@ -709,6 +709,41 @@ function markGuestOnboarded(guestId) {
   stmtMarkGuestOnboarded.run(guestId);
 }
 
+// One-time data correction (issue #712): POST /p/:id/like had no ownership
+// check before this issue's route fix, so a guest could like their own
+// photo and inflate their own MOSTLIKED total / today's-likes standing. This
+// deletes every existing self-like row — a like whose guest_id equals the
+// owner (submissions.guest_id) of the submission it targets — so the route
+// fix and this cleanup close both the going-forward and the already-in-the-
+// database halves of the same bug.
+//
+// Deliberately NOT self-invoked here (contrast every other guarded migration
+// above, which calls itself immediately after its definition): db.js runs
+// its migrations at module load and never requires scoring, so an
+// in-db.js call to scoring.recomputeTransferableBadges() would re-enter the
+// db -> scoring -> db require cycle before this module finishes evaluating
+// (module.exports below) and crash the app at boot — scoring.js's
+// `const { db } = require('../db')` would see `undefined`. src/app.js's
+// composition root calls this AFTER every router (and therefore scoring) is
+// already required, and only recomputes badges if this returns > 0. Once
+// the route-level fix above stops new self-likes, this DELETE is naturally
+// idempotent: a later boot always removes zero rows. Exported so tests bind
+// to this real guard rather than an inline copy, per the repo's migration
+// idiom.
+//
+// @returns {number} the number of self-like rows removed.
+function cleanupSelfLikes() {
+  return db
+    .prepare(
+      `DELETE FROM likes
+        WHERE guest_id = (
+          SELECT submissions.guest_id FROM submissions
+           WHERE submissions.id = likes.submission_id
+        )`
+    )
+    .run().changes;
+}
+
 module.exports = {
   db,
   ensurePhotoBonusColumn,
@@ -728,4 +763,5 @@ module.exports = {
   getGuestById,
   getGuestByContact,
   markGuestOnboarded,
+  cleanupSelfLikes,
 };

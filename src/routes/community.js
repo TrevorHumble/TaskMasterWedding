@@ -459,6 +459,24 @@ router.post('/p/:submissionId/like', requireGuest, socialRateLimiter, (req, res)
     return res.status(404).render('404', { title: 'Not found' });
   }
 
+  // The bounded feed page CONTAINING this photo — the redirect target shared
+  // by the self-like refusal and the toggle's form path below (#194).
+  const feedAnchor = '/feed?from=' + submissionId + '#photo-' + submissionId;
+
+  // A guest cannot like their own photo (issue #712) — self-likes would let
+  // a guest inflate their own MOSTLIKED total and today's-likes standings,
+  // the exact crowd-favorite signal #625 depends on. feed.detail's
+  // GALLERY_SELECT already exposes the owner as guest_id (feed.js:90), so
+  // this is a plain comparison, no extra query. Refused BEFORE the toggle
+  // mutation and the recompute below — no likes row is ever created, and
+  // scoring.recomputeTransferableBadges() never runs for this request.
+  if (photo.guest_id === req.guest.id) {
+    if (req.accepts(['html', 'json']) === 'json') {
+      return res.status(403).json({ error: "You can't like your own photo." });
+    }
+    return res.redirect(feedAnchor);
+  }
+
   let liked;
   if (hasLiked(submissionId, req.guest.id)) {
     db.prepare(`DELETE FROM likes WHERE submission_id = ? AND guest_id = ?`).run(
@@ -488,7 +506,7 @@ router.post('/p/:submissionId/like', requireGuest, socialRateLimiter, (req, res)
     return res.json({ liked, likeCount });
   }
 
-  return res.redirect('/feed?from=' + submissionId + '#photo-' + submissionId);
+  return res.redirect(feedAnchor);
 });
 
 // ---------------------------------------------------------------------------
