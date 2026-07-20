@@ -227,7 +227,9 @@ it('AC3: submitPhoto returns newBadgeIds containing BLOOM on the threshold-cross
   });
   expect(fifthResult.status).toBe('created');
   expect(fifthResult.newBadgeIds).toContain('BLOOM');
-  expect(fifthResult.pointsTotal).toBe(5);
+  // 5 completed tasks (worth 1 each) + BLOOM's AUTO_METRIC_BADGE_POINTS (+1,
+  // issue #709 — an auto badge pays a point for as long as it's held) = 6.
+  expect(fifthResult.pointsTotal).toBe(6);
 
   const sixthTaskId = insertTask('AC3 sixth task');
   const sixthFile = writeOriginal('ac3-sixth.jpg');

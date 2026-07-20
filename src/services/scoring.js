@@ -21,7 +21,12 @@
 // src/db.js exports { db, ... }. Destructure the handle — do NOT write
 // `const db = require('../db')` or `db.prepare` is undefined and this file
 // crashes at load time on the first prepared statement below.
-const { db } = require('../db');
+//
+// AUTO_METRIC_BADGE_POINTS (issue #709) is owned by db.js, not here: db.js's
+// own one-time backfill needs the same value and db.js cannot import this
+// file back (require-cycle — db.js is the lower module, this file already
+// imports it), so db.js is the single owner and this file just reads it.
+const { db, AUTO_METRIC_BADGE_POINTS } = require('../db');
 const { METRIC_BADGES, TRANSFERABLE_BADGES } = require('./badges');
 // TASK_BADGE_CODE_PREFIX is defined once in task-badges.js (the single owner
 // of the 'TASK-' literal — see that module's doc comment); createCustomBadge
@@ -124,13 +129,16 @@ const stmtWorthSum = db.prepare(
     WHERE s.guest_id = ? AND s.taken_down = 0`
 );
 
-// Sum a guest's task-badge AWARD points (guest_badges.points, issue #483)
-// over awards whose earning photo is currently VISIBLE. A system/auto/
-// metric/transferable/special grant (written by stmtGrantBadge, never by
-// task-badges.awardTaskBadge) always carries submission_id IS NULL and
-// points = 0 (column defaults), so the LEFT JOIN's ON clause passes those
-// rows through unconditionally (they contribute 0 either way) while a
-// task-badge award's row is counted ONLY while its submission is
+// Sum a guest's badge AWARD points (guest_badges.points) over awards whose
+// earning photo is currently VISIBLE. Every row written by stmtGrantBadge
+// (system/admin grants: auto, metric, transferable, special) carries
+// submission_id IS NULL, so the LEFT JOIN's ON clause passes those rows
+// through unconditionally regardless of points — an auto/metric grant
+// contributes AUTO_METRIC_BADGE_POINTS (issue #709, while held) and a
+// transferable/special grant contributes 0, but either way there is no
+// submission to gate on. A task-badge award's row (written by
+// task-badges.awardTaskBadge, issue #483; never by stmtGrantBadge) DOES
+// carry a submission_id and is counted ONLY while that submission is
 // taken_down = 0 — the same visibility guard stmtPhotoBonusSum applies to
 // photo_bonus, mirrored here so a taken-down earning photo drops its award
 // points from the score exactly like a taken-down photo drops its bonus
@@ -151,9 +159,21 @@ const stmtBadgeByCode = db.prepare('SELECT * FROM badges WHERE code = ?');
 const stmtGuestBadge = db.prepare('SELECT * FROM guest_badges WHERE guest_id = ? AND badge_id = ?');
 
 // Grant a badge to a guest. UNIQUE(guest_id, badge_id) prevents duplicates;
-// "INSERT OR IGNORE" makes a repeat grant a harmless no-op.
+// "INSERT OR IGNORE" makes a repeat grant a harmless no-op (a repeat call
+// with a different `points` value does NOT update the existing row — the
+// grant call sites below only ever call this when the guest does not yet
+// hold the badge, so that never matters in practice).
+//
+// `points` (issue #709) is the ONE place a grant decides whether holding
+// this badge is worth anything: the two recomputeBadges branches below pass
+// AUTO_METRIC_BADGE_POINTS for an auto/metric grant, while
+// recomputeTransferableBadges and awardSpecialBadge pass 0 — a transferable
+// or admin-special badge stays a display-only award. Whatever is written
+// here is exactly what stmtAwardPointsSum/leaderboard later sum on read; no
+// other statement in this file writes guest_badges.points for a system/
+// admin grant.
 const stmtGrantBadge = db.prepare(
-  'INSERT OR IGNORE INTO guest_badges (guest_id, badge_id, awarded_by) VALUES (?, ?, ?)'
+  'INSERT OR IGNORE INTO guest_badges (guest_id, badge_id, awarded_by, points) VALUES (?, ?, ?, ?)'
 );
 
 // Remove a specific badge from a guest.
@@ -213,12 +233,18 @@ function getCompletedCount(guestId) {
  *   + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
  *     submissions, task or memory — issue #89, preserved by #247)
  *   + admin guests.bonus_points
- *   + task-badge AWARD points (SUM of guest_badges.points, issue #483),
- *     counted only while the award's earning photo is visible (AC6).
+ *   + badge AWARD points (SUM of guest_badges.points), counted only while
+ *     the award's earning photo is visible where one exists (AC6). This
+ *     term now covers three shapes: a task-badge judgment amount (issue
+ *     #483), AUTO_METRIC_BADGE_POINTS for each auto/metric badge the guest
+ *     currently holds (issue #709 — the point derives on read from holding
+ *     the badge row, and leaves automatically when recomputeBadges revokes
+ *     it), and 0 for a transferable/admin-special grant.
  * bonus_points is stored clamped at >= 0, photo_bonus is a non-negative
  * admin-set absolute value, worth is clamped 1-3 by the tasks table's own
  * CHECK constraint, and award points are coerced non-negative at write time
- * (task-badges.awardTaskBadge), so total points are always >= 0.
+ * (task-badges.awardTaskBadge) or fixed at a known-non-negative constant
+ * (AUTO_METRIC_BADGE_POINTS), so total points are always >= 0.
  * @param {number} guestId
  * @returns {number}
  */
@@ -265,9 +291,12 @@ const recomputeBadges = db.transaction((guestId) => {
     const has = stmtGuestBadge.get(guestId, badge.id);
 
     if (completed >= n) {
-      // Threshold met: grant if missing. awarded_by = 'system'.
+      // Threshold met: grant if missing. awarded_by = 'system'. Carries
+      // AUTO_METRIC_BADGE_POINTS (issue #709) — an auto badge is worth +1
+      // for as long as the guest holds it; revocation below deletes the
+      // row, so the point leaves with no separate scoring step.
       if (!has) {
-        stmtGrantBadge.run(guestId, badge.id, 'system');
+        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS);
       }
     } else {
       // Threshold no longer met: revoke ONLY if it was a system grant.
@@ -290,8 +319,11 @@ const recomputeBadges = db.transaction((guestId) => {
     const has = stmtGuestBadge.get(guestId, badge.id);
 
     if (qualifies) {
+      // Same AUTO_METRIC_BADGE_POINTS grant as the auto branch above — a
+      // metric badge (e.g. COMPLETIONIST) is worth +1 for as long as the
+      // guest holds it (issue #709).
       if (!has) {
-        stmtGrantBadge.run(guestId, badge.id, 'system');
+        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS);
       }
     } else if (has && has.awarded_by === 'system') {
       stmtRevokeBadge.run(guestId, badge.id);
@@ -336,7 +368,10 @@ const recomputeTransferableBadges = db.transaction(() => {
     }
     for (const guestId of currentHolders) {
       if (!existingSystemHolders.has(guestId)) {
-        stmtGrantBadge.run(guestId, badge.id, 'system');
+        // Transferable badges are NOT auto/metric (issue #709) — they stay
+        // display-only, so this grant carries points = 0, unchanged from
+        // before #709.
+        stmtGrantBadge.run(guestId, badge.id, 'system', 0);
       }
     }
   }
@@ -427,7 +462,10 @@ function awardSpecialBadge(guestId, code) {
   if (!badge || !ADMIN_AWARDABLE_TYPES.has(badge.type)) {
     return false;
   }
-  stmtGrantBadge.run(guestId, badge.id, 'admin');
+  // ADMIN_AWARDABLE_TYPES is 'special'/'custom' only — never auto/metric
+  // (issue #709) — so this grant carries points = 0, unchanged from before
+  // #709.
+  stmtGrantBadge.run(guestId, badge.id, 'admin', 0);
   return true;
 }
 
@@ -587,10 +625,13 @@ const awardProfilePhotoPoint = db.transaction((guestId) => {
  * + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
  * submissions, task or memory — issue #89, preserved by #247's design)
  * + guests.bonus_points
- * + task-badge AWARD points (SUM of guest_badges.points, issue #483),
- * counted only while the award's earning photo is visible (AC6) — see the
- * awardPoints subquery note below. Each row carries the guest's earned badge
- * codes (auto + special).
+ * + badge AWARD points (SUM of guest_badges.points), counted only while the
+ * award's earning photo is visible where one exists (AC6) — see the
+ * awardPoints subquery note below. This covers a task-badge judgment amount
+ * (issue #483), AUTO_METRIC_BADGE_POINTS for each auto/metric badge the
+ * guest currently holds (issue #709 — derived on read, no separate scoring
+ * term), and 0 for a transferable/admin-special grant. Each row carries the
+ * guest's earned badge codes (auto + special).
  *
  * The completed-count here uses the SAME canonical rule as getCompletedCount
  * (section 1a, Decision A; amended by #247): visible TASK submissions only
@@ -706,11 +747,13 @@ function leaderboard() {
 
 // Every badge a guest currently holds, joined to the badge catalog so callers
 // get the display fields directly. Auto badges come first (ordered by their
-// threshold 5 -> 10 -> 15), then special badges by code. gb.points (issue
-// #483) is the guest's AWARD points for that specific badge — 0 for every
-// system/auto/metric/transferable/special grant (stmtGrantBadge never sets
-// it), a task-badge judgment amount for an admin task-badge award
-// (task-badges.js awardTaskBadge). gb.created_at and b.id (aliased badge_id)
+// threshold 5 -> 10 -> 15), then special badges by code. gb.points is the
+// guest's AWARD points for that specific badge: AUTO_METRIC_BADGE_POINTS for
+// an auto/metric grant (issue #709 — held for as long as the guest holds the
+// badge), 0 for a transferable/admin-special grant, or a task-badge judgment
+// amount for an admin task-badge award (issue #483, task-badges.js
+// awardTaskBadge) — stmtGrantBadge sets the first two, awardTaskBadge sets
+// the third. gb.created_at and b.id (aliased badge_id)
 // are included only so a caller that needs a different display order (e.g.
 // community.js's leaderboard/profile "oldest award first" order) can re-sort
 // the array it gets back locally instead of re-deriving this join with a
