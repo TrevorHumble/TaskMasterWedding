@@ -11,7 +11,7 @@ tools: [Task, Bash, Read, Write, Edit, Glob, Grep]
 ## Governance freeze (2026-07-17 – 2026-08-08)
 
 The governing-artifact surface this pipeline is defined on (`.githooks/`, `tools/`, `standards/`,
-`agents/`, `skills/`, `.github/`, `.claude/`, `DESIGN.md`, `CLAUDE.md`, `AGENTS.md`,
+`agents/`, `skills/`, `.github/`, `.claude/`, `CLAUDE.md`, `AGENTS.md`,
 `docs/north-star.md`) is frozen. Full rule and the `post-wedding` filing exception: `CLAUDE.md` §
 "Governance freeze". This pipeline definition itself reflects the lean practice that replaced the
 retired proof layer — see `DESIGN.md`'s teardown ADR.

@@ -903,3 +903,25 @@ different concern — and duplicating the underlying `fs.statfs` call to avoid t
 fact (how much free space is on a volume) two independent owners. `rate-limit.js` re-exports the same
 three names unchanged, so every existing caller (`src/routes/guest.js`) and test
 (`tests/memories.test.js`) keeps working without knowing the code moved.
+
+## ADR: DESIGN.md carved out of the governance freeze (#707)
+
+**Date:** 2026-07-19. **Status:** accepted, owner-authorized.
+
+**What changed.** `CLAUDE.md` § "Governance freeze" no longer lists `DESIGN.md` in its frozen-surface
+enumeration, and the two restatements of that list (`agents/orchestrator.md` § "Governance freeze",
+`.claude/commands/build.md` § "Governance freeze") were updated to match. `CLAUDE.md` now states
+directly that `DESIGN.md` is documentation, not enforcement machinery, and stays editable through the
+normal pipeline for the rest of the freeze. Every other frozen path — `.githooks/`, `tools/`,
+`standards/`, `agents/`, `skills/`, `.github/`, `.claude/`, `CLAUDE.md`, `AGENTS.md`,
+`docs/north-star.md` — is unchanged, as are the "Filing rule" and "Approval to change the frozen
+surface" paragraphs that govern what remains frozen.
+
+**Why.** The freeze (see "ADR: Governance teardown and freeze (#587)" above) exists to keep the
+pre-wedding pipeline's capacity on guest-facing work instead of on reviewing, repairing, and
+re-reviewing the pipeline's own enforcement machinery. `DESIGN.md` enforces nothing — it is where
+architecture decisions get written down after the fact, this ADR included. Freezing it served none of
+the freeze's own rationale and only blocked the owner from recording decisions during the exact
+three weeks this repo is making the most of them. `docs/` was never frozen wholesale in the first place
+(only `docs/north-star.md`, the goals contract, was), which made `DESIGN.md` the sole documentation file
+the freeze actually reached.

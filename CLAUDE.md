@@ -18,9 +18,11 @@ The four goals (full text and outcomes in [`docs/north-star.md`](docs/north-star
 ## Governance freeze (2026-07-17 – 2026-08-08)
 
 **Frozen surface.** `.githooks/`, `tools/`, `standards/`, `agents/`, `skills/`, `.github/`, `.claude/`,
-`DESIGN.md`, `CLAUDE.md`, `AGENTS.md`, and `docs/north-star.md` are frozen until **2026-08-08**. This
+`CLAUDE.md`, `AGENTS.md`, and `docs/north-star.md` are frozen until **2026-08-08**. This
 pipeline's whole capacity goes to guest-facing work for the three weeks before the wedding, not to
-reviewing, repairing, and re-reviewing its own enforcement machinery.
+reviewing, repairing, and re-reviewing its own enforcement machinery. `DESIGN.md` is documentation, not
+enforcement machinery, and is carved out of the freeze (owner-authorized, #707): it stays editable
+through the normal pipeline for the freeze's duration.
 
 **Filing rule.** A defect found on the frozen surface is filed as a GitHub issue carrying the
 `post-wedding` label and is **not built** — unless it blocks a guest-facing path or CI, in which case it
