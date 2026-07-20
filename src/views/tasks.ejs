@@ -4,11 +4,12 @@
 
   <h1 class="page-title">Tasks</h1>
 
-  <%# Hardcoded starter task (issue #409): not a real tasks/submissions row —
-      its point is a one-time bonus point awarded by
-      scoring.awardProfilePhotoPoint (POST /join, POST /me/edit), so it never
-      leaks into the public gallery/feed. Its completion state (starterDone)
-      and point value (starterPoints) come from the single owner
+  <%# Hardcoded starter task (issue #409; DERIVED per issue #716): not a real
+      tasks/submissions row — its point is derived live from whether
+      guests.avatar_path is set (+1 while set, 0 while not; it never leaves a
+      one-time banked award behind), so it never leaks into the public
+      gallery/feed. Its completion state (starterDone) and point value
+      (starterPoints) come from the single owner
       scoring.starterTaskContribution via the route (src/routes/guest.js GET
       /tasks) — this view does NOT re-derive guest.avatar_path or hardcode the
       point value. It renders as an ordinary FIRST row inside the to-do list

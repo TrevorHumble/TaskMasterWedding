@@ -31,7 +31,6 @@ db.exec(`
     token         TEXT    NOT NULL UNIQUE,
     name          TEXT    NOT NULL DEFAULT '',
     avatar_path   TEXT,
-    avatar_point_awarded INTEGER NOT NULL DEFAULT 0,
     social_links  TEXT    NOT NULL DEFAULT '{}',
     bonus_points  INTEGER NOT NULL DEFAULT 0,
     onboarded     INTEGER NOT NULL DEFAULT 0,
@@ -749,40 +748,70 @@ function ensureResubmittedColumn() {
 // module-load code before any other module's `require('../db')` call returns.
 ensureResubmittedColumn();
 
-// --- Guarded migration: guests.avatar_point_awarded (issue #409) ---
+// --- Guarded migration: retire guests.avatar_point_awarded (issue #716) ---
 /**
- * Add guests.avatar_point_awarded if it is not already present.
+ * Fold the one-time banked starter point back into the derived rule, then
+ * drop the now-dead `avatar_point_awarded` flag column.
  *
- * Same PRAGMA-guarded conditional-ALTER shape as ensurePinnedColumn above —
- * but unlike pinned (which the guests CREATE TABLE deliberately omits), this
- * column IS in the guests CREATE TABLE above, so on a fresh DB the column
- * already exists and this migration is a no-op. It exists only to upgrade an
- * existing pre-#409 app.db in place: there the column does not exist yet;
- * PRAGMA table_info detects the absence and the ALTER TABLE runs once, gated
- * so a repeat call (or a later boot) is a no-op and never throws
- * "duplicate column".
+ * Issue #716 supersedes #409's design: the "Upload your profile photo"
+ * starter point is no longer a one-time banked award, it is DERIVED live
+ * from `guests.avatar_path IS NOT NULL` (scoring.js's
+ * starterTaskContribution/getPoints/leaderboard). A pre-#716 database may
+ * still carry `avatar_point_awarded = 1` rows whose point was banked into
+ * `bonus_points` by the now-retired `scoring.awardProfilePhotoPoint` — left
+ * alone, that guest would double-count once the derived term also starts
+ * paying. This migration moves the point from the banked term to the
+ * derived one with NO NET CHANGE for a guest who still has an avatar:
  *
- * Meaning of the flag: flips from 0 to 1 the first time scoring.js's
- * awardProfilePhotoPoint() grants the one-time starter "Upload your profile
- * photo" bonus point for this guest (POST /join, POST /me/edit). It never
- * resets — the point is awarded once, ever, even if the guest later replaces
- * their avatar — so DEFAULT 0 on ADD COLUMN correctly treats every
- * pre-existing row (avatar or not) as not-yet-awarded; the next avatar save
- * for a guest who already had one before this migration ran simply awards
- * the point once, same as any other guest. Exported so tests bind to this
- * real guard rather than an inline copy.
+ *   1. UPDATE guests SET bonus_points = MAX(0, bonus_points - 1)
+ *        WHERE avatar_point_awarded = 1
+ *      — MAX(0, ...) matches the floor stmtAddBonus already enforces on
+ *      every other bonus_points write, so this can't drive the column
+ *      negative. A flagged guest who currently has an avatar loses the
+ *      banked +1 here and immediately regains it from the derived term
+ *      (getPoints/leaderboard), net zero. A flagged guest with NO avatar
+ *      (they banked the point, then removed their photo) loses the banked
+ *      point and gains nothing back — the "ghost point" the design
+ *      explicitly calls out as intended to go away.
+ *   2. ALTER TABLE guests DROP COLUMN avatar_point_awarded
+ *      — the flag has no reader left once step 1 runs; keeping a dead
+ *      column around would be a second (unread, and therefore silently
+ *      driftable) source of truth for "did this guest ever have an
+ *      avatar." Supported by the bundled SQLite (3.53, better-sqlite3
+ *      12.11.1) with no full-table rebuild needed.
+ *
+ * Both steps run in one transaction so a mid-migration crash can't leave a
+ * database with the point subtracted but the column still present (or vice
+ * versa). Detection is column-presence, the same PRAGMA table_info guard
+ * every other migration in this file uses: the guests CREATE TABLE above no
+ * longer declares avatar_point_awarded, so a fresh DB never has the column
+ * and this is a no-op there; an existing pre-#716 database has it exactly
+ * once, so the migration (and therefore the bonus_points subtraction) runs
+ * exactly once, ever, per guest row that had the flag set.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
  */
-function ensureAvatarPointAwardedColumn() {
+function ensureAvatarPointAwardedRetired() {
   const cols = db.prepare(`PRAGMA table_info(guests)`).all();
   if (!cols.some((col) => col.name === 'avatar_point_awarded')) {
-    db.exec(`ALTER TABLE guests ADD COLUMN avatar_point_awarded INTEGER NOT NULL DEFAULT 0`);
+    // Fresh DB (CREATE TABLE above already omits the column), or an
+    // already-migrated DB — nothing to do.
+    return;
   }
+
+  const migrate = db.transaction(() => {
+    db.exec(
+      `UPDATE guests SET bonus_points = MAX(0, bonus_points - 1) WHERE avatar_point_awarded = 1`
+    );
+    db.exec(`ALTER TABLE guests DROP COLUMN avatar_point_awarded`);
+  });
+  migrate();
 }
 
-// Run once at module load, before scoring.js prepares any statement that
-// reads/writes avatar_point_awarded — db.js fully evaluates this module-load
-// code before any other module's `require('../db')` call returns.
-ensureAvatarPointAwardedColumn();
+// Run once at module load, before scoring.js prepares any statement against
+// guests.bonus_points — db.js fully evaluates this module-load code before
+// any other module's `require('../db')` call returns.
+ensureAvatarPointAwardedRetired();
 
 // --- Guarded migration: settings table (issue #283) ---
 /**
@@ -976,7 +1005,7 @@ module.exports = {
   ensureBadgeCatalog,
   ensureRetiredBadgesRemoved,
   ensureResubmittedColumn,
-  ensureAvatarPointAwardedColumn,
+  ensureAvatarPointAwardedRetired,
   ensureSettingsTable,
   getEventConfig,
   setEventConfig,

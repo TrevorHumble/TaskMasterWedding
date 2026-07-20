@@ -124,9 +124,7 @@ describe('AC471(3): the allDone .tasks-memory-cta path is untouched', () => {
     // a guest who hasn't set an avatar always has an outstanding to-do item
     // (the tile itself) and allDone (src/views/tasks.ejs) never fires.
     const guestId = db
-      .prepare(
-        'INSERT INTO guests (token, name, onboarded, avatar_path, avatar_point_awarded) VALUES (?, ?, 1, ?, 1)'
-      )
+      .prepare('INSERT INTO guests (token, name, onboarded, avatar_path) VALUES (?, ?, 1, ?)')
       .run('ac471-alldone-token', 'Done Guest', 'has-avatar.jpg').lastInsertRowid;
     const taskId = db
       .prepare('INSERT INTO tasks (title) VALUES (?)')

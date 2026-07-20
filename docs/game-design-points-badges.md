@@ -30,8 +30,9 @@ Nine sources pay points. Each entry names the issue that builds it.
    specified a fixed +2.)
 5. **First memory of the day.** The first memory (a task-free photo) a guest posts each
    event-local day pays +1. (#656.)
-6. **First profile photo.** A guest's first profile photo pays +1, once ever. (Shipped,
-   #409.)
+6. **Profile photo.** A guest's profile photo pays +1 for as long as it is set — remove it
+   and the point leaves, upload one again and it returns. Derived, not a one-time banked
+   award. (Shipped, #409; amended to derived by #716.)
 7. **Automatic badges pay while held.** Every automatic badge pays +1 point for as long as
    the guest holds it. (New issue — not yet filed; do not fold this into another issue's
    scope.)
