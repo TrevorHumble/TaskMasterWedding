@@ -27,15 +27,16 @@ const photos = require('../src/services/photos');
 const { resolveSamplePool } = require('./sample-photo-pool');
 
 // ---------------------------------------------------------------------------
-// Badge catalog. ensureBadgeCatalog is the one shared insert function (#193
-// AC4, consolidated #314) — the same function scripts/seed.js and src/db.js's
-// boot path call, so all three can never drift into separate catalogs.
-// Insert-only (INSERT OR IGNORE keyed on code), so this script never
-// duplicates or overwrites a row scripts/seed.js or an earlier boot already
-// inserted, and works standalone if neither has run yet. Not a problem to
-// require() here even though this module also gets require()'d for its
-// side-effect-free exports (parseArgs, installSamplePhotos) — badge-catalog.js
-// itself is data-only and takes no action until called with a `db`.
+// Badge catalog. ensureBadgeCatalog is the one shared upsert function (#193
+// AC4, consolidated #314; upsert since #655) — the same function
+// scripts/seed.js and src/db.js's boot path call, so all three can never
+// drift into separate catalogs. Upsert keyed on code, so this script never
+// duplicates a row scripts/seed.js or an earlier boot already inserted, and
+// re-syncs an existing catalog row's display fields to the module — and
+// works standalone if neither has run yet. Not a problem to require() here
+// even though this module also gets require()'d for its side-effect-free
+// exports (parseArgs, installSamplePhotos) — badge-catalog.js itself is
+// data-only and takes no action until called with a `db`.
 // ---------------------------------------------------------------------------
 const { ensureBadgeCatalog } = require('./badge-catalog');
 
@@ -231,7 +232,8 @@ function main() {
         console.log(`  Guests:  ${guestIds.length}`);
         console.log(`  Tasks:   ${taskIds.length}`);
         console.log(
-          `  Badges:  ${badgeResult.inserted} inserted, ${badgeResult.skipped} already existed.`
+          `  Badges:  ${badgeResult.inserted} inserted, ${badgeResult.updated} updated, ` +
+            `${badgeResult.unchanged} unchanged.`
         );
         console.log(`  Seed:    ${seed}`);
         console.log(`  Photos installed into ${config.UPLOADS_DIR}`);

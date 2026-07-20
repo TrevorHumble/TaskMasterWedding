@@ -120,3 +120,76 @@ describe('#193 AC4: one catalog, not two', () => {
     ]);
   });
 });
+
+describe('#655: ensureBadgeCatalog upserts a stale catalog row without touching non-catalog rows', () => {
+  let db;
+  const { ensureBadgeCatalog, BADGES } = require('../scripts/badge-catalog');
+
+  beforeAll(() => {
+    ({ db } = loadApp());
+  });
+
+  beforeEach(() => {
+    // Reset to the canonical catalog before each case: the ten catalog rows
+    // exactly as the module seeds them, with no stale edit or extra row
+    // carried over from a prior case. So every test below is understandable
+    // and passes on its own, in any order.
+    db.prepare('DELETE FROM badges').run();
+    ensureBadgeCatalog(db);
+  });
+
+  it('AC3: a fresh (empty) badges table is inserted exactly as today', () => {
+    db.prepare('DELETE FROM badges').run();
+
+    const result = ensureBadgeCatalog(db);
+
+    expect(result).toEqual({ inserted: BADGES.length, updated: 0, unchanged: 0 });
+    const rows = db.prepare('SELECT code FROM badges ORDER BY code').all();
+    expect(rows.map((r) => r.code).sort()).toEqual([...BADGES.map((b) => b.code)].sort());
+    const choice = db.prepare('SELECT name FROM badges WHERE code = ?').get('CHOICE');
+    expect(choice.name).toBe("Wedding Master's Choice");
+  });
+
+  it('AC1: a stale pre-#354 CHOICE row (old name/description/art) is corrected to the current catalog values on ensure', () => {
+    db.prepare(`UPDATE badges SET name = ?, description = ?, art_path = ? WHERE code = ?`).run(
+      "Task Master's Choice",
+      'This badge is awarded by the Task Master.',
+      '/badges/old-choice.svg',
+      'CHOICE'
+    );
+
+    const result = ensureBadgeCatalog(db);
+
+    // Only CHOICE was mutated, so the tally is exact: nothing new, one row
+    // corrected, every other catalog code already matched.
+    expect(result).toEqual({ inserted: 0, updated: 1, unchanged: BADGES.length - 1 });
+    const row = db
+      .prepare('SELECT name, description, art_path FROM badges WHERE code = ?')
+      .get('CHOICE');
+    const catalogChoice = BADGES.find((b) => b.code === 'CHOICE');
+    expect(row).toEqual({
+      name: catalogChoice.name,
+      description: catalogChoice.description,
+      art_path: catalogChoice.art_path,
+    });
+  });
+
+  it('AC2: a non-catalog custom badge row is byte-identical after ensure, and never counted in the tally', () => {
+    // Mirrors a real task badge's shape (src/services/task-badges.js): code
+    // 'TASK-<id>', type 'custom' — a code absent from BADGES above.
+    db.prepare(
+      `INSERT INTO badges (code, name, type, threshold, art_path, description)
+       VALUES ('TASK-9001', 'Admin Custom Name', 'custom', NULL, '/badges/custom.svg', 'Admin custom description')`
+    ).run();
+    const before = db.prepare('SELECT * FROM badges WHERE code = ?').get('TASK-9001');
+
+    const result = ensureBadgeCatalog(db);
+
+    const after = db.prepare('SELECT * FROM badges WHERE code = ?').get('TASK-9001');
+    expect(after).toEqual(before);
+    // The catalog rows are already canonical (beforeEach), so this run
+    // touches nothing new and updates nothing — the tally covers exactly
+    // the catalog codes, never the extra TASK-9001 row.
+    expect(result).toEqual({ inserted: 0, updated: 0, unchanged: BADGES.length });
+  });
+});
