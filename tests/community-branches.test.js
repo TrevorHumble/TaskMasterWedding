@@ -232,16 +232,19 @@ describe('POST /p/:submissionId/comments not-found arms', () => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /leaderboard — podium's rank>3 break (604) and the groupsByRank.has
-// guard (605), via a field with more than 3 distinct point values.
+// GET /leaderboard — the podium-building loop's rank>3 break and the
+// groupsByRank.has guard, via a field with more than 3 distinct point values
+// (issue #626: dense ranking, plain rankLabel — no ties in this fixture, so
+// the dense and standard-competition schemes agree, but rankLabel must still
+// read the exact plain number for each row, never a "T"-prefixed one).
 // ---------------------------------------------------------------------------
 describe('leaderboard podium rank>3 break and multi-group tie handling', () => {
-  it('5 guests at 5 distinct point totals: podium holds only ranks 1-3, rows 4-5 still render', async () => {
+  it('5 guests at 5 distinct point totals: podium holds only ranks 1-3, rows 4-5 still render at plain ranks 4/5', async () => {
     const names = ['Board A', 'Board B', 'Board C', 'Board D', 'Board E'];
     const guestIds = names.map((n) => insertGuest(n).guestId);
     // Distinct, strictly descending bonus_points so ranks are 1,2,3,4,5 with
-    // no ties — forces the podium-building loop past rank 3 (line 604's break)
-    // and through multiple distinct groupsByRank entries (line 605).
+    // no ties — forces the podium-building loop past rank 3 and through
+    // multiple distinct groupsByRank entries.
     guestIds.forEach((id, i) => {
       db.prepare('UPDATE guests SET bonus_points = ? WHERE id = ?').run(50 - i * 10, id);
     });
@@ -253,6 +256,24 @@ describe('leaderboard podium rank>3 break and multi-group tie handling', () => {
     for (const name of names) {
       expect(res.text).toContain(name);
     }
+
+    // Rows 4 and 5 (Board D, Board E) sit below the podium's top 3; their
+    // rank label is the plain dense number, never a "T"-prefixed one.
+    const list = res.text.slice(res.text.indexOf('<ol'));
+    const rowOf = (name) => {
+      const start = list.indexOf(name);
+      const li = list.lastIndexOf('<li', start);
+      const end = list.indexOf('</li>', start);
+      return list.slice(li, end);
+    };
+    const rankOf = (name) => {
+      const row = rowOf(name);
+      const m = row.match(/<span class="rank[^"]*">([\s\S]*?)<\/span>/);
+      expect(m).not.toBeNull();
+      return m[1].trim();
+    };
+    expect(rankOf('Board D')).toBe('4');
+    expect(rankOf('Board E')).toBe('5');
   });
 });
 

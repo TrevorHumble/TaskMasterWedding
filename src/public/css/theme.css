@@ -2440,7 +2440,18 @@ body:has(dialog[open]) {
 }
 
 /* ----------------------- Leaderboard ----------------------- */
-/* podium */
+/* podium (#626) — dense-ranked medal podium: a crowned champion, each tier
+   grows to fit its tie (capped at 9 faces + "+N"). Places are colored in the
+   brand palette: 1st gold, 2nd primary green, 3rd light green. Ink colors are
+   paired for WCAG-AA contrast on each band. */
+:root {
+  --place-1: #c8a24c; /* gold */
+  --place-1-ink: var(--green-900); /* dark ink on gold */
+  --place-2: var(--color-primary); /* primary green */
+  --place-2-ink: var(--white);
+  --place-3: var(--green-300); /* light green */
+  --place-3-ink: var(--green-900); /* dark ink on light green */
+}
 .podium {
   display: flex;
   align-items: flex-end;
@@ -2450,119 +2461,50 @@ body:has(dialog[open]) {
 }
 .podium-slot {
   flex: 1;
+  min-width: 0;
   text-align: center;
-}
-.podium-avatar {
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  background: var(--green-50);
-  border: var(--border-hairline);
-  margin: 0 auto var(--space-2);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  font-family: var(--font-display);
-  font-size: 22px;
-  color: var(--color-primary);
-  overflow: hidden;
-}
-.podium-slot.rank-1 .podium-avatar {
-  width: 64px;
-  height: 64px;
-  background: var(--color-primary);
-  color: var(--white);
-  border: none;
-  font-size: 26px;
-}
-.podium-name {
-  font-family: var(--font-display);
-  font-size: var(--fs-h3);
-}
-.podium-slot.rank-1 .podium-name {
-  font-size: var(--fs-h2);
-  font-weight: 600;
-}
-.podium-name a {
-  color: inherit;
-}
-/* Tied-guest names line (#361): a joined list of first names can run long
-   ("Liam, Priya and Noah") in a ~1/3-width column, so it needs body-scale
-   text, a wrap point on any character (not just spaces — a single unbroken
-   name can still exceed the column), and taller line-height for 2-3 wrapped
-   lines. The element carries both `.podium-name` and `.podium-names`, so
-   compounding both classes onto each selector below (rather than relying on
-   `.podium-names` alone) gives specificity (0,2,0) and (0,4,0) respectively
-   — each strictly higher than the rule it must beat ((0,1,0) base and
-   (0,3,0) rank-1 override) regardless of source order, so a 1st-place tie
-   still shrinks to this size instead of inheriting the heading-size
-   override. */
-.podium-name.podium-names {
-  font-size: var(--fs-small);
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-.podium-slot.rank-1 .podium-name.podium-names {
-  font-size: var(--fs-small);
-}
-.podium-subline {
-  font-size: var(--fs-small);
-}
-/* Every plinth carries a "2nd · 12 pts" label in white, so the bars are solid
-   primary sage (never blank rectangles) — the one ramp step where white text
-   clears WCAG AA contrast. Height alone ranks the plinths. */
-.podium-bar {
-  background: var(--color-primary);
-  border-radius: var(--radius-input) var(--radius-input) 0 0;
-  margin-top: var(--space-2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.podium-bar-label {
-  color: var(--white);
-  font-size: var(--fs-small);
-  font-weight: 600;
-  text-align: center;
-}
-.podium-slot.rank-1 .podium-bar {
-  height: 78px;
-}
-.podium-slot.rank-2 .podium-bar {
-  height: 54px;
-}
-.podium-slot.rank-3 .podium-bar {
-  height: 40px;
+  justify-content: flex-end;
 }
 
-/* Tied podium slot: every tied guest, as up-to-3 overlapping 44px avatars
-   (ringed with the page background so they read as a stack), a "+N" chip for
-   the rest, and the linked names line underneath. */
-.podium-stack {
+/* Champion crown, floated just above the gold cluster. */
+.podium-crown {
+  color: var(--place-1);
+  line-height: 0;
+  margin-bottom: var(--space-1);
+}
+.podium-crown svg {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.12));
+}
+
+/* Avatar cluster — the whole tie, wrapped. More tied guests = a taller,
+   bushier cluster; the slot grows upward while the blocks stay bottom-aligned
+   (the .podium flex is align-items: flex-end). */
+.podium-cluster {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-end;
   justify-content: center;
+  gap: var(--space-1);
   margin-bottom: var(--space-2);
 }
-.podium-stack-avatar {
+.podium-cluster-avatar {
   display: block;
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   overflow: hidden;
   background: var(--green-50);
-  border: 2px solid var(--color-bg);
+  border: 2px solid var(--place-2);
 }
-.podium-stack-avatar + .podium-stack-avatar,
-.podium-stack-avatar + .podium-stack-more {
-  margin-left: -10px;
-}
-.podium-stack-avatar img {
+.podium-cluster-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.podium-stack-initials {
+.podium-cluster-initials {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2572,21 +2514,86 @@ body:has(dialog[open]) {
   font-size: var(--fs-small);
   color: var(--color-primary);
 }
-.podium-stack-more {
+/* 1st-place avatars are gold-ringed whether it's a lone champion or a tie of
+   co-champions. */
+.podium-slot.rank-1 .podium-cluster-avatar {
+  border-color: var(--place-1);
+}
+.podium-slot.rank-3 .podium-cluster-avatar {
+  border-color: var(--place-3);
+}
+/* A LONE champion (no tie) gets the hero size + lift under the crown. A
+   first-place TIE keeps every co-champion at normal cluster size so the gold
+   tier stays a proportionate cluster, not a tower. */
+.podium-slot.rank-1 .podium-cluster:not(.is-tie) .podium-cluster-avatar {
+  width: 72px;
+  height: 72px;
+  border-width: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* "+N" chip when a tie exceeds the 9-face cap. Pill (auto width) so "+15"
+   reads cleanly; tinted to its tier. */
+.podium-cluster-more {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--color-primary);
-  border: 2px solid var(--color-bg);
+  min-width: 42px;
+  height: 42px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--green-50);
+  border: 2px solid var(--place-2);
   font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--fs-small);
+  color: var(--color-primary);
+}
+.podium-slot.rank-1 .podium-cluster-more {
+  border-color: var(--place-1);
+}
+.podium-slot.rank-3 .podium-cluster-more {
+  border-color: var(--place-3);
+}
+
+/* The plinth: solid medal band, place + points in one label. Height alone
+   ranks the plinths; the medal color names the place. */
+.podium-block {
+  width: 100%;
+  border-radius: var(--radius-input) var(--radius-input) 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--white);
+  padding: var(--space-2) var(--space-1);
+}
+.podium-place {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  line-height: 1;
+}
+.podium-points {
   font-size: var(--fs-small);
   font-weight: 600;
-  color: var(--white);
-  position: relative;
-  z-index: 1;
+  opacity: 0.92;
+}
+.podium-slot.rank-1 .podium-block {
+  height: 92px;
+  background: var(--place-1);
+  color: var(--place-1-ink);
+}
+.podium-slot.rank-2 .podium-block {
+  height: 66px;
+  background: var(--place-2);
+  color: var(--place-2-ink);
+}
+.podium-slot.rank-3 .podium-block {
+  height: 50px;
+  background: var(--place-3);
+  color: var(--place-3-ink);
 }
 
 /* Overflow chip when a row holds more badges than the per-row cap. */

@@ -1,20 +1,21 @@
 // tests/leaderboard-ties.test.js
-// Covers issue #78 acceptance criteria:
-//   AC1 — rank computed once; ties share a `T{rank}` label; standard-competition
-//         gap after a four-way tie ([5,4,3,3,3,3,1] -> labels 1,2,T3,T3,T3,T3,7)
-//   AC2 — (superseded by #249) a 3+-way tie renders every tied guest as an
-//         avatar stack + names line; the collapsed "T3 · 4 tied" tile is gone
-//   AC3 — a two-way tie for 1st shows both entries labelled T1, no rank `2`
-//   AC4 — an all-guest tie suppresses the podium and shows "everyone's tied"
-//   AC5 — the last-submission tiebreaker orders tied rows without changing rank
-//   AC6 — per-row badge icons cap at 8 with a single "+K" overflow chip
+// Covers issue #626 (pedestal redesign), superseding this file's earlier
+// standard-competition ("T3"/"1224") coverage of issue #78/#249/#361:
+//   AC1 — dense ("1223") ranking: rank increments only when points change, so
+//         a tie never leaves the rank below it empty (points [24,20x8,18x2]
+//         -> dense ranks 1, 2x8, 3x2 — never skipping to 10)
+//   AC2 — the standings show the PLAIN dense number, never a "T" prefix
+//   AC3 — a 3rd-place tier is present whenever 3+ distinct point values exist
+//   AC4 — a tier over 9 tied guests shows exactly 9 avatars + a "+N" chip; a
+//         tier of 9 or fewer shows every avatar and no chip
+//   AC5 — 1st place is crowned; a lone champion gets the hero-size cluster
+//         (no `is-tie`), a tied champion keeps normal cluster size (`is-tie`)
+//   AC6 — an all-guest tie suppresses the podium, showing "everyone's tied"
 //
 // REQUIRE ORDER: config / db / app are required only AFTER loadApp() sets
 // DATA_DIR / DB_PATH. Do not hoist requires above the loadApp() call.
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const request = require('supertest');
 const { loadApp, signInGuest } = require('./helpers/testApp');
 
@@ -59,11 +60,9 @@ async function signedInBoard(token) {
 
 /**
  * Create a guest with exactly `points` points, built from `points` visible
- * submissions. Submission timestamps start at `baseMinute` minutes past a
- * fixed epoch and increment, so callers can control which tied guest has the
- * earlier latest submission (AC5). Returns the guest id.
+ * submissions. Returns the guest id.
  */
-function makeGuest(name, points, baseMinute = 0) {
+function makeGuest(name, points) {
   const token = `tie-token-${seq++}`;
   const guestId = db
     .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
@@ -80,7 +79,7 @@ function makeGuest(name, points, baseMinute = 0) {
     const taskId = db
       .prepare(`INSERT INTO tasks (title) VALUES (?)`)
       .run(`Tie task ${seq}-${i}`).lastInsertRowid;
-    const ts = new Date(base + (baseMinute + i) * 60000)
+    const ts = new Date(base + i * 60000)
       .toISOString()
       .replace('T', ' ')
       .replace(/\.\d+Z$/, '');
@@ -117,22 +116,21 @@ function podiumMarkup(html) {
   return html.slice(start, end);
 }
 
-// Strip tags and collapse runs of whitespace so text split across EJS output
-// lines ("Cara</a>, <a>Dara</a> and 2 more") compares as one string. Tag
-// stripping loops until stable — this is a comparison helper on our own
-// rendered markup, but the loop also keeps CodeQL's incomplete-sanitization
-// check (js/incomplete-multi-character-sanitization) satisfied.
-function collapse(html) {
-  let out = html;
-  let prev;
-  do {
-    prev = out;
-    out = out.replace(/<[^>]*>/g, '');
-  } while (out !== prev);
-  return out.replace(/\s+/g, ' ').trim();
+// The markup for one podium-slot rank (rank-1/2/3), isolated by scanning to
+// the next "rank-" marker (or the end of the podium block for the last slot
+// in DOM order). Display order is 2nd, 1st, 3rd, so rank-1's slice must stop
+// at rank-3, not run to the end, when a 3rd-place slot follows it.
+function slotMarkup(podium, rank) {
+  const marker = `rank-${rank}`;
+  const start = podium.indexOf(marker);
+  expect(start).toBeGreaterThan(-1);
+  const rest = podium.slice(start + marker.length);
+  const nextMatch = rest.match(/rank-\d/);
+  return nextMatch ? rest.slice(0, nextMatch.index) : rest;
 }
 
-// Extract the text of every <span class="rank ...">…</span> element in order.
+// Extract the text of every <span class="rank ...">…</span> element in order
+// (the full-standings list; the podium itself carries no .rank spans).
 function rankLabels(html) {
   const out = [];
   const re = /<span class="rank[^"]*">([\s\S]*?)<\/span>/g;
@@ -145,8 +143,39 @@ function rankLabels(html) {
 
 // ---------------------------------------------------------------------------
 
-describe('leaderboard ties (#78)', () => {
-  test('AC1: [5,4,3,3,3,3,1] yields labels 1,2,T3,T3,T3,T3,7 — never a plain 3', async () => {
+describe('leaderboard dense ranking (#626)', () => {
+  test('AC1/AC2: points [24,20x8,18x2] -> dense ranks 1, 2x8 (no skip to 10), 3x2 — plain labels, no "T"', async () => {
+    resetField();
+    makeGuest('Solo Top', 24);
+    for (let i = 0; i < 8; i++) makeGuest(`Mid ${i}`, 20);
+    makeGuest('Low A', 18);
+    makeGuest('Low B', 18);
+
+    const res = await signedInBoard(lastToken);
+    const labels = rankLabels(res.text);
+
+    expect(labels.filter((l) => l === '1').length).toBe(1);
+    expect(labels.filter((l) => l === '2').length).toBe(8);
+    expect(labels.filter((l) => l === '3').length).toBe(2);
+    // Dense ranking never skips to 10 for the rank below an 8-way tie, and
+    // no label ever carries the old "T" tie prefix.
+    expect(labels).not.toContain('10');
+    expect(labels.some((l) => l.includes('T'))).toBe(false);
+
+    // The podium groups mirror the standings exactly: rank 1 = [24] (lone,
+    // hero-sized), rank 2 = the eight 20s, rank 3 = the two 18s.
+    const podium = podiumMarkup(res.text);
+    const rank1 = slotMarkup(podium, 1);
+    const rank2 = slotMarkup(podium, 2);
+    const rank3 = slotMarkup(podium, 3);
+    expect((rank1.match(/class="podium-cluster-avatar"/g) || []).length).toBe(1);
+    expect(rank1).not.toContain('is-tie');
+    expect((rank2.match(/class="podium-cluster-avatar"/g) || []).length).toBe(8);
+    expect(rank2).not.toContain('podium-cluster-more');
+    expect((rank3.match(/class="podium-cluster-avatar"/g) || []).length).toBe(2);
+  });
+
+  test('AC3: [5,4,3,3,3,3,1] (4 distinct values) -> dense ranks 1,2,3,3,3,3,4 — 3rd never empty, never skips to 7', async () => {
     resetField();
     makeGuest('Alpha', 5);
     makeGuest('Bravo', 4);
@@ -159,53 +188,22 @@ describe('leaderboard ties (#78)', () => {
     const res = await signedInBoard(lastToken);
     const labels = rankLabels(res.text);
 
-    // The four 3-point guests are labelled T3 (list row spans). This assertion
-    // FAILS if rank were derived from array index (index 2..5 would give
-    // 3,4,5,6 instead of a shared T3).
-    const t3Count = labels.filter((l) => l === 'T3').length;
-    expect(t3Count).toBeGreaterThanOrEqual(4);
-
-    // The 1-point guest sits at the standard-competition gap: rank 7, not 6.
-    expect(labels).toContain('7');
+    expect(labels.filter((l) => l === '3').length).toBe(4);
+    // The old standard-competition gap (rank 7) is gone: the next distinct
+    // rank after the four-way tie is dense rank 4.
+    expect(labels).toContain('4');
+    expect(labels).not.toContain('7');
     expect(labels).not.toContain('6');
 
-    // No rank label is a bare `3` — tied guests carry `T3`, and the incidental
-    // point value 3 renders in .lb-points, not in a .rank span.
-    expect(labels).not.toContain('3');
-
-    // The unique top two are plain 1 and 2.
-    expect(labels).toContain('1');
-    expect(labels).toContain('2');
-  });
-
-  test('AC2 (as redesigned by #249): four-way tie renders an avatar stack, never a collapsed "tied" tile', async () => {
-    resetField();
-    makeGuest('Alpha', 5);
-    makeGuest('Bravo', 4);
-    // Distinct baseMinutes pin the tiebreak order (earliest latest-submission
-    // first), so the two NAMED tied guests are deterministic: Cara, Dara.
-    makeGuest('Cara', 3, 0);
-    makeGuest('Dara', 3, 10);
-    makeGuest('Elle', 3, 20);
-    makeGuest('Finn', 3, 30);
-    makeGuest('Gwen', 1);
-
-    const res = await signedInBoard(lastToken);
-
-    // The collapsed tile and its star placeholder are gone entirely (#249).
-    expect(res.text).not.toContain('podium-tie');
-    expect(res.text).not.toContain('&#9733;');
-
+    // The 3rd-place podium tier itself carries all four tied guests.
     const podium = podiumMarkup(res.text);
-    // 4 tied at rank 3 -> 3 stacked avatars plus a "+1" overflow chip.
-    expect((podium.match(/class="podium-stack-avatar"/g) || []).length).toBe(3);
-    expect(podium).toContain('+1');
-    // Names line: first two named, the rest counted.
-    expect(collapse(podium)).toContain('Cara, Dara and 2 more');
-    expect(podium).toContain('3rd place · 3 pts each');
+    const rank3 = slotMarkup(podium, 3);
+    for (const name of ['Cara', 'Dara', 'Elle', 'Finn']) {
+      expect(rank3).toContain(name);
+    }
   });
 
-  test('AC3: two-way tie for 1st shows two T1 entries and no rank 2', async () => {
+  test('AC2: two-way tie for 1st shows two plain "1" labels, no rank "2", no "T" anywhere', async () => {
     resetField();
     makeGuest('Alpha', 3);
     makeGuest('Bravo', 3);
@@ -214,16 +212,14 @@ describe('leaderboard ties (#78)', () => {
     const res = await signedInBoard(lastToken);
     const labels = rankLabels(res.text);
 
-    // Two guests tied at rank 1: their labels are T1. Since #249 the podium
-    // renders no .rank spans, so both T1 labels come from the standings list.
-    const t1Count = labels.filter((l) => l === 'T1').length;
-    expect(t1Count).toBeGreaterThanOrEqual(2);
-
-    // Standard-competition gap: the next distinct rank is 3, so no rank label is 2.
-    expect(labels).not.toContain('2');
+    expect(labels.filter((l) => l === '1').length).toBe(2);
+    // Dense ranking: the next distinct rank is 2 (not 3, as standard-competition
+    // ranking would have produced).
+    expect(labels.filter((l) => l === '2').length).toBe(1);
+    expect(labels.some((l) => l.includes('T'))).toBe(false);
   });
 
-  test('AC4: all-guest tie suppresses the podium and shows "everyone\'s tied"', async () => {
+  test('AC6: all-guest tie suppresses the podium and shows "everyone\'s tied"', async () => {
     resetField();
     makeGuest('Alpha', 2);
     makeGuest('Bravo', 2);
@@ -233,37 +229,6 @@ describe('leaderboard ties (#78)', () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain("everyone's tied");
     expect(res.text).not.toContain('podium-slot');
-    expect(res.text).not.toContain('podium-tie');
-  });
-
-  test('AC5: last-submission tiebreaker orders tied rows but keeps identical T3 labels', async () => {
-    resetField();
-    // A unique 1st and 2nd, then two guests tied for 3rd (rank 3 -> label T3).
-    makeGuest('Top', 6);
-    makeGuest('Second', 5);
-    // The two tied-at-3rd guests. Guest A's latest submission (minute 0..3) is
-    // earlier than guest B's (minute 10..13), so A must sort before B while
-    // both keep the identical rank label.
-    makeGuest('Aaron', 4, 0); // latest submission at minute 3
-    makeGuest('Bella', 4, 10); // latest submission at minute 13
-
-    const res = await signedInBoard(lastToken);
-
-    // Restrict ordering checks to the list <ol> — the podium renders names in a
-    // different (2nd,1st,3rd) order, which is not what AC5 constrains.
-    const list = res.text.slice(res.text.indexOf('<ol'));
-
-    // Guest A's list row appears before guest B's.
-    const idxA = list.indexOf('Aaron');
-    const idxB = list.indexOf('Bella');
-    expect(idxA).toBeGreaterThan(-1);
-    expect(idxB).toBeGreaterThan(-1);
-    expect(idxA).toBeLessThan(idxB);
-
-    // Both tied guests carry the identical label T3 (rank unchanged by the
-    // tiebreaker): the two list rows for Aaron and Bella.
-    const listLabels = rankLabels(list);
-    expect(listLabels.filter((l) => l === 'T3').length).toBeGreaterThanOrEqual(2);
   });
 
   test('AC6: badge row caps at 8 icons + one "+4" chip; 3 badges show 3 icons and no chip', async () => {
@@ -276,8 +241,6 @@ describe('leaderboard ties (#78)', () => {
     const res = await signedInBoard(lastToken);
 
     // Isolate each guest's LIST row so badge counts don't cross-contaminate.
-    // Search only within the <ol> — a podium slot renders the name too but has
-    // no <li>, so searching the whole document could grab the wrong row.
     const list = res.text.slice(res.text.indexOf('<ol'));
     const rowOf = (name) => {
       const start = list.indexOf(name);
@@ -301,178 +264,91 @@ describe('leaderboard ties (#78)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Issue #249 — podium ties show every tied guest: avatar stack, names line,
-// labeled bars. The anonymous star tile and "N tied" string are removed.
+// Issue #626 — capped grow-to-fit tiers: a tie beyond 9 members folds into a
+// "+N" chip; 9 or fewer shows every avatar with no chip.
 // ---------------------------------------------------------------------------
-describe('podium tie redesign (#249)', () => {
-  test('AC1+AC3: 3-way tie at 2nd names all three guests; untied 1st bar reads "1st · 19 pts"', async () => {
+describe('podium capped grow-to-fit tiers (#626)', () => {
+  test('AC4: a 12-way tie renders exactly 9 avatars plus a "+3" chip', async () => {
     resetField();
-    makeGuest('Alpha Winner', 19);
-    makeGuest('Liam Park', 12, 0);
-    makeGuest('Priya Rao', 12, 30);
-    makeGuest('Noah Bell', 12, 60);
+    makeGuest('Solo Top', 30);
+    for (let i = 0; i < 12; i++) makeGuest(`Mid ${i}`, 20);
+    makeGuest('Solo Bottom', 10);
 
     const res = await signedInBoard(lastToken);
     const podium = podiumMarkup(res.text);
+    const rank2 = slotMarkup(podium, 2);
 
-    // Rank-2 slot: display order is 2nd, 1st, 3rd, so the rank-2 group is the
-    // slice from its own marker to the rank-1 marker.
-    const rank2 = podium.slice(podium.indexOf('rank-2'), podium.indexOf('rank-1'));
-    expect(rank2).toContain('Liam');
-    expect(rank2).toContain('Priya');
-    expect(rank2).toContain('Noah');
-
-    // AC1: the shared-rank sub-line, and no "tied" anywhere in podium markup.
-    expect(podium).toContain('2nd place · 12 pts each');
-    expect(podium).not.toContain('tied');
-
-    // AC3: the untied #1 bar label is the exact string.
-    const rank1 = podium.slice(podium.indexOf('rank-1'));
-    const barLabel = rank1.match(/<span class="podium-bar-label">([^<]*)<\/span>/);
-    expect(barLabel).not.toBeNull();
-    expect(barLabel[1]).toBe('1st · 19 pts');
-
-    // The tied slot's bar carries a label too (no blank rectangles).
-    const rank2Label = rank2.match(/<span class="podium-bar-label">([^<]*)<\/span>/);
-    expect(rank2Label).not.toBeNull();
-    expect(rank2Label[1]).toBe('2nd · 12 pts');
+    expect((rank2.match(/class="podium-cluster-avatar"/g) || []).length).toBe(9);
+    expect(rank2).toContain('+3');
   });
 
-  test('AC2: 5-way tie shows exactly 3 avatars, a "+2" chip, and a names line ending "and 3 more"', async () => {
+  test('AC4: a 9-way tie renders all 9 avatars and no "+N" chip', async () => {
     resetField();
-    makeGuest('Alpha Winner', 9);
-    makeGuest('Liam Park', 5, 0);
-    makeGuest('Priya Rao', 5, 10);
-    makeGuest('Noah Bell', 5, 20);
-    makeGuest('Mara Finch', 5, 30);
-    makeGuest('Quin Hale', 5, 40);
+    makeGuest('Solo Top', 30);
+    for (let i = 0; i < 9; i++) makeGuest(`Mid ${i}`, 20);
+    makeGuest('Solo Bottom', 10);
 
     const res = await signedInBoard(lastToken);
     const podium = podiumMarkup(res.text);
+    const rank2 = slotMarkup(podium, 2);
 
-    expect((podium.match(/class="podium-stack-avatar"/g) || []).length).toBe(3);
-    const moreChip = podium.match(/<span class="podium-stack-more">([^<]*)<\/span>/);
-    expect(moreChip).not.toBeNull();
-    expect(moreChip[1]).toBe('+2');
-
-    // Names line ends with "and 3 more" (tags stripped, whitespace collapsed).
-    const namesDiv = podium.match(/<div class="podium-name podium-names">([\s\S]*?)<\/div>/);
-    expect(namesDiv).not.toBeNull();
-    expect(collapse(namesDiv[1]).endsWith('and 3 more')).toBe(true);
-    expect(collapse(namesDiv[1])).toBe('Liam, Priya and 3 more');
+    expect((rank2.match(/class="podium-cluster-avatar"/g) || []).length).toBe(9);
+    expect(rank2).not.toContain('podium-cluster-more');
   });
 
-  test('AC4: every podium avatar is wrapped in a /u/<id> profile anchor', async () => {
+  test('every podium avatar (tied or lone) is wrapped in a /u/<id> profile anchor', async () => {
     resetField();
     makeGuest('Alpha Winner', 19);
-    makeGuest('Liam Park', 12, 0);
-    makeGuest('Priya Rao', 12, 30);
-    makeGuest('Noah Bell', 12, 60);
+    makeGuest('Liam Park', 12);
+    makeGuest('Priya Rao', 12);
+    makeGuest('Noah Bell', 12);
 
     const res = await signedInBoard(lastToken);
     const podium = podiumMarkup(res.text);
 
-    // Stacked (tied) avatars are anchors with a /u/<id> href…
-    const stacked = podium.match(/<a class="podium-stack-avatar"[^>]*>/g) || [];
-    expect(stacked.length).toBe(3);
-    for (const tag of stacked) {
+    const anchors = podium.match(/<a class="podium-cluster-avatar"[^>]*>/g) || [];
+    // 1 lone champion + 3 tied 2nd-place avatars = 4 total.
+    expect(anchors.length).toBe(4);
+    for (const tag of anchors) {
       expect(tag).toMatch(/href="\/u\/\d+"/);
     }
-    // …and so is the untied slot's single avatar.
-    const solo = podium.match(/<a class="podium-avatar"[^>]*>/g) || [];
-    expect(solo.length).toBe(1);
-    expect(solo[0]).toMatch(/href="\/u\/\d+"/);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Issue #361 — the tied-names line (`.podium-name podium-names`) has no
-// dedicated CSS rule, so it inherits `.podium-name`'s single-name heading
-// size with no wrap accommodation: a 2+-guest tie can overflow a ~1/3-width
-// podium column at 375px.
+// Issue #626 — crowned champion: a lone 1st place gets the hero-size cluster
+// (`is-tie` absent); a 1st-place tie keeps every co-champion at normal
+// cluster size (`is-tie` present).
 // ---------------------------------------------------------------------------
-describe('podium tied-names sizing and wrap (#361)', () => {
-  const css = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css'),
-    'utf8'
-  );
-
-  test('AC1: the .podium-names rule wraps on any character and shrinks off heading size', () => {
-    // First `.podium-names {`-ending selector in source is the base rule
-    // (not the rank-1-scoped override further down), so this match is the
-    // one that must carry both declarations.
-    const match = css.match(/\.podium-names\s*\{([\s\S]*?)\}/);
-    expect(match).not.toBeNull();
-    const block = match[1];
-
-    expect(block).toContain('overflow-wrap: anywhere');
-
-    const fontSize = block.match(/font-size:\s*([^;]+);/);
-    expect(fontSize).not.toBeNull();
-    expect(fontSize[1].trim()).not.toBe('var(--fs-h3)');
-  });
-
-  test('CRITICAL: the rank-1 .podium-names override out-specificities the rank-1 .podium-name override', () => {
-    // `.podium-slot.rank-1 .podium-name` (0,3,0) sets font-size: var(--fs-h2)
-    // for ANY .podium-name descendant in a 1st-place slot — including the
-    // tied-names div, which carries both .podium-name and .podium-names. If
-    // the rank-1-scoped `.podium-names` rule doesn't out-specificity that,
-    // a 1st-place tie still renders its names line at heading size: the
-    // exact overflow this issue fixes. Specificity is approximated by
-    // counting class selectors, since both rules are pure class/descendant
-    // selectors with no ids or element types.
-    const rank1NameRule = css.match(/\.podium-slot\.rank-1 \.podium-name \{/);
-    const rank1NamesRule = css.match(/\.podium-slot\.rank-1 \.podium-name\.podium-names \{/);
-    expect(rank1NameRule).not.toBeNull();
-    expect(rank1NamesRule).not.toBeNull();
-
-    const classCount = (selectorText) => (selectorText.match(/\.[a-zA-Z][\w-]*/g) || []).length;
-    expect(classCount(rank1NamesRule[0])).toBeGreaterThan(classCount(rank1NameRule[0]));
-  });
-
-  test('AC3: the .podium-stack-more marker is a filled 44px circle matching .podium-stack-avatar', () => {
-    // Anchor to a line that STARTS with `.podium-stack-more {` — the
-    // combinator rule `.podium-stack-avatar + .podium-stack-more { … }`
-    // (the -10px overlap rule, ~line 1981) also contains the substring
-    // ".podium-stack-more {" but not at the start of its line, so an
-    // unanchored search would match that rule first instead of the standalone
-    // one under test.
-    const match = css.match(/^\.podium-stack-more\s*\{([\s\S]*?)\}/m);
-    expect(match).not.toBeNull();
-    const block = match[1];
-
-    expect(block).toContain('border-radius: 50%');
-
-    const width = block.match(/width:\s*([^;]+);/);
-    expect(width).not.toBeNull();
-    expect(width[1].trim()).toBe('44px');
-
-    const height = block.match(/height:\s*([^;]+);/);
-    expect(height).not.toBeNull();
-    expect(height[1].trim()).toBe('44px');
-
-    expect(block).toContain('background: var(--color-primary)');
-    expect(block).toContain('color: var(--white)');
-  });
-
-  test('AC2: a three-way tie with names >=12 chars each renders all three inside .podium-names', async () => {
+describe('podium crowned champion sizing (#626)', () => {
+  test('AC5: a lone 1st place is crowned and its cluster carries no "is-tie" class', async () => {
     resetField();
-    // A unique 1st place keeps this a partial (not all-guest) tie, so the
-    // podium renders instead of falling to the AC4 "everyone's tied" path.
-    makeGuest('Top Guest', 19);
-    makeGuest('Featherstonia', 12, 0);
-    makeGuest('Christophera', 12, 10);
-    makeGuest('Wolfgangston', 12, 20);
+    makeGuest('Solo Champion', 10);
+    makeGuest('Runner Up', 5);
+    makeGuest('Third Place', 2);
 
     const res = await signedInBoard(lastToken);
-    expect(res.status).toBe(200);
     const podium = podiumMarkup(res.text);
+    const rank1 = slotMarkup(podium, 1);
 
-    const namesDiv = podium.match(/<div class="podium-name podium-names">([\s\S]*?)<\/div>/);
-    expect(namesDiv).not.toBeNull();
-    const text = collapse(namesDiv[1]);
-    expect(text).toContain('Featherstonia');
-    expect(text).toContain('Christophera');
-    expect(text).toContain('Wolfgangston');
+    expect(rank1).toContain('podium-crown');
+    expect(rank1).toMatch(/class="podium-cluster"/);
+    expect(rank1).not.toContain('is-tie');
+  });
+
+  test('AC5: a tied 1st place is crowned once and its cluster carries "is-tie"', async () => {
+    resetField();
+    makeGuest('Co-Champion A', 10);
+    makeGuest('Co-Champion B', 10);
+    makeGuest('Runner Up', 5);
+
+    const res = await signedInBoard(lastToken);
+    const podium = podiumMarkup(res.text);
+    const rank1 = slotMarkup(podium, 1);
+
+    // Exactly one crown for the whole tied tier, not one per co-champion.
+    expect((rank1.match(/podium-crown/g) || []).length).toBe(1);
+    expect(rank1).toContain('class="podium-cluster is-tie"');
+    expect((rank1.match(/class="podium-cluster-avatar"/g) || []).length).toBe(2);
   });
 });
