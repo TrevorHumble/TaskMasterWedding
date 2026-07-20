@@ -652,6 +652,10 @@ router.post('/tasks', (req, res) => {
   db.prepare(
     'INSERT INTO tasks (title, description, sort_order, is_active) VALUES (?, ?, ?, 1)'
   ).run(title, description, order);
+  // A new active task can make an existing COMPLETIONIST holder stale (issue
+  // #701 AC1) — recompute every guest's badges against the now-larger active
+  // set before redirecting.
+  scoring.recomputeAfterTaskChange();
   redirectWithMsg(res, '/admin/tasks', 'Task added.');
 });
 
@@ -758,6 +762,11 @@ router.post('/tasks/:id/delete', (req, res) => {
   }
 
   db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+  // Deleting a task shrinks the active set AND cascades away its
+  // submissions, so both metric badges (COMPLETIONIST) and the
+  // count-based/transferable badges can move (issue #701 AC4) — run the
+  // full all-guests recompute, not a Completionist-only shortcut.
+  scoring.recomputeAfterTaskChange();
   // No anchor: the card this id pointed at no longer exists.
   redirectWithMsg(res, '/admin/tasks', 'Task deleted.');
 });
@@ -771,6 +780,10 @@ router.post('/tasks/:id/active', (req, res) => {
   }
   const next = task.is_active ? 0 : 1;
   db.prepare('UPDATE tasks SET is_active = ? WHERE id = ?').run(next, id);
+  // Un-hiding grows the active set (can strip a now-stale COMPLETIONIST,
+  // issue #701 AC2); hiding shrinks it (can award a newly-earned one, AC3).
+  // Either direction needs the same all-guests recompute.
+  scoring.recomputeAfterTaskChange();
   redirectWithMsg(
     res,
     '/admin/tasks',
