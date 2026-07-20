@@ -17,9 +17,9 @@ What the owner asked for, in his own words, captured from discovery. This is the
 | **Theme**           | A soft green ramp (reference: the bouquet photo the owner provided)                           |
 | **Guests**          | ~100, each on their own phone                                                                 |
 | **Sign-in**         | Tap a personal link (no email, no password)                                                   |
-| **The game**        | Complete admin-set photo tasks → 1 point each → badges → leaderboard                          |
+| **The game**        | Complete admin-set photo tasks → points (worth + bonuses) → badges → leaderboard              |
 | **Sharing**         | One shared gallery everyone can see; personal profiles                                        |
-| **Run by**          | The Wedding Master admin who edits tasks, awards bonus points/badges, removes photos          |
+| **Run by**          | The Wedding Master admin who edits tasks, ranks task-badge winners, removes photos            |
 | **Hosting**         | Self-hosted on the owner's Windows laptop for the wedding weekend; cheap/free                 |
 | **After**           | Export everything (photos + a record), likely post to Flickr + email blast, then take it down |
 | **Scale of photos** | ~1,500 total (≈15 per guest × 100 guests)                                                     |
@@ -45,16 +45,25 @@ What the owner asked for, in his own words, captured from discovery. This is the
 - **Everyone gets the same task list** (not per-person or per-team lists).
 - **Individual play.** No teams.
 - **A task is marked done when the guest uploads a photo for it** — the upload auto-counts. No separate approval step to complete a task.
-- **Scoring + leaderboard:** 1 point per completed task. **On top of that, the admin awards extra points by judgment** (e.g. a great photo). The leaderboard ranks guests.
+- **Scoring + leaderboard:** points come from a fixed set of readable sources — task
+  worth (1/2/3, host-chosen), timed bonuses, memory/profile-photo firsts, held badges,
+  and host-ranked task-badge and crowd-favorite awards — never from open-ended admin
+  judgment. The leaderboard ranks guests. This replaced the original "1 point per task
+  plus admin-judgment bonus points" direction; see
+  [`game-design-points-badges.md`](game-design-points-badges.md) for the full,
+  owner-settled rule set (2026-07-19/20).
 
 ## Badges
 
-- **Auto badges are earned by completing a number of tasks:** about **3 badges**, one every **5 tasks** (so at 5, 10, and 15 completed).
-- **Special badges** exist that **the Wedding Master awards** by hand (not earned automatically).
-- **Metric and transferable badges** are computed from live standings (e.g. a "most photos" badge that can change hands as the leaderboard moves), built out in the implementation beyond the original discovery scope.
-- **The Wedding Master can also create `custom` badges** — the catalog is not a fixed list.
+- **Auto badges are earned by completing a number of tasks:** about **3 badges**, one every **5 tasks** (so at 5, 10, and 15 completed), plus a Completionist badge for holding every active task.
+- **Task badges are prize badges, not participation badges.** Every task has one badge; the host ranks that task's 5 best photos and all five wear it, with the best photo's copy wearing it gold.
+- **Crowd favorite** is derived from likes — the 5 most-liked photos wear it, recomputed live all weekend, rather than awarded by hand or left to change hands on a raw photo-count metric.
 - **Placeholder badge art is fine** — the owner is OK with designed placeholders.
 - **Badges are visible to everyone**, not private.
+- Superseded by the 2026-07-19/20 session: the "most photos" transferable badge, the
+  fixed special-badge set, and hand-created custom badges are being removed — see
+  [`game-design-points-badges.md`](game-design-points-badges.md) for the current model
+  and the full kill list.
 
 ## Photos & sharing
 
