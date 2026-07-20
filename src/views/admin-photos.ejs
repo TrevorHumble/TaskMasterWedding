@@ -176,12 +176,29 @@
       <article id="feed-photo-<%= p.id %>" class="feed-item admin-feed-item<%= p.taken_down ? ' is-down' : '' %>">
         <p class="feed-by"><%= p.guest_name || ('Guest #' + p.guest_id) %></p>
 
-        <img
-          class="feed-photo"
-          src="/thumbs/<%= p.thumb_path %>"
-          alt="<%= p.task_title || 'a shared memory' %>"
-          loading="lazy"
-        />
+        <%# Parity with the guest feed (issue #673): inside the admin inline
+            feed, tapping the photo opens the full-resolution original in the
+            shared lightbox — the same gesture a guest gets in their feed.
+            Moderation variant: no like/comment hooks, so the overlay is
+            image + caption only. Taken-down photos open too (files stay on
+            disk) so a host can re-examine what was hidden. %>
+        <button
+          type="button"
+          class="admin-feed-photo-btn js-lightbox"
+          aria-label="View full-resolution photo"
+          data-lightbox-group="admin-feed"
+          data-lightbox-photo="<%= p.photo_path %>"
+          data-lightbox-alt="<%= p.task_title || 'a shared memory' %>"
+          data-lightbox-by="<%= p.guest_name || ('Guest #' + p.guest_id) %><%= p.taken_down ? ' — taken down' : '' %>"
+          data-lightbox-caption="<%= p.task_title || 'Memory' %>"
+        >
+          <img
+            class="feed-photo"
+            src="/thumbs/<%= p.thumb_path %>"
+            alt="<%= p.task_title || 'a shared memory' %>"
+            loading="lazy"
+          />
+        </button>
         <% if (p.taken_down) { %><p class="admin-feed-downline">Taken down — hidden from guests<% if (p.resubmitted) { %> · <strong>resubmitted, awaiting your review</strong><% } %></p><% } %>
 
         <% if (p.caption) { %>
@@ -292,6 +309,7 @@
 </dialog>
 
 <script src="/js/admin.js" defer></script>
+<script src="/js/lightbox.js" defer></script>
 <script>
   (function () {
     // ------- Grid <-> Feed toggle -------
