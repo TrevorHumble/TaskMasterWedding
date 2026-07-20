@@ -97,33 +97,65 @@ const BADGES = [
 ];
 
 /**
- * Insert the catalog insert-only: `INSERT OR IGNORE` keyed on the badges.code
- * UNIQUE constraint (see src/db.js's CREATE TABLE), so a row already present
- * — whether seeded earlier or admin-edited — is never overwritten (#314 AC3).
- * better-sqlite3's RunResult.changes is 0 when a row is ignored on conflict
- * and 1 when it inserts, so the per-row change count doubles as the
- * inserted/skipped tally with no separate SELECT needed.
+ * Upsert the catalog keyed on the badges.code UNIQUE constraint (see
+ * src/db.js's CREATE TABLE): a code not yet present is inserted; a code
+ * already present has its display fields (`name`, `description`, `art_path`)
+ * re-synced to match this module (#655 — a catalog rename like #354's
+ * "Wedding Master's Choice" must reach an existing database, not just a
+ * fresh one). `type` and `threshold` are deliberately left untouched on
+ * conflict — auto-badge thresholds are owned by src/services/scoring.js and
+ * a type flip on a live row is out of scope here.
+ *
+ * This is safe for admin-edited rows because no admin route can rename a
+ * catalog badge: admin badge editing only ever touches a task badge (code
+ * `TASK-<id>`) or a freeform custom badge the admin creates with its own
+ * non-catalog code (see src/services/task-badges.js and
+ * scoring.createCustomBadge, which both refuse the catalog's codes). A code
+ * absent from BADGES above is therefore never touched by this upsert.
+ *
+ * better-sqlite3's RunResult.changes is 1 for both a fresh insert and a
+ * conflict-triggered update, so it cannot distinguish the two on its own
+ * (#655 AC5). Classify each code by reading its existing row (if any) before
+ * running the upsert, and compare its display fields to the catalog values.
  *
  * @param {import('better-sqlite3').Database} db
- * @returns {{ inserted: number, skipped: number }}
+ * @returns {{ inserted: number, updated: number, unchanged: number }}
  */
+// The catalog display fields re-synced to an existing row on conflict. This
+// array is the single owner of "which fields the upsert re-syncs": the
+// SELECT below reads exactly these, the ON CONFLICT DO UPDATE SET clause
+// writes exactly these, and the drift check compares exactly these — so a
+// future added field is added in one place, not three. Every entry is a
+// hard-coded, known-safe column identifier (never user input), so
+// interpolating them into the SQL text carries no injection risk.
+const SYNCED_FIELDS = ['name', 'description', 'art_path'];
+
 function ensureBadgeCatalog(db) {
-  const insertBadge = db.prepare(`
-    INSERT OR IGNORE INTO badges (code, name, type, threshold, art_path, description)
+  const selectExisting = db.prepare(
+    `SELECT ${SYNCED_FIELDS.join(', ')} FROM badges WHERE code = ?`
+  );
+  const upsertBadge = db.prepare(`
+    INSERT INTO badges (code, name, type, threshold, art_path, description)
     VALUES (@code, @name, @type, @threshold, @art_path, @description)
+    ON CONFLICT(code) DO UPDATE SET
+      ${SYNCED_FIELDS.map((f) => `${f} = excluded.${f}`).join(',\n      ')}
   `);
 
   let inserted = 0;
-  let skipped = 0;
+  let updated = 0;
+  let unchanged = 0;
   for (const b of BADGES) {
-    const { changes } = insertBadge.run(b);
-    if (changes > 0) {
+    const existing = selectExisting.get(b.code);
+    if (!existing) {
       inserted += 1;
+    } else if (SYNCED_FIELDS.some((f) => existing[f] !== b[f])) {
+      updated += 1;
     } else {
-      skipped += 1;
+      unchanged += 1;
     }
+    upsertBadge.run(b);
   }
-  return { inserted, skipped };
+  return { inserted, updated, unchanged };
 }
 
 module.exports = { BADGES, ensureBadgeCatalog };

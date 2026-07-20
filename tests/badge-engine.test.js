@@ -344,8 +344,8 @@ describe('#193 AC3: engine badges fire on event-seeded data', () => {
     // incomplete event-seed catalog.
     db.prepare('DELETE FROM guest_badges').run();
     db.prepare('DELETE FROM badges').run();
-    const { inserted } = ensureBadgeCatalog(db);
-    expect(inserted).toBe(10);
+    const { inserted, updated, unchanged } = ensureBadgeCatalog(db);
+    expect({ inserted, updated, unchanged }).toEqual({ inserted: 10, updated: 0, unchanged: 0 });
     const codes = db
       .prepare('SELECT code FROM badges ORDER BY code')
       .all()
@@ -460,8 +460,9 @@ describe('#314: badge catalog boot-heal — played-in databases missing new cata
     // called once automatically at module load — proving a database that
     // predates #193 gets healed on a later boot, not just on first creation.
     const result = ensureBadgeCatalog();
-    expect(result.inserted).toBe(2);
-    expect(result.skipped).toBe(8);
+    // The other 8 rows survived AC3's fresh reinsert untouched, so this heal
+    // inserts exactly the 2 deleted codes and re-syncs nothing else.
+    expect(result).toEqual({ inserted: 2, updated: 0, unchanged: 8 });
 
     expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(10);
     const codes = db
@@ -488,20 +489,33 @@ describe('#314: badge catalog boot-heal — played-in databases missing new cata
     expect(heldCodes(guest)).toContain('COMPLETIONIST');
   });
 
-  it('AC3: an admin-edited badge name survives a re-run of the ensure (insert-only, no overwrite)', () => {
+  it('#655: a non-catalog custom badge survives re-running the ensure, while a catalog code re-syncs to it', () => {
     const { ensureBadgeCatalog } = require('../src/db');
+    const { BADGES } = require('../scripts/badge-catalog');
 
+    // Non-catalog custom badge (task-linked shape, code absent from BADGES):
+    // the admin's own creation, never touched by the catalog ensure.
+    db.prepare(
+      `INSERT INTO badges (code, name, type, threshold, art_path, description)
+       VALUES ('TASK-314TEST', 'Admin Custom Task Badge', 'custom', NULL, '/badges/custom.svg', 'Admin description')`
+    ).run();
+
+    // Catalog code renamed out from under the catalog — simulates exactly
+    // the pre-#354 CHOICE row this issue exists to fix (#655).
     db.prepare(`UPDATE badges SET name = ? WHERE code = ?`).run('Admin Renamed Bloom', 'BLOOM');
 
-    // All 10 rows already exist (healed by AC1 above), so re-running the
-    // ensure must insert nothing — if it instead overwrote existing rows
-    // (e.g. a plain INSERT or an ON CONFLICT DO UPDATE), this would either
-    // throw a UNIQUE violation or silently revert the admin's edit below.
+    // Re-running the ensure must correct the catalog row (an upsert, not an
+    // insert-only guard — the old insert-only contract this test used to
+    // assert is deliberately replaced) while leaving the non-catalog row
+    // alone, because 'TASK-314TEST' is absent from BADGES.
     const result = ensureBadgeCatalog();
     expect(result.inserted).toBe(0);
-    expect(result.skipped).toBe(10);
+    expect(result.updated).toBeGreaterThanOrEqual(1);
 
-    const row = db.prepare('SELECT name FROM badges WHERE code = ?').get('BLOOM');
-    expect(row.name).toBe('Admin Renamed Bloom');
+    const bloom = db.prepare('SELECT name FROM badges WHERE code = ?').get('BLOOM');
+    expect(bloom.name).toBe(BADGES.find((b) => b.code === 'BLOOM').name);
+
+    const custom = db.prepare('SELECT name FROM badges WHERE code = ?').get('TASK-314TEST');
+    expect(custom.name).toBe('Admin Custom Task Badge');
   });
 });

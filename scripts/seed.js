@@ -43,9 +43,14 @@ const TASKS = [
 ];
 
 // ---------------------------------------------------------------------------
-// 3) Insert badges idempotently (only if the code is not already present).
+// 3) Upsert badges: insert a missing code, re-sync an existing catalog
+//    code's display fields to the module (#655).
 // ---------------------------------------------------------------------------
-const { inserted: badgesInserted, skipped: badgesSkipped } = ensureBadgeCatalog(db);
+const {
+  inserted: badgesInserted,
+  updated: badgesUpdated,
+  unchanged: badgesUnchanged,
+} = ensureBadgeCatalog(db);
 
 // ---------------------------------------------------------------------------
 // 4) Insert sample tasks ONLY if the tasks table is currently empty,
@@ -77,7 +82,9 @@ if (taskCount === 0) {
 // 5) Report what happened.
 // ---------------------------------------------------------------------------
 console.log('Seed complete.');
-console.log(`  Badges: ${badgesInserted} inserted, ${badgesSkipped} already existed.`);
+console.log(
+  `  Badges: ${badgesInserted} inserted, ${badgesUpdated} updated, ${badgesUnchanged} unchanged.`
+);
 if (taskCount === 0) {
   console.log(`  Tasks:  ${tasksInserted} inserted.`);
 } else {
