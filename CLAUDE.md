@@ -77,9 +77,10 @@ Reviewers run on a different model than the implementer, on every issue by defau
 - The spawner gives the goal, not the implementation. No positive framing, no planted suspicions, full scope.
 - Final verdict is a single `PASS`/`FAIL` token with a numbered defect list. A PASS with open blockers or majors is not a PASS.
 - **Issues and plans: 1 Opus reviewer** (`reviewer-issue`). Never a panel of issue-reviewers.
-- **Code review, round 1: exactly 1 PR reviewer plus the design-philosophy reviewer, both must PASS.**
+- **Code review, round 1: the PR reviewer plus the design-philosophy reviewer always gate, both must PASS — plus the architecture lens when the change adds a new component or makes a significant structural change.**
 - **One-round stop rule:** minor and nit findings are fixed inline and shipped with no re-review; only a blocker or major finding triggers a re-check, scoped to that fix, with one fresh reviewer. No severity adjudicator, no reviewer panels.
-- The security lens (`agents/reviewer-security.md`) and the architecture lens (`agents/reviewer-architecture.md`, on-request only) are advisory — a finding from either is fixed, dropped, or deferred like any other finding.
+- The security lens (`agents/reviewer-security.md`) is advisory — a finding from it is fixed, dropped, or deferred like any other finding.
+- The architecture lens (`agents/reviewer-architecture.md`) is a gating reviewer: the orchestrator spawns it automatically at PR-review time whenever a change adds a new component or makes a significant structural change, and its blocker/major findings take the one-round stop rule — the same cadence as the design-philosophy gate. It remains additionally invocable on request for other cases; a finding raised that way is advisory.
 
 Full protocol, including the review-dispatch checklist ("Which reviews does this change need?"), the advisory-lens lifecycle, and finding disposition: `standards/adversarial-review-protocol.md`.
 

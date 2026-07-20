@@ -85,9 +85,10 @@ that produced an artifact must not also write its own passing verdict.
 
 For high-stakes or security-flagged changes the orchestrator may spawn more than one
 independent reviewer at its discretion, but the standing rule for every artifact class is
-**one reviewer** (plus the design-philosophy reviewer for code — see `## Reviewer count
-by artifact`). There is no standing panel requirement and no fixed reviewer count that
-scales with risk tier; judgment about whether a change warrants a second opinion belongs
+**one reviewer** (plus the design-philosophy reviewer for code, and the architecture lens
+when its trigger applies — see `## Reviewer count by artifact`). There is no standing
+panel requirement and no fixed reviewer count that scales with risk tier; judgment about
+whether a change warrants a second opinion belongs
 to the orchestrator, exercised sparingly, not to a mechanical rule.
 
 ---
@@ -95,21 +96,32 @@ to the orchestrator, exercised sparingly, not to a mechanical rule.
 ## Reviewer count by artifact
 
 - **Issue / plan** → exactly **1** Opus reviewer (`reviewer-issue`).
-- **Code, round 1** → exactly **1** PR reviewer plus the design-philosophy reviewer
-  (`agents/reviewer-design-philosophy.md`) — **both must PASS**. The design-philosophy
-  gate is required for every implementation artifact (code, an agent spec, a skill, or a
-  standard) regardless of change size — doc-only and typo-only changes are not
-  implementation artifacts and skip only this gate, per `agents/orchestrator.md`.
+- **Code, round 1** → the PR reviewer plus the design-philosophy reviewer
+  (`agents/reviewer-design-philosophy.md`) always gate round 1 — **both must PASS**. The
+  design-philosophy gate is required for every implementation artifact (code, an agent
+  spec, a skill, or a standard) regardless of change size — doc-only and typo-only changes
+  are not implementation artifacts and skip only this gate, per `agents/orchestrator.md`.
+  **The architecture lens also gates round 1** when its trigger applies — see the
+  Architecture lens bullet below; round 1's gating reviewer count is not fixed at two, it
+  grows by one whenever that trigger fires, so state it by condition, not by count.
 - **Code, rounds 2+** → see `## One-round stop rule` below: a re-check fires only for a
   blocker/major finding, and is scoped to the fix, with **1 fresh reviewer**.
 - **Security lens** (`agents/reviewer-security.md`) → a single advisory lens, dispatched
   per `## Which reviews does this change need?` below. A major/blocker finding from it
   takes the standard one-round stop rule like any other finding — there is no separate
   reviewer-count escalation.
-- **Architecture lens** (`agents/reviewer-architecture.md`) → an on-request design lens,
-  not a gate. It fires when the orchestrator or the owner asks for an architecture
-  opinion on a new component or a significant structural change; it never fires
-  automatically and never blocks a merge on its own.
+- **Architecture lens** (`agents/reviewer-architecture.md`) → runs alongside the code,
+  round-1 reviewers (above) at PR-review time whenever the change adds a new component
+  (new service, route, agent, skill, standard) or makes a significant structural change —
+  no owner request needed. A blocker/major finding from it takes the standard one-round
+  stop rule, the same cadence as the design-philosophy gate. This promotion to gating is an
+  owner decision recorded in issue #708 (2026-07-19), per § "Advisory-lens lifecycle" below
+  — the owner approved restoring the lens as an automatic gate rather than requiring a
+  further advisory trial. It is also invocable on
+  request as an additional entry point (e.g. for an opinion on an issue before
+  implementation, or a change that does not meet the automatic trigger); a finding raised
+  that way, outside the automatic PR-review dispatch, is advisory and is fixed, dropped,
+  or deferred like any other finding.
 
 Reviewers run on **Opus**, a different and non-weaker model than the implementer
 (`standards/agent-standards.md`), on every issue by default. The one exception is an
