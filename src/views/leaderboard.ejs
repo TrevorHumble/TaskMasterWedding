@@ -9,11 +9,14 @@
     <p class="muted center">No guests yet.</p>
   <% } else { %>
     <%
-      // All podium/tie/rank decisions are precomputed in the route (podiumGroups
-      // with shownMembers / namedMembers / namesTail / barLabel / subLine,
-      // showPodium, each row's rankLabel) and the badge cap comes from config
-      // (badgeCap). This view only renders that structure — it does NOT
-      // re-bucket rows or re-derive tie membership.
+      // All podium/tie/rank decisions are precomputed in the route (issue
+      // #626): podiumGroups (rank, ordinal, points, isTie, the FULL tied
+      // membership), showPodium, and each row's plain dense rankLabel. This
+      // view only renders that structure plus its own presentation-only
+      // concerns — the 9-face cluster cap and the pt/pts word — never
+      // re-bucketing rows or re-deriving tie membership.
+      function ptsWord(p) { return p === 1 ? 'pt' : 'pts'; }
+      var PODIUM_CLUSTER_CAP = 9; // faces shown per tier; the rest fold into "+N"
     %>
 
     <% if (!showPodium) { %>
@@ -22,41 +25,37 @@
       <div class="podium">
         <% podiumGroups.forEach(function (g) { %>
           <div class="podium-slot rank-<%= g.rank %>">
-            <% if (g.isTie) { %>
-              <div class="podium-stack">
-                <% g.shownMembers.forEach(function (r) { %>
-                  <a class="podium-stack-avatar" href="/u/<%= r.id %>" title="<%= r.name || 'Guest' %>">
-                    <% if (r.avatar_path) { %>
-                      <img src="/uploads/<%= r.avatar_path %>" alt="<%= r.name || 'Guest' %>" width="44" height="44" />
-                    <% } else { %>
-                      <span class="podium-stack-initials"><%= initials(r.name) || '?' %></span>
-                    <% } %>
-                  </a>
-                <% }); %>
-                <% if (g.extraCount > 0) { %>
-                  <span class="podium-stack-more">+<%= g.extraCount %></span>
-                <% } %>
-              </div>
-              <%
-                // "Liam, Priya and Noah" / "Liam, Priya and 3 more" — each
-                // named guest is a profile link; separators follow natural
-                // joining (", " between, " and " before the last name). One
-                // template line so no stray whitespace lands before a comma.
-              %>
-              <div class="podium-name podium-names"><% g.namedMembers.forEach(function (r, i) { %><%= i === 0 ? '' : (i === g.namedMembers.length - 1 && !g.namesTail ? ' and ' : ', ') %><a href="/u/<%= r.id %>"><%= r.firstName %></a><% }); %><% if (g.namesTail) { %> <%= g.namesTail %><% } %></div>
-              <div class="podium-subline muted"><%= g.subLine %></div>
-            <% } else { %>
-              <% var r = g.members[0]; %>
-              <a class="podium-avatar" href="/u/<%= r.id %>">
-                <% if (r.avatar_path) { %>
-                  <img src="/uploads/<%= r.avatar_path %>" alt="" width="64" height="64" style="width:100%;height:100%;object-fit:cover;" />
-                <% } else { %>
-                  <%= initials(r.name) || '?' %>
-                <% } %>
-              </a>
-              <div class="podium-name"><a href="/u/<%= r.id %>"><%= r.name || 'Guest' %></a></div>
+            <% if (g.rank === 1) { %>
+              <div class="podium-crown" aria-hidden="true"><%- include('partials/crown', { size: 34 }) %></div>
             <% } %>
-            <div class="podium-bar"><span class="podium-bar-label"><%= g.barLabel %></span></div>
+
+            <%# The tier's cluster grows to fit the tie, up to a cap of 9 faces;
+                a larger tie folds the rest into a "+N" chip so a 25-way tie
+                stays a compact cluster, not a wall of faces. %>
+            <% var shown = g.members.slice(0, PODIUM_CLUSTER_CAP); %>
+            <% var extra = g.members.length - shown.length; %>
+            <div class="podium-cluster<%= g.isTie ? ' is-tie' : '' %>">
+              <% shown.forEach(function (r) { %>
+                <a class="podium-cluster-avatar" href="/u/<%= r.id %>" title="<%= r.name || 'Guest' %>">
+                  <% if (r.avatar_path) { %>
+                    <img src="/uploads/<%= r.avatar_path %>" alt="<%= r.name || 'Guest' %>" />
+                  <% } else { %>
+                    <span class="podium-cluster-initials"><%= initials(r.name) || '?' %></span>
+                  <% } %>
+                </a>
+              <% }); %>
+              <% if (extra > 0) { %>
+                <span class="podium-cluster-more">+<%= extra %></span>
+              <% } %>
+            </div>
+
+            <%# No names here — the avatars carry identity (each links to a
+                profile, with a name tooltip) and the full standings below name
+                everyone. %>
+            <div class="podium-block">
+              <span class="podium-place"><%= g.ordinal %></span>
+              <span class="podium-points"><%= g.points %> <%= ptsWord(g.points) %><%= g.isTie ? ' each' : '' %></span>
+            </div>
           </div>
         <% }); %>
       </div>
@@ -103,7 +102,7 @@
 
           <span class="lb-points">
             <strong><%= r.points %></strong>
-            <span class="lb-points-label"> pt<%= r.points === 1 ? '' : 's' %></span>
+            <span class="lb-points-label"> <%= ptsWord(r.points) %></span>
           </span>
         </li>
       <% }); %>

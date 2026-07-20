@@ -773,23 +773,18 @@ router.get('/leaderboard', (req, res) => {
   const rows = scoring.leaderboard();
 
   // Compute rank ONCE here (rows arrive ordered best-first from scoring), so
-  // the podium and the list agree. Standard-competition ("1224") ranking: a
-  // guest's rank is 1 + the number of guests with strictly MORE points, which
-  // makes tied guests share a rank and skips the numbers after a tie
-  // (points [5,4,3,3,3,3,1] -> ranks 1,2,3,3,3,3,7). Because rows are already
-  // sorted by points DESC, the first index at which a given points value
-  // appears is exactly that "count of guests with strictly more points", i.e.
-  // the shared rank for the whole tie group.
+  // the podium and the list agree. Dense ("1223") ranking (issue #626): rank
+  // increments only when the points value changes from the row above, so a
+  // tie never leaves the rank below it empty (points [24,20x8,18x2] -> ranks
+  // 1, 2x8, 3x2 — never skipping to 10 for the value below an 8-way tie).
+  // rankLabel is the plain dense number, no "T" prefix — a tie simply repeats
+  // the same number on consecutive rows (AC2).
+  let rank = 0;
   let lastPoints = null;
-  let lastRank = 0;
-  const ranked = rows.map((row, index) => {
-    let rank;
+  const ranked = rows.map((row) => {
     if (lastPoints === null || row.points !== lastPoints) {
-      rank = index + 1; // first row of a new points value: 1 + (rows above it)
-      lastRank = rank;
+      rank += 1;
       lastPoints = row.points;
-    } else {
-      rank = lastRank; // same points as the row above: share its rank
     }
     return {
       rank,
@@ -798,73 +793,41 @@ router.get('/leaderboard', (req, res) => {
       avatar_path: row.avatar_path,
       points: row.points,
       completed_count: row.completed,
+      rankLabel: `${rank}`,
       badges: loadGuestBadges(row.id),
     };
   });
 
-  // A row is tied when it shares its rank with an adjacent row. Mark each row
-  // and give it the display label the view renders verbatim: `T{rank}` when
-  // tied, else `{rank}`. Done in a second pass so a row can see BOTH neighbors.
-  ranked.forEach((row, index) => {
-    const prev = ranked[index - 1];
-    const next = ranked[index + 1];
-    row.isTied = Boolean((prev && prev.rank === row.rank) || (next && next.rank === row.rank));
-    row.rankLabel = row.isTied ? `T${row.rank}` : `${row.rank}`;
-  });
-
   // Low-spread guard (authoritative comment). distinctRankCount is how many
-  // distinct ranks exist across the whole field. When it is 1, every guest is
-  // tied on points, so the podium conveys nothing — showPodium (below) is false
-  // and the view renders a friendly "everyone's tied" banner instead (AC4).
-  const distinctRankCount = new Set(ranked.map((r) => r.rank)).size;
+  // distinct dense ranks exist across the whole field — since dense rank only
+  // ever increments, the final `rank` value IS that count. When it is 1,
+  // every guest is tied on points, so the podium conveys nothing — showPodium
+  // (below) is false and the view renders a friendly "everyone's tied" banner
+  // instead (AC6).
+  const distinctRankCount = rank;
 
   // Build the podium's group structure HERE so "what is a tie" lives in exactly
   // one layer (this route), not re-derived in the view. Group the ranked rows
-  // by their shared rank, keep only ranks 1-3, and return them in podium
-  // display order (2nd, 1st, 3rd — 1st centered/tallest). A tied group renders
-  // EVERY tied guest (issue #249): the view shows up to 3 overlapping avatars
-  // plus a "+N" chip, and a names line built here. The view renders this
-  // structure verbatim and never re-buckets or re-tests tie membership.
+  // by their shared dense rank, keep only ranks 1-3, and return them in podium
+  // display order (2nd, 1st, 3rd — 1st centered/tallest). A tied group carries
+  // its FULL tie membership (issue #626 AC3/AC4): the view caps the rendered
+  // avatar cluster at 9 faces + a "+N" chip and never re-buckets or re-tests
+  // tie membership itself.
   const groupsByRank = new Map();
   for (const row of ranked) {
     // rows are sorted by rank ascending, so once rank > 3 no rank <= 3 can
     // follow — safe to stop.
     if (row.rank > 3) break;
     if (!groupsByRank.has(row.rank)) {
-      groupsByRank.set(row.rank, {
-        rank: row.rank,
-        rankLabel: row.rankLabel,
-        members: [],
-      });
+      groupsByRank.set(row.rank, { rank: row.rank, members: [] });
     }
     groupsByRank.get(row.rank).members.push(row);
   }
   const ORDINALS = { 1: '1st', 2: '2nd', 3: '3rd' };
   for (const group of groupsByRank.values()) {
-    const members = group.members;
     group.ordinal = ORDINALS[group.rank];
-    group.points = members[0].points;
-    group.isTie = members.length > 1;
-    // Bar label rendered on every plinth, tied or not: "2nd · 12 pts".
-    group.barLabel = `${group.ordinal} · ${group.points} pt${group.points === 1 ? '' : 's'}`;
-    // Sub-line under a tied group's names: "2nd place · 12 pts each".
-    group.subLine = `${group.ordinal} place · ${group.points} pt${group.points === 1 ? '' : 's'} each`;
-    // Names line for tied groups joins first names naturally — "Liam, Priya
-    // and Noah" for up to 3 members; "Liam, Priya and 3 more" for 4+ (matching
-    // the 3-avatar cap). The view renders each name as a /u/<id> link, so the
-    // route hands it structure (named members + a tail), not a flat string.
-    members.forEach((m) => {
-      m.firstName = (m.name || 'Guest').trim().split(/\s+/)[0];
-    });
-    if (members.length <= 3) {
-      group.namedMembers = members;
-      group.namesTail = null; // every member is named, no "and N more"
-    } else {
-      group.namedMembers = members.slice(0, 2);
-      group.namesTail = `and ${members.length - 2} more`;
-    }
-    group.shownMembers = members.slice(0, 3);
-    group.extraCount = members.length - group.shownMembers.length;
+    group.points = group.members[0].points;
+    group.isTie = group.members.length > 1;
   }
   // Podium display order: 2nd, 1st, 3rd. Skip ranks with no members.
   const podiumGroups = [groupsByRank.get(2), groupsByRank.get(1), groupsByRank.get(3)].filter(

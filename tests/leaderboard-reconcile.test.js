@@ -85,7 +85,7 @@ describe('leaderboard reconciliation (#149): per-photo points (#89) + tiebreaker
   // -------------------------------------------------------------------------
   // AC1 + AC3: A and B both total 5 (a tie created by the per-photo bonus
   // term, not by raw completed count), A's latest submission earlier than
-  // B's -> both labelled T1, A's row before B's.
+  // B's -> both labelled plain rank 1 (dense ranking, issue #626), A's row before B's.
   // -------------------------------------------------------------------------
   test('AC1: A (2 subs, photo_bonus 1+2) and B (5 subs, bonus 0) both total 5', async () => {
     resetField();
@@ -128,7 +128,7 @@ describe('leaderboard reconciliation (#149): per-photo points (#89) + tiebreaker
     expect(rowC.points).toBe(8);
   });
 
-  test('AC3 (rendered): tied A/B (both 5) render identical T1 labels and A-before-B row order', async () => {
+  test('AC3 (rendered): tied A/B (both 5) render identical plain rank-1 labels and A-before-B row order', async () => {
     resetField();
 
     // Names deliberately chosen so "Zed" > "Yara" alphabetically — i.e. the
@@ -181,8 +181,10 @@ describe('leaderboard reconciliation (#149): per-photo points (#89) + tiebreaker
     expect(idxA).toBeLessThan(idxB);
 
     const listLabels = rankLabels(list);
-    const t1Count = listLabels.filter((l) => l === 'T1').length;
-    expect(t1Count).toBe(2);
+    // Dense ranking (issue #626) drops the old "T" tie prefix — a tie is a
+    // plain repeated number.
+    const rank1Count = listLabels.filter((l) => l === '1').length;
+    expect(rank1Count).toBe(2);
     expect(listLabels).not.toContain('2');
   });
 });
