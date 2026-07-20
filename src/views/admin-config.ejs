@@ -1,0 +1,36 @@
+<!-- src/views/admin-config.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+  <h1 class="display-title">Configuration</h1>
+
+  <% if (typeof msg !== 'undefined' && msg) { %>
+    <p class="flash <%= (typeof err !== 'undefined' && err) ? 'flash-err' : 'flash-ok' %>" role="status"><%= msg %></p>
+  <% } %>
+
+  <form action="/admin/config" method="POST" autocomplete="off">
+    <div class="form-row">
+      <label class="form-label" for="timezone">Event timezone</label>
+      <select id="timezone" name="timezone">
+        <% timezones.forEach(function (z) { %>
+          <option value="<%= z[0] %>"<%= z[0] === config.timezone ? ' selected' : '' %>><%= z[1] %></option>
+        <% }); %>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label class="form-label" for="start_date">Wedding starts</label>
+      <input class="form-input" type="date" id="start_date" name="start_date"
+             value="<%= config.startDate %>">
+    </div>
+
+    <div class="form-row">
+      <label class="form-label" for="end_date">Wedding ends</label>
+      <input class="form-input" type="date" id="end_date" name="end_date"
+             value="<%= config.endDate %>">
+    </div>
+
+    <button class="btn--primary" type="submit">Save configuration</button>
+  </form>
+
+<%- include('partials/footer') %>

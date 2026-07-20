@@ -26,6 +26,7 @@
     "mutation": "stryker run"
   },
   "dependencies": {
+    "@vvo/tzdb": "^6.198.0",
     "archiver": "7.0.1",
     "bcryptjs": "3.0.3",
     "better-sqlite3": "12.11.1",
