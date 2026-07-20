@@ -1110,7 +1110,7 @@ const _setTakenDownAndRecount = db.transaction((submissionId, takenDown, clearRe
   }
   // One recompute seam runs the per-guest auto/metric pass and the global
   // transferable pass in order (issue #80) — a takedown/restore can change
-  // who holds a transferable badge like MOSTPHOTOS, not just this guest's own
+  // who holds a registered transferable badge, not just this guest's own
   // metric badges. The seam is itself a db.transaction, and better-sqlite3
   // nests transaction functions via SAVEPOINTs, so calling it from inside
   // this outer transaction is safe.

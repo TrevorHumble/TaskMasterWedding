@@ -464,7 +464,7 @@ p {
    above): same width/radius/shadow/::backdrop tokens, centered by the UA,
    background made inert by showModal(). Opened/closed by
    src/public/js/badge-moment.js. Fires only for submission-earned badges
-   (BLOOM/BOUQUET/GARDEN/COMPLETIONIST/MOSTPHOTOS); admin-awarded 'special'
+   (BLOOM/BOUQUET/GARDEN/COMPLETIONIST); admin-awarded 'special'
    badges never go through this modal. No points language belongs in here —
    points live only in .success-card above. */
 /* EVERY rule below is scoped under .badge-dialog on purpose: `.badge-art` and

@@ -6,8 +6,8 @@
 //   - getPoints / getCompletedCount: how many points a guest has.
 //   - recomputeBadges: grant/revoke a guest's auto (BLOOM/BOUQUET/GARDEN) and
 //     metric (COMPLETIONIST) badges from their current data. Idempotent.
-//   - recomputeTransferableBadges: reassign the global transferable badges
-//     (MOSTPHOTOS) to their current holder set.
+//   - recomputeTransferableBadges: reassign any registered global transferable
+//     badges to their current holder set (registry currently empty, #711).
 //   - recomputeAfterSubmissionChange: the seam mutators call — runs the two
 //     above in the correct order so no caller has to.
 //   - awardSpecialBadge / removeSpecialBadge: admin-only hand-awarded badges.
@@ -337,13 +337,14 @@ const recomputeTransferableBadges = db.transaction(() => {
  * The single recompute seam a data-mutating caller invokes after a submission
  * change (new/replaced submission, takedown, restore). Runs the per-guest
  * pass (auto + metric) and THEN the global transferable pass, in that order —
- * the order that keeps a transferable badge like MOSTPHOTOS consistent with
- * the guest's just-changed visible-submission count.
+ * the order that would keep a transferable badge consistent with the
+ * guest's just-changed visible-submission count, if any transferable badge
+ * is registered (none currently is, #711).
  *
  * This exists so no mutator has to remember the ordered pair itself: a future
  * mutator that adopts only recomputeBadges (forgetting recomputeTransferableBadges)
- * would silently desync MOSTPHOTOS. Both mutators (submissions.js, photos.js)
- * go through here instead.
+ * would silently desync any future transferable badge. Both mutators
+ * (submissions.js, photos.js) go through here instead.
  *
  * Itself a db.transaction, and better-sqlite3 nests transaction functions via
  * SAVEPOINTs, so it is safe to call from inside photos.js's existing
@@ -369,8 +370,8 @@ const recomputeAfterSubmissionChange = db.transaction((guestId) => {
  *
  * Always runs the FULL pass (not a Completionist-only shortcut) because a
  * task delete cascades its submissions away, which moves the inputs to the
- * count-based auto badges (BLOOM/BOUQUET/GARDEN) and the transferable
- * badges (MOSTPHOTOS/MOSTLIKED) too, not just COMPLETIONIST. For add/hide/
+ * count-based auto badges (BLOOM/BOUQUET/GARDEN) and any registered
+ * transferable badges too, not just COMPLETIONIST. For add/hide/
  * un-hide, which touch no submission, the auto/transferable recompute for
  * each guest is simply a cheap no-op (their inputs did not change) — no
  * separate code path is worth the duplication.

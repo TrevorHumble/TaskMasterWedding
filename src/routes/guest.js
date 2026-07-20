@@ -379,7 +379,7 @@ router.post('/bug-report', socialRateLimiter, function (req, res) {
 // badge plus COMPLETIONIST at once), the modal celebrates a single PRIMARY
 // badge by this fixed priority (design, #255). The rest are still awarded
 // and appear on the guest's profile — one modal, one badge (v1).
-const BADGE_MOMENT_PRIORITY = ['GARDEN', 'BOUQUET', 'BLOOM', 'COMPLETIONIST', 'MOSTPHOTOS'];
+const BADGE_MOMENT_PRIORITY = ['GARDEN', 'BOUQUET', 'BLOOM', 'COMPLETIONIST'];
 
 // ---------------------------------------------------------------------------
 // GET /tasks/:id  — one task's detail + the upload form. If the guest has

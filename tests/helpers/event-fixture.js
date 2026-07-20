@@ -601,8 +601,9 @@ function seedEvent(db, options = {}) {
   // Recompute badges per guest from their actual visible-submission count,
   // exactly like a real submit/takedown would: the per-guest auto/metric pass
   // for each guest, then a single global transferable pass once all guests
-  // exist (MOSTPHOTOS is a whole-population comparison, so it only needs to
-  // run once at the end, not per guest). NEVER hand-insert guest_badges —
+  // exist (any registered transferable badge is a whole-population
+  // comparison, so it only needs to run once at the end, not per guest).
+  // NEVER hand-insert guest_badges —
   // scoring.js owns that write path. (Callers that only seed the auto/special
   // catalog rows simply get the auto badges; the metric/transferable passes
   // skip any code whose catalog row is absent.)

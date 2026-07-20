@@ -367,37 +367,11 @@ describe('AC6: signed-out visitor is gated', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC7 — MOSTPHOTOS counts task submissions only; memory rows do not count.
-// Also asserts the COMPLETIONIST non-effect (memories don't help or hurt it).
+// AC7 — COMPLETIONIST is unaffected by memory rows (memories don't help or
+// hurt it). The prior MOSTPHOTOS-excludes-memories case here was retired
+// with the MOSTPHOTOS badge itself (#711).
 // ---------------------------------------------------------------------------
-describe('AC7: MOSTPHOTOS excludes memory rows; COMPLETIONIST is unaffected', () => {
-  it('guest B (3 task subs, 0 memories) holds MOSTPHOTOS alone over guest A (2 task subs, 20 memories)', () => {
-    const { guestId: guestA } = insertGuest('AC7 Guest A');
-    const { guestId: guestB } = insertGuest('AC7 Guest B');
-
-    const taskA1 = insertTask('AC7 Task A1');
-    const taskA2 = insertTask('AC7 Task A2');
-    insertSubmission({ guestId: guestA, taskId: taskA1 });
-    insertSubmission({ guestId: guestA, taskId: taskA2 });
-    for (let i = 0; i < 20; i++) {
-      insertSubmission({ guestId: guestA, caption: `memory ${i}` }); // task_id null
-    }
-
-    const taskB1 = insertTask('AC7 Task B1');
-    const taskB2 = insertTask('AC7 Task B2');
-    const taskB3 = insertTask('AC7 Task B3');
-    insertSubmission({ guestId: guestB, taskId: taskB1 });
-    insertSubmission({ guestId: guestB, taskId: taskB2 });
-    insertSubmission({ guestId: guestB, taskId: taskB3 });
-
-    const holders = badges.TRANSFERABLE_BADGES.MOSTPHOTOS();
-    expect(holders.has(guestB)).toBe(true);
-    expect(holders.has(guestA)).toBe(false);
-    // Real expected VALUE (not just membership): B alone, since A's 20 memory
-    // rows must not inflate its count above B's 3 task submissions.
-    expect(holders).toEqual(new Set([guestB]));
-  });
-
+describe('AC7: COMPLETIONIST is unaffected by memories', () => {
   it('COMPLETIONIST is unaffected by memories: a guest covering the only active task still qualifies after also sharing memories', () => {
     const { guestId } = insertGuest('AC7 Completionist Guest');
     const onlyActiveTask = insertTask('AC7 Completionist Task');

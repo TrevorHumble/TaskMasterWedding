@@ -197,7 +197,7 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
   // Recompute points + badges now that completion may have changed: one seam
   // that runs the per-guest auto/metric pass and the global transferable pass
   // in order (issue #80 — a new submission can both grant this guest a metric
-  // badge AND change who holds a transferable one, e.g. MOSTPHOTOS). A failure
+  // badge AND change who holds a registered transferable one). A failure
   // here must not lose the photo just recorded above, so it is logged and
   // swallowed rather than propagated.
   try {
@@ -233,7 +233,7 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
  *     UNIQUE(guest_id, task_id) treats every NULL as distinct);
  *   - never calls scoring.recomputeAfterSubmissionChange — memories are
  *     deliberately excluded from points and system-computed badges (the
- *     "40 memory uploads shouldn't flood the leaderboard/MOSTPHOTOS" rule),
+ *     "40 memory uploads shouldn't flood the leaderboard" rule),
  *     so there is nothing here for a recompute to change.
  *
  * Each file gets the same photos.makeThumb() step submitPhoto uses. Thumbnail

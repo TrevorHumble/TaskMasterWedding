@@ -452,9 +452,10 @@ router.post('/guests/:id/delete', (req, res) => {
 
   // The deleted guest's own per-guest badges died with the FK cascade above,
   // and no OTHER guest's per-guest badge (COMPLETIONIST, the BLOOM/BOUQUET/
-  // GARDEN auto badges) depends on a different guest's existence — only the
-  // relative transferable standings (MOSTPHOTOS/MOSTLIKED) do. If the deleted
-  // guest was a sole holder, the next-qualifying guest never got a chance to
+  // GARDEN auto badges) depends on a different guest's existence — only a
+  // registered transferable badge's relative standings would (registry
+  // currently empty, #711). If the deleted guest was a sole holder, the
+  // next-qualifying guest never got a chance to
   // pick it up until some later, unrelated event triggered a recompute
   // (issue #715 — the one mutation #701's recompute seam did not cover).
   scoring.recomputeTransferableBadges();

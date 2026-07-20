@@ -577,7 +577,7 @@ ensureTaskIdNullable();
 // --- Guarded migration: badge catalog boot-heal (issue #314) ---
 /**
  * Heal the badges table with any catalog rows added since this database was
- * first seeded (e.g. #193's COMPLETIONIST/MOSTPHOTOS), and re-sync any
+ * first seeded (e.g. #193's COMPLETIONIST), and re-sync any
  * existing catalog row's display fields to the current catalog (e.g. #354's
  * "Wedding Master's Choice" rename reaching a database seeded before that
  * merge, #655) — the boot path that already owns "make an old database
@@ -604,6 +604,36 @@ function ensureBadgeCatalog() {
 }
 
 ensureBadgeCatalog();
+
+// --- Guarded migration: retire MOSTPHOTOS/MOSTLIKED (issue #711) ---
+/**
+ * Delete the MOSTPHOTOS and MOSTLIKED catalog rows and any held guest_badges
+ * rows for them. Both codes were removed from the engine registry
+ * (src/services/badges.js's TRANSFERABLE_BADGES) and from
+ * scripts/badge-catalog.js's BADGES, but ensureBadgeCatalog() above only
+ * upserts codes still present in that list — it never deletes a row for a
+ * code that's gone, so an existing database needs this explicit DELETE to
+ * catch up. Deletes guest_badges first (its badge_id foreign-keys to
+ * badges.id), then the two catalog rows themselves. Safe on a database that
+ * never had either code: both DELETEs simply match zero rows. Runs after
+ * ensureBadgeCatalog() above, same PRAGMA-guarded-migration idiom (defined,
+ * called once at module load, exported for tests) as every other migration
+ * in this file, though this one is unconditional rather than PRAGMA-gated
+ * since a DELETE ... WHERE is already naturally idempotent.
+ */
+function ensureRetiredBadgesRemoved() {
+  const retiredCodes = ['MOSTPHOTOS', 'MOSTLIKED'];
+  const deleteHeld = db.prepare(
+    `DELETE FROM guest_badges WHERE badge_id IN (SELECT id FROM badges WHERE code = ?)`
+  );
+  const deleteCatalogRow = db.prepare(`DELETE FROM badges WHERE code = ?`);
+  for (const code of retiredCodes) {
+    deleteHeld.run(code);
+    deleteCatalogRow.run(code);
+  }
+}
+
+ensureRetiredBadgesRemoved();
 
 // --- Guarded migration: submissions.resubmitted (issue #190) ---
 /**
@@ -812,11 +842,13 @@ function markGuestOnboarded(guestId) {
 
 // One-time data correction (issue #712): POST /p/:id/like had no ownership
 // check before this issue's route fix, so a guest could like their own
-// photo and inflate their own MOSTLIKED total / today's-likes standing. This
+// photo and inflate their own like counts / today's-likes standing. This
 // deletes every existing self-like row — a like whose guest_id equals the
 // owner (submissions.guest_id) of the submission it targets — so the route
 // fix and this cleanup close both the going-forward and the already-in-the-
-// database halves of the same bug.
+// database halves of the same bug. (This originally also protected the
+// MOSTLIKED badge, retired by issue #711; the cleanup still matters for like
+// counts and any future like-driven feature such as crowd favorites.)
 //
 // Deliberately NOT self-invoked here (contrast every other guarded migration
 // above, which calls itself immediately after its definition): db.js runs
@@ -856,6 +888,7 @@ module.exports = {
   ensureGuestIdentityColumns,
   ensureTaskIdNullable,
   ensureBadgeCatalog,
+  ensureRetiredBadgesRemoved,
   ensureResubmittedColumn,
   ensureAvatarPointAwardedColumn,
   ensureSettingsTable,

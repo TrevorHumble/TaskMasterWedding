@@ -121,12 +121,11 @@ function extractBadgeDialog(html) {
 // ---------------------------------------------------------------------------
 it('AC1: a completion earning NO new badge shows "Task complete!" / "+1 point" / "5 points", and no badge-dialog', async () => {
   // A "leader" guest with more visible task submissions than this test's
-  // guest will ever reach (2), so the transferable MOSTPHOTOS badge (issue
-  // #80 — awarded to whoever holds the strict-most visible submissions,
-  // including ties) never transfers to the guest under test. Without this, a
-  // fresh guest's first submission TIES the leaderless max (1) and
-  // non-deterministically earns MOSTPHOTOS, turning this "no new badge"
-  // scenario into a badge-earning one. Same guard AC3 already uses below.
+  // guest will ever reach (2). Historically (issue #80) this kept a
+  // transferable "most submissions" badge from tying and non-deterministically
+  // landing on the guest under test; that badge (MOSTPHOTOS) was retired by
+  // #711 and the transferable registry is now empty, so this setup is inert
+  // but kept for parity with AC3's guard below.
   const leaderGuestId = insertGuest(`rewards-ac1-leader-${crypto.randomUUID()}`);
   seedCompletedTasks(leaderGuestId, 3, 'ac1-leader');
 
@@ -208,12 +207,11 @@ it('AC2: crossing the BLOOM threshold renders a badge-dialog with the name + hea
 // ---------------------------------------------------------------------------
 it('AC3: submitPhoto returns newBadgeIds containing BLOOM on the threshold-crossing call, then empty on the next', async () => {
   // A "leader" guest with more visible task submissions than this test's
-  // guest will ever reach (6), so the transferable MOSTPHOTOS badge (issue
-  // #80 — awarded to whoever holds the strict-most visible submissions,
-  // including ties) never lands on the guest under test and cannot leak into
-  // the "empty on the next call" assertion below. Without this, the second
-  // submitPhoto call ties the leaderless max and non-deterministically grants
-  // MOSTPHOTOS alongside the badge under test.
+  // guest will ever reach (6). Historically (issue #80) this kept a
+  // transferable "most submissions" badge from tying and non-deterministically
+  // leaking into the "empty on the next call" assertion below; that badge
+  // (MOSTPHOTOS) was retired by #711 and the transferable registry is now
+  // empty, so this setup is inert but kept for parity with AC1's guard above.
   const leaderGuestId = insertGuest(`rewards-ac3-leader-${crypto.randomUUID()}`);
   seedCompletedTasks(leaderGuestId, 20, 'ac3-leader');
 
