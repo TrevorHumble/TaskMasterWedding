@@ -546,6 +546,17 @@ p {
   height: 168px;
   display: block;
 }
+/* Badge-earned moment (issue #410 phase-2) — a task badge now renders as a
+   bare icon inside the medallion ring rather than .badge-art's own composed
+   circle; same 168px size as the composed-badge branch above. */
+.badge-dialog .badge-medallion {
+  width: 168px;
+  height: 168px;
+  border-width: 4px;
+  box-shadow:
+    inset 0 0 0 4px var(--white),
+    inset 0 0 0 5px var(--green-300);
+}
 
 /* Sparkles/petals radiating from the badge center. Each starts invisible
    (opacity 0) — the reduced-motion-gated `spark` keyframe is the only thing
@@ -1089,6 +1100,17 @@ a.stat:hover {
   height: 24px;
   flex-shrink: 0;
 }
+/* Issue #410 phase-2: a task badge here now renders through the medallion
+   component; match .badge-art's 24px sizing above. */
+.task-earnable-badge .badge-medallion {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-width: 1px;
+  box-shadow:
+    inset 0 0 0 1px var(--white),
+    inset 0 0 0 2px var(--green-300);
+}
 .task-earnable-copy {
   font-size: var(--fs-small);
   color: var(--color-text-muted);
@@ -1210,6 +1232,18 @@ a.stat:hover {
 }
 .task-detail-badge .task-badge-icon {
   vertical-align: middle;
+}
+/* Issue #410 phase-2: the "Earns:" line's badge now renders through the
+   medallion component (bare icon in a ring) instead of task-badge-icon's
+   own plain 24px circle; match the same 24px size + inline alignment. */
+.task-detail-badge .badge-medallion {
+  width: 24px;
+  height: 24px;
+  border-width: 1px;
+  vertical-align: middle;
+  box-shadow:
+    inset 0 0 0 1px var(--white),
+    inset 0 0 0 2px var(--green-300);
 }
 .task-detail-desc {
   color: var(--color-text-muted);
@@ -2776,6 +2810,16 @@ body:has(dialog[open]) {
   width: 24px;
   height: 24px;
   border-radius: 50%;
+}
+/* Issue #410 phase-2: a task badge in the leaderboard row now renders
+   through the medallion component; match lb-badge-icon's 24px size. */
+.lb-badges .badge-medallion {
+  width: 24px;
+  height: 24px;
+  border-width: 1px;
+  box-shadow:
+    inset 0 0 0 1px var(--white),
+    inset 0 0 0 2px var(--green-300);
 }
 .lb-points {
   flex-shrink: 0;
@@ -4809,4 +4853,230 @@ body:has(dialog[open]) {
 .admin-feed-photo-btn:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+}
+
+/* -------------------- Badge medallion (#410) --------------------
+   The reusable badge shape: a bundled bare icon centered inside the garden
+   ring (green outer ring + sage inner hairline over white), matching the
+   hand-drawn badge frame. One component for the picker preview, the admin
+   task card, and — in phase-2 — every guest surface that shows a badge, so
+   the ring is defined in exactly one place instead of baked into each SVG. */
+.badge-medallion {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--white);
+  border: 2px solid var(--color-primary);
+  box-shadow:
+    inset 0 0 0 2px var(--white),
+    inset 0 0 0 3px var(--green-300);
+}
+.badge-medallion-icon {
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
+}
+/* Empty state: a soft dashed ring, no icon (task has no badge yet / nothing
+   picked). */
+.badge-medallion-empty {
+  border-style: dashed;
+  border-color: var(--green-300);
+  box-shadow: none;
+}
+.badge-medallion-lg {
+  width: 108px;
+  height: 108px;
+  border-width: 3px;
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--green-300);
+}
+/* Badge detail header (issue #410 phase-2) — the page's hero badge previously
+   rendered a plain 120x120 <img class="badge-detail-art">; a task badge now
+   renders through the medallion component, so this ancestor-scoped override
+   keeps the same 120px size instead of the 48px default. */
+.badge-detail-header .badge-medallion {
+  width: 120px;
+  height: 120px;
+  border-width: 3px;
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--green-300);
+}
+
+/* -------------------- Badge icon picker (#410) --------------------
+   A native <dialog> (same tokens as .comments-dialog): a live ring preview +
+   name field at the top, a search box, then a dense grid of bare icon glyphs.
+   Picking a glyph populates the ring preview. The grid is a radiogroup; the
+   :checked tile is the only selection affordance, no per-icon JS. */
+.badge-picker-dialog {
+  width: min(560px, 100vw - 32px);
+  max-height: 88vh;
+  max-height: 88dvh;
+  margin: auto;
+  padding: 0;
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-raise);
+  background: var(--white);
+  color: var(--color-text);
+}
+.badge-picker-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.badge-picker-dialog::backdrop {
+  background: rgba(20, 30, 24, 0.55);
+}
+.badge-picker-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.badge-picker-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-2);
+}
+.badge-picker-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.badge-picker-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  color: var(--color-heading);
+}
+.badge-picker-context {
+  margin: 2px 0 0;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.badge-picker-close {
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: none;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.badge-picker-close:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+/* Stage: the live preview medallion beside the name field. */
+.badge-picker-stage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4) var(--space-4);
+}
+.badge-picker-stage .badge-picker-name {
+  flex: 1 1 auto;
+}
+.badge-picker-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.badge-picker-name input {
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font-body);
+  color: var(--color-text);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+.badge-picker-search-row {
+  padding: 0 var(--space-4) var(--space-3);
+}
+.badge-picker-search {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font-body);
+  color: var(--color-text);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+.badge-picker-search:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+/* Dense glyph grid — small tap tiles, no per-cell circle or label; the ring
+   lives only in the preview above. Scrolls inside the capped dialog. */
+.badge-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: var(--space-1);
+  padding: 0 var(--space-4) var(--space-3);
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.badge-picker-cell {
+  position: relative; /* containing block for the absolute radio, so focusing
+                         it on click never scrolls the page (the select-jumps-
+                         to-bottom bug) */
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-input);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.badge-picker-cell[hidden] {
+  display: none;
+}
+.badge-picker-radio {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.badge-picker-glyph {
+  width: 60%;
+  height: 60%;
+  object-fit: contain;
+}
+.badge-picker-cell:hover {
+  background: var(--green-50);
+  border-color: var(--green-300);
+}
+.badge-picker-cell:has(.badge-picker-radio:checked) {
+  background: var(--green-50);
+  border-color: var(--color-primary);
+}
+.badge-picker-cell:has(.badge-picker-radio:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.badge-picker-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: var(--space-4) 0;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--fs-small);
+}
+.badge-picker-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: var(--border-hairline);
 }

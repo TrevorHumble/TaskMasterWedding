@@ -15,6 +15,10 @@ backups/
 data-demo/
 data-stor*/
 
+# Visual-approval-loop DATA_DIR (npm run preview / tools/persist-visual-approval.ps1):
+# seeded database + uploads + admin hash, same sensitivity as data/ above.
+data-visual/
+
 # Environment secrets
 .env
 

@@ -1,0 +1,57 @@
+<%# src/views/partials/badge-picker.ejs
+    Issue #410: the shared badge-icon-picker <dialog>, extracted verbatim
+    from admin-tasks.ejs's phase-1 inline markup (approved look, unchanged
+    element structure/ids/classes) so #682's step-through create flow can
+    reuse the same dialog instead of a second copy.
+
+    Locals:
+      badgeIcons (required) - [{ id, name, artPath }], the full catalog in
+                 display order (src/services/badge-icons.js's listIcons(),
+                 with each entry's public path resolved via iconArtPath()).
+                 The route renders this and passes it as a local rather than
+                 the view require()-ing the service itself, matching how this
+                 repo already hands data down from routes to views. artPath
+                 is the ONLY place this partial gets an icon's public path —
+                 badge-icons.js is the single owner of that path format.
+%>
+  <dialog id="badge-picker" class="badge-picker-dialog" aria-label="Choose a badge">
+    <form method="post" class="badge-picker-form" id="badge-picker-form">
+      <header class="badge-picker-header">
+        <div class="badge-picker-heading">
+          <h2 class="badge-picker-title">Choose a badge</h2>
+          <p class="badge-picker-context" id="badge-picker-context"></p>
+        </div>
+        <button type="button" class="badge-picker-close" data-picker-close aria-label="Close">&times;</button>
+      </header>
+
+      <div class="badge-picker-stage">
+        <span class="badge-medallion badge-medallion-lg badge-medallion-empty" id="badge-preview">
+          <img class="badge-medallion-icon" id="badge-preview-icon" src="" alt="" hidden />
+        </span>
+        <label class="badge-picker-name">
+          Badge name
+          <input type="text" name="name" id="badge-picker-name" placeholder="e.g. Golden Moment" autocomplete="off" />
+        </label>
+      </div>
+
+      <div class="badge-picker-search-row">
+        <input type="search" class="badge-picker-search" id="badge-picker-search"
+               placeholder="Search icons…" aria-label="Search icons" autocomplete="off" />
+      </div>
+
+      <div class="badge-picker-grid" id="badge-picker-grid" role="radiogroup" aria-label="Badge icon">
+        <% badgeIcons.forEach(function (ic) { %>
+          <label class="badge-picker-cell" title="<%= ic.name %>" data-name="<%= ic.name.toLowerCase() %>">
+            <input type="radio" name="icon" value="<%= ic.id %>" class="badge-picker-radio" data-name="<%= ic.name %>" data-art-path="<%= ic.artPath %>" />
+            <img class="badge-picker-glyph" src="<%= ic.artPath %>" alt="<%= ic.name %>" loading="lazy" />
+          </label>
+        <% }); %>
+        <p class="badge-picker-empty" id="badge-picker-empty" hidden>No icons match.</p>
+      </div>
+
+      <div class="badge-picker-foot">
+        <button type="button" class="btn btn-ghost btn-sm" data-picker-close>Cancel</button>
+        <button type="submit" class="btn btn-primary" id="badge-picker-save" disabled>Save badge</button>
+      </div>
+    </form>
+  </dialog>

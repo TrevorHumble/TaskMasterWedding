@@ -62,10 +62,7 @@
         <% badges.forEach(function (b) { %>
           <li class="badge-item">
             <a href="/badge/<%= b.code %>">
-              <img class="badge-art"
-                   src="<%= b.art_path %>"
-                   alt="<%= b.name %>"
-                   width="48" height="48" />
+              <%- include('partials/badge-art', { badge: b, width: 48, height: 48 }) %>
               <span class="badge-text">
                 <span class="badge-name">
                   <%= b.name %><% if (b.pointsLabel) { %> <span class="badge-points"><%= b.pointsLabel %></span><% } %>

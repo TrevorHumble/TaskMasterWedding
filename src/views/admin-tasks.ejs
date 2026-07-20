@@ -46,17 +46,20 @@
 
         <div class="task-badge-row">
           <div class="task-badge-row-current">
-            <img class="badge-art" src="<%= t.badge.art_path %>" alt="<%= t.badge.name %>" />
-            <span class="badge-name"><%= t.badge.name %></span>
+            <% if (t.badge.isDefault) { %>
+              <span class="badge-medallion badge-medallion-empty" aria-hidden="true"></span>
+              <span class="badge-name muted">No badge chosen yet</span>
+            <% } else { %>
+              <%- include('partials/badge-art', { badge: t.badge }) %>
+              <span class="badge-name"><%= t.badge.name %></span>
+            <% } %>
           </div>
-          <% if (t.badge.isDefault) { %>
-            <form action="/admin/tasks/<%= t.id %>/badge" method="post" enctype="multipart/form-data"
-                  class="task-badge-upload-form">
-              <input type="text" name="name" placeholder="Badge name (e.g. Golden Move)" />
-              <%- include('partials/upload-field', { id: 'badge-art-' + t.id, name: 'badge_art', accept: 'image/*', label: 'Upload badge art…' }) %>
-              <button type="submit" class="btn btn-sm btn-secondary">Upload badge</button>
-            </form>
-          <% } %>
+          <button type="button" class="btn btn-sm btn-secondary badge-choose-btn"
+                  data-task-id="<%= t.id %>"
+                  data-task-title="<%= t.title %>"
+                  data-badge-name="<%= t.badge.isDefault ? '' : t.badge.name %>">
+            <%= t.badge.isDefault ? 'Choose badge' : 'Change badge' %>
+          </button>
         </div>
 
         <div class="task-card-actions">
@@ -99,5 +102,8 @@
     <% } %>
   </div>
 
+  <%- include('partials/badge-picker', { badgeIcons: badgeIcons }) %>
+
 <script src="/js/admin.js" defer></script>
+<script src="/js/badge-picker.js" defer></script>
 <%- include('partials/footer') %>

@@ -10,6 +10,7 @@ const cookieParser = require('cookie-parser');
 const config = require('../config');
 const photos = require('./services/photos');
 const initials = require('./utils/initials');
+const badgeIcons = require('./services/badge-icons');
 const { db } = require('./db');
 
 const app = express();
@@ -88,6 +89,13 @@ if (config.TRUST_PROXY !== false) app.set('trust proxy', config.TRUST_PROXY);
 // so avatar fallbacks across guest-home, public-profile, and leaderboard all
 // derive initials from the same function rather than inline one-liners.
 app.locals.initials = initials;
+
+// Same pattern as initials above: make the icon/composed-badge discriminator
+// available to every EJS template as a callable local, so badge-art.ejs (the
+// single place that decides how a badge's art_path renders) derives the
+// bundled-icon-path prefix test from badge-icons.js rather than restating
+// the literal inline (issue #410 review fix).
+app.locals.badgeIsIcon = badgeIcons.isIconArtPath;
 
 // ---------------------------------------------------------------------------
 // 1. Make sure the data directories exist before anything tries to use them.

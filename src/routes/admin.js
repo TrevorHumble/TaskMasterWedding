@@ -42,6 +42,7 @@ const qr = require('../services/qr');
 const scoring = require('../services/scoring');
 const photos = require('../services/photos');
 const taskBadges = require('../services/task-badges');
+const badgeIcons = require('../services/badge-icons');
 const favoritesSvc = require('../services/favorites');
 const photoBadges = require('../services/photo-badges');
 const feed = require('../services/feed');
@@ -627,6 +628,11 @@ router.get('/tasks', (req, res) => {
   res.render('admin-tasks', {
     title: 'Tasks',
     tasks: rows,
+    badgeIcons: badgeIcons.listIcons().map((ic) => ({
+      id: ic.id,
+      name: ic.name,
+      artPath: badgeIcons.iconArtPath(ic.id),
+    })),
     msg: req.query.msg || '',
     isAdmin: true,
   });
@@ -675,49 +681,58 @@ router.post('/tasks/:id/edit', (req, res) => {
   redirectWithMsg(res, '/admin/tasks', 'Task updated.', 'task-' + id);
 });
 
-// POST /admin/tasks/:id/badge  — set a task's badge name and/or art (issue
-// #483). Runs photos.uploadBadgeArt directly with an explicit callback (same
-// pattern POST /join uses for photos.uploadAvatar), so a fileFilter/size
-// rejection surfaces as a flash message instead of an uncaught rejection
-// (Express 4 does not catch async-handler rejections; issue #187). Body:
-// name (optional — blank leaves the existing name unchanged); the "badge_art"
-// file field is optional too — a name-only or art-only submit is valid, and
-// setTaskBadge (src/services/task-badges.js) leaves whichever field is
-// blank/absent unchanged rather than clearing it.
+// POST /admin/tasks/:id/badge  — set a task's badge name and icon (issue
+// #410). The badge-icon picker (src/views/partials/badge-picker.ejs) is the
+// ONLY badge source now — no file upload. Body: name (optional — blank
+// leaves the existing name unchanged) and icon (a catalog id from
+// src/services/badge-icons.js). An unknown/missing icon with no name is
+// rejected via the same redirectWithMsg pattern the route used for a
+// rejected upload; a name-only submit (icon absent) is still valid and
+// leaves art_path unchanged, same as setTaskBadge always allowed.
 router.post('/tasks/:id/badge', (req, res, next) => {
   const id = parseInt(req.params.id, 10);
-  photos.uploadBadgeArt(req, res, async (err) => {
-    if (err) {
+
+  // The picker posts application/x-www-form-urlencoded (icon + name), never
+  // a file. A multipart request is the old upload path (#410 removed it) —
+  // express.urlencoded/json never populate req.body for multipart, so
+  // reject explicitly here rather than silently treating it as an empty
+  // name-only submit (AC4: "a multipart POST ... is rejected").
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.indexOf('multipart/form-data') === 0) {
+    return redirectWithMsg(
+      res,
+      '/admin/tasks',
+      'Badge art can no longer be uploaded — pick an icon instead.',
+      'task-' + id
+    );
+  }
+
+  const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
+  if (!task) {
+    return redirectWithMsg(res, '/admin/tasks', 'Task not found.');
+  }
+
+  const name = (req.body.name || '').trim();
+  const iconId = req.body.icon;
+  let artPath;
+  if (typeof iconId === 'string' && iconId) {
+    if (!badgeIcons.isValidIconId(iconId)) {
       return redirectWithMsg(
         res,
         '/admin/tasks',
-        err.message || 'That badge art could not be uploaded.',
+        'That badge icon is not recognized.',
         'task-' + id
       );
     }
+    artPath = badgeIcons.resolveIconPath(iconId);
+  }
 
-    const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
-    if (!task) {
-      return redirectWithMsg(res, '/admin/tasks', 'Task not found.');
-    }
-
-    const name = (req.body.name || '').trim();
-    try {
-      let artPath;
-      if (req.file && req.file.buffer && req.file.buffer.length) {
-        // saveBadgeArt returns a bare filename (relative to UPLOADS_DIR, like
-        // every other photos.js upload); build the public path the same way
-        // avatars do at render time, via urlForOriginal, rather than
-        // hand-concatenating "/uploads/" here — one owner of that URL shape.
-        const filename = await photos.saveBadgeArt(req.file.buffer);
-        artPath = photos.urlForOriginal(filename);
-      }
-      taskBadges.setTaskBadge(id, { name, artPath });
-      redirectWithMsg(res, '/admin/tasks', 'Badge updated.', 'task-' + id);
-    } catch (saveErr) {
-      next(saveErr);
-    }
-  });
+  try {
+    taskBadges.setTaskBadge(id, { name, artPath });
+    redirectWithMsg(res, '/admin/tasks', 'Badge updated.', 'task-' + id);
+  } catch (saveErr) {
+    next(saveErr);
+  }
 });
 
 // POST /admin/tasks/:id/delete  — delete a task and its photo files.
