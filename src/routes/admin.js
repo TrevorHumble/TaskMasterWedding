@@ -8,6 +8,8 @@
 //   POST /admin/guests/:id/points        award bonus points (scoring.addBonusPoints)
 //   POST /admin/guests/:id/badge         award OR remove a special badge
 //   GET  /admin/poster                   the single shared entry-link poster (issue #244)
+//   GET  /admin/config                   event timezone + wedding dates (issue #681)
+//   POST /admin/config                   save event timezone + wedding dates (issue #681)
 //   GET  /admin/tasks                    task list + add form
 //   POST /admin/tasks                    create a task
 //   POST /admin/tasks/:id/edit           edit a task title/description
@@ -34,7 +36,7 @@
 const express = require('express');
 
 const config = require('../../config');
-const { db, getGuestByContact } = require('../db');
+const { db, getGuestByContact, getEventConfig, setEventConfig } = require('../db');
 const { requireAdmin } = require('../middleware/session');
 const qr = require('../services/qr');
 const scoring = require('../services/scoring');
@@ -46,6 +48,7 @@ const feed = require('../services/feed');
 const { streamExportZip } = require('../services/export');
 const { normalizeContact, isValidPin } = require('../services/identity');
 const { relativeTime } = require('../services/relative-time');
+const { timezoneOptions, isKnownTimezone, resolveSelectedZone } = require('../services/event-days');
 
 const router = express.Router();
 
@@ -165,6 +168,75 @@ router.get('/', (req, res) => {
     msg: req.query.msg || '',
     isAdmin: true,
   });
+});
+
+// ---------------------------------------------------------------------------
+// GET /admin/config  — event timezone + wedding dates (issue #681). Every
+// date-aware feature (day chips, daily challenges, the dashboard checklist)
+// reads getEventConfig() as its single owner, set exactly once here.
+// ---------------------------------------------------------------------------
+router.get('/config', (req, res) => {
+  const eventConfig = getEventConfig();
+  res.render('admin-config', {
+    title: 'Configuration',
+    isAdmin: true,
+    msg: req.query.msg || '',
+    err: Boolean(req.query.err),
+    timezones: timezoneOptions(),
+    config: {
+      // A grouped member stored earlier (e.g. America/Boise) pre-selects its
+      // group's canonical <option> (America/Denver) — same DST rule, one
+      // fewer near-duplicate row in the dropdown.
+      timezone: resolveSelectedZone(eventConfig.timezone),
+      startDate: eventConfig.startDate,
+      endDate: eventConfig.endDate,
+    },
+  });
+});
+
+// A real-calendar-date check, run before the two dates are compared. The
+// shape guard alone (/^\d{4}-\d{2}-\d{2}$/) would let an impossible date a
+// crafted POST supplies (2026-13-45, 2026-02-30) reach setEventConfig, where
+// it later makes eventDays() yield zero day chips downstream (#682/#646). So
+// past the shape check we round-trip the parts through a UTC Date and confirm
+// they survive — 2026-02-30 rolls to Mar 2 and fails the equality.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function isRealDate(s) {
+  if (!ISO_DATE_RE.test(s)) {
+    return false;
+  }
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+// POST /admin/config  — validate and persist. Timezone must be a real IANA
+// name the tzdb list recognizes (never a bare offset the admin typed by
+// hand — there is no free-text field, but a crafted POST could still try
+// one); start date must be on or before end date. On either failure, the
+// stored settings are left completely unchanged (setEventConfig is never
+// called) and the page re-renders with an error flash naming the problem.
+router.post('/config', (req, res) => {
+  const timezone = typeof req.body.timezone === 'string' ? req.body.timezone.trim() : '';
+  const startDate = typeof req.body.start_date === 'string' ? req.body.start_date.trim() : '';
+  const endDate = typeof req.body.end_date === 'string' ? req.body.end_date.trim() : '';
+
+  if (!isKnownTimezone(timezone)) {
+    return redirectWithMsg(res, '/admin/config?err=1', 'Please choose a valid timezone.');
+  }
+  if (!isRealDate(startDate) || !isRealDate(endDate)) {
+    return redirectWithMsg(res, '/admin/config?err=1', 'Please enter valid start and end dates.');
+  }
+  if (startDate > endDate) {
+    return redirectWithMsg(
+      res,
+      '/admin/config?err=1',
+      'The wedding start date must be on or before the end date.'
+    );
+  }
+
+  setEventConfig({ timezone, startDate, endDate });
+  redirectWithMsg(res, '/admin/config', 'Configuration saved.');
 });
 
 // ---------------------------------------------------------------------------

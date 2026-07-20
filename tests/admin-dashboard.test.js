@@ -9,13 +9,14 @@
 //   AC3 — the newest visible submission's guest name appears on the pulse
 //         line ("Last photo ... <name>").
 //   AC4 — the action rows render as a single <ul class="menu-list"> of
-//         exactly six <li class="menu-row"> rows (the five plain-link rows
-//         plus issue #468's "Play slideshow" dialog-opening button, added by
-//         that issue's owner-approved AC6), labels in the specified order,
-//         each with a .menu-icon; none of the five <a class="menu-link">
-//         rows carries a bespoke primary/emphasis modifier class (the sixth
-//         row is a <button>, not an <a>, and is intentionally exempt from
-//         that assertion — see #468).
+//         exactly seven <li class="menu-row"> rows (the six plain-link rows,
+//         including issue #681's Configuration row, plus issue #468's
+//         "Play slideshow" dialog-opening button, added by that issue's
+//         owner-approved AC6), labels in the specified order, each with a
+//         .menu-icon; none of the six <a class="menu-link"> rows carries a
+//         bespoke primary/emphasis modifier class (the seventh row is a
+//         <button>, not an <a>, and is intentionally exempt from that
+//         assertion — see #468).
 // Plus a unit test for src/services/relative-time.js's relativeTime().
 //
 // REQUIRE ORDER: config / db / app are required only via loadApp() — see
@@ -139,14 +140,14 @@ describe("AC3: the pulse line names the newest visible submission's guest", () =
 });
 
 describe('AC4: action rows render as a single cohesive menu-list', () => {
-  test('exactly six menu-row rows, exact label order, each with a menu-icon, no modifier class on the <a> rows', async () => {
+  test('exactly seven menu-row rows, exact label order, each with a menu-icon, no modifier class on the <a> rows', async () => {
     resetTables();
 
     const res = await adminAgent.get('/admin');
     expect(res.status).toBe(200);
 
     const rowMatches = res.text.match(/<li class="menu-row">/g) || [];
-    expect(rowMatches.length).toBe(6);
+    expect(rowMatches.length).toBe(7);
 
     const listMatch = res.text.match(/<ul class="menu-list">([\s\S]*?)<\/ul>/);
     expect(listMatch).not.toBeNull();
@@ -164,19 +165,20 @@ describe('AC4: action rows render as a single cohesive menu-list', () => {
       'Manage tasks',
       'Manage guests',
       'Print QR place-cards',
+      'Configuration &mdash; timezone &amp; dates',
       'Download export (ZIP + spreadsheet)',
       'Play slideshow',
     ]);
 
     // Every row has a menu-icon (including the "Play slideshow" button row).
     const iconCount = (listHtml.match(/class="menu-icon"/g) || []).length;
-    expect(iconCount).toBe(6);
+    expect(iconCount).toBe(7);
 
     // No bespoke primary/emphasis modifier class on any row's link — every
     // .menu-link in this list carries exactly the base class, nothing else
     // (unlike guest-home.ejs's menu-link-muted / menu-link-button variants).
     const linkClassLists = [...listHtml.matchAll(/<a class="([^"]*)"/g)].map((m) => m[1]);
-    expect(linkClassLists.length).toBe(5);
+    expect(linkClassLists.length).toBe(6);
     linkClassLists.forEach((classList) => {
       expect(classList).toBe('menu-link');
     });

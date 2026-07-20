@@ -594,6 +594,60 @@ function ensureSettingsTable() {
 // module's `require('../db')` call returns.
 ensureSettingsTable();
 
+// --- Event configuration: timezone + wedding dates (issue #681) ---
+/**
+ * Reader/writer pair owning the settings-table keys that hold the event's
+ * timezone and wedding date range, so every date-aware consumer (day chips,
+ * daily challenges, the dashboard checklist) reads the same facts from one
+ * place instead of each hard-coding its own copy. Same settings table +
+ * INSERT...ON CONFLICT shape as src/services/lockout.js's readInt/writeInt,
+ * just for strings instead of parsed integers -- no separate migration
+ * needed, ensureSettingsTable() above already guarantees the table exists.
+ */
+const KEY_EVENT_TIMEZONE = 'event_timezone';
+const KEY_EVENT_START_DATE = 'event_start_date';
+const KEY_EVENT_END_DATE = 'event_end_date';
+
+function readSetting(key, fallback) {
+  const row = db.prepare(`SELECT value FROM settings WHERE key = ?`).get(key);
+  return row ? row.value : fallback;
+}
+
+function writeSetting(key, value) {
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run(key, value);
+}
+
+/**
+ * The event's configured timezone and wedding date range. Defaults
+ * (America/Boise, 2026-08-07..2026-08-09) are the venue's real values, so a
+ * fresh DB -- or an existing DB from before this issue, which has never
+ * written these keys -- reads sensible values with no backfill migration.
+ * @returns {{ timezone: string, startDate: string, endDate: string }}
+ */
+function getEventConfig() {
+  return {
+    timezone: readSetting(KEY_EVENT_TIMEZONE, 'America/Boise'),
+    startDate: readSetting(KEY_EVENT_START_DATE, '2026-08-07'),
+    endDate: readSetting(KEY_EVENT_END_DATE, '2026-08-09'),
+  };
+}
+
+/**
+ * Persist the event's timezone and wedding date range. This function trusts
+ * its caller -- POST /admin/config (src/routes/admin.js) is the single
+ * validator (known IANA name, start <= end) and only calls this once every
+ * field has already passed.
+ * @param {{ timezone: string, startDate: string, endDate: string }} cfg
+ */
+function setEventConfig({ timezone, startDate, endDate }) {
+  writeSetting(KEY_EVENT_TIMEZONE, timezone);
+  writeSetting(KEY_EVENT_START_DATE, startDate);
+  writeSetting(KEY_EVENT_END_DATE, endDate);
+}
+
 // --- Shared helpers used by other sections (scoring, profiles, gallery, etc.). ---
 
 /**
@@ -668,6 +722,8 @@ module.exports = {
   ensureResubmittedColumn,
   ensureAvatarPointAwardedColumn,
   ensureSettingsTable,
+  getEventConfig,
+  setEventConfig,
   getGuestByToken,
   getGuestById,
   getGuestByContact,
