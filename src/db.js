@@ -309,6 +309,11 @@ ensureBadgeTaskIdColumn();
  * which never sets these) exactly those defaults, with no separate backfill
  * UPDATE needed (AC7).
  *
+ * submission_id's FK is ON DELETE CASCADE (issue #713) — a fresh DB gets
+ * this action directly here, so ensureGuestBadgeSubmissionCascade() below
+ * (which rebuilds an existing pre-#713 table whose FK was ON DELETE SET
+ * NULL) is a no-op on a fresh DB.
+ *
  * Exported so tests bind to this real guard rather than an inline copy.
  */
 function ensureGuestBadgeAwardColumns() {
@@ -322,12 +327,108 @@ function ensureGuestBadgeAwardColumns() {
   }
   if (!names.has('submission_id')) {
     db.exec(
-      `ALTER TABLE guest_badges ADD COLUMN submission_id INTEGER REFERENCES submissions(id) ON DELETE SET NULL`
+      `ALTER TABLE guest_badges ADD COLUMN submission_id INTEGER REFERENCES submissions(id) ON DELETE CASCADE`
     );
   }
 }
 
 ensureGuestBadgeAwardColumns();
+
+// --- Guarded migration: guest_badges.submission_id ON DELETE CASCADE (issue #713) ---
+/**
+ * Rebuild guest_badges so submission_id's FK action is ON DELETE CASCADE
+ * instead of the original ON DELETE SET NULL, so a hard-deleted photo takes
+ * its award row (and points) with it instead of surviving as a NULL-linked
+ * row that stmtAwardPointsSum (src/services/scoring.js) always counts.
+ *
+ * Detection: PRAGMA foreign_key_list(guest_badges), reading the submission_id
+ * FK's on_delete action directly rather than re-deriving it from column
+ * shape. No-op if guest_badges doesn't exist yet (fresh DB not yet booted),
+ * if submission_id carries no FK at all, or if the FK's on_delete is already
+ * CASCADE — which covers a fresh DB, since ensureGuestBadgeAwardColumns above
+ * now creates submission_id with ON DELETE CASCADE directly, and covers every
+ * later boot of an already-migrated DB.
+ *
+ * SQLite cannot ALTER a foreign key's ON DELETE action in place, so on an
+ * old-shape table (pre-#713) we rebuild it — same recipe as
+ * ensureTaskIdNullable above: create a new table with the corrected FK, copy
+ * every row across by explicit column list (preserving id so nothing that
+ * might reference guest_badges elsewhere goes stale, and preserving every
+ * other column byte-for-byte, including a NULL submission_id for a
+ * system/auto/special grant), drop the old table, rename the new one into
+ * place, all inside one transaction so a mid-migration crash cannot leave the
+ * database half-migrated. guest_badges has no inbound foreign keys and no
+ * secondary indexes beyond the uq_gb UNIQUE constraint, so the rebuild only
+ * needs to restore that constraint.
+ *
+ * Runs AFTER ensureGuestBadgeAwardColumns() above so points/note/
+ * submission_id are already guaranteed to exist on the source table before
+ * this migration reads and copies them.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureGuestBadgeSubmissionCascade() {
+  const tables = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'guest_badges'`)
+    .all();
+  if (tables.length === 0) {
+    // No guest_badges table yet — nothing to migrate.
+    return;
+  }
+
+  const cols = db.prepare(`PRAGMA table_info(guest_badges)`).all();
+  if (!cols.some((col) => col.name === 'submission_id')) {
+    // Pre-#483 shape, submission_id doesn't exist yet — nothing to do; the
+    // ensureGuestBadgeAwardColumns() guard above always runs first and would
+    // have already added it with ON DELETE CASCADE, so this branch is
+    // unreachable in practice but kept as a defensive no-op.
+    return;
+  }
+
+  const fks = db.prepare(`PRAGMA foreign_key_list(guest_badges)`).all();
+  const submissionFk = fks.find((fk) => fk.from === 'submission_id');
+  if (!submissionFk || submissionFk.on_delete === 'CASCADE') {
+    // Already CASCADE (fresh DB, or a previously-migrated DB), or
+    // submission_id somehow carries no FK — nothing to do.
+    return;
+  }
+
+  // Same reasoning as ensureTaskIdNullable above: dropping guest_badges
+  // mid-rebuild would trip FK enforcement on any inbound reference, so
+  // foreign_keys is turned off for the duration of the rebuild only, and
+  // turned back on immediately after.
+  db.pragma('foreign_keys = OFF');
+  try {
+    const migrate = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE guest_badges_new (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          guest_id      INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+          badge_id      INTEGER NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
+          awarded_by    TEXT    NOT NULL CHECK (awarded_by IN ('system','admin')),
+          created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+          points        INTEGER NOT NULL DEFAULT 0,
+          note          TEXT,
+          submission_id INTEGER REFERENCES submissions(id) ON DELETE CASCADE,
+          CONSTRAINT uq_gb UNIQUE (guest_id, badge_id)
+        );
+
+        INSERT INTO guest_badges_new
+          (id, guest_id, badge_id, awarded_by, created_at, points, note, submission_id)
+          SELECT id, guest_id, badge_id, awarded_by, created_at, points, note, submission_id
+            FROM guest_badges;
+
+        DROP TABLE guest_badges;
+        ALTER TABLE guest_badges_new RENAME TO guest_badges;
+      `);
+    });
+    migrate();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+ensureGuestBadgeSubmissionCascade();
 
 // --- Guarded migration: guests.pinned (issue #251) ---
 /**
@@ -715,6 +816,7 @@ module.exports = {
   ensureBadgeTypeCheckWidened,
   ensureBadgeTaskIdColumn,
   ensureGuestBadgeAwardColumns,
+  ensureGuestBadgeSubmissionCascade,
   ensurePinnedColumn,
   ensureGuestIdentityColumns,
   ensureTaskIdNullable,
