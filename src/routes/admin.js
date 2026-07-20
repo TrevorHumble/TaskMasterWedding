@@ -17,15 +17,18 @@
 //   POST /admin/tasks/:id/delete         delete a task (cascades submissions)
 //   POST /admin/tasks/:id/active         toggle is_active
 //   POST /admin/tasks/reorder            move a task up/down (sort_order)
-//   GET  /admin/photos                   guest-gallery-parity photo wall (issue #259)
-//   POST /admin/photos/:id/takedown      hide a photo + recompute auto-badges
+//   GET  /admin/photos                   guest-gallery-parity photo wall (issue #259);
+//                                         each photo carries its real comment thread,
+//                                         hidden comments included (issue #684)
+//   POST /admin/photos/:id/takedown      hide a photo + recompute auto-badges (kebab menu, #684)
 //   POST /admin/photos/:id/restore       unhide a photo + recompute auto-badges
-//   POST /admin/photos/:id/points        set a photo's bonus points (absolute set)
+//   POST /admin/photos/:id/points        RETIRED (issue #684) -> 404 (renderNotFound)
 //   POST /admin/photos/:id/favorite      toggle the host-scoped favorite flag (issue #259)
-//   POST /admin/photos/:id/badge         award/remove a photo as a give-a-badge winner (issue #259)
-//   GET  /admin/comments                 ALL comments incl. taken-down
-//   POST /admin/comments/:id/hide        hide a comment
-//   POST /admin/comments/:id/restore     unhide a comment
+//   POST /admin/photos/:id/badge         award/remove a photo as a give-a-badge winner
+//                                         (issue #259; award-only, no moderation — #684)
+//   GET  /admin/comments                 RETIRED (issue #684) -> 404 (renderNotFound)
+//   POST /admin/comments/:id/hide        hide a comment (redirects to its photo's feed card, #684)
+//   POST /admin/comments/:id/restore     unhide a comment (redirects to its photo's feed card, #684)
 //   GET  /admin/bugs                     bug report queue (unresolved, then resolved)
 //   POST /admin/bugs/:id/resolve         mark a bug report resolved
 //   GET  /admin/export                   defined in 09-export (see ADD-THIS there)
@@ -922,6 +925,49 @@ function groupPhotos(list, keyFn, headingFn) {
   return order.map((key) => byKey.get(key));
 }
 
+// Attach every comment on each loaded photo, hidden ones included — the admin
+// judges a hidden comment in place (struck-through, with Restore). This is NOT
+// community.js:attachComments, which is private to that file, filters to
+// visible-only (c.taken_down = 0), and is keyed on submission_id rather than
+// this route's `id` alias. One grouped query (not one per photo). Oldest-first
+// (mirrors community.js:228's ORDER BY) so the view's `_cmts.slice(-2)` surfaces
+// the 2 MOST-recent comments, not the 2 oldest. `guest_id`/`name` are carried
+// raw so the view links the author to /u/<id> with the same 'Guest' fallback as
+// the guest feed.
+function attachAdminComments(photoRows) {
+  if (photoRows.length === 0) return;
+  const placeholders = photoRows.map(() => '?').join(', ');
+  const commentRows = db
+    .prepare(
+      `SELECT c.submission_id AS submission_id,
+              c.id            AS id,
+              c.body          AS body,
+              c.taken_down    AS taken_down,
+              g.id            AS guest_id,
+              g.name          AS name
+         FROM comments c
+         JOIN guests g ON g.id = c.guest_id
+        WHERE c.submission_id IN (${placeholders})
+        ORDER BY c.created_at ASC, c.id ASC`
+    )
+    .all(...photoRows.map((p) => p.id));
+
+  const bySubmission = new Map();
+  for (const row of commentRows) {
+    if (!bySubmission.has(row.submission_id)) bySubmission.set(row.submission_id, []);
+    bySubmission.get(row.submission_id).push({
+      id: row.id,
+      guest_id: row.guest_id,
+      name: row.name,
+      body: row.body,
+      hidden: Boolean(row.taken_down),
+    });
+  }
+  for (const p of photoRows) {
+    p.comments = bySubmission.get(p.id) || [];
+  }
+}
+
 router.get('/photos', (req, res) => {
   const view = VALID_PHOTO_VIEWS.has(req.query.view) ? req.query.view : 'recent';
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
@@ -959,6 +1005,10 @@ router.get('/photos', (req, res) => {
     p._winnerCodes = photoBadges.winnerCodesFor(p.id);
     p._badged = p._winnerCodes.length > 0;
   }
+
+  // Attach every comment (hidden ones included) to each photo — the admin
+  // judges a hidden comment in place. See attachAdminComments above.
+  attachAdminComments(photoRows);
 
   const favorites = photoRows.filter((p) => p._fav);
 
@@ -1075,72 +1125,26 @@ router.post('/photos/:id/badge', (req, res) => {
   }
 });
 
-// POST /admin/photos/:id/points  — set a photo's bonus points (issue #89).
-// Body: bonus = the new photo_bonus value.
-// This is an ABSOLUTE SET (submissions.photo_bonus = bonus), unlike the
-// per-guest points route above, which is additive (bonus_points = bonus_points
-// + delta). A photo's award is a single Wedding Master judgment on that one
-// photo, replaced whenever re-judged — there is no "stack of past awards" to
-// accumulate, so a set is the natural operation, not a delta.
-// Only a non-negative integer is accepted; anything else redirects with a
-// message and writes nothing, leaving the stored value unchanged.
-router.post('/photos/:id/points', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-
-  const submission = db.prepare('SELECT id FROM submissions WHERE id = ?').get(id);
-  if (!submission) {
-    return redirectWithMsg(res, '/admin/photos', 'Submission not found.');
-  }
-
-  // Accept only a bare non-negative integer string (e.g. "0", "4", "12"). This
-  // regex rejects decimals, signs, whitespace-padded junk, and non-numeric
-  // input in one guard, rather than relying on parseInt's lenient prefix
-  // parsing (which would silently accept "4abc" as 4).
-  const raw = typeof req.body.bonus === 'string' ? req.body.bonus.trim() : '';
-  if (!/^\d+$/.test(raw)) {
-    return redirectWithMsg(res, '/admin/photos', 'Enter a whole number of 0 or more.');
-  }
-  const bonus = parseInt(raw, 10);
-
-  db.prepare('UPDATE submissions SET photo_bonus = ? WHERE id = ?').run(bonus, id);
-  redirectWithMsg(res, '/admin/photos', 'Set photo points bonus to ' + bonus + '.');
-});
+// POST /admin/photos/:id/points  — RETIRED (issue #684). The owner called the
+// freeform per-photo points override "unfair" — this write path is gone, not
+// merely unlinked: registered to renderNotFound so a stale form/bookmark gets
+// a real 404, not a fall-through 302 to /join (see renderNotFound's own doc
+// comment above). submissions.photo_bonus itself, and any value a host
+// already set through this route before it retired, are untouched and still
+// count in scoring (src/services/scoring.js still reads the column) — only
+// the write path is gone.
+router.post('/photos/:id/points', renderNotFound);
 
 // ---------------------------------------------------------------------------
-// GET /admin/comments  — recent comments (any taken_down state), joined to
-// the commenter's name and the photo/task they were left on.
+// GET /admin/comments  — RETIRED (issue #684). Comment moderation now happens
+// in context, under each photo in GET /admin/photos (real per-photo comments
+// attached above, hidden ones included), not on a separate all-comments page.
+// Registered to renderNotFound, not merely left unregistered, so this path
+// returns a real 404 instead of falling through into guest.js's requireGuest
+// and coming back a 302 to /join (see renderNotFound's own doc comment
+// above).
 // ---------------------------------------------------------------------------
-router.get('/comments', (req, res) => {
-  // LEFT JOIN tasks (not JOIN): a comment can be left on a memory (issue
-  // #247, s.task_id IS NULL) via the same feed comment form task photos use.
-  // An inner join here would silently drop that comment from this moderation
-  // list — LEFT JOIN keeps it, with task_title coming back NULL; the view
-  // falls back to "a shared memory".
-  const commentRows = db
-    .prepare(
-      `SELECT c.id            AS id,
-              c.body          AS body,
-              c.taken_down    AS taken_down,
-              c.created_at    AS created_at,
-              g.id            AS guest_id,
-              g.name          AS guest_name,
-              s.id            AS submission_id,
-              t.title         AS task_title
-         FROM comments c
-         JOIN guests g      ON g.id = c.guest_id
-         JOIN submissions s ON s.id = c.submission_id
-         LEFT JOIN tasks t  ON t.id = s.task_id
-        ORDER BY c.created_at DESC, c.id DESC`
-    )
-    .all();
-
-  res.render('admin-comments', {
-    title: 'Comments',
-    comments: commentRows,
-    msg: req.query.msg || '',
-    isAdmin: true,
-  });
-});
+router.get('/comments', renderNotFound);
 
 // POST /admin/comments/:id/hide  — hide a comment (taken_down = 1).
 //
@@ -1151,25 +1155,31 @@ router.get('/comments', (req, res) => {
 // count toward points or badges. A comment carries no score and no badge, so
 // hiding one is lighter, text-only moderation — a plain taken_down flag flip
 // with no scoring side effect. The different verb marks the different weight.
+//
+// Redirects via redirectToPhotos (issue #684), not the removed /admin/comments
+// page: reads back the comment's own submission_id so the host lands on the
+// photos feed at that photo's card (#feed-photo-<id>) when the form's hidden
+// panel field is "feed" — never a dead page.
 router.post('/comments/:id/hide', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const comment = db.prepare('SELECT id FROM comments WHERE id = ?').get(id);
+  const comment = db.prepare('SELECT id, submission_id FROM comments WHERE id = ?').get(id);
   if (!comment) {
-    return redirectWithMsg(res, '/admin/comments', 'Comment not found.');
+    return redirectToPhotos(req, res, 'Comment not found.');
   }
   db.prepare('UPDATE comments SET taken_down = 1 WHERE id = ?').run(id);
-  redirectWithMsg(res, '/admin/comments', 'Comment hidden.');
+  redirectToPhotos(req, res, 'Comment hidden.', comment.submission_id);
 });
 
 // POST /admin/comments/:id/restore  — restore a hidden comment (taken_down = 0).
+// Same redirect-to-the-feed-card shape as hide, above (issue #684).
 router.post('/comments/:id/restore', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const comment = db.prepare('SELECT id FROM comments WHERE id = ?').get(id);
+  const comment = db.prepare('SELECT id, submission_id FROM comments WHERE id = ?').get(id);
   if (!comment) {
-    return redirectWithMsg(res, '/admin/comments', 'Comment not found.');
+    return redirectToPhotos(req, res, 'Comment not found.');
   }
   db.prepare('UPDATE comments SET taken_down = 0 WHERE id = ?').run(id);
-  redirectWithMsg(res, '/admin/comments', 'Comment restored.');
+  redirectToPhotos(req, res, 'Comment restored.', comment.submission_id);
 });
 
 // ---------------------------------------------------------------------------

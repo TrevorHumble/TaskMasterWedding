@@ -165,6 +165,34 @@
   <% } %>
 </div>
 
+<%
+  // One comment row (the .feed-comment-item the guest thread uses), with the
+  // host's visible inline Hide / Restore. `clamp` toggles the 2-line ellipsis
+  // used in the card preview (the lone comment and the dialog thread show full
+  // text). Author links to the public profile with the same 'Guest' fallback as
+  // the guest feed (src/views/feed.ejs). Same local-function idiom as adminTile.
+  function adminCommentRow(c, clamp) {
+%>
+  <div class="feed-comment-item admin-comment-item<%= c.hidden ? ' is-hidden' : '' %>">
+    <p class="feed-comment<%= clamp ? ' admin-comment-clamp' : '' %>"><a href="/u/<%= c.guest_id %>"><%= c.name || 'Guest' %></a> <%= c.body %></p>
+    <% if (c.hidden) { %>
+      <form method="post" action="/admin/comments/<%= c.id %>/restore" class="admin-comment-actionform">
+        <input type="hidden" name="view" value="<%= view %>">
+        <input type="hidden" name="q" value="<%= q %>">
+        <input type="hidden" name="panel" value="feed">
+        <button type="submit" class="admin-comment-action admin-comment-restore">Restore</button>
+      </form>
+    <% } else { %>
+      <form method="post" action="/admin/comments/<%= c.id %>/hide" class="admin-comment-actionform" data-confirm="Hide this comment? Guests will no longer see it.">
+        <input type="hidden" name="view" value="<%= view %>">
+        <input type="hidden" name="q" value="<%= q %>">
+        <input type="hidden" name="panel" value="feed">
+        <button type="submit" class="admin-comment-action admin-comment-hide">Hide</button>
+      </form>
+    <% } %>
+  </div>
+<% } %>
+
 <!-- ===================== FEED (parity with guest feed) ===================== -->
 <!-- Client-side only (no separate route, issue #259): tapping any tile above
      shows this same server-rendered section, scrolled to that photo. Same
@@ -174,7 +202,36 @@
   <div class="feed">
     <% photos.forEach(function (p) { %>
       <article id="feed-photo-<%= p.id %>" class="feed-item admin-feed-item<%= p.taken_down ? ' is-down' : '' %>">
-        <p class="feed-by"><%= p.guest_name || ('Guest #' + p.guest_id) %></p>
+        <%# Card header: uploader name + the contextual ⋯ menu (issue #684).
+            Take down / Restore moved OUT of the Give-a-badge dialog and into
+            this kebab, mirroring the guest owner-menu (#387,
+            partials/photo-owner-menu.ejs) so moderation sits where the host
+            looks — on the photo — not buried behind the badge button. Native
+            <details>/<summary>: opens with no JS. The confirm is admin.js's
+            delegated data-confirm handler. %>
+        <div class="feed-by admin-feed-by">
+          <span class="admin-feed-name"><%= p.guest_name || ('Guest #' + p.guest_id) %></span>
+          <details class="photo-owner-menu admin-photo-menu">
+            <summary class="photo-owner-menu-trigger" aria-label="Photo options">&#8943;</summary>
+            <div class="photo-owner-menu-panel">
+              <% if (p.taken_down) { %>
+                <form method="post" action="/admin/photos/<%= p.id %>/restore" data-confirm="Restore this photo? Guests will see it again.">
+                  <input type="hidden" name="view" value="<%= view %>">
+                  <input type="hidden" name="q" value="<%= q %>">
+                  <input type="hidden" name="panel" value="feed">
+                  <button type="submit" class="photo-owner-menu-item">Restore photo</button>
+                </form>
+              <% } else { %>
+                <form method="post" action="/admin/photos/<%= p.id %>/takedown" data-confirm="Take this photo down? Guests will no longer see it.">
+                  <input type="hidden" name="view" value="<%= view %>">
+                  <input type="hidden" name="q" value="<%= q %>">
+                  <input type="hidden" name="panel" value="feed">
+                  <button type="submit" class="photo-owner-menu-item photo-owner-delete">Take down photo</button>
+                </form>
+              <% } %>
+            </div>
+          </details>
+        </div>
 
         <%# Parity with the guest feed (issue #673): inside the admin inline
             feed, tapping the photo opens the full-resolution original in the
@@ -198,8 +255,17 @@
             alt="<%= p.task_title || 'a shared memory' %>"
             loading="lazy"
           />
+          <%# Taken-down photo in the viewer reads exactly like the grid tile
+              (issue #684): grayscale image + the "Taken down" pill laid over
+              the photo, same classes as the grid (.admin-tile-down /
+              .admin-tile-resub) so the two surfaces stay one component. %>
+          <% if (p.taken_down) { %>
+            <span class="admin-tile-down">Taken down</span>
+            <% if (p.resubmitted) { %>
+              <span class="admin-tile-resub">Resubmitted &mdash; review</span>
+            <% } %>
+          <% } %>
         </button>
-        <% if (p.taken_down) { %><p class="admin-feed-downline">Taken down — hidden from guests<% if (p.resubmitted) { %> · <strong>resubmitted, awaiting your review</strong><% } %></p><% } %>
 
         <% if (p.caption) { %>
           <p class="feed-caption"><%= p.caption %></p>
@@ -254,6 +320,62 @@
         <% } else { %>
           <p class="feed-task-line">a shared memory</p>
         <% } %>
+
+        <%# Comments in context (issue #684): each photo's comments render
+            right under it so the host judges them where they live, instead of
+            on a separate Comments page. A live comment carries a quiet Hide; a
+            hidden one stays visible to the host, struck-through, with Restore.
+            Guests never see a hidden comment. Real data, attached by GET
+            /admin/photos (src/routes/admin.js) — oldest-first, so slice(-2)
+            below surfaces the 2 most recent. Posts to the existing
+            /admin/comments/:id/hide|restore handlers, which now redirect
+            back to this feed card, never the removed Comments page. %>
+        <% var _cmts = p.comments || []; %>
+        <% if (_cmts.length === 1) { %>
+          <%# A lone comment: shown in full (no clamp) with its visible, inline
+              Hide (Restore if hidden) — the same inline placement every comment
+              gets, so there is no lone-vs-thread inconsistency, and no "See all
+              1". %>
+          <% var _c1 = _cmts[0]; %>
+          <div class="feed-comments admin-feed-comments">
+            <%- adminCommentRow(_c1, false) %>
+          </div>
+        <% } else if (_cmts.length > 1) { %>
+          <%# A thread: every comment carries the SAME visible, inline Hide
+              (Restore if hidden) — consistent placement, no floating ⋯ dropdown
+              (the card's content-visibility:auto containment would clip one).
+              Each comment's TEXT is clamped to 2 lines with a real trailing
+              ellipsis (.admin-comment-clamp / -webkit-line-clamp), so a long
+              comment reads as truncated ("…"), never an unfinished thought,
+              while its Hide stays beside it. The preview shows the 2 most
+              recent; "See all N" opens the full, unclamped thread in a
+              top-layer <dialog>. Posts to the existing /admin/comments/:id/
+              hide|restore handlers; Restore returns to this feed (panel=feed),
+              never the removed Comments page. %>
+          <div class="feed-comments admin-feed-comments">
+            <% _cmts.slice(-2).forEach(function (c) { %><%- adminCommentRow(c, true) %><% }); %>
+            <button
+              type="button"
+              class="see-all-comments"
+              data-open-admin-comments="<%= p.id %>"
+            >See all <%= _cmts.length %> comments</button>
+          </div>
+
+            <dialog
+              class="comments-dialog admin-comments-dialog"
+              id="admin-comments-dialog-<%= p.id %>"
+              aria-labelledby="admin-comments-title-<%= p.id %>"
+            >
+              <div class="comments-dialog-header">
+                <img class="comments-dialog-thumb" src="/thumbs/<%= p.thumb_path %>" alt="" />
+                <h2 class="comments-dialog-title" id="admin-comments-title-<%= p.id %>">Comments</h2>
+                <button type="button" class="comments-dialog-close" data-close-admin-comments aria-label="Close comments">&times;</button>
+              </div>
+              <div class="comments-dialog-thread">
+                <% _cmts.forEach(function (c) { %><%- adminCommentRow(c, false) %><% }); %>
+              </div>
+            </dialog>
+          <% } %>
       </article>
     <% }); %>
   </div>
@@ -289,13 +411,9 @@
 
     <p class="admin-badge-hint muted">Award points once all badges are awarded.</p>
 
+    <%# Award-only (issue #684): Take down / Restore moved to the card's ⋯
+        menu, so this dialog no longer moderates — it only awards a badge. %>
     <div class="admin-badge-buttons">
-      <form method="post" id="adminBadgeModerateForm" data-confirm="Take this photo down? Guests will no longer see it.">
-        <input type="hidden" name="view" value="<%= view %>">
-        <input type="hidden" name="q" value="<%= q %>">
-        <input type="hidden" name="panel" id="adminBadgeModeratePanel" value="">
-        <button type="submit" class="btn btn-danger" id="adminBadgeModerate">Take down</button>
-      </form>
       <form method="post" id="adminBadgeAwardForm">
         <input type="hidden" name="view" value="<%= view %>">
         <input type="hidden" name="q" value="<%= q %>">
@@ -364,9 +482,6 @@
     var awardBtn = document.getElementById('adminBadgeAward');
     var awardForm = document.getElementById('adminBadgeAwardForm');
     var awardPanelInput = document.getElementById('adminBadgeAwardPanel');
-    var moderateBtn = document.getElementById('adminBadgeModerate');
-    var moderateForm = document.getElementById('adminBadgeModerateForm');
-    var moderatePanelInput = document.getElementById('adminBadgeModeratePanel');
     var currentWinnerCodes = [];
 
     // The Award/Remove label (and the picker's is-selected highlight) is a
@@ -399,21 +514,9 @@
         meta.textContent = open.getAttribute('data-guest-name') + ' — ' + open.getAttribute('data-task-title');
         thumb.src = '/thumbs/' + open.getAttribute('data-thumb');
 
-        var down = open.getAttribute('data-down') === '1';
-        moderateBtn.textContent = down ? 'Restore' : 'Take down';
-        moderateBtn.classList.toggle('btn-danger', !down);
-        moderateForm.action = '/admin/photos/' + id + '/' + (down ? 'restore' : 'takedown');
-        // Confirm copy must match the action the button will take — restoring
-        // is not destructive, so it must not reuse the takedown warning.
-        if (down) {
-          moderateForm.setAttribute('data-confirm', 'Restore this photo? Guests will see it again.');
-        } else {
-          moderateForm.setAttribute('data-confirm', 'Take this photo down? Guests will no longer see it.');
-        }
         awardForm.action = '/admin/photos/' + id + '/badge';
 
         var panelVal = open.getAttribute('data-panel') || '';
-        moderatePanelInput.value = panelVal;
         awardPanelInput.value = panelVal;
 
         currentWinnerCodes = (open.getAttribute('data-winner-codes') || '').split(',').filter(Boolean);
@@ -430,6 +533,34 @@
       }
       if (e.target.closest('[data-badge-close]')) {
         dlg.close();
+      }
+    });
+
+    // ------- Comments thread dialog (issue #684) -------
+    // "See all N" opens the per-photo <dialog> full thread; the ✕, a backdrop
+    // click, and Escape (native to <dialog>) close it. showModal() renders in
+    // the top layer, escaping the feed card's paint containment.
+    document.addEventListener('click', function (e) {
+      var opener = e.target.closest('[data-open-admin-comments]');
+      if (opener) {
+        var d = document.getElementById(
+          'admin-comments-dialog-' + opener.getAttribute('data-open-admin-comments')
+        );
+        if (d && !d.open && typeof d.showModal === 'function') d.showModal();
+        return;
+      }
+      if (e.target.closest('[data-close-admin-comments]')) {
+        var open = e.target.closest('dialog.admin-comments-dialog');
+        if (open) open.close();
+        return;
+      }
+      // Backdrop click (the target IS the dialog element, outside its content).
+      if (
+        e.target.classList &&
+        e.target.classList.contains('admin-comments-dialog') &&
+        e.target.tagName === 'DIALOG'
+      ) {
+        e.target.close();
       }
     });
   })();

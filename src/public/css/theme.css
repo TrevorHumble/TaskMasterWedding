@@ -3992,9 +3992,14 @@ body:has(dialog[open]) {
   line-height: 1.4;
 }
 
-/* -------- Feed parity: reuse .feed-*/
-.like-button/.comment-button -------- */ .admin-feed-item.is-down .feed-photo {
-  filter: grayscale(1) brightness(0.7);
+/* -------- Feed parity: reuses .feed-photo / .like-button / .comment-button --------
+   A taken-down photo in the viewer reads identically to the grid tile
+   (.admin-tile.is-down): same grayscale + dim (issue #684). Keep this comment
+   free of a comment-closing sequence: an earlier version quoted one mid-sentence,
+   which ended the comment early and voided the rule below so the photo never
+   grayed out. */
+.admin-feed-item.is-down .feed-photo {
+  filter: grayscale(1) brightness(0.55);
 }
 .admin-feed-downline {
   margin: var(--space-2) 0 0;
@@ -4015,6 +4020,84 @@ body:has(dialog[open]) {
 .admin-points-pending {
   color: #b9822a;
   font-style: italic;
+}
+
+/* -------- Card header: name + contextual ⋯ menu (issue #684) --------
+   The kebab reuses .photo-owner-menu (the guest owner-menu, #387) verbatim;
+   only the header row needs a rule so the name and the ⋯ share one line, the
+   menu pushed to the right by .photo-owner-menu's own margin-left:auto. */
+.admin-feed-by {
+  gap: var(--space-2);
+}
+.admin-feed-name {
+  font-weight: 600;
+}
+
+/* -------- Comments in context, under each admin card (issue #684) --------
+   Same treatment as the guest feed's comment thread (.feed-comment-item plus
+   the #338 ⋯ menu, reused verbatim in admin-photos.ejs). Only the
+   host-specific deltas live here: a subtle separator from the card above, the
+   hidden (struck-through) state, and the Restore action's color. */
+.admin-feed-comments {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
+}
+/* A moderation row: the comment text grows, its Hide/Restore action sits quietly
+   at the row's end. A visible action (not a floating ⋯ dropdown) is deliberate —
+   the feed card's paint containment (content-visibility:auto) would clip a
+   floating panel, which is exactly the "the little box is hidden" bug. Overrides
+   .feed-comment-item's relative/padding-right ⋯ anchor, which is unused here. */
+/* Each preview comment's TEXT is clamped to 2 lines with a real trailing
+   ellipsis (owner ask 2026-07-20: a mid-sentence cut must read as truncated,
+   not an unfinished thought). Clamping the per-comment text element — not the
+   whole block — is what lets every comment keep its own visible Hide beside it
+   (the button is a flex sibling, outside this clamped box). The dialog thread's
+   comments are NOT clamped (no .admin-comment-clamp there) — they show in full. */
+.admin-comment-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.admin-comment-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding-right: 0;
+}
+.admin-comment-item .feed-comment {
+  flex: 1 1 auto;
+  min-width: 0; /* let the one-line preview clamp (.feed-comment-row) ellipsize inside the flex row */
+  margin: 0;
+}
+.admin-comment-actionform {
+  flex: 0 0 auto;
+}
+.admin-comment-action {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* A hidden comment stays visible to the host — muted and struck-through so its
+   state is unmistakable — while guests never see it at all. */
+.admin-comment-item.is-hidden .feed-comment,
+.admin-comment-item.is-hidden .feed-comment a {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+/* Restore reads as the affirmative action (green); Hide stays quiet muted and
+   warms to danger only on hover. */
+.admin-comment-restore {
+  color: var(--color-primary);
+}
+.admin-comment-hide:hover {
+  color: var(--color-danger, #b3261e);
 }
 
 /* -------- Give-a-badge menu (scrim/header reuse .comments-dialog) -------- */
@@ -4839,6 +4922,7 @@ body:has(dialog[open]) {
    <button> so it lays out exactly like the guest feed's photo, edge to edge. */
 .admin-feed-photo-btn {
   display: block;
+  position: relative;
   width: 100%;
   padding: 0;
   border: 0;

@@ -1,8 +1,9 @@
 // tests/per-photo-points.test.js
 // Covers issue #89 acceptance criteria:
 //   AC2 — a visible submission's feed points = 1 + photo_bonus
-//   AC3 — admin POST bonus=4 sets submissions.photo_bonus absolutely, and the
-//         feed then shows 1 + 4 = 5
+//   AC3 — RETIRED (issue #684): the admin write path (POST /admin/photos/:id
+//         /points) is gone; see its note further down and
+//         tests/admin-moderation-684.test.js AC7
 //   AC4 — per-photo bonus counts toward the leaderboard total, and changes
 //         guest ordering
 //   AC5 — the public profile total reflects per-photo bonus
@@ -13,13 +14,12 @@
 'use strict';
 
 const request = require('supertest');
-const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
 let dbModule;
 let scoring;
-let adminAgent;
 
 beforeAll(async () => {
   const loaded = loadApp();
@@ -32,8 +32,6 @@ beforeAll(async () => {
   // (ensurePhotoBonusColumn) rather than an inline copy of it.
   dbModule = require('../src/db');
   scoring = require('../src/services/scoring');
-
-  adminAgent = await makeAdminAgent(app);
 });
 
 /**
@@ -136,64 +134,14 @@ it('AC2: a visible submission with photo_bonus=2 shows feed points 3', async () 
 });
 
 // ---------------------------------------------------------------------------
-// AC3: admin awards per-photo points — absolute set, not additive.
+// AC3: admin awards per-photo points — RETIRED (issue #684). POST
+// /admin/photos/:id/points itself (the write path this AC used to cover) is
+// gone — registered to renderNotFound, a real 404 for every id, known or
+// not; see tests/admin-moderation-684.test.js AC7 for that coverage.
+// photo_bonus itself (and every already-set value) is untouched and keeps
+// counting toward the feed/leaderboard/profile totals — AC2/AC4/AC5/AC6
+// below already prove that independent of the retired write route.
 // ---------------------------------------------------------------------------
-it('AC3: admin POST bonus=4 sets DB photo_bonus to 4 and feed shows 5', async () => {
-  const author = await signedInGuest('ac3pts-author', 'AC3 Points Author');
-  const submissionId = seedSubmission(author.guestId, {
-    photoPath: 'ac3pts.jpg',
-    thumbPath: 'ac3ptst.jpg',
-    photoBonus: 0,
-  });
-
-  const postRes = await adminAgent
-    .post('/admin/photos/' + submissionId + '/points')
-    .type('form')
-    .send({ bonus: 4 });
-  expect(postRes.status).toBe(303);
-
-  const row = db.prepare('SELECT photo_bonus FROM submissions WHERE id = ?').get(submissionId);
-  expect(row.photo_bonus).toBe(4);
-
-  const feedRes = await author.agent.get('/feed');
-  expect(pointsInFeedBody(feedRes.text, submissionId)).toBe(5);
-});
-
-it('AC3 edge: admin POST with a negative bonus is rejected and does not write', async () => {
-  const author = await signedInGuest('ac3neg-author', 'AC3 Negative Author');
-  const submissionId = seedSubmission(author.guestId, {
-    photoPath: 'ac3neg.jpg',
-    thumbPath: 'ac3negt.jpg',
-    photoBonus: 0,
-  });
-
-  const postRes = await adminAgent
-    .post('/admin/photos/' + submissionId + '/points')
-    .type('form')
-    .send({ bonus: -1 });
-  expect(postRes.status).toBe(303);
-
-  const row = db.prepare('SELECT photo_bonus FROM submissions WHERE id = ?').get(submissionId);
-  expect(row.photo_bonus).toBe(0);
-});
-
-it('AC3 edge: admin POST with a non-integer bonus is rejected and does not write', async () => {
-  const author = await signedInGuest('ac3dec-author', 'AC3 Decimal Author');
-  const submissionId = seedSubmission(author.guestId, {
-    photoPath: 'ac3dec.jpg',
-    thumbPath: 'ac3dect.jpg',
-    photoBonus: 0,
-  });
-
-  const postRes = await adminAgent
-    .post('/admin/photos/' + submissionId + '/points')
-    .type('form')
-    .send({ bonus: '4.5' });
-  expect(postRes.status).toBe(303);
-
-  const row = db.prepare('SELECT photo_bonus FROM submissions WHERE id = ?').get(submissionId);
-  expect(row.photo_bonus).toBe(0);
-});
 
 // ---------------------------------------------------------------------------
 // AC4: per-photo points count on the leaderboard, and affect ordering.

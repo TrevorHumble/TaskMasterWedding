@@ -41,6 +41,7 @@ let adminAgent;
 // IDs assigned during seeding so assertions can target real rows.
 let guestId;
 let taskId;
+let submissionId;
 
 beforeAll(async () => {
   const result = loadApp();
@@ -59,12 +60,14 @@ beforeAll(async () => {
     .prepare('INSERT INTO guests (token, name) VALUES (?, ?)')
     .run('confirmtoken', 'Confirm Guest').lastInsertRowid;
 
-  // The photo page only renders the takedown form for submissions with
-  // taken_down = 0, so keep it live.
-  db.prepare(
-    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
-     VALUES (?, ?, ?, ?, 0)`
-  ).run(guestId, taskId, path.join('confirm.jpg'), path.join('confirm.jpg.jpg'));
+  // The feed's kebab menu only renders the takedown form for submissions
+  // with taken_down = 0, so keep it live.
+  submissionId = db
+    .prepare(
+      `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+       VALUES (?, ?, ?, ?, 0)`
+    )
+    .run(guestId, taskId, path.join('confirm.jpg'), path.join('confirm.jpg.jpg')).lastInsertRowid;
 });
 
 // ---------------------------------------------------------------------------
@@ -87,20 +90,18 @@ it('AC-1: guest delete form has data-confirm and method="post"', async () => {
 // ---------------------------------------------------------------------------
 // AC-2: photo takedown form
 //
-// Issue #259 (2026-07-19 owner-approved redesign) moved takedown/restore
-// behind the shared give-a-badge dialog: ONE <form id="adminBadgeModerateForm">
-// whose `action` is set by client-side JS to the tapped photo's
-// .../takedown or .../restore endpoint when the dialog opens (there is no
-// longer a static per-photo form with a literal numeric id in the action,
-// since the dialog is reused for every photo). The confirm guard itself
-// still lives on that one static form, so this asserts its real new shape
-// instead of the superseded per-photo form.
+// Issue #684 (2026-07-20 owner-approved redesign) moved takedown/restore OUT
+// of the shared give-a-badge dialog (now award-only) and into a per-photo
+// kebab (⋯) menu on the feed card — a real static <form action="/admin/
+// photos/<id>/takedown"> for that exact submission, not a dialog whose
+// action is rewritten by client-side JS. Confirm this real form.
 // ---------------------------------------------------------------------------
-it('AC-2: the give-a-badge dialog\'s moderate (takedown/restore) form has data-confirm and method="post"', async () => {
+it('AC-2: the photo\'s kebab takedown form has data-confirm and method="post"', async () => {
   const res = await adminAgent.get('/admin/photos');
   expect(res.status).toBe(200);
 
-  const tag = extractFormTag(res.text, /id="adminBadgeModerateForm"/i);
+  const takedownActionRe = new RegExp(`action="/admin/photos/${submissionId}/takedown"`, 'i');
+  const tag = extractFormTag(res.text, takedownActionRe);
 
   expect(tag).not.toBeNull();
   expect(tag).toMatch(/data-confirm=/i);
