@@ -4,6 +4,8 @@ A step-by-step checklist for a human — not a developer — to confirm the app 
 
 Each scenario below is written as: what to do, what you should see, and a checkbox to mark the result. Work through every box. If a box fails, write down what you saw next to it (or in a separate notes doc) and file it as a defect — do not just re-check it and move on.
 
+**A note on scope:** the Goal B and admin award/badge steps below target the design being built — the authority is [`docs/game-design-points-badges.md`](game-design-points-badges.md), specifically its "Data flow and architecture" section; steps that still exercise the previous scoring/badge model are moved to [Deprecated](#deprecated) at the bottom.
+
 ## Setup
 
 Do this once, before you start testing.
@@ -107,14 +109,6 @@ Expected: The guest gets a 503 "under maintenance" style page. The admin login p
 
 Guests get instant rewards, see badges and standings, and stay active in the celebration rather than just watching a screen.
 
-### B1. Submitting a photo completes a task and awards a point
-
-Steps: As a signed-in guest, go to `/tasks`, pick any task not yet marked done, open it, and upload a photo.
-
-Expected: A success message appears ("Task complete! +1 point."), the task now shows as done on `/tasks`, and the guest's points total on their home page (`/`) went up by 1.
-
-- [ ] Pass/fail
-
 ### B2. Auto badges unlock at the right thresholds
 
 Steps: As a guest with fewer than 5 completed tasks, complete tasks one at a time (or use a guest token already near a threshold from the seed data) until you cross 5 completed tasks, watching the home page badges section after each submission.
@@ -123,7 +117,7 @@ Expected: The **BLOOM** badge appears exactly when the 5th task is completed —
 
 - [ ] Pass/fail
 
-### B3. Replacing a submission keeps the task at one point, doesn't double-count
+### B3. Replacing a submission doesn't double-count the task
 
 Steps: Go to a task you've already completed, and upload a new photo to replace the existing one.
 
@@ -139,21 +133,13 @@ Expected: Guests are ordered highest points first. Two guests with the same poin
 
 - [ ] Pass/fail
 
-### B5. Special badges display correctly on a guest's profile
-
-Steps: In the admin window, go to `/admin/guests`, pick a guest, and award a special badge (e.g. SHUTTERBUG). Then view that guest's public profile at `/u/<their-id>`.
-
-Expected: The badge appears on their profile immediately, alongside any auto badges (BLOOM/BOUQUET/GARDEN) they've earned.
-
-- [ ] Pass/fail
-
 ### B6. Upload button shows the right label at each stage
 
 Steps: On a task you haven't completed yet, open the upload form and look at the submit button before choosing a photo.
 
 Expected: The button reads "Upload & complete". Choose a photo and tap the button.
 
-Expected: While the upload is in progress, the button's label changes to "Uploading…". Once it finishes, you land back on the task page as normal (per B1).
+Expected: While the upload is in progress, the button's label changes to "Uploading…". Once it finishes, you land back on the task page as normal, now showing the task as completed.
 
 Steps (continued): Go to that same now-completed task again and open the upload form.
 
@@ -181,7 +167,7 @@ Expected: The number in the chip goes down by one.
 
 ### B9. Tied podium spots show a "points each" note
 
-Steps: Go to `/leaderboard`. Look at the top-3 podium display (not the full standings list below it) for a spot where two or more guests are tied — the seed data should produce at least one tie near the top; if not, award bonus points in the admin window (C4) until two guests share a podium spot.
+Steps: Go to `/leaderboard`. Look at the top-3 podium display (not the full standings list below it) for a spot where two or more guests are tied — the seed data should produce at least one tie near the top; if not, see the Deprecated section below for one way to force a tie for testing purposes.
 
 Expected: A tied podium spot shows a stack of the tied guests' avatars — up to three, with a "+N" badge if more than three guests are tied — and a subline reading something like "2nd place · 12 pts each" — the literal phrase "pts each" appears under a tied group, unlike a single winner's spot, which just shows their name.
 
@@ -214,22 +200,6 @@ Expected: The deactivated task no longer appears in the guest's task list. Toggl
 Steps: In `/admin/tasks`, move a task up or down in the list using the reorder controls.
 
 Expected: The task's position changes in the admin list, and the same new order shows on the guest's `/tasks` page.
-
-- [ ] Pass/fail
-
-### C4. Award and deduct bonus points
-
-Steps: In `/admin/guests`, award a guest +5 bonus points, then check their total on `/leaderboard` or their own home page. Then deduct points (a negative amount) from the same guest.
-
-Expected: Points increase by exactly the awarded amount, then decrease by the deducted amount. The guest's rank on `/leaderboard` updates accordingly.
-
-- [ ] Pass/fail
-
-### C5. Award and remove a special badge
-
-Steps: In `/admin/guests`, award a special badge to a guest, confirm it shows on their profile (`/u/<id>`), then remove it from the admin panel.
-
-Expected: The badge appears after awarding and disappears after removal — both changes visible on the guest's public profile without needing a page other than a refresh.
 
 - [ ] Pass/fail
 
@@ -432,3 +402,43 @@ Expected: Both show a friendly "not found" page — not a raw error, not a blank
 - [ ] Every box above is checked.
 - [ ] Any failed box has a written note describing what actually happened, filed as a defect before the event.
 - [ ] The `data-demo` database and admin password used for this walkthrough are discarded — they are test data only and are never used for the live event data.
+
+---
+
+## Deprecated
+
+Steps below exercise the previous scoring/badge model. This is how the game used to work, and how the code still behaves until #683, #684, and #661 land. The project is actively building away from it; do not treat these as the plan going forward. The settled replacement is `docs/game-design-points-badges.md`, with its data flow recorded in that document's "Data flow and architecture" section.
+
+### B1 (deprecated). Submitting a photo completes a task and awards a point
+
+Steps: As a signed-in guest, go to `/tasks`, pick any task not yet marked done, open it, and upload a photo.
+
+Expected: A success message appears ("Task complete! +1 point."), the task now shows as done on `/tasks`, and the guest's points total on their home page (`/`) went up by 1.
+
+- [ ] Pass/fail
+
+### B5 (deprecated). Special badges display correctly on a guest's profile
+
+Steps: In the admin window, go to `/admin/guests`, pick a guest, and award a special badge (e.g. SHUTTERBUG). Then view that guest's public profile at `/u/<their-id>`.
+
+Expected: The badge appears on their profile immediately, alongside any auto badges (BLOOM/BOUQUET/GARDEN) they've earned.
+
+- [ ] Pass/fail
+
+### C4 (deprecated). Award and deduct bonus points
+
+Steps: In `/admin/guests`, award a guest +5 bonus points, then check their total on `/leaderboard` or their own home page. Then deduct points (a negative amount) from the same guest.
+
+Expected: Points increase by exactly the awarded amount, then decrease by the deducted amount. The guest's rank on `/leaderboard` updates accordingly.
+
+This is also the fastest way to force a podium tie for testing B9 above, until the ranked-award/crowd-favorite mechanics replace it.
+
+- [ ] Pass/fail
+
+### C5 (deprecated). Award and remove a special badge
+
+Steps: In `/admin/guests`, award a special badge to a guest, confirm it shows on their profile (`/u/<id>`), then remove it from the admin panel.
+
+Expected: The badge appears after awarding and disappears after removal — both changes visible on the guest's public profile without needing a page other than a refresh.
+
+- [ ] Pass/fail
