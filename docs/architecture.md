@@ -2,6 +2,8 @@
 
 How a request travels through Wedding Master, and how the data is shaped. For the reasoning behind these choices see [`DESIGN.md`](../DESIGN.md).
 
+**A note on scope:** the scoring/badge coverage in this document describes the design being built, not a finished system — the authority is [`docs/game-design-points-badges.md`](game-design-points-badges.md), specifically its "Data flow and architecture" section; the previous scoring/badge model, which the code below still runs today, is quarantined at the bottom under [Deprecated](#deprecated--the-previous-scoringbadge-system).
+
 ## Request path
 
 A guest's phone and the admin's browser both reach the app server through a reverse proxy that terminates HTTPS, which forwards to Express. `src/app.js` runs the request through middleware, into a router, which calls services that read and write SQLite and the file store under `data/`.
@@ -30,7 +32,7 @@ flowchart TD
             scoring["scoring.js<br/>points, badges, leaderboard"]
             submissions["submissions.js<br/>submit-or-replace sequence"]
             feed["feed.js<br/>gallery/feed visibility + ordering"]
-            badges["badges.js<br/>metric/transferable badge engine"]
+            badges["badges.js<br/>badge engine (metric/transferable<br/>types deprecated, see bottom)"]
             identity["identity.js<br/>contact normalize, PIN"]
             export["export.js<br/>ZIP + summary.xlsx"]
             qr["qr.js<br/>QR data URLs"]
@@ -48,7 +50,7 @@ flowchart TD
 
 ## Data model
 
-Eight tables. Several UNIQUE constraints carry the core game rules.
+Eight tables. Several UNIQUE constraints carry the core game rules. Three fields below (`guests.bonus_points`, `submissions.photo_bonus`, and the `special`/`metric`/`transferable` values of `badges.type`) belong to the scoring/badge model being replaced — see [Deprecated](#deprecated--the-previous-scoringbadge-system) for how they work today and `docs/game-design-points-badges.md`'s "Data flow and architecture" section for the settled stores (`tasks`, `submissions`, `likes`, `guest_badges`, `settings`) that replace them.
 
 ```mermaid
 erDiagram
@@ -68,7 +70,7 @@ erDiagram
         text name
         text avatar_path
         text social_links "JSON"
-        int bonus_points
+        int bonus_points "deprecated - freeform award, dying (#683)"
         int onboarded
         text contact "normalized email or phone"
         text contact_type "email | phone"
@@ -93,14 +95,14 @@ erDiagram
         text caption
         int taken_down
         int resubmitted "1 = guest replaced this while taken_down (issue #190)"
-        int photo_bonus
+        int photo_bonus "deprecated - freeform award, dying (#684)"
         text created_at
     }
     badges {
         int id PK
         text code UK
         text name
-        text type "auto | special | metric | transferable | custom"
+        text type "auto | special | metric | transferable | custom - special/metric/transferable deprecated, dying (#661)"
         int threshold
         text art_path
         text description
@@ -152,7 +154,7 @@ UNIQUE constraints:
 2. The guest submits the form to `POST /tasks/:id/submit` as `multipart/form-data`. `guest.js` hands the upload to `services/photos.js`, where multer accepts the file and sharp writes a normalized original to `data/uploads/` and a thumbnail (width `THUMB_WIDTH`) to `data/thumbs/`.
 3. A `submissions` row is inserted with the guest id, task id, photo and thumb paths, and any caption. The `UNIQUE(guest_id, task_id)` constraint prevents a second submission for the same task.
 4. `services/scoring.js` recomputes the guest's completed-task count (non-taken-down submissions). If the count crossed a `BADGE_THRESHOLDS` boundary (5 / 10 / 15), the matching auto badge is recorded in `guest_badges` with `awarded_by = 'system'`; `UNIQUE(guest_id, badge_id)` makes this safe to repeat.
-5. The guest is redirected back, the photo now counts for a point, appears in `/gallery`, on the guest's profile, and affects the leaderboard.
+5. The guest is redirected back, the photo now counts toward the task's point worth (host-set per `docs/game-design-points-badges.md`), appears in `/gallery`, on the guest's profile, and affects the leaderboard.
 
 If the admin later takes the photo down, the row's `taken_down` flips to 1: the photo drops out of the gallery, profiles, and scoring, and can be restored later. The takedown is sticky (issue #190): if the guest resubmits the same task while it is still taken down, the photo is replaced in place but `taken_down` stays 1 — a resubmit no longer un-hides it — and `resubmitted` flips to 1 so `/admin/photos` flags a decision waiting. Restoring the submission clears both `taken_down` and `resubmitted`.
 
@@ -166,3 +168,12 @@ Every guest gets the SAME link — one QR poster (`GET /admin/poster`), printed 
 4. On every later request, `attachGuest` reads and verifies the signed `gsid` cookie, loads the guest by token, and exposes it to routes and views. The cookie signature (via `cookie-parser` and `COOKIE_SECRET`) is what makes the token tamper-evident.
 
 The admin sign-in is parallel: `POST /admin/login` checks the submitted password against the bcrypt hash in `data/admin.hash`, and on success sets the signed `admin` cookie that `requireAdmin` checks for every `/admin` route.
+
+## Deprecated — the previous scoring/badge system
+
+This is how scoring and badges used to work, and how the code above still behaves until #683, #684, and #661 land. The project is actively building away from it; do not extend it, and do not treat it as the plan. The settled replacement is `docs/game-design-points-badges.md`, with its data flow recorded in that document's "Data flow and architecture" section.
+
+- **`guests.bonus_points`** — a freeform point total an admin could add to or subtract from a guest directly, with no task, photo, or reason attached. Dying with #683, which removes badges and freeform points from guests entirely.
+- **`submissions.photo_bonus`** — a freeform point value an admin could attach to a single photo, again with no structured reason. Dying with #684.
+- **`badges.type` values `special`, `metric`, and `transferable`** — a second, disconnected badge-tracking scheme that existed alongside the real `badges`/`guest_badges` substrate: `special` badges were hand-awarded to a guest from the admin panel (e.g. SHUTTERBUG), `metric`/`transferable` badges were placeholder test-era types. None of these carried the "one badge substrate" guarantee the settled design requires. All three die with #661's rewrite, leaving `auto` (the Bloom/Bouquet/Garden/Completionist set) and the new task-badge model as the only badge kinds.
+- **The flat "+1 point per task" model** — every task paid exactly one point on completion, with no host-set worth, no daily/flash/lucky bonus, no ranked-award or crowd-favorite scoring. The upload walkthrough above used to read "the photo now counts for a point" before this document was updated; the settled model pays each task's host-chosen 1–3 point worth instead, per `docs/game-design-points-badges.md`.
