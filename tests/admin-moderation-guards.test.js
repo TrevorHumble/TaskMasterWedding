@@ -10,13 +10,11 @@
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
 
 let app;
-let db;
 let adminAgent;
 
 beforeAll(async () => {
   const result = loadApp();
   app = result.app;
-  db = result.db;
   adminAgent = await makeAdminAgent(app);
 });
 
@@ -31,13 +29,10 @@ describe('photo moderation guards on an unknown submission id', () => {
     expect(res.headers.location).toContain(encodeURIComponent('Submission not found.'));
   });
 
-  it('points: "Submission not found."', async () => {
-    const res = await adminAgent
-      .post('/admin/photos/99999/points')
-      .type('form')
-      .send({ bonus: '4' });
-    expect(res.headers.location).toContain(encodeURIComponent('Submission not found.'));
-  });
+  // POST /admin/photos/:id/points was retired (issue #684, owner: a freeform
+  // points override "feels unfair") — every id, known or not, gets a real
+  // 404 now (renderNotFound), not a "not found" redirect. See
+  // tests/admin-moderation-684.test.js AC7 for the retirement coverage.
 });
 
 describe('comment moderation guards on an unknown comment id', () => {
@@ -52,31 +47,7 @@ describe('comment moderation guards on an unknown comment id', () => {
   });
 });
 
-describe('GET /admin/comments — admin sees everything', () => {
-  it('both a live and a hidden comment appear in the HTML', async () => {
-    const taskId = db
-      .prepare('INSERT INTO tasks (title) VALUES (?)')
-      .run('Comment Task').lastInsertRowid;
-    const guestId = db
-      .prepare('INSERT INTO guests (token, name) VALUES (?, ?)')
-      .run('commenttoken000000000000000000', 'Comment Guest').lastInsertRowid;
-    const submissionId = db
-      .prepare(
-        `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
-         VALUES (?, ?, ?, ?, 0)`
-      )
-      .run(guestId, taskId, 'c.jpg', 'c.jpg.jpg').lastInsertRowid;
-
-    db.prepare(
-      'INSERT INTO comments (submission_id, guest_id, body, taken_down) VALUES (?, ?, ?, 0)'
-    ).run(submissionId, guestId, 'A live comment, visible to all.');
-    db.prepare(
-      'INSERT INTO comments (submission_id, guest_id, body, taken_down) VALUES (?, ?, ?, 1)'
-    ).run(submissionId, guestId, 'A hidden comment, admin-only view.');
-
-    const res = await adminAgent.get('/admin/comments');
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('A live comment, visible to all.');
-    expect(res.text).toContain('A hidden comment, admin-only view.');
-  });
-});
+// GET /admin/comments was retired (issue #684): comment moderation now
+// happens in context, under each photo in GET /admin/photos. "Admin sees
+// everything, including hidden comments" is covered there now — see
+// tests/admin-moderation-684.test.js AC4/AC6.

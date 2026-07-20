@@ -441,9 +441,12 @@ describe('AC7: moderation preserved — Taken down state, and takedown/restore r
     expect(taskRes.text).toContain('/thumbs/ac7-t.jpg');
   });
 
-  it('take down/restore stays reachable from the give-a-badge dialog (moderate form present)', async () => {
+  // Issue #684 moved takedown/restore OUT of the give-a-badge dialog (which
+  // is now award-only) and into a per-photo kebab (⋯) menu on the feed card
+  // — see tests/admin-moderation-684.test.js for the dedicated coverage.
+  // This still asserts the tile-level state this AC actually owns.
+  it('the tile reflects live state (not taken down) via data-down', async () => {
     const res = await adminAgent.get('/admin/photos');
-    expect(res.text).toContain('id="adminBadgeModerateForm"');
     const chunk = tileChunk(res.text, 'ac7-t.jpg');
     expect(chunk).toContain('data-down="0"');
   });

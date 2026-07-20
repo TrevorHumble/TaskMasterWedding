@@ -146,18 +146,13 @@ it('AC2: GET /tasks/:id for a taken-down submission reads "with the hosts", not 
 // AC3: the admin photos page still surfaces a resubmitted-while-hidden photo
 // as taken-down, with Restore reachable.
 //
-// Issue #259 (2026-07-19 owner-approved redesign) replaced the old
-// photo-admin-card layout — which rendered a per-photo <form
-// action=".../restore"> plus literal "TAKEN DOWN"/"RESUBMITTED" text badges —
-// with the guest-gallery-parity screen: a shared give-a-badge dialog whose
-// moderate form's `action` is set by client-side JS per tapped photo (so no
-// static per-photo restore-form markup exists to match against), and a tile
-// state that reads "Taken down" (not the old uppercase copy) with no
-// dedicated resubmitted indicator. This reasserts what the new screen DOES
-// still guarantee: the photo's tile shows the taken-down state, and the
-// underlying resubmitted flag (this issue's real subject) is correct — the
-// stronger, page-independent checks in AC1/AC5/the final "restoreSubmission
-// clears resubmitted" test below already cover the flag's behavior in full.
+// Issue #684 (2026-07-20 owner-approved redesign) moved takedown/restore out
+// of the shared give-a-badge dialog (now award-only) and into a per-photo
+// kebab (⋯) menu on the feed card — a real static <form action="/admin/
+// photos/<id>/restore"> for that exact submission. This reasserts what the
+// new screen guarantees: the photo's tile shows the taken-down state, the
+// feed card's kebab carries a real Restore form for this exact photo, and
+// the underlying resubmitted flag (this issue's real subject) is correct.
 // ---------------------------------------------------------------------------
 it('AC3: GET /admin/photos shows the taken-down state for a resubmitted-while-hidden photo', async () => {
   const guest = await signedInGuest('sticky-ac3-' + crypto.randomUUID(), 'AC3 Guest');
@@ -187,9 +182,14 @@ it('AC3: GET /admin/photos shows the taken-down state for a resubmitted-while-hi
   expect(chunk).toContain('admin-tile is-down');
   expect(chunk).toContain('Taken down');
 
-  // Restore is reachable from the shared give-a-badge dialog (the
+  // Restore is reachable from the photo's own kebab menu in the feed (the
   // destructive-confirm.test.js AC-2 update covers its data-confirm guard).
-  expect(adminPhotosPage.text).toContain('id="adminBadgeModerateForm"');
+  const feedMarker = 'id="feed-photo-' + afterResubmit.id + '"';
+  const feedAt = adminPhotosPage.text.indexOf(feedMarker);
+  expect(feedAt).toBeGreaterThan(-1);
+  const feedEnd = adminPhotosPage.text.indexOf('</article>', feedAt);
+  const feedChunk = adminPhotosPage.text.slice(feedAt, feedEnd);
+  expect(feedChunk).toContain('action="/admin/photos/' + afterResubmit.id + '/restore"');
 });
 
 // ---------------------------------------------------------------------------
