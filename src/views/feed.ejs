@@ -27,7 +27,23 @@
         <%# The feed shows the 400px thumbnail — the original is one tap away
             on the photo detail page (issue #194: a guest scrolling on venue
             wifi should pull kilobytes per photo, not megabytes). %>
-        <a class="feed-photo-link" href="/p/<%= p.submission_id %>">
+        <%# The anchor keeps its href to /p/:id as the no-JS fallback; with JS
+            on, /js/lightbox.js intercepts the tap and opens the full-res
+            original in an in-place overlay instead (issue #673). The
+            data-lightbox-* hooks feed that overlay; the like/comment hooks
+            mark this as a guest (social) trigger. %>
+        <a
+          class="feed-photo-link js-lightbox"
+          href="/p/<%= p.submission_id %>"
+          data-lightbox-group="feed"
+          data-lightbox-photo="<%= p.photo_path %>"
+          data-lightbox-alt="<%= p.task_title || 'a shared memory' %>"
+          data-lightbox-by="by <%= p.guest_name || 'Guest' %>"
+          data-lightbox-caption="<%= p.caption || '' %>"
+          data-lightbox-like-count="<%= p.like_count %>"
+          data-lightbox-liked="<%= p.viewer_liked ? 'true' : 'false' %>"
+          data-lightbox-comment-count="<%= p.comments.length %>"
+        >
           <img
             class="feed-photo"
             src="/thumbs/<%= p.thumb_path %>"
@@ -207,5 +223,6 @@
   <% } %>
 
   <script src="/js/photo-owner-menu.js" defer></script>
+  <script src="/js/lightbox.js" defer></script>
 
 <%- include('partials/footer') %>
