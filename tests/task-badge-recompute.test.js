@@ -200,14 +200,18 @@ describe('AC5: admin-awarded badges are never touched, and the recompute is idem
     expect(heldCodes(guest)).toContain('COMPLETIONIST');
 
     const beforeSecondRun = db
-      .prepare('SELECT guest_id, badge_id, awarded_by FROM guest_badges ORDER BY guest_id, badge_id')
+      .prepare(
+        'SELECT guest_id, badge_id, awarded_by FROM guest_badges ORDER BY guest_id, badge_id'
+      )
       .all();
 
     const res = await adminAgent.post(`/admin/tasks/${toDelete}/delete`).type('form').send({});
     expect(res.status).toBe(303);
 
     const afterSecondRun = db
-      .prepare('SELECT guest_id, badge_id, awarded_by FROM guest_badges ORDER BY guest_id, badge_id')
+      .prepare(
+        'SELECT guest_id, badge_id, awarded_by FROM guest_badges ORDER BY guest_id, badge_id'
+      )
       .all();
     expect(afterSecondRun).toEqual(beforeSecondRun);
   });
