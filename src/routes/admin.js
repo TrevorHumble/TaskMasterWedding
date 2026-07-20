@@ -15,7 +15,7 @@
 //   POST /admin/tasks/:id/edit           edit a task title/description
 //   POST /admin/tasks/:id/badge          set a task's badge name/art
 //   POST /admin/tasks/:id/delete         delete a task (cascades submissions)
-//   POST /admin/tasks/:id/active         toggle is_active
+//   POST /admin/tasks/:id/active         toggle special_mode (none/hidden)
 //   POST /admin/tasks/reorder            move a task up/down (sort_order)
 //   GET  /admin/photos                   guest-gallery-parity photo wall (issue #259);
 //                                         each photo carries its real comment thread,
@@ -45,6 +45,10 @@ const qr = require('../services/qr');
 const scoring = require('../services/scoring');
 const photos = require('../services/photos');
 const taskBadges = require('../services/task-badges');
+// The one active-task owner (issue #727) — every liveness check/write below
+// consults tasks.liveTaskWhere()/isTaskLive()/MODE_NONE/MODE_HIDDEN instead of
+// a hand-written is_active/special_mode literal.
+const tasks = require('../services/tasks');
 const badgeIcons = require('../services/badge-icons');
 const favoritesSvc = require('../services/favorites');
 const photoBadges = require('../services/photo-badges');
@@ -141,9 +145,12 @@ router.get('/qrsheet', renderNotFound);
 // GET /admin  — dashboard
 // ---------------------------------------------------------------------------
 router.get('/', (req, res) => {
+  const activeTaskCountRow = db
+    .prepare(`SELECT COUNT(*) AS n FROM tasks WHERE ${tasks.liveTaskWhere('')}`)
+    .get();
   const counts = {
     guests: db.prepare('SELECT COUNT(*) AS n FROM guests').get().n,
-    activeTasks: db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get().n,
+    activeTasks: activeTaskCountRow.n,
     submissions: db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
     livePhotos: db.prepare('SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 0').get().n,
     takenDown: db.prepare('SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 1').get().n,
@@ -610,13 +617,15 @@ router.get('/poster', async (req, res, next) => {
 // GET /admin/tasks  — list + add form
 // ---------------------------------------------------------------------------
 router.get('/tasks', (req, res) => {
-  const tasks = db.prepare('SELECT * FROM tasks ORDER BY sort_order ASC, id ASC').all();
+  // Named `taskRows` (not `tasks`) so it never shadows the tasks.js service
+  // module required at the top of this file.
+  const taskRows = db.prepare('SELECT * FROM tasks ORDER BY sort_order ASC, id ASC').all();
 
   // Attach how many live submissions each task has (informational).
   const subStmt = db.prepare(
     'SELECT COUNT(*) AS n FROM submissions WHERE task_id = ? AND taken_down = 0'
   );
-  const rows = tasks.map((t, idx) => {
+  const rows = taskRows.map((t, idx) => {
     // resolveTaskBadge lazily inserts the task's own badge row (default
     // ribbon art) the first time a task's card is rendered (issue #483) —
     // every task always has a badge to show, never a missing-badge branch.
@@ -626,10 +635,14 @@ router.get('/tasks', (req, res) => {
       title: t.title,
       description: t.description || '',
       sort_order: t.sort_order,
-      is_active: t.is_active,
+      // admin-tasks.ejs is NOT touched by issue #727 (its redesign is #682's
+      // job) — this derived compat field lets it keep rendering exactly the
+      // is_active boolean it always has, sourced from the one active-task
+      // owner instead of a real is_active column (which no longer exists).
+      is_active: tasks.isTaskLive(t) ? 1 : 0,
       submissions: subStmt.get(t.id).n,
       isFirst: idx === 0,
-      isLast: idx === tasks.length - 1,
+      isLast: idx === taskRows.length - 1,
       badge: Object.assign({}, taskBadges.toTaskBadgeView(badge), {
         // "Still the default" drives whether the upload control shows
         // (AC10) — compared by path, not by a separate stored flag, so it
@@ -669,9 +682,15 @@ router.post('/tasks', (req, res) => {
     const maxRow = db.prepare('SELECT MAX(sort_order) AS m FROM tasks').get();
     order = (maxRow.m == null ? -1 : maxRow.m) + 1;
   }
-  db.prepare(
-    'INSERT INTO tasks (title, description, sort_order, is_active) VALUES (?, ?, ?, 1)'
-  ).run(title, description, order);
+  // No is_active/worth/special_mode column named here — worth (DEFAULT 1)
+  // and special_mode (DEFAULT 'none') apply from the tasks table's own
+  // defaults (issue #727), same as they did for the retired is_active column
+  // before it.
+  db.prepare('INSERT INTO tasks (title, description, sort_order) VALUES (?, ?, ?)').run(
+    title,
+    description,
+    order
+  );
   // A new active task can make an existing COMPLETIONIST holder stale (issue
   // #701 AC1) — recompute every guest's badges against the now-larger active
   // set before redirecting.
@@ -800,15 +819,18 @@ router.post('/tasks/:id/delete', (req, res) => {
   redirectWithMsg(res, '/admin/tasks', 'Task deleted.');
 });
 
-// POST /admin/tasks/:id/active  — toggle visibility to guests
+// POST /admin/tasks/:id/active  — toggle visibility to guests (writes
+// special_mode, issue #727 — the route/param name stays "active" for the
+// existing form/URL contract; only the underlying column changed).
 router.post('/tasks/:id/active', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const task = db.prepare('SELECT is_active FROM tasks WHERE id = ?').get(id);
+  const task = db.prepare('SELECT special_mode FROM tasks WHERE id = ?').get(id);
   if (!task) {
     return redirectWithMsg(res, '/admin/tasks', 'Task not found.');
   }
-  const next = task.is_active ? 0 : 1;
-  db.prepare('UPDATE tasks SET is_active = ? WHERE id = ?').run(next, id);
+  const wasLive = tasks.isTaskLive(task);
+  const nextMode = wasLive ? tasks.MODE_HIDDEN : tasks.MODE_NONE;
+  db.prepare('UPDATE tasks SET special_mode = ? WHERE id = ?').run(nextMode, id);
   // Un-hiding grows the active set (can strip a now-stale COMPLETIONIST,
   // issue #701 AC2); hiding shrinks it (can award a newly-earned one, AC3).
   // Either direction needs the same all-guests recompute.
@@ -816,7 +838,7 @@ router.post('/tasks/:id/active', (req, res) => {
   redirectWithMsg(
     res,
     '/admin/tasks',
-    next ? 'Task is now active.' : 'Task is now hidden from guests.',
+    wasLive ? 'Task is now hidden from guests.' : 'Task is now active.',
     'task-' + id
   );
 });

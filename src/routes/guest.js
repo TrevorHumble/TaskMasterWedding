@@ -52,6 +52,11 @@ const { isValidPin } = require('../services/identity');
 // "which badge does this task earn".
 const taskBadges = require('../services/task-badges');
 
+// The one active-task owner (issue #727) — every liveness check/count below
+// consults tasks.liveTaskWhere()/isTaskLive() instead of a hand-written
+// is_active/special_mode predicate.
+const tasks = require('../services/tasks');
+
 // Photos service (section 05) — REAL exports only.
 // `upload` is the multer DISK-storage middleware ALREADY BOUND to single('photo')
 // — call it directly as `photos.upload(req, res, cb)` (do NOT call .single on it).
@@ -121,12 +126,14 @@ router.use(requireGuest);
 router.get('/', function (req, res) {
   const guest = res.locals.guest;
 
-  // Total active tasks (guests only ever see active tasks).
-  const totalActiveRow = db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get();
+  // Total live tasks (guests only ever see live tasks).
+  const totalActiveRow = db
+    .prepare(`SELECT COUNT(*) AS n FROM tasks WHERE ${tasks.liveTaskWhere('')}`)
+    .get();
 
   // Completed tasks for this guest — routed through scoring.getCompletedCount
   // (issue #104) so this count can never drift from points and badges, which
-  // use the same canonical rule (visible submissions, no is_active filter).
+  // use the same canonical rule (visible submissions, no liveness filter).
   const completedTasks = scoring.getCompletedCount(guest.id);
 
   // Issue #409: the hardcoded "Upload your profile photo" starter task is a
@@ -167,8 +174,8 @@ router.get('/', function (req, res) {
   // task count (see issue #88).
   //
   // completedTasks uses the canonical count (visible submissions, NO
-  // is_active filter) while totalTasks counts only active tasks, so a guest
-  // who completed a task the admin later deactivated can have
+  // liveness filter) while totalTasks counts only live tasks, so a guest
+  // who completed a task the admin later hid can have
   // completedTasks > totalTasks. Both guest-facing renderings of this pair —
   // the bar's aria-valuenow/width and the caption's "N of T" text — must
   // never show a numerator past its denominator, so the bound is computed
@@ -200,12 +207,14 @@ router.get('/', function (req, res) {
 router.get('/tasks', function (req, res) {
   const guest = res.locals.guest;
 
-  // For each active task, join the guest's submission (if any) so we know
-  // whether it is done. taken_down submissions do NOT count as done.
+  // For each live task, join the guest's submission (if any) so we know
+  // whether it is done. taken_down submissions do NOT count as done. Named
+  // `taskRows` (not `tasks`) so it never shadows the tasks.js service module
+  // required at the top of this file.
   // s.created_at orders the ?view=done list (the default view no longer uses it — see below).
-  const tasks = db
+  const taskRows = db
     .prepare(
-      `SELECT t.id, t.title, t.description, t.sort_order,
+      `SELECT t.id, t.title, t.description, t.sort_order, t.worth,
               CASE WHEN s.id IS NOT NULL THEN 1 ELSE 0 END AS done,
               s.thumb_path AS thumb_path,
               s.created_at AS done_at
@@ -214,7 +223,7 @@ router.get('/tasks', function (req, res) {
                 ON s.task_id = t.id
                AND s.guest_id = ?
                AND s.taken_down = 0
-        WHERE t.is_active = 1
+        WHERE ${tasks.liveTaskWhere('t')}
         ORDER BY t.sort_order ASC, t.id ASC`
     )
     .all(guest.id);
@@ -223,9 +232,9 @@ router.get('/tasks', function (req, res) {
   // "earn [name] plus extra points" before the guest even takes the photo —
   // the same custom-or-default resolution admin.js's task board already
   // uses, so a customized badge shows here the moment it is uploaded.
-  // Mapped onto `tasks` BEFORE the todo/done split below so both derived
+  // Mapped onto `taskRows` BEFORE the todo/done split below so both derived
   // lists carry the badge without a second resolve pass.
-  const tasksWithBadges = tasks.map(function (t) {
+  const tasksWithBadges = taskRows.map(function (t) {
     const badge = taskBadges.resolveTaskBadge(t.id);
     return Object.assign({}, t, {
       badge: taskBadges.toTaskBadgeView(badge),
@@ -261,8 +270,7 @@ router.get('/tasks', function (req, res) {
     doneTasks: doneTasks,
     doneCount: doneTasks.length + starter.done_count,
     todoCount: todoTasks.length + starter.todo_count,
-    totalCount: tasks.length + starter.total,
-    pointsPerPhoto: scoring.POINTS_PER_PHOTO,
+    totalCount: taskRows.length + starter.total,
     starterDone: starter.done,
     starterPoints: starter.points,
   });
@@ -285,7 +293,9 @@ router.get('/tasks', function (req, res) {
 router.get('/how-to-play', function (req, res) {
   const guest = res.locals.guest;
 
-  const taskCountRow = db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE is_active = 1').get();
+  const taskCountRow = db
+    .prepare(`SELECT COUNT(*) AS n FROM tasks WHERE ${tasks.liveTaskWhere('')}`)
+    .get();
   const taskCount = taskCountRow.n;
 
   // Issue #564: mark the guest onboarded on the RENDER of the rules, not on
@@ -395,11 +405,11 @@ router.get('/tasks/:id', function (req, res) {
   }
 
   const task = db
-    .prepare('SELECT id, title, description, is_active FROM tasks WHERE id = ?')
+    .prepare('SELECT id, title, description, special_mode FROM tasks WHERE id = ?')
     .get(taskId);
 
-  // Hide inactive or missing tasks from guests.
-  if (!task || task.is_active !== 1) {
+  // Hide hidden or missing tasks from guests.
+  if (!task || !tasks.isTaskLive(task)) {
     return res.status(404).render('404', { title: 'Not found' });
   }
 

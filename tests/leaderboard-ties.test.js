@@ -29,10 +29,11 @@ beforeAll(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Seeding helpers. Each visible submission is worth POINTS_PER_PHOTO = 1, so a
-// guest's point total is (their visible submission count) + bonus_points. We
-// give each guest a single dedicated task and clone it into N submissions to
-// hit an exact point value while keeping distinct created_at timestamps.
+// Seeding helpers. Each visible submission's task carries the tasks table's
+// default worth (1, issue #727), so a guest's point total is (their visible
+// submission count) + bonus_points. We give each guest a single dedicated
+// task and clone it into N submissions to hit an exact point value while
+// keeping distinct created_at timestamps.
 // ---------------------------------------------------------------------------
 
 // Wipe the tables these tests populate so each test starts from an empty field.

@@ -130,7 +130,7 @@ function seedDemo(db) {
 
     // --- Seed tasks. ---
     const insertTask = db.prepare(
-      `INSERT INTO tasks (title, description, sort_order, is_active) VALUES (?, ?, ?, 1)`
+      `INSERT INTO tasks (title, description, sort_order) VALUES (?, ?, ?)`
     );
     const taskIds = DEMO_TASKS.map(
       (title, index) => insertTask.run(title, '', index).lastInsertRowid

@@ -30,8 +30,9 @@ function makeGuest(name) {
 }
 
 function makeTask(title, isActive = 1) {
-  return db.prepare('INSERT INTO tasks (title, is_active) VALUES (?, ?)').run(title, isActive)
-    .lastInsertRowid;
+  return db
+    .prepare('INSERT INTO tasks (title, special_mode) VALUES (?, ?)')
+    .run(title, isActive ? 'none' : 'hidden').lastInsertRowid;
 }
 
 let photoSeq = 0;
@@ -76,13 +77,13 @@ beforeAll(async () => {
   // The seed script's own sample tasks would make "covers every active task"
   // ambiguous for every scenario below — deactivate them so each test's own
   // makeTask() calls are the only active tasks in play.
-  db.prepare('UPDATE tasks SET is_active = 0').run();
+  db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
   completionistBadgeId = db.prepare('SELECT id FROM badges WHERE code = ?').get('COMPLETIONIST').id;
 });
 
 describe('AC1: POST /admin/tasks strips a now-stale Completionist', () => {
   it('adding a new active task the guest has not covered revokes COMPLETIONIST', async () => {
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
     const taskA = makeTask('AC1 Task A', 1);
     const guest = makeGuest('AC1 Guest');
     submit(guest, taskA);
@@ -98,28 +99,28 @@ describe('AC1: POST /admin/tasks strips a now-stale Completionist', () => {
 
 describe('AC2: POST /admin/tasks/:id/active (un-hide) strips a now-stale Completionist', () => {
   it('un-hiding a task the guest has not covered revokes COMPLETIONIST', async () => {
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
     const taskA = makeTask('AC2 Task A', 1);
     const hiddenTask = makeTask('AC2 Hidden Task', 0);
     const guest = makeGuest('AC2 Guest');
     submit(guest, taskA);
-    // Guest covers the only active task (taskA); hiddenTask is is_active=0
-    // and uncovered, so it does not count yet.
+    // Guest covers the only active task (taskA); hiddenTask is special_mode
+    // 'hidden' and uncovered, so it does not count yet.
     grantCompletionistDirect(guest);
     expect(heldCodes(guest)).toContain('COMPLETIONIST');
 
     await adminAgent.post(`/admin/tasks/${hiddenTask}/active`).type('form').send({});
 
-    expect(db.prepare('SELECT is_active FROM tasks WHERE id = ?').get(hiddenTask).is_active).toBe(
-      1
-    );
+    expect(
+      db.prepare('SELECT special_mode FROM tasks WHERE id = ?').get(hiddenTask).special_mode
+    ).toBe('none');
     expect(heldCodes(guest)).not.toContain('COMPLETIONIST');
   });
 });
 
 describe('AC3: POST /admin/tasks/:id/active (hide) awards a newly-earned Completionist', () => {
   it('hiding the one uncovered task grants COMPLETIONIST', async () => {
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
     const taskA = makeTask('AC3 Task A', 1);
     const uncoveredTask = makeTask('AC3 Uncovered Task', 1);
     const guest = makeGuest('AC3 Guest');
@@ -130,15 +131,15 @@ describe('AC3: POST /admin/tasks/:id/active (hide) awards a newly-earned Complet
     await adminAgent.post(`/admin/tasks/${uncoveredTask}/active`).type('form').send({});
 
     expect(
-      db.prepare('SELECT is_active FROM tasks WHERE id = ?').get(uncoveredTask).is_active
-    ).toBe(0);
+      db.prepare('SELECT special_mode FROM tasks WHERE id = ?').get(uncoveredTask).special_mode
+    ).toBe('hidden');
     expect(heldCodes(guest)).toContain('COMPLETIONIST');
   });
 });
 
 describe('AC4: POST /admin/tasks/:id/delete awards a newly-earned Completionist', () => {
   it('deleting the one uncovered task grants COMPLETIONIST', async () => {
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
     const taskA = makeTask('AC4 Task A', 1);
     const uncoveredTask = makeTask('AC4 Uncovered Task', 1);
     const guest = makeGuest('AC4 Guest');
@@ -154,7 +155,7 @@ describe('AC4: POST /admin/tasks/:id/delete awards a newly-earned Completionist'
 
 describe('AC5: admin-awarded badges are never touched, and the recompute is idempotent', () => {
   it('an admin-awarded special badge survives all three task-set routes', async () => {
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
     const guest = makeGuest('AC5 Guest');
     const earlybird = db.prepare('SELECT id FROM badges WHERE code = ?').get('EARLYBIRD');
     db.prepare(
@@ -186,7 +187,7 @@ describe('AC5: admin-awarded badges are never touched, and the recompute is idem
     // second time), so the recompute's own idempotence is what is under
     // test here, not a route that inherently mutates data on every call
     // (unlike POST /admin/tasks, which always inserts a new row).
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
     const guest = makeGuest('AC5 Idempotent Guest');
     const covered = makeTask('AC5 Idempotent Covered', 1);
     submit(guest, covered);

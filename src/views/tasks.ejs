@@ -107,7 +107,7 @@
                     <span class="task-earnable-copy">Earn <%= t.badge.name %> plus extra points</span>
                   </span>
                 </span>
-                <span class="task-points">+<%= pointsPerPhoto %> pt<%= pointsPerPhoto === 1 ? '' : 's' %></span>
+                <span class="task-points">+<%= t.worth %> pt<%= t.worth === 1 ? '' : 's' %></span>
               </a>
             </li>
           <% }); %>

@@ -52,8 +52,9 @@ async function agentFor(token) {
 }
 
 function insertTask(title, isActive = 1) {
-  return db.prepare(`INSERT INTO tasks (title, is_active) VALUES (?, ?)`).run(title, isActive)
-    .lastInsertRowid;
+  return db
+    .prepare(`INSERT INTO tasks (title, special_mode) VALUES (?, ?)`)
+    .run(title, isActive ? 'none' : 'hidden').lastInsertRowid;
 }
 
 // ---------------------------------------------------------------------------

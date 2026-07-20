@@ -58,7 +58,7 @@ function seedOneTodoTask() {
     'ac471-token',
     'Gap Guest'
   );
-  db.prepare('INSERT INTO tasks (title, is_active) VALUES (?, 1)').run('Find the guestbook');
+  db.prepare('INSERT INTO tasks (title) VALUES (?)').run('Find the guestbook');
 }
 
 async function signedInAgent(token) {
@@ -129,7 +129,7 @@ describe('AC471(3): the allDone .tasks-memory-cta path is untouched', () => {
       )
       .run('ac471-alldone-token', 'Done Guest', 'has-avatar.jpg').lastInsertRowid;
     const taskId = db
-      .prepare('INSERT INTO tasks (title, is_active) VALUES (?, 1)')
+      .prepare('INSERT INTO tasks (title) VALUES (?)')
       .run('Cut the cake').lastInsertRowid;
     db.prepare(
       `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)

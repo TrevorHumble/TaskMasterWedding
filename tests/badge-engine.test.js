@@ -22,8 +22,9 @@ function makeGuest(token, name) {
 }
 
 function makeTask(title, isActive = 1) {
-  return db.prepare('INSERT INTO tasks (title, is_active) VALUES (?, ?)').run(title, isActive)
-    .lastInsertRowid;
+  return db
+    .prepare('INSERT INTO tasks (title, special_mode) VALUES (?, ?)')
+    .run(title, isActive ? 'none' : 'hidden').lastInsertRowid;
 }
 
 let photoSeq = 0;
@@ -62,13 +63,13 @@ beforeAll(() => {
   // directly here instead of shelling out, mirroring scripts/seed.js's rows,
   // so the test also exercises the exact insert path other suites rely on.
   require('../scripts/seed.js');
-  // COMPLETIONIST's rule is "covers every is_active=1 task" GLOBALLY, so the
+  // COMPLETIONIST's rule is "covers every live task" GLOBALLY, so the
   // sample tasks scripts/seed.js just inserted (6 of them) would make every
   // AC1/AC7 completionist scenario below unreachable unless a guest also
-  // covers those. Deactivate them here so this suite's own makeTask() calls
+  // covers those. Hide them here so this suite's own makeTask() calls
   // are the only active tasks in play — mirrors how an admin would hide
   // unrelated tasks rather than requiring every fixture to enumerate them.
-  db.prepare('UPDATE tasks SET is_active = 0').run();
+  db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
 });
 
 describe('AC6: seeded catalog contains COMPLETIONIST', () => {
@@ -255,7 +256,7 @@ describe('AC7 (structural, verified behaviorally): submitPhoto and hide/restore 
 
   it('submitPhoto grants a metric badge and updates the transferable leader in one call', async () => {
     const submissions = require('../src/services/submissions');
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
     const task = makeTask('AC7 Only Task', 1);
     const guest = makeGuest('ac7-guest', 'AC7 Guest');
 
@@ -285,7 +286,7 @@ describe('AC7 (structural, verified behaviorally): submitPhoto and hide/restore 
 
   it('hideSubmission/restoreSubmission revoke and re-grant a metric badge via the shared transaction', () => {
     const photos = require('../src/services/photos');
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
     const task = makeTask('AC7 Hide Task', 1);
     const guest = makeGuest('ac7-hide-guest', 'AC7 Hide Guest');
     const subId = db
@@ -332,10 +333,12 @@ describe('#193 AC3: engine badges fire on event-seeded data', () => {
 
     const { taskIds, guestIds } = seedEvent(db, { guests: 5 });
 
-    // Deactivate every non-event task (earlier describes left some active)
+    // Hide every non-event task (earlier describes left some active)
     // so "covers every active task" is unambiguous.
     const placeholders = taskIds.map(() => '?').join(',');
-    db.prepare(`UPDATE tasks SET is_active = 0 WHERE id NOT IN (${placeholders})`).run(...taskIds);
+    db.prepare(`UPDATE tasks SET special_mode = 'hidden' WHERE id NOT IN (${placeholders})`).run(
+      ...taskIds
+    );
 
     // One event guest completes every active task.
     const hero = guestIds[0];
@@ -437,7 +440,7 @@ describe('#314: badge catalog boot-heal — played-in databases missing new cata
   it('AC2: a guest covering every active task gains COMPLETIONIST via recomputeAfterSubmissionChange on the healed DB', () => {
     // Deactivate everything else so "covers every active task" is unambiguous,
     // same convention the earlier describes in this file use.
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
     const taskX = makeTask('314 Task X');
     const taskY = makeTask('314 Task Y');
     const guest = makeGuest('314-guest', '314 Guest');

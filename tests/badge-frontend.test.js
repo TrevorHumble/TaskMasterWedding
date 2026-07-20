@@ -10,12 +10,14 @@ const { loadApp, signInGuest } = require('./helpers/testApp');
 let app;
 let db;
 let scoring;
+let tasksSvc;
 
 beforeAll(() => {
   const loaded = loadApp();
   app = loaded.app;
   db = loaded.db;
   scoring = require('../src/services/scoring');
+  tasksSvc = require('../src/services/tasks');
   // scripts/seed.js inserts the canonical badge catalog (BLOOM/EARLYBIRD/etc.)
   // and 6 sample tasks — the same "6 seeded tasks" the issue's AC1 refers to.
   require('../scripts/seed.js');
@@ -53,7 +55,7 @@ describe('AC1/AC5: home progress bar is re-based on task completion, not badge t
     // guest who has completed 2 of the 6 real tasks and has NOT set an avatar
     // reads "2 of 7" here, exactly as the /tasks list reads "2 of 7".
     const activeTaskIds = db
-      .prepare('SELECT id FROM tasks WHERE is_active = 1 ORDER BY id LIMIT 2')
+      .prepare(`SELECT id FROM tasks WHERE ${tasksSvc.liveTaskWhere('')} ORDER BY id LIMIT 2`)
       .all()
       .map((r) => r.id);
     expect(activeTaskIds.length).toBe(2);
@@ -76,26 +78,26 @@ describe('AC1/AC5: home progress bar is re-based on task completion, not badge t
     // snapshot and clear every currently-active task, then restore them at the
     // end — later tests must still see seed.js's original 6 active tasks.
     const previouslyActive = db
-      .prepare('SELECT id FROM tasks WHERE is_active = 1')
+      .prepare(`SELECT id FROM tasks WHERE ${tasksSvc.liveTaskWhere('')}`)
       .all()
       .map((r) => r.id);
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
 
     const t1 = db
-      .prepare("INSERT INTO tasks (title, is_active) VALUES ('Clamp task A', 1)")
+      .prepare("INSERT INTO tasks (title, special_mode) VALUES ('Clamp task A', 'none')")
       .run().lastInsertRowid;
     const t2 = db
-      .prepare("INSERT INTO tasks (title, is_active) VALUES ('Clamp task B', 1)")
+      .prepare("INSERT INTO tasks (title, special_mode) VALUES ('Clamp task B', 'none')")
       .run().lastInsertRowid;
 
     const guest = makeGuest('Clamp Guest');
     submit(guest.id, t1);
-    submit(guest.id, t2); // completedTasks = 2 (canonical count ignores is_active)
+    submit(guest.id, t2); // completedTasks = 2 (canonical count ignores liveness)
 
-    // Admin later deactivates one of the completed tasks: totalTasks drops to
+    // Admin later hides one of the completed tasks: totalTasks drops to
     // 1 while completedTasks stays 2, so the raw ratio is 200% — the clamp
     // must hold it at 100.
-    db.prepare('UPDATE tasks SET is_active = 0 WHERE id = ?').run(t2);
+    db.prepare("UPDATE tasks SET special_mode = 'hidden' WHERE id = ?").run(t2);
 
     const agent = await signIn(guest.token);
     const res = await agent.get('/');
@@ -104,10 +106,10 @@ describe('AC1/AC5: home progress bar is re-based on task completion, not badge t
     expect(res.text).toMatch(/role="progressbar"[^>]*aria-valuenow="100"/);
 
     // Restore the seeded active-task field so later tests see the original 6.
-    db.prepare('UPDATE tasks SET is_active = 0 WHERE id IN (?, ?)').run(t1, t2);
+    db.prepare("UPDATE tasks SET special_mode = 'hidden' WHERE id IN (?, ?)").run(t1, t2);
     if (previouslyActive.length > 0) {
       db.prepare(
-        `UPDATE tasks SET is_active = 1 WHERE id IN (${previouslyActive.map(() => '?').join(',')})`
+        `UPDATE tasks SET special_mode = 'none' WHERE id IN (${previouslyActive.map(() => '?').join(',')})`
       ).run(...previouslyActive);
     }
   });
@@ -118,24 +120,24 @@ describe('AC1/AC5: home progress bar is re-based on task completion, not badge t
     // aria-valuenow. Snapshot and clear every active task first, restore at
     // the end so later tests still see seed.js's original 6 active tasks.
     const previouslyActive = db
-      .prepare('SELECT id FROM tasks WHERE is_active = 1')
+      .prepare(`SELECT id FROM tasks WHERE ${tasksSvc.liveTaskWhere('')}`)
       .all()
       .map((r) => r.id);
-    db.prepare('UPDATE tasks SET is_active = 0').run();
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
 
     // submissions has a UNIQUE(guest_id, task_id) constraint, so getting
     // completedTasks to 3 needs 3 distinct tasks, not 3 submissions to one.
-    // Only t1 stays active — t2/t3 are inserted already inactive — so
+    // Only t1 stays live — t2/t3 are inserted already hidden — so
     // totalTasks counts just t1 (+1 incomplete starter) while
-    // getCompletedCount (no is_active filter) still counts all three.
+    // getCompletedCount (no liveness filter) still counts all three.
     const t1 = db
-      .prepare("INSERT INTO tasks (title, is_active) VALUES ('Caption clamp task A', 1)")
+      .prepare("INSERT INTO tasks (title, special_mode) VALUES ('Caption clamp task A', 'none')")
       .run().lastInsertRowid;
     const t2 = db
-      .prepare("INSERT INTO tasks (title, is_active) VALUES ('Caption clamp task B', 0)")
+      .prepare("INSERT INTO tasks (title, special_mode) VALUES ('Caption clamp task B', 'hidden')")
       .run().lastInsertRowid;
     const t3 = db
-      .prepare("INSERT INTO tasks (title, is_active) VALUES ('Caption clamp task C', 0)")
+      .prepare("INSERT INTO tasks (title, special_mode) VALUES ('Caption clamp task C', 'hidden')")
       .run().lastInsertRowid;
 
     const guest = makeGuest('Caption Clamp Guest');
@@ -151,10 +153,10 @@ describe('AC1/AC5: home progress bar is re-based on task completion, not badge t
     expect(res.text).toContain('2 of 2 tasks complete');
 
     // Restore the seeded active-task field so later tests see the original 6.
-    db.prepare('UPDATE tasks SET is_active = 0 WHERE id IN (?, ?, ?)').run(t1, t2, t3);
+    db.prepare("UPDATE tasks SET special_mode = 'hidden' WHERE id IN (?, ?, ?)").run(t1, t2, t3);
     if (previouslyActive.length > 0) {
       db.prepare(
-        `UPDATE tasks SET is_active = 1 WHERE id IN (${previouslyActive.map(() => '?').join(',')})`
+        `UPDATE tasks SET special_mode = 'none' WHERE id IN (${previouslyActive.map(() => '?').join(',')})`
       ).run(...previouslyActive);
     }
   });
@@ -168,7 +170,7 @@ describe('AC2/AC3/AC4: badge rendering on home, leaderboard, and profile is unbr
     // reaches its threshold (5, per scripts/seed.js's catalog row) — submit 5
     // of the 6 seeded active tasks.
     const taskIds = db
-      .prepare('SELECT id FROM tasks WHERE is_active = 1 ORDER BY id LIMIT 5')
+      .prepare(`SELECT id FROM tasks WHERE ${tasksSvc.liveTaskWhere('')} ORDER BY id LIMIT 5`)
       .all()
       .map((r) => r.id);
     expect(taskIds.length).toBe(5);

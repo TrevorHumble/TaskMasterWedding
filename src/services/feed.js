@@ -544,7 +544,7 @@ function buildSlideshowSection(rows, titleItem, winnerLabel) {
  *
  * Rank metric per section:
  *   - Most Liked opener: like_count, ties broken by points.
- *   - Task groups: scoring.photoPoints(photo_bonus, hasTask), ties broken by
+ *   - Task groups: scoring.photoPoints(photo_bonus, worth), ties broken by
  *     like_count.
  *
  * @returns {object[]} flat `sequence` matching the frozen slideshow view's
@@ -574,6 +574,7 @@ function slideshowSequence() {
               s.task_id       AS task_id,
               g.name          AS guest_name,
               t.title         AS task_title,
+              t.worth         AS worth,
               (SELECT COUNT(*) FROM likes l WHERE l.submission_id = s.id) AS like_count
          FROM submissions s
          JOIN guests g ON g.id = s.guest_id
@@ -588,9 +589,10 @@ function slideshowSequence() {
   }
 
   for (const row of rows) {
-    // hasTask false only for a memory (task_id IS NULL, issue #247) — same
-    // flag community.js's attachPhotoPoints passes to this same function.
-    row.points = scoring.photoPoints(row.photo_bonus, row.task_id !== null);
+    // worth 0 only for a memory (task_id IS NULL, issue #247, so the LEFT
+    // JOIN's t.worth comes back NULL) — same rule community.js's
+    // attachPhotoPoints applies to this same function (issue #727).
+    row.points = scoring.photoPoints(row.photo_bonus, row.task_id !== null ? row.worth : 0);
   }
 
   // --- Most Liked opener --------------------------------------------------

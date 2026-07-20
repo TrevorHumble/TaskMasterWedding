@@ -80,7 +80,8 @@ beforeAll(() => {
       title        TEXT    NOT NULL,
       description  TEXT    NOT NULL DEFAULT '',
       sort_order   INTEGER NOT NULL DEFAULT 0,
-      is_active    INTEGER NOT NULL DEFAULT 1,
+      worth        INTEGER NOT NULL DEFAULT 1 CHECK (worth BETWEEN 1 AND 3),
+      special_mode TEXT    NOT NULL DEFAULT 'none' CHECK (special_mode IN ('none','hidden')),
       created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
     );
 

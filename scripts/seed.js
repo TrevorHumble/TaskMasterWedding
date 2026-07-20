@@ -57,9 +57,12 @@ const {
 //    so re-running the seed never duplicates or overwrites admin edits.
 // ---------------------------------------------------------------------------
 const taskCount = db.prepare(`SELECT COUNT(*) AS n FROM tasks`).get().n;
+// No worth/special_mode named here (issue #727) — the tasks table's own
+// defaults (worth 1, special_mode 'none') apply, same as the retired
+// is_active column's DEFAULT 1 did before it.
 const insertTask = db.prepare(`
-  INSERT INTO tasks (title, description, sort_order, is_active)
-  VALUES (@title, @description, @sort_order, 1)
+  INSERT INTO tasks (title, description, sort_order)
+  VALUES (@title, @description, @sort_order)
 `);
 
 let tasksInserted = 0;
