@@ -34,6 +34,7 @@ let photos;
 let scoring;
 let badges;
 let rateLimit;
+let tasksSvc;
 let validJpeg;
 
 beforeAll(async () => {
@@ -52,6 +53,7 @@ beforeAll(async () => {
   scoring = require('../src/services/scoring');
   badges = require('../src/services/badges');
   rateLimit = require('../src/services/rate-limit');
+  tasksSvc = require('../src/services/tasks');
 });
 
 function insertGuest(name) {
@@ -63,8 +65,9 @@ function insertGuest(name) {
 }
 
 function insertTask(title, isActive = 1) {
-  return db.prepare(`INSERT INTO tasks (title, is_active) VALUES (?, ?)`).run(title, isActive)
-    .lastInsertRowid;
+  return db
+    .prepare(`INSERT INTO tasks (title, special_mode) VALUES (?, ?)`)
+    .run(title, isActive ? 'none' : 'hidden').lastInsertRowid;
 }
 
 async function agentFor(token) {
@@ -305,14 +308,15 @@ describe('feed per-photo points exclude a memory base point', () => {
     const res = await agent.get('/feed');
     expect(res.status).toBe(200);
 
-    // Real expected VALUES — an un-bonused memory reading 0 fails if the base
-    // POINTS_PER_PHOTO leaked back in (it would read 1).
+    // Real expected VALUES — an un-bonused memory reading 0 fails if a task's
+    // worth leaked back in (it would read tasksSvc.DEFAULT_WORTH).
     expect(feedPointsFor(res.text, plainMemory.submissionId)).toBe(0);
     expect(feedPointsFor(res.text, bonusMemory.submissionId)).toBe(5);
-    // Task photo keeps the base: an un-bonused task photo is worth
-    // POINTS_PER_PHOTO (1). This is the inversion guard — if the memory
-    // branch were applied to task photos, this would read 0.
-    expect(feedPointsFor(res.text, taskPhoto.submissionId)).toBe(scoring.POINTS_PER_PHOTO);
+    // Task photo keeps the base: an un-bonused task photo (insertTask's
+    // default worth, issue #727) is worth tasksSvc.DEFAULT_WORTH (1). This is
+    // the inversion guard — if the memory branch were applied to task
+    // photos, this would read 0.
+    expect(feedPointsFor(res.text, taskPhoto.submissionId)).toBe(tasksSvc.DEFAULT_WORTH);
   });
 });
 
@@ -377,7 +381,7 @@ describe('AC7: COMPLETIONIST is unaffected by memories', () => {
     const onlyActiveTask = insertTask('AC7 Completionist Task');
     // Deactivate every task from earlier tests so this guest's coverage of
     // the ONE active task above is the only thing COMPLETIONIST evaluates.
-    db.prepare('UPDATE tasks SET is_active = 0 WHERE id != ?').run(onlyActiveTask);
+    db.prepare("UPDATE tasks SET special_mode = 'hidden' WHERE id != ?").run(onlyActiveTask);
 
     insertSubmission({ guestId, taskId: onlyActiveTask });
     expect(badges.METRIC_BADGES.COMPLETIONIST(guestId)).toBe(true);

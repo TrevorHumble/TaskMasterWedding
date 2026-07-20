@@ -375,8 +375,8 @@ async function timedFetch(samples, url, requestPath, fetchOpts) {
 /**
  * Parse the ACTIVE tasks out of the rendered GET /tasks HTML.
  *
- * The /tasks page (src/views/tasks.ejs) lists ONLY active tasks (guest.js's
- * query filters `WHERE t.is_active = 1`), one per row:
+ * The /tasks page (src/views/tasks.ejs) lists ONLY live tasks (guest.js's
+ * query filters on tasks.js's liveTaskWhere('t'), issue #727), one per row:
  *   <li class="task-row task-done|task-todo">
  *     <a class="task-link" href="/tasks/<id>"> ... </a>
  *   </li>

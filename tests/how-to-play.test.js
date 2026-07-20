@@ -45,9 +45,10 @@ function insertGuest(token, onboarded) {
 }
 
 function insertTask(title, sortOrder, isActive) {
+  const live = isActive === undefined ? true : !!isActive;
   return db
-    .prepare('INSERT INTO tasks (title, sort_order, is_active) VALUES (?, ?, ?)')
-    .run(title, sortOrder, isActive === undefined ? 1 : isActive).lastInsertRowid;
+    .prepare('INSERT INTO tasks (title, sort_order, special_mode) VALUES (?, ?, ?)')
+    .run(title, sortOrder, live ? 'none' : 'hidden').lastInsertRowid;
 }
 
 function markDone(guestId, taskId) {
@@ -77,7 +78,7 @@ describe('AC1: taskCount is a live count of active tasks', () => {
     expect(before.status).toBe(200);
     expect(before.text).toContain('32 photo missions');
 
-    db.prepare('UPDATE tasks SET is_active = 0 WHERE id = ?').run(taskIds[0]);
+    db.prepare("UPDATE tasks SET special_mode = 'hidden' WHERE id = ?").run(taskIds[0]);
 
     const after = await agent.get('/how-to-play');
     expect(after.status).toBe(200);

@@ -6,10 +6,11 @@
 // Fixture: one guest with one VISIBLE submission (taken_down = 0, photo_bonus
 // = 3), one TAKEN-DOWN submission (taken_down = 1, photo_bonus = 9), and
 // guests.bonus_points = 4.
-// Canonical rule (scoring.js, three-term formula, issue #89):
+// Canonical rule (scoring.js, three-term formula, issue #89; worth-aware
+// since issue #727):
 //   completed = COUNT(visible submissions) = 1.
-//   points    = completed*POINTS_PER_PHOTO + SUM(visible photo_bonus) + guests.bonus_points
-//             = 1*1 + 3 + 4 = 8.
+//   points    = SUM(visible task worth) + SUM(visible photo_bonus) + guests.bonus_points
+//             = 1 (taskA's default worth) + 3 + 4 = 8.
 // The taken-down submission's photo_bonus (9) is excluded, so it never adds to
 // the total. If the completed-count rule were inverted (counting ALL or only
 // taken-down submissions), completed would read 2 or 0; if the photo_bonus
@@ -27,7 +28,7 @@ let buildSummaryBuffer;
 let guestId;
 
 const EXPECTED_COMPLETED = 1;
-const EXPECTED_POINTS = 8; // completed(1)*1 + visible photo_bonus(3) + guests.bonus_points(4)
+const EXPECTED_POINTS = 8; // worth(1) + visible photo_bonus(3) + guests.bonus_points(4)
 
 beforeAll(async () => {
   const loaded = loadApp();
@@ -70,7 +71,7 @@ describe('scoring single authority — issue #104', () => {
     expect(scoring.getCompletedCount(guestId)).toBe(EXPECTED_COMPLETED);
   });
 
-  it('AC: scoring.getPoints = completed*POINTS_PER_PHOTO + visible photo_bonus + guests.bonus_points', () => {
+  it('AC: scoring.getPoints = SUM(visible task worth) + visible photo_bonus + guests.bonus_points', () => {
     expect(scoring.getPoints(guestId)).toBe(EXPECTED_POINTS);
   });
 

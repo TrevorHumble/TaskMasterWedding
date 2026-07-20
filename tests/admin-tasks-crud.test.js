@@ -84,17 +84,21 @@ describe('POST /admin/tasks/:id/edit', () => {
 });
 
 describe('POST /admin/tasks/:id/active', () => {
-  it('toggles is_active 1->0 with "hidden from guests", then 0->1 with "now active"', async () => {
+  it('toggles special_mode none->hidden with "hidden from guests", then hidden->none with "now active"', async () => {
     const id = db
-      .prepare('INSERT INTO tasks (title, is_active) VALUES (?, 1)')
+      .prepare('INSERT INTO tasks (title) VALUES (?)')
       .run('Toggle Task').lastInsertRowid;
 
     let res = await adminAgent.post(`/admin/tasks/${id}/active`).type('form').send({});
-    expect(db.prepare('SELECT is_active FROM tasks WHERE id = ?').get(id).is_active).toBe(0);
+    expect(db.prepare('SELECT special_mode FROM tasks WHERE id = ?').get(id).special_mode).toBe(
+      'hidden'
+    );
     expect(res.headers.location).toContain(encodeURIComponent('hidden from guests'));
 
     res = await adminAgent.post(`/admin/tasks/${id}/active`).type('form').send({});
-    expect(db.prepare('SELECT is_active FROM tasks WHERE id = ?').get(id).is_active).toBe(1);
+    expect(db.prepare('SELECT special_mode FROM tasks WHERE id = ?').get(id).special_mode).toBe(
+      'none'
+    );
     expect(res.headers.location).toContain(encodeURIComponent('now active'));
   });
 });

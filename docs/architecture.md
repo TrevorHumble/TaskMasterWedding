@@ -79,11 +79,12 @@ erDiagram
         text created_at
     }
     tasks {
+        int worth "host-chosen 1-3, points a completed task pays (#727)"
         int id PK
         text title
         text description
         int sort_order
-        int is_active
+        text special_mode "none | hidden - the one liveness owner, replaced is_active (#727)"
         text created_at
     }
     submissions {

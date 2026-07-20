@@ -36,7 +36,7 @@ describe('POST /tasks/:id/submit — submitPhoto throws (issue #311 AC1)', () =>
       'Crash Guest'
     );
     const taskId = db
-      .prepare(`INSERT INTO tasks (title, is_active) VALUES (?, 1)`)
+      .prepare(`INSERT INTO tasks (title) VALUES (?)`)
       .run('Crash Task').lastInsertRowid;
 
     const agent = request.agent(app);
@@ -93,7 +93,7 @@ describe('POST /tasks/:id/submit — submitPhoto throws (issue #311 AC1)', () =>
       'OK Guest'
     );
     const taskId = db
-      .prepare(`INSERT INTO tasks (title, is_active) VALUES (?, 1)`)
+      .prepare(`INSERT INTO tasks (title) VALUES (?)`)
       .run('OK Task').lastInsertRowid;
 
     const agent = request.agent(app);

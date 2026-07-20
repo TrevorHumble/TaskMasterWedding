@@ -70,8 +70,7 @@ function insertGuest(token) {
 }
 
 function insertTask(title) {
-  return db.prepare(`INSERT INTO tasks (title, is_active) VALUES (?, 1)`).run(title)
-    .lastInsertRowid;
+  return db.prepare(`INSERT INTO tasks (title) VALUES (?)`).run(title).lastInsertRowid;
 }
 
 // Seed `n` ALREADY-VISIBLE completed-task rows for a guest directly (bypassing

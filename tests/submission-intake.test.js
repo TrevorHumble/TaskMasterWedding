@@ -58,8 +58,9 @@ function insertGuest(token) {
 }
 
 function insertTask(title, isActive = 1) {
-  return db.prepare(`INSERT INTO tasks (title, is_active) VALUES (?, ?)`).run(title, isActive)
-    .lastInsertRowid;
+  return db
+    .prepare(`INSERT INTO tasks (title, special_mode) VALUES (?, ?)`)
+    .run(title, isActive ? 'none' : 'hidden').lastInsertRowid;
 }
 
 function getSubmission(guestId, taskId) {
@@ -151,7 +152,7 @@ describe('submissions.submitPhoto — direct calls (issue #106)', () => {
 
   it('AC3: inactive task — status "task_inactive", no row written, original file deleted', async () => {
     const guestId = insertGuest(`intake-ac3-${crypto.randomUUID()}`);
-    const taskId = insertTask('AC3 Inactive Task', 0); // is_active = 0
+    const taskId = insertTask('AC3 Inactive Task', 0); // special_mode = 'hidden'
 
     const file = writeOriginal('ac3-orphan.jpg');
     expect(fs.existsSync(file.path)).toBe(true);

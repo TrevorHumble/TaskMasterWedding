@@ -25,12 +25,15 @@
 const { db } = require('../db');
 const photos = require('./photos');
 const scoring = require('./scoring');
+// tasks.js is the ONE active-task owner (issue #727) — isTaskLive(task)
+// consumes it here instead of a hand-written is_active/special_mode check.
+const tasks = require('./tasks');
 
 // ---------------------------------------------------------------------------
 // Prepared statements (compiled once, reused on every call).
 // ---------------------------------------------------------------------------
 
-const stmtActiveTask = db.prepare('SELECT id, is_active FROM tasks WHERE id = ?');
+const stmtActiveTask = db.prepare('SELECT id, special_mode FROM tasks WHERE id = ?');
 
 const stmtExistingSubmission = db.prepare(
   'SELECT id, photo_path, thumb_path, taken_down FROM submissions WHERE guest_id = ? AND task_id = ?'
@@ -136,7 +139,7 @@ function normalizeCaption(caption) {
  */
 async function submitPhoto({ guestId, taskId, file, caption }) {
   const task = stmtActiveTask.get(taskId);
-  if (!task || task.is_active !== 1) {
+  if (!task || !tasks.isTaskLive(task)) {
     photos.deleteOriginalFile(file.filename);
     return { status: 'task_inactive' };
   }

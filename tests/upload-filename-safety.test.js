@@ -57,9 +57,9 @@ beforeAll(async () => {
     .prepare(`INSERT INTO guests (token, name, onboarded) VALUES (?, ?, 1)`)
     .run(guestToken, 'Safety Tester').lastInsertRowid;
 
-  // Seed an active task.
+  // Seed an active task (special_mode defaults to 'none' — live).
   taskId = db
-    .prepare(`INSERT INTO tasks (title, is_active) VALUES (?, 1)`)
+    .prepare(`INSERT INTO tasks (title) VALUES (?)`)
     .run('Upload Safety Task').lastInsertRowid;
 });
 

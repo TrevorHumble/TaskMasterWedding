@@ -46,7 +46,8 @@ db.exec(`
     title        TEXT    NOT NULL,
     description  TEXT    NOT NULL DEFAULT '',
     sort_order   INTEGER NOT NULL DEFAULT 0,
-    is_active    INTEGER NOT NULL DEFAULT 1,
+    worth        INTEGER NOT NULL DEFAULT 1 CHECK (worth BETWEEN 1 AND 3),
+    special_mode TEXT    NOT NULL DEFAULT 'none' CHECK (special_mode IN ('none','hidden')),
     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -166,6 +167,90 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_comments_submission
     ON comments(submission_id, taken_down);
 `);
+
+// --- Guarded migration: tasks.worth / tasks.special_mode (issue #727) ---
+/**
+ * Rebuild `tasks` from the old is_active-only shape to the new shape carrying
+ * `worth` (1-3, default 1) and `special_mode` ('none'/'hidden', default
+ * 'none'), dropping `is_active` entirely.
+ *
+ * is_active (0/1) cannot encode the one_day/lucky/flash states the
+ * special_mode enum must extend to (#624/#649/#650), so it is dead vocabulary
+ * once special_mode exists — keeping it around as an unread column would be a
+ * second source of truth for "is this task live" (the same kind of drift
+ * ensureBadgeTypeCheckWidened's widen-in-place limitation guards against) and
+ * would silently mis-classify any fixture that still sets is_active = 0. SQLite
+ * cannot drop a column or add a CHECK constraint in place, so on an old-shape
+ * table we rebuild it — same recipe as ensureTaskIdNullable above: create a
+ * new table with the new shape, copy every row across (preserving id so
+ * submissions.task_id and badges.task_id — both REFERENCE tasks(id) — stay
+ * valid), drop the old table, rename the new one into place, all inside one
+ * transaction so a mid-migration crash cannot leave the database
+ * half-migrated.
+ *
+ * Backfill: worth = 1 for every existing row (no worth-writer existed before
+ * #727, so every task in production is worth 1 already); special_mode =
+ * 'hidden' for a row whose is_active was 0, else 'none'.
+ *
+ * Detection: PRAGMA table_info(tasks) — special_mode already present means a
+ * fresh DB (the CREATE TABLE above already declares the new shape) or an
+ * already-migrated DB, either way a no-op. is_active present means the old
+ * shape, so the rebuild runs.
+ *
+ * Runs right after the CREATE TABLE block above (not after the later guards
+ * below): it depends only on tasks/submissions/badges existing, which the top
+ * CREATE TABLE block already guarantees, and no later migration in this file
+ * depends on it running first. Exported so tests bind to this real guard
+ * rather than an inline copy of it.
+ */
+function ensureTaskWorthAndMode() {
+  const cols = db.prepare(`PRAGMA table_info(tasks)`).all();
+  if (cols.some((col) => col.name === 'special_mode')) {
+    // Fresh DB (CREATE TABLE above already has the new shape), or an
+    // already-migrated DB — nothing to do.
+    return;
+  }
+  if (!cols.some((col) => col.name === 'is_active')) {
+    // No tasks table at all yet (should not happen — the CREATE TABLE block
+    // above always runs first) — defensive no-op.
+    return;
+  }
+
+  // submissions.task_id and badges.task_id both REFERENCE tasks(id) ON DELETE
+  // CASCADE: dropping `tasks` mid-rebuild trips FK enforcement even though the
+  // replacement table restores the same ids, so foreign_keys is turned off
+  // for the duration of the rebuild only (SQLite's documented 12-step
+  // ALTER-TABLE recipe), and turned back on immediately after.
+  db.pragma('foreign_keys = OFF');
+  try {
+    const migrate = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE tasks_new (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          title        TEXT    NOT NULL,
+          description  TEXT    NOT NULL DEFAULT '',
+          sort_order   INTEGER NOT NULL DEFAULT 0,
+          worth        INTEGER NOT NULL DEFAULT 1 CHECK (worth BETWEEN 1 AND 3),
+          special_mode TEXT    NOT NULL DEFAULT 'none' CHECK (special_mode IN ('none','hidden')),
+          created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+        );
+
+        INSERT INTO tasks_new (id, sort_order, title, description, created_at, worth, special_mode)
+          SELECT id, sort_order, title, description, created_at, 1,
+                 CASE WHEN is_active = 0 THEN 'hidden' ELSE 'none' END
+            FROM tasks;
+
+        DROP TABLE tasks;
+        ALTER TABLE tasks_new RENAME TO tasks;
+      `);
+    });
+    migrate();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+ensureTaskWorthAndMode();
 
 // --- Guarded migration: submissions.photo_bonus (issue #89) ---
 /**
@@ -879,6 +964,7 @@ function cleanupSelfLikes() {
 
 module.exports = {
   db,
+  ensureTaskWorthAndMode,
   ensurePhotoBonusColumn,
   ensureBadgeTypeCheckWidened,
   ensureBadgeTaskIdColumn,

@@ -38,9 +38,8 @@ function makeGuest(name) {
 let taskSeq = 0;
 function makeTask() {
   taskSeq += 1;
-  return db
-    .prepare(`INSERT INTO tasks (title, is_active) VALUES (?, 1)`)
-    .run(`Wiring fixture task ${taskSeq}`).lastInsertRowid;
+  return db.prepare(`INSERT INTO tasks (title) VALUES (?)`).run(`Wiring fixture task ${taskSeq}`)
+    .lastInsertRowid;
 }
 
 function grantSystemBadge(guestId, code) {

@@ -32,18 +32,21 @@
 'use strict';
 
 const { db } = require('../db');
+// tasks.js is the ONE active-task owner (issue #727) — liveTaskWhere('t')
+// consumes it here instead of a hand-written 'hidden'/is_active predicate.
+const tasks = require('./tasks');
 
 // ---------------------------------------------------------------------------
 // COMPLETIONIST (metric, one-time): the guest has a visible submission for
-// EVERY currently-active task. Computed as "count of active tasks this guest
-// has NOT visibly completed" == 0, so an event with zero active tasks would
+// EVERY currently-live task. Computed as "count of live tasks this guest
+// has NOT visibly completed" == 0, so an event with zero live tasks would
 // vacuously qualify everyone — acceptable here because the admin always
 // seeds at least one task before guests can play.
 // ---------------------------------------------------------------------------
 const stmtMissingActiveTaskCount = db.prepare(`
   SELECT COUNT(*) AS n
     FROM tasks t
-   WHERE t.is_active = 1
+   WHERE ${tasks.liveTaskWhere('t')}
      AND NOT EXISTS (
        SELECT 1 FROM submissions s
         WHERE s.task_id = t.id
