@@ -111,6 +111,53 @@ describe('AC1/AC5: home progress bar is re-based on task completion, not badge t
       ).run(...previouslyActive);
     }
   });
+
+  it('issue #717: clamps the caption numerator to the denominator when completedTasks exceeds totalTasks', async () => {
+    // Same "deactivate after completion" shape as the aria-valuenow clamp
+    // test above, but this time asserting the CAPTION text, not the bar's
+    // aria-valuenow. Snapshot and clear every active task first, restore at
+    // the end so later tests still see seed.js's original 6 active tasks.
+    const previouslyActive = db
+      .prepare('SELECT id FROM tasks WHERE is_active = 1')
+      .all()
+      .map((r) => r.id);
+    db.prepare('UPDATE tasks SET is_active = 0').run();
+
+    // submissions has a UNIQUE(guest_id, task_id) constraint, so getting
+    // completedTasks to 3 needs 3 distinct tasks, not 3 submissions to one.
+    // Only t1 stays active — t2/t3 are inserted already inactive — so
+    // totalTasks counts just t1 (+1 incomplete starter) while
+    // getCompletedCount (no is_active filter) still counts all three.
+    const t1 = db
+      .prepare("INSERT INTO tasks (title, is_active) VALUES ('Caption clamp task A', 1)")
+      .run().lastInsertRowid;
+    const t2 = db
+      .prepare("INSERT INTO tasks (title, is_active) VALUES ('Caption clamp task B', 0)")
+      .run().lastInsertRowid;
+    const t3 = db
+      .prepare("INSERT INTO tasks (title, is_active) VALUES ('Caption clamp task C', 0)")
+      .run().lastInsertRowid;
+
+    const guest = makeGuest('Caption Clamp Guest');
+    submit(guest.id, t1);
+    submit(guest.id, t2);
+    submit(guest.id, t3);
+
+    const agent = await signIn(guest.token);
+    const res = await agent.get('/');
+    expect(res.status).toBe(200);
+    // Without the clamp the caption would read the impossible "3 of 2".
+    expect(res.text).not.toContain('3 of 2');
+    expect(res.text).toContain('2 of 2 tasks complete');
+
+    // Restore the seeded active-task field so later tests see the original 6.
+    db.prepare('UPDATE tasks SET is_active = 0 WHERE id IN (?, ?, ?)').run(t1, t2, t3);
+    if (previouslyActive.length > 0) {
+      db.prepare(
+        `UPDATE tasks SET is_active = 1 WHERE id IN (${previouslyActive.map(() => '?').join(',')})`
+      ).run(...previouslyActive);
+    }
+  });
 });
 
 describe('AC2/AC3/AC4: badge rendering on home, leaderboard, and profile is unbroken', () => {

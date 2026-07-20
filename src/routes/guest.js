@@ -166,15 +166,22 @@ router.get('/', function (req, res) {
   // whenever the highest badge threshold was unreachable given the active
   // task count (see issue #88).
   //
-  // Clamp to [0,100]: completedTasks uses the canonical count (visible
-  // submissions, NO is_active filter) while totalTasks counts only active
-  // tasks, so a guest who completed a task the admin later deactivated can
-  // have completedTasks > totalTasks. Without the clamp that overflows the
-  // bar's width and pushes aria-valuenow past aria-valuemax="100".
+  // completedTasks uses the canonical count (visible submissions, NO
+  // is_active filter) while totalTasks counts only active tasks, so a guest
+  // who completed a task the admin later deactivated can have
+  // completedTasks > totalTasks. Both guest-facing renderings of this pair —
+  // the bar's aria-valuenow/width and the caption's "N of T" text — must
+  // never show a numerator past its denominator, so the bound is computed
+  // ONCE here and both derive from it (issue #717; #88 is the precedent for
+  // why a second, independently-written clamp on the same rule is a defect,
+  // not a style choice).
+  const clampedCompletedTasks = Math.min(completedTasksWithStarter, totalTasks);
+
+  // clampedCompletedTasks is in [0, totalTasks] by construction, so this
+  // ratio is already in [0,1] and the rounded percent is already in
+  // [0,100] — no separate Math.max/Math.min guard needed here.
   const progressPercent =
-    totalTasks === 0
-      ? 0
-      : Math.max(0, Math.min(100, Math.round((completedTasksWithStarter / totalTasks) * 100)));
+    totalTasks === 0 ? 0 : Math.round((clampedCompletedTasks / totalTasks) * 100);
 
   res.render('guest-home', {
     title: 'Home',
@@ -182,7 +189,7 @@ router.get('/', function (req, res) {
     badges: badges,
     submissions: submissions,
     totalTasks: totalTasks,
-    completedTasks: completedTasksWithStarter,
+    completedTasks: clampedCompletedTasks,
     progressPercent: progressPercent,
   });
 });
