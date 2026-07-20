@@ -9,10 +9,10 @@
 //      session (res.locals.guest), never from request input.
 // AC3 (structural): GET /me/edit shows the remove control only when
 //      guest.avatar_path is set.
-// AC4 (#409 interplay): removing an avatar that already earned the starter
-//      point reverts the starter tile to not-complete but leaves getPoints
-//      unchanged (point stays banked); re-uploading sets avatar_path again
-//      but does not re-award.
+// AC4 (#409/#716 interplay): removing an avatar reverts the starter tile to
+//      not-complete AND takes the derived +1 out of getPoints (issue #716 —
+//      the point is no longer banked, it follows the photo); re-uploading
+//      sets avatar_path again and the +1 returns, never stacking to +2.
 //
 // REQUIRE ORDER: config / db / scoring are required only AFTER loadApp()
 // sets DATA_DIR / DB_PATH env vars (see tests/helpers/testApp.js).
@@ -76,17 +76,16 @@ function insertGuest(overrides) {
       token: 'avatar-remove-guest-' + guestSeq,
       name: 'Test Guest',
       avatar_path: null,
-      avatar_point_awarded: 0,
       bonus_points: 0,
     },
     overrides
   );
   return db
     .prepare(
-      `INSERT INTO guests (token, name, avatar_path, avatar_point_awarded, bonus_points)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO guests (token, name, avatar_path, bonus_points)
+       VALUES (?, ?, ?, ?)`
     )
-    .run(g.token, g.name, g.avatar_path, g.avatar_point_awarded, g.bonus_points).lastInsertRowid;
+    .run(g.token, g.name, g.avatar_path, g.bonus_points).lastInsertRowid;
 }
 
 function guestRow(guestId) {
@@ -206,21 +205,20 @@ describe('AC3: control renders only when there is a photo', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC4 — #409 interplay: removal reverts the starter tile but the banked
-// point stays banked; a re-upload does not re-award.
+// AC4 — #409/#716 interplay: removal reverts the starter tile AND takes the
+// derived +1 out of the total; a re-upload brings both back, never stacking.
 // ---------------------------------------------------------------------------
-describe('AC4: #409 starter-task interplay', () => {
-  it('reverts the starter tile to not-complete, keeps points unchanged, and a re-upload does not re-award', async () => {
+describe('AC4: #409/#716 starter-task interplay', () => {
+  it('reverts the starter tile to not-complete, removes the +1, and a re-upload returns exactly +1 (not +2)', async () => {
     fs.writeFileSync(path.join(uploadsDir, AVATAR_A), TINY_PNG);
     const guestId = insertGuest({
       token: 'ac4-guest',
       avatar_path: AVATAR_A,
-      avatar_point_awarded: 1,
-      bonus_points: 1, // the +1 starter point already banked
+      bonus_points: 2,
     });
 
     const pointsBefore = scoring.getPoints(guestId);
-    expect(pointsBefore).toBe(1);
+    expect(pointsBefore).toBe(3); // 2 bonus + 1 derived starter (avatar set)
 
     const agent = signInGuest(app, 'ac4-guest');
 
@@ -241,10 +239,11 @@ describe('AC4: #409 starter-task interplay', () => {
     const doneAfter = await agent.get('/tasks?view=done');
     expect(doneAfter.text).not.toContain('Upload your profile photo');
 
-    // The banked point is untouched — removal is not a point clawback.
+    // The +1 leaves the total — this is issue #716's whole point: removal IS
+    // a point clawback now, not a no-op on score.
     const rowAfterDelete = guestRow(guestId);
-    expect(rowAfterDelete.avatar_point_awarded).toBe(1); // guard flag still set
-    expect(scoring.getPoints(guestId)).toBe(pointsBefore);
+    expect(rowAfterDelete.avatar_path).toBeNull();
+    expect(scoring.getPoints(guestId)).toBe(pointsBefore - 1);
 
     // Re-upload a new avatar via the real POST /me/edit path.
     const jpeg = await tinyJpeg({ r: 5, g: 6, b: 7 });
@@ -256,8 +255,7 @@ describe('AC4: #409 starter-task interplay', () => {
 
     const rowAfterReupload = guestRow(guestId);
     expect(rowAfterReupload.avatar_path).toBeTruthy(); // avatar_path set again
-    expect(rowAfterReupload.avatar_point_awarded).toBe(1); // still just the one guard flip
-    // No second award: getPoints reads exactly what it did before removal.
+    // The +1 returns — exactly back to pointsBefore, never +2.
     expect(scoring.getPoints(guestId)).toBe(pointsBefore);
   });
 });

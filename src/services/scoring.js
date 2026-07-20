@@ -98,8 +98,10 @@ const stmtCompletedCount = db.prepare(
   'SELECT COUNT(*) AS c FROM submissions WHERE guest_id = ? AND taken_down = 0 AND task_id IS NOT NULL'
 );
 
-// Read a guest's admin-set bonus points.
-const stmtBonusPoints = db.prepare('SELECT bonus_points FROM guests WHERE id = ?');
+// Read a guest's admin-set bonus points plus avatar_path in the same row
+// read, so getPoints can derive the starter-photo term (issue #716) via
+// starterTaskContribution without a second guests query.
+const stmtBonusPoints = db.prepare('SELECT bonus_points, avatar_path FROM guests WHERE id = ?');
 
 // Sum a guest's per-photo bonus (submissions.photo_bonus, issue #89) over
 // their VISIBLE submissions only — same taken_down = 0 guard as
@@ -182,14 +184,6 @@ const stmtAddBonus = db.prepare(
   'UPDATE guests SET bonus_points = MAX(0, bonus_points + ?) WHERE id = ?'
 );
 
-// Read/flip a guest's one-time avatar starter-point flag (issue #409). Used
-// only by awardProfilePhotoPoint below, which is the single caller allowed
-// to set this flag — no other statement in this file writes it.
-const stmtAvatarPointAwarded = db.prepare('SELECT avatar_point_awarded FROM guests WHERE id = ?');
-const stmtSetAvatarPointAwarded = db.prepare(
-  'UPDATE guests SET avatar_point_awarded = 1 WHERE id = ?'
-);
-
 // ---------------------------------------------------------------------------
 // Read helpers
 // ---------------------------------------------------------------------------
@@ -213,6 +207,10 @@ function getCompletedCount(guestId) {
  *   + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
  *     submissions, task or memory — issue #89, preserved by #247)
  *   + admin guests.bonus_points
+ *   + the DERIVED profile-photo starter term (issue #716; supersedes #409's
+ *     one-time banked award): +STARTER_PHOTO_POINT while guests.avatar_path
+ *     is set, 0 while it is not — read through starterTaskContribution, the
+ *     single owner of the `!!avatar_path` rule, so this never re-derives it.
  *   + task-badge AWARD points (SUM of guest_badges.points, issue #483),
  *     counted only while the award's earning photo is visible (AC6).
  * bonus_points is stored clamped at >= 0, photo_bonus is a non-negative
@@ -225,10 +223,12 @@ function getCompletedCount(guestId) {
 function getPoints(guestId) {
   const worthSum = stmtWorthSum.get(guestId).w;
   const photoBonus = stmtPhotoBonusSum.get(guestId).pb;
-  const bonusRow = stmtBonusPoints.get(guestId);
-  const bonus = bonusRow ? bonusRow.bonus_points : 0;
+  const guestRow = stmtBonusPoints.get(guestId);
+  const bonus = guestRow ? guestRow.bonus_points : 0;
+  const starter = starterTaskContribution(guestRow);
+  const starterPoints = starter.done ? starter.points : 0;
   const awardPoints = stmtAwardPointsSum.get(guestId).ap;
-  return worthSum + photoBonus + bonus + awardPoints;
+  return worthSum + photoBonus + bonus + starterPoints + awardPoints;
 }
 
 // ---------------------------------------------------------------------------
@@ -499,30 +499,34 @@ function addBonusPoints(guestId, delta) {
 }
 
 // ---------------------------------------------------------------------------
-// Profile-photo starter task (issue #409) — single owner of its two facts
+// Profile-photo starter task (issue #409; DERIVED per issue #716) — single
+// owner of its two facts
 // ---------------------------------------------------------------------------
 
 // The hardcoded "Upload your profile photo" starter task is worth this many
 // points, owned here the same way a real task's worth column owns its per-
 // task base (issue #409 design constraint; issue #727 gave real tasks their
-// own worth column, but the starter has no tasks row to carry one). Both the
-// bonus-point award below and the tasks-page tile's "+N pt" label read this
-// one constant, so the value never appears as a bare literal at a scoring
-// call site OR in the view.
+// own worth column, but the starter has no tasks row to carry one). Both
+// getPoints/leaderboard's derived starter term (issue #716) and the
+// tasks-page tile's "+N pt" label read this one constant, so the value never
+// appears as a bare literal at a scoring call site OR in the view.
 const STARTER_PHOTO_POINT = 1;
 
 /**
  * The starter task's contribution to a guest's task counts, plus its display
  * facts, derived in ONE place from the guest row (issue #409 design
- * constraint). Every surface that shows or counts the starter — GET / (home
- * progress bar), GET /tasks (chip counts), and views/tasks.ejs (tile
- * placement and label) — consumes this instead of re-deriving
- * `!!avatar_path` or re-applying the `+1` arithmetic on its own, so the
- * surfaces can never disagree about whether the starter exists or is done.
+ * constraint). Every surface that shows, counts, or scores the starter —
+ * GET / (home progress bar), GET /tasks (chip counts), views/tasks.ejs (tile
+ * placement and label), and getPoints/leaderboard's point totals (issue
+ * #716) — consumes this instead of re-deriving `!!avatar_path` or
+ * re-applying the `+1` arithmetic on its own, so the surfaces can never
+ * disagree about whether the starter exists, is done, or pays.
  *
  * The starter is always exactly one task (`total: 1`); it is complete once
- * the guest has an avatar. `done_count`/`todo_count` are the +1 a caller
- * folds into its own done/todo totals.
+ * the guest has an avatar, and its point ONLY counts toward a guest's total
+ * while `done` is true (issue #716 — the point follows the photo: no photo,
+ * no point, every time this is read, not just the first time). `done_count`/
+ * `todo_count` are the +1 a caller folds into its own done/todo totals.
  *
  * @param {{avatar_path?: string|null}} guest a guest row (e.g. res.locals.guest)
  * @returns {{points:number, done:boolean, total:number, done_count:number, todo_count:number}}
@@ -538,44 +542,6 @@ function starterTaskContribution(guest) {
   };
 }
 
-/**
- * Award the one-time "Upload your profile photo" starter bonus point (issue
- * #409) the first time a guest sets an avatar. Both avatar-setting call
- * sites — POST /join (signup, routes/auth.js) and POST /me/edit (profile
- * edit, routes/guest.js) — call this after their saveAvatar call succeeds.
- *
- * Awarded exactly ONCE, ever, per guest: guests.avatar_point_awarded starts
- * at 0 and this function is the only writer that ever sets it to 1, so a
- * replacement avatar upload (POST /me/edit again, or a delete-then-re-upload)
- * finds the flag already 1 and no-ops — the point can never be earned twice
- * (AC2). Calling this with no file saved (avatar unchanged) is simply not
- * done by either call site, so "no photo selected" never reaches here (AC3).
- *
- * The award goes through addBonusPoints — the single scoring authority — so
- * this stays a bonus point, not a task/submission row: it never appears in
- * the public gallery/feed, and it does NOT count toward the completed-task
- * badge thresholds (BLOOM/BOUQUET/GARDEN), which count submissions only —
- * see issue #409's "Deliberate scope call for the reviewer".
- *
- * Wrapped in a transaction so the flag flip and the point award apply
- * together or not at all; better-sqlite3 nests transaction functions via
- * SAVEPOINTs, so this is safe to call from inside another db.transaction if
- * a future caller ever needs to.
- *
- * @param {number} guestId
- * @returns {boolean} true if the point was just awarded; false if it was
- *   already awarded (no-op) or the guest id does not resolve to a row.
- */
-const awardProfilePhotoPoint = db.transaction((guestId) => {
-  const row = stmtAvatarPointAwarded.get(guestId);
-  if (!row || row.avatar_point_awarded) {
-    return false;
-  }
-  stmtSetAvatarPointAwarded.run(guestId);
-  addBonusPoints(guestId, STARTER_PHOTO_POINT);
-  return true;
-});
-
 // ---------------------------------------------------------------------------
 // Leaderboard
 // ---------------------------------------------------------------------------
@@ -587,6 +553,13 @@ const awardProfilePhotoPoint = db.transaction((guestId) => {
  * + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
  * submissions, task or memory — issue #89, preserved by #247's design)
  * + guests.bonus_points
+ * + the DERIVED profile-photo starter term (issue #716; supersedes #409's
+ * one-time banked award): STARTER_PHOTO_POINT while g.avatar_path IS NOT
+ * NULL, else 0 — g.avatar_path is only ever NULL or a real filename (never
+ * ''), so this SQL presence check is the exact mirror of
+ * starterTaskContribution's `!!avatar_path` rule that getPoints reads
+ * in-process; the two can't drift because both consume the same
+ * STARTER_PHOTO_POINT constant, one via SQL interpolation, one via JS.
  * + task-badge AWARD points (SUM of guest_badges.points, issue #483),
  * counted only while the award's earning photo is visible (AC6) — see the
  * awardPoints subquery note below. Each row carries the guest's earned badge
@@ -653,6 +626,7 @@ function leaderboard() {
          g.bonus_points  AS bonus_points,
          COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END)                                          AS completed,
          COALESCE(SUM(CASE WHEN s.task_id IS NOT NULL THEN t.worth ELSE 0 END), 0) + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points +
+         (CASE WHEN g.avatar_path IS NOT NULL THEN ${STARTER_PHOTO_POINT} ELSE 0 END) +
          COALESCE((
            SELECT SUM(gb.points)
              FROM guest_badges gb
@@ -831,6 +805,5 @@ module.exports = {
   addBonusPoints,
   STARTER_PHOTO_POINT,
   starterTaskContribution,
-  awardProfilePhotoPoint,
   leaderboard,
 };

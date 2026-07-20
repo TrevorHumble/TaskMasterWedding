@@ -1,41 +1,42 @@
 // tests/profile-photo-task.test.js
-// Issue #409: a hardcoded starter task, "Upload your profile photo", awards a
-// one-time bonus point (scoring.awardProfilePhotoPoint) the first time a
-// guest sets an avatar. It is intentionally NOT a tasks/submissions row — the
-// point flows through addBonusPoints (the single scoring authority) so it
-// never leaks into the public gallery/feed and never counts toward the
+// Issue #409 (original design) / #716 (owner rewrite, 2026-07-20): the
+// hardcoded "Upload your profile photo" starter task pays +1. #716
+// supersedes #409's one-time BANKED award — the point is now DERIVED live
+// from guests.avatar_path: it pays while an avatar is set, leaves the total
+// the moment the avatar is removed, and returns the moment one is set again.
+// It is intentionally NOT a tasks/submissions row — the point flows through
+// scoring.starterTaskContribution (read by both getPoints and leaderboard),
+// so it never leaks into the public gallery/feed and never counts toward the
 // completed-task badge thresholds (BLOOM/BOUQUET/GARDEN, which count
-// submissions only — see issue #409's "Deliberate scope call for the
-// reviewer").
+// submissions only).
 //
 // Both real avatar-setting call sites are covered:
 //   - POST /join (signup) — the actual onboarding-time saveAvatar call site.
-//     (POST /onboard, named in the issue's background, is dead code retired
-//     by issue #244 — it only redirects to /join and never calls saveAvatar,
-//     so hooking it would award nothing. See src/routes/auth.js's #409 note
-//     on that route.)
 //   - POST /me/edit — profile edit, including the first-avatar and
 //     replace-an-existing-avatar cases.
+// Avatar removal goes through POST /me/avatar/delete (issue #528).
 //
-// AC1: first avatar save awards exactly +1 point and flips
-//      guests.avatar_point_awarded to 1, at both call sites.
-// AC2: a guest who already earned the point does not earn it again when
-//      they replace their avatar via POST /me/edit — even across many
-//      replacements.
-// AC3: saving the edit form with no file attached (name/socials only)
-//      awards nothing and leaves avatar_point_awarded at 0.
-// AC4 (re-amended by the owner's second 2026-07-14 visual-loop pass): the
-//      tasks page (GET /tasks) renders the literal "Upload your profile
-//      photo" tile as an ordinary FIRST row INSIDE the to-do or done list —
-//      not a section above the filters. Incomplete, it is first in the
-//      to-do list and absent from the done view; complete, it is first in
-//      the done list and absent from the to-do view. Either way it is
-//      folded into the todoCount/doneCount/totalCount chips next to those
-//      lists. The guest home page (GET /) does NOT render it — the owner
-//      moved the tile off the home/profile surface into the task list
-//      during the first 2026-07-14 visual-approval pass.
-// AC5: guests.avatar_path is populated and the guest's own home page still
-//      renders the avatar image (existing behavior).
+// AC1: Given a guest with no avatar, When they upload a profile photo, Then
+//      their total gains +1 (getPoints and leaderboard agree).
+// AC2: Given that guest, When they delete their profile photo, Then the +1
+//      leaves the total and the tile returns to to-do showing "+1 pt".
+// AC3: Given they re-upload, Then the +1 returns; repeating the cycle never
+//      yields more than +1 at a time.
+// AC4 (migration — pre-existing avatar_point_awarded=1 rows): covered
+//      separately in tests/avatar-point-migration.test.js, which needs its
+//      own standalone pre-#716 database shape (this file's loadApp() always
+//      builds a FRESH, already-migrated database, so it cannot exercise a
+//      real migration path — see that file's header for why it stands
+//      alone).
+// AC5 (docs-sync / green suite): covered by the repo-wide npm test/lint/
+//      format:check run, not a unit assertion here.
+//
+// The tasks-page rendering assertions (tile placement, chip counts, "+1 pt"
+// vs "Complete" label) that issue #409 originally proved are UNCHANGED by
+// #716 — starterTaskContribution's done/total/done_count/todo_count shape is
+// untouched, only its POINTS contribution became conditional on `done`. Full
+// tile-rendering coverage for that stays where it already lived (this file's
+// AC4 describe block below, renamed from the original file's AC4).
 //
 // REQUIRE ORDER: loadApp() must run before any require of config, db, or
 // scoring (see tests/helpers/testApp.js "REQUIRE ORDER MATTERS").
@@ -84,21 +85,27 @@ function insertGuest(overrides) {
       token: 'ppt-guest-' + guestSeq,
       name: 'Test Guest',
       avatar_path: null,
-      avatar_point_awarded: 0,
       bonus_points: 0,
     },
     overrides
   );
   return db
     .prepare(
-      `INSERT INTO guests (token, name, avatar_path, avatar_point_awarded, bonus_points)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO guests (token, name, avatar_path, bonus_points)
+       VALUES (?, ?, ?, ?)`
     )
-    .run(g.token, g.name, g.avatar_path, g.avatar_point_awarded, g.bonus_points).lastInsertRowid;
+    .run(g.token, g.name, g.avatar_path, g.bonus_points).lastInsertRowid;
 }
 
 function guestRow(guestId) {
   return db.prepare('SELECT * FROM guests WHERE id = ?').get(guestId);
+}
+
+// The leaderboard's own points field for one guest, so tests can assert
+// getPoints and leaderboard AGREE (AC1) rather than only checking one path.
+function leaderboardPoints(guestId) {
+  const row = scoring.leaderboard().find((r) => r.id === guestId);
+  return row ? row.points : undefined;
 }
 
 // A single real active task, distinct from the hardcoded starter tile, so
@@ -117,15 +124,16 @@ function insertSubmission(guestId, taskId) {
 }
 
 // ---------------------------------------------------------------------------
-// AC1 — one-time award on first avatar save, at both call sites.
+// AC1 — uploading a photo pays +1, at both call sites, agreeing across
+// getPoints and leaderboard.
 // ---------------------------------------------------------------------------
-describe('AC1: first avatar save awards exactly +1 point', () => {
-  it('POST /join (signup) with an avatar awards the point and sets avatar_path (AC5)', async () => {
+describe('AC1: uploading a profile photo pays +1 (derived, not banked)', () => {
+  it('POST /join (signup) with an avatar: total gains +1, getPoints and leaderboard agree', async () => {
     const jpeg = await tinyJpeg();
     const res = await request(app)
       .post('/join')
       .field('name', 'Signup Avatar Guest')
-      .field('contact', 'signup-avatar-409@example.com')
+      .field('contact', 'signup-avatar-716@example.com')
       .field('pin', '1357')
       .attach('avatar', jpeg, { filename: 'a.jpg', contentType: 'image/jpeg' });
 
@@ -133,17 +141,18 @@ describe('AC1: first avatar save awards exactly +1 point', () => {
 
     const row = db
       .prepare('SELECT * FROM guests WHERE contact = ?')
-      .get('signup-avatar-409@example.com');
+      .get('signup-avatar-716@example.com');
     expect(row).toBeTruthy();
-    expect(row.avatar_path).toBeTruthy(); // AC5: avatar_path populated
-    expect(row.avatar_point_awarded).toBe(1);
-    expect(scoring.getPoints(row.id)).toBe(1); // P(0) + 1
+    expect(row.avatar_path).toBeTruthy();
+    expect(scoring.getPoints(row.id)).toBe(1);
+    expect(leaderboardPoints(row.id)).toBe(1);
   });
 
-  it('POST /me/edit with a first avatar awards the point on top of existing points', async () => {
+  it('POST /me/edit with a first avatar: +1 lands on top of existing points, getPoints and leaderboard agree', async () => {
     const guestId = insertGuest({ token: 'edit-first-avatar', bonus_points: 3 });
     const before = scoring.getPoints(guestId);
     expect(before).toBe(3);
+    expect(leaderboardPoints(guestId)).toBe(3);
 
     const agent = signInGuest(app, 'edit-first-avatar');
     const jpeg = await tinyJpeg({ r: 10, g: 20, b: 30 });
@@ -155,28 +164,19 @@ describe('AC1: first avatar save awards exactly +1 point', () => {
     expect(res.status).toBe(302);
     const row = guestRow(guestId);
     expect(row.avatar_path).toBeTruthy();
-    expect(row.avatar_point_awarded).toBe(1);
     expect(scoring.getPoints(guestId)).toBe(before + 1);
+    expect(leaderboardPoints(guestId)).toBe(before + 1);
   });
-});
 
-// ---------------------------------------------------------------------------
-// AC2 — no double award on replacement, even across delete-then-re-upload
-// (avatar_point_awarded never resets once set, independent of avatar_path).
-// ---------------------------------------------------------------------------
-describe('AC2: no double award on replacement', () => {
-  it('replacing an already-awarded avatar via POST /me/edit leaves points unchanged', async () => {
-    // bonus_points already includes the point banked when this guest first
-    // earned it — the fixture simulates "already awarded" directly, matching
-    // AC2's Given.
+  it('replacing an already-set avatar via POST /me/edit still yields exactly +1, not +2', async () => {
     const guestId = insertGuest({
       token: 'edit-replace-avatar',
       avatar_path: 'existing-avatar.jpg',
-      avatar_point_awarded: 1,
       bonus_points: 5,
     });
+    // The starter +1 is already part of "before" because avatar_path is set.
     const before = scoring.getPoints(guestId);
-    expect(before).toBe(5);
+    expect(before).toBe(6);
 
     const agent = signInGuest(app, 'edit-replace-avatar');
     const jpeg = await tinyJpeg({ r: 1, g: 2, b: 3 });
@@ -189,33 +189,15 @@ describe('AC2: no double award on replacement', () => {
     const row = guestRow(guestId);
     // The upload really replaced the file (not a no-op)...
     expect(row.avatar_path).not.toBe('existing-avatar.jpg');
-    // ...but the one-time point guard held: still awarded once, points
-    // unchanged. This is the assertion that would fail if the guard were
-    // removed (points would read 6, not 5).
-    expect(row.avatar_point_awarded).toBe(1);
+    // ...but the starter contribution is still exactly one +1, not a second
+    // one stacked on top — this is the assertion that would fail if the
+    // derived term were mistakenly added again per upload instead of being
+    // a presence check.
     expect(scoring.getPoints(guestId)).toBe(before);
+    expect(leaderboardPoints(guestId)).toBe(before);
   });
 
-  it('awardProfilePhotoPoint itself is a no-op on a second call for the same guest', () => {
-    const guestId = insertGuest({ token: 'award-twice-direct', bonus_points: 0 });
-    expect(scoring.awardProfilePhotoPoint(guestId)).toBe(true);
-    expect(scoring.getPoints(guestId)).toBe(1);
-    // Second call: already awarded, no-op.
-    expect(scoring.awardProfilePhotoPoint(guestId)).toBe(false);
-    expect(scoring.getPoints(guestId)).toBe(1);
-  });
-
-  it('a guest id that does not exist returns false and does not throw (edge case)', () => {
-    expect(() => scoring.awardProfilePhotoPoint(999999)).not.toThrow();
-    expect(scoring.awardProfilePhotoPoint(999999)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC3 — no award without a photo.
-// ---------------------------------------------------------------------------
-describe('AC3: no award without a photo', () => {
-  it('saving the edit form with no file attached (name/socials only) awards nothing', async () => {
+  it('saving the edit form with no file attached (name/socials only) leaves points unchanged', async () => {
     const guestId = insertGuest({ token: 'edit-no-file', bonus_points: 2 });
     const before = scoring.getPoints(guestId);
     expect(before).toBe(2);
@@ -229,14 +211,104 @@ describe('AC3: no award without a photo', () => {
     expect(res.status).toBe(302);
     const row = guestRow(guestId);
     expect(row.avatar_path).toBeNull();
-    expect(row.avatar_point_awarded).toBe(0);
     expect(scoring.getPoints(guestId)).toBe(before);
+    expect(leaderboardPoints(guestId)).toBe(before);
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC4 — hardcoded task tile renders both states on the tasks page, and does
-// NOT render on the guest home page.
+// AC2 — deleting the avatar removes the +1 from the total and reverts the
+// tile to to-do.
+// ---------------------------------------------------------------------------
+describe('AC2: deleting the avatar removes the +1', () => {
+  it('POST /me/avatar/delete: the +1 leaves the total, and the tile shows to-do "+1 pt" again', async () => {
+    const guestId = insertGuest({
+      token: 'delete-removes-point',
+      avatar_path: 'has-avatar.jpg',
+      bonus_points: 2,
+    });
+    const before = scoring.getPoints(guestId);
+    expect(before).toBe(3); // 2 bonus + 1 derived starter
+
+    const agent = signInGuest(app, 'delete-removes-point');
+
+    // Before removal: tile is Complete, in the done list.
+    const doneBefore = await agent.get('/tasks?view=done');
+    expect(doneBefore.text).toContain('Upload your profile photo');
+    expect(doneBefore.text).toContain('<span class="task-points">Complete</span>');
+
+    const delRes = await agent.post('/me/avatar/delete').type('form').send({});
+    expect(delRes.status).toBe(302);
+
+    expect(guestRow(guestId).avatar_path).toBeNull();
+    expect(scoring.getPoints(guestId)).toBe(before - 1);
+    expect(leaderboardPoints(guestId)).toBe(before - 1);
+
+    // After removal: tile is back in the to-do list showing "+1 pt".
+    const todoAfter = await agent.get('/tasks');
+    expect(todoAfter.text).toContain('Upload your profile photo');
+    expect(todoAfter.text).toContain('<span class="task-points">+1 pt</span>');
+    const doneAfter = await agent.get('/tasks?view=done');
+    expect(doneAfter.text).not.toContain('Upload your profile photo');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC3 — re-uploading returns the +1; the upload/delete cycle never stacks
+// more than +1 at a time, however many times it repeats.
+// ---------------------------------------------------------------------------
+describe('AC3: re-upload returns the +1, cycle never exceeds +1', () => {
+  it('delete -> re-upload -> delete -> re-upload never yields more than +1 above baseline', async () => {
+    const guestId = insertGuest({
+      token: 'cycle-guest',
+      avatar_path: 'first-avatar.jpg',
+      bonus_points: 4,
+    });
+    const baseline = 4; // bonus_points only, avatar not yet counted below
+    const agent = signInGuest(app, 'cycle-guest');
+
+    // Starts with an avatar: +1 already applied.
+    expect(scoring.getPoints(guestId)).toBe(baseline + 1);
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      // Remove: point leaves.
+      const delRes = await agent.post('/me/avatar/delete').type('form').send({});
+      expect(delRes.status).toBe(302);
+      expect(scoring.getPoints(guestId)).toBe(baseline);
+      expect(leaderboardPoints(guestId)).toBe(baseline);
+
+      // Re-upload: point returns, never more than +1 above baseline.
+      const jpeg = await tinyJpeg({ r: cycle, g: cycle + 1, b: cycle + 2 });
+      const reuploadRes = await agent
+        .post('/me/edit')
+        .field('name', 'Cycle Guest')
+        .attach('avatar', jpeg, { filename: `cycle-${cycle}.jpg`, contentType: 'image/jpeg' });
+      expect(reuploadRes.status).toBe(302);
+      expect(guestRow(guestId).avatar_path).toBeTruthy();
+      expect(scoring.getPoints(guestId)).toBe(baseline + 1);
+      expect(leaderboardPoints(guestId)).toBe(baseline + 1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Edge case: a guest id with no matching row (e.g. deleted between lookup
+// and scoring call) must not throw and must contribute 0, not NaN or a
+// crash — getPoints reads the guest row through the same stmtBonusPoints
+// query starterTaskContribution's presence check depends on.
+// ---------------------------------------------------------------------------
+describe('edge case: getPoints on a non-existent guest id', () => {
+  it('does not throw and returns 0', () => {
+    expect(() => scoring.getPoints(999999)).not.toThrow();
+    expect(scoring.getPoints(999999)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC4 (renamed from the original #409 file) — hardcoded task tile renders
+// both states on the tasks page, and does NOT render on the guest home page.
+// Untouched by #716: only the POINTS contribution became conditional on
+// `done`, not this rendering/counting behavior.
 // ---------------------------------------------------------------------------
 describe('AC4: hardcoded starter task tile as a first row inside the list', () => {
   it('incomplete: tile is the first row in the to-do list, and is absent from the done view', async () => {
@@ -262,11 +334,10 @@ describe('AC4: hardcoded starter task tile as a first row inside the list', () =
     expect(doneRes.text).not.toContain('Upload your profile photo');
   });
 
-  it('complete: tile is the first row in the done list, and is absent from the to-do view; avatar still renders on the home page (AC5)', async () => {
+  it('complete: tile is the first row in the done list, and is absent from the to-do view; avatar still renders on the home page', async () => {
     const guestId = insertGuest({
       token: 'tasks-with-avatar',
       avatar_path: 'has-avatar.jpg',
-      avatar_point_awarded: 1,
     });
     const realTaskId = insertTask('Real done task');
     insertSubmission(guestId, realTaskId);
@@ -287,7 +358,7 @@ describe('AC4: hardcoded starter task tile as a first row inside the list', () =
     expect(todoRes.status).toBe(200);
     expect(todoRes.text).not.toContain('Upload your profile photo');
 
-    // AC5: the existing avatar-render behavior still holds on the home page.
+    // The existing avatar-render behavior still holds on the home page.
     const homeRes = await agent.get('/');
     expect(homeRes.status).toBe(200);
     expect(homeRes.text).toContain('avatar-img');
@@ -324,7 +395,6 @@ describe('AC4: hardcoded starter task tile as a first row inside the list', () =
     const completeId = insertGuest({
       token: 'tasks-counts-complete',
       avatar_path: 'has-avatar.jpg',
-      avatar_point_awarded: 1,
     });
     insertTask('Counts to-do task (complete guest)');
     const doneTaskId = insertTask('Counts done task (complete guest)');
