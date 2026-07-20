@@ -1905,6 +1905,22 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
+  /* Break the feed column out of the .page horizontal gutter so photos can
+     bleed to the page edge (screen edge on mobile, column edge on desktop),
+     #612. .page has no paint containment, so this overflow is NOT clipped
+     (unlike overflowing the content-visibility:auto .feed-item). The photo then
+     fills its card at width:100%; only the text rows are re-indented below. */
+  margin-inline: calc(-1 * var(--gutter));
+}
+/* Re-indent the non-photo rows by the gutter the .feed just broke out of, so
+   text keeps its margin while the photo stays full-bleed (#612). */
+.feed-by,
+.feed-caption,
+.feed-actionbar,
+.feed-comments,
+.feed-task-line,
+.admin-feed-downline {
+  padding-inline: var(--gutter);
 }
 /* Kill the mobile tap-flash box (#248 owner visual gate): without this the
    card's controls inherit the browser default -webkit-tap-highlight-color
@@ -1964,12 +1980,20 @@ textarea {
 /* No grey placeholder box (owner directive, #248) — the thumbnail's own
    pixels are the only fill; a background here would show through as a flash
    of grey before the image decodes. */
+/* Full-bleed photo (owner directive, #612): the photo fills the full width of
+   the feed column with no border and no rounded corners — the modern photo-app
+   look and maximum resolution. The bleed is achieved at the CONTAINER level:
+   `.feed` breaks out of the .page gutter and the text rows are re-indented (see
+   `.feed` and the `.feed-by/...` padding rule below), so the photo simply fills
+   its card at width:100% with NOTHING overflowing. This matters because
+   `.feed-item` has `content-visibility: auto` (paint containment), which would
+   CLIP a photo that tried to overflow its card via negative margins — so the
+   photo must never be wider than its card. Applies to the guest feed and the
+   admin feed alike (both use .feed-photo). */
 .feed-photo {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: var(--radius-card);
-  border: var(--border-hairline);
 }
 .feed-caption {
   font-style: italic;
@@ -3564,14 +3588,16 @@ body:has(dialog[open]) {
   }
 }
 
-/* Photo feed on desktop: cap the photo width instead of stretching it
-   full-viewport-width. */
-@media (min-width: 700px) {
-  .feed-item {
-    max-width: 560px;
-    margin-inline: auto;
-  }
-}
+/* No desktop width cap on .feed-item: the .page wrapper already caps the feed
+   column at --app-max-width (430px), well under any per-card cap. A previous
+   `max-width: 560px; margin-inline: auto` here was inert on width (560 > 430)
+   but its auto inline margins made each card a flex item with auto cross-axis
+   margins, which SUPPRESSES `align-items: stretch` on the `.feed` column — so
+   any photo whose thumbnail is narrower than the column (e.g. a small upload)
+   rendered at its natural width, floating centered with white space, instead
+   of filling the card. Removing it lets every card stretch to the column so
+   small/low-res photos fill edge-to-edge (upscaled, never cropped). Applies to
+   the guest feed and the admin feed alike (both use .feed-item). #612 */
 
 /* ----------------------- Message card -----------------------
    Standalone themed page (partials/message-card.ejs): the shared card for
