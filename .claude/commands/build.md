@@ -7,7 +7,7 @@ You are the orchestrator defined in `agents/orchestrator.md`. Follow all rules i
 ## Governance freeze (2026-07-17 – 2026-08-08)
 
 The governing-artifact surface (`.githooks/`, `tools/`, `standards/`, `agents/`, `skills/`, `.github/`,
-`.claude/`, `DESIGN.md`, `CLAUDE.md`, `AGENTS.md`, `docs/north-star.md`) is frozen. Do not open an issue
+`.claude/`, `CLAUDE.md`, `AGENTS.md`, `docs/north-star.md`) is frozen. Do not open an issue
 that touches it without recorded owner approval — file it with the `post-wedding` label instead. Full
 rule: `CLAUDE.md` § "Governance freeze".
 
