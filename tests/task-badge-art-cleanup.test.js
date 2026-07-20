@@ -4,10 +4,20 @@
 // in data/uploads/ and stay reachable at their URL after nothing references
 // them. The shared default-ribbon SVG must never be deleted.
 //
+// Issue #410 note: the badge-icon picker replaced file-upload badge art
+// entirely — POST /admin/tasks/:id/badge no longer accepts a multipart file,
+// so the end-to-end AC1/AC3 coverage below now drives the route with a
+// catalog icon id instead of an attached file. The unit-level
+// isUploadedArtPath/unlinkUploadedArt/setTaskBadge coverage is untouched
+// (those helpers still matter for any /uploads/ art_path, and a bundled
+// /badges/icons/ path is a NEW case this file adds coverage for: it must
+// never be treated as uploaded-and-deletable).
+//
 // AC1: task delete unlinks a host-uploaded badge art file.
 // AC2: task delete never touches the shared default ribbon SVG (both when a
 //      badge row already resolved to it, and when no badge row exists yet).
 // AC3: replacing badge art (upload A, then upload B) removes A and keeps B.
+// AC-icon: task delete never unlinks a bundled /badges/icons/ SVG (#410).
 //
 // Covers the underlying task-badges.js helpers (isUploadedArtPath,
 // unlinkUploadedArt, and setTaskBadge's replace-time unlink) directly, and
@@ -21,7 +31,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const sharp = require('sharp');
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
 
 let app;
@@ -29,13 +38,8 @@ let db;
 let config;
 let photos;
 let taskBadges;
+let badgeIcons;
 let adminAgent;
-
-// Two distinct valid JPEGs (different pixel color) so their encoded bytes —
-// and therefore their stored filenames — differ, which lets AC3 assert the
-// old file is actually gone rather than coincidentally matching the new one.
-let jpegA;
-let jpegB;
 
 const DEFAULT_RIBBON_ABS_PATH = path.join(
   __dirname,
@@ -50,11 +54,6 @@ function makeTask(title) {
   return db.prepare('INSERT INTO tasks (title) VALUES (?)').run(title).lastInsertRowid;
 }
 
-/** Absolute UPLOADS_DIR path for a badge art_path like "/uploads/<file>.jpg". */
-function absArtPath(artPath) {
-  return path.join(config.UPLOADS_DIR, path.basename(artPath));
-}
-
 beforeAll(async () => {
   const result = loadApp();
   app = result.app;
@@ -62,29 +61,22 @@ beforeAll(async () => {
   config = require('../config');
   photos = require('../src/services/photos');
   taskBadges = require('../src/services/task-badges');
+  badgeIcons = require('../src/services/badge-icons');
   adminAgent = await makeAdminAgent(app);
-
-  jpegA = await sharp({
-    create: { width: 8, height: 8, channels: 3, background: { r: 200, g: 30, b: 30 } },
-  })
-    .jpeg()
-    .toBuffer();
-
-  jpegB = await sharp({
-    create: { width: 8, height: 8, channels: 3, background: { r: 30, g: 30, b: 200 } },
-  })
-    .jpeg()
-    .toBuffer();
 });
 
 // ---------------------------------------------------------------------------
 // Unit-level coverage of the two new helpers, independent of the HTTP layer.
 // ---------------------------------------------------------------------------
 describe('isUploadedArtPath', () => {
-  it('is true only for a /uploads/ path; false for the shared default, other paths, and absent values', () => {
+  it('is true only for a /uploads/ path; false for the shared default, a bundled icon, and absent values', () => {
     expect(taskBadges.isUploadedArtPath('/uploads/abc123.jpg')).toBe(true);
     expect(taskBadges.isUploadedArtPath(taskBadges.DEFAULT_RIBBON_ART_PATH)).toBe(false);
     expect(taskBadges.isUploadedArtPath('/badges/bloom.svg')).toBe(false);
+    // #410: a picked catalog icon's bundled path is never "uploaded" — the
+    // /badges/icons/ prefix does not start with /uploads/, so this is false
+    // without any code change to isUploadedArtPath itself.
+    expect(taskBadges.isUploadedArtPath(badgeIcons.resolveIconPath('favorite'))).toBe(false);
     expect(taskBadges.isUploadedArtPath(null)).toBe(false);
     expect(taskBadges.isUploadedArtPath(undefined)).toBe(false);
     expect(taskBadges.isUploadedArtPath('')).toBe(false);
@@ -104,6 +96,15 @@ describe('unlinkUploadedArt', () => {
     expect(fs.existsSync(DEFAULT_RIBBON_ABS_PATH)).toBe(true);
     taskBadges.unlinkUploadedArt(taskBadges.DEFAULT_RIBBON_ART_PATH);
     expect(fs.existsSync(DEFAULT_RIBBON_ABS_PATH)).toBe(true); // untouched
+  });
+
+  it('never unlinks a bundled /badges/icons/ SVG (#410)', () => {
+    const iconPath = badgeIcons.resolveIconPath('favorite');
+    const absIconPath = path.join(config.PUBLIC_DIR, iconPath.replace(/^\//, ''));
+    expect(fs.existsSync(absIconPath)).toBe(true);
+
+    taskBadges.unlinkUploadedArt(iconPath);
+    expect(fs.existsSync(absIconPath)).toBe(true); // untouched
   });
 });
 
@@ -167,20 +168,17 @@ describe('setTaskBadge replaces art', () => {
 
 // ---------------------------------------------------------------------------
 // AC1: task delete unlinks a host-uploaded badge art file (end-to-end via the
-// real admin routes).
+// real admin routes). The route no longer accepts a file, so this drives the
+// underlying service layer to place an uploaded art_path, then deletes the
+// task via the real HTTP route to prove the cleanup path still fires.
 // ---------------------------------------------------------------------------
 describe('AC1: task delete unlinks uploaded badge art', () => {
   it('removes the uploaded art file from disk when the task is deleted', async () => {
     const taskId = makeTask('AC1 delete task');
-
-    const uploadRes = await adminAgent
-      .post(`/admin/tasks/${taskId}/badge`)
-      .attach('badge_art', jpegA, { filename: 'ac1.jpg', contentType: 'image/jpeg' });
-    expect(uploadRes.status).toBe(303);
-
-    const badge = db.prepare('SELECT art_path FROM badges WHERE task_id = ?').get(taskId);
-    expect(badge.art_path).toMatch(/^\/uploads\//);
-    const absPath = absArtPath(badge.art_path);
+    const filename = 'ac1.jpg';
+    const absPath = path.join(config.UPLOADS_DIR, filename);
+    fs.writeFileSync(absPath, 'fake-jpeg-bytes');
+    taskBadges.setTaskBadge(taskId, { artPath: photos.urlForOriginal(filename) });
     expect(fs.existsSync(absPath)).toBe(true);
 
     const deleteRes = await adminAgent.post(`/admin/tasks/${taskId}/delete`);
@@ -235,30 +233,56 @@ describe('AC2: default badge art survives task delete', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC3: replacing badge art via the admin upload slot removes the prior file
-// and keeps the new one (end-to-end via the real admin routes).
+// AC3: replacing badge art removes the prior file and keeps the new one
+// (service-level — the route itself only ever writes a bundled icon path
+// now, never an uploaded one; see setTaskBadge coverage above for the
+// route-adjacent replace case with an icon path, which is never unlinked).
 // ---------------------------------------------------------------------------
 describe('AC3: replacing badge art removes the prior file', () => {
-  it('uploading art B after art A deletes A and keeps B', async () => {
-    const taskId = makeTask('AC3 replace-via-route task');
-
-    const uploadA = await adminAgent
-      .post(`/admin/tasks/${taskId}/badge`)
-      .attach('badge_art', jpegA, { filename: 'ac3-a.jpg', contentType: 'image/jpeg' });
-    expect(uploadA.status).toBe(303);
-    const badgeA = db.prepare('SELECT art_path FROM badges WHERE task_id = ?').get(taskId);
-    const absA = absArtPath(badgeA.art_path);
+  it('setting art B after art A deletes A and keeps B', () => {
+    const taskId = makeTask('AC3 replace task');
+    const filenameA = 'ac3-a.jpg';
+    const absA = path.join(config.UPLOADS_DIR, filenameA);
+    fs.writeFileSync(absA, 'fake-jpeg-a');
+    taskBadges.setTaskBadge(taskId, { artPath: photos.urlForOriginal(filenameA) });
     expect(fs.existsSync(absA)).toBe(true);
 
-    const uploadB = await adminAgent
-      .post(`/admin/tasks/${taskId}/badge`)
-      .attach('badge_art', jpegB, { filename: 'ac3-b.jpg', contentType: 'image/jpeg' });
-    expect(uploadB.status).toBe(303);
-    const badgeB = db.prepare('SELECT art_path FROM badges WHERE task_id = ?').get(taskId);
-    const absB = absArtPath(badgeB.art_path);
+    const filenameB = 'ac3-b.jpg';
+    const absB = path.join(config.UPLOADS_DIR, filenameB);
+    fs.writeFileSync(absB, 'fake-jpeg-b');
+    taskBadges.setTaskBadge(taskId, { artPath: photos.urlForOriginal(filenameB) });
 
-    expect(badgeB.art_path).not.toBe(badgeA.art_path);
+    const badgeB = db.prepare('SELECT art_path FROM badges WHERE task_id = ?').get(taskId);
+    expect(badgeB.art_path).toBe(photos.urlForOriginal(filenameB));
     expect(fs.existsSync(absA)).toBe(false); // A unlinked by the replacement
     expect(fs.existsSync(absB)).toBe(true); // B present
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-icon (#410): a task whose badge is a picked catalog icon survives
+// deletion with the bundled SVG intact — the route-level end-to-end version
+// of the isUploadedArtPath/unlinkUploadedArt unit coverage above.
+// ---------------------------------------------------------------------------
+describe('AC-icon: task delete never unlinks a bundled icon SVG', () => {
+  it('deleting a task whose badge is a catalog icon leaves the bundled SVG on disk', async () => {
+    const taskId = makeTask('AC-icon delete task');
+    const [icon] = badgeIcons.listIcons();
+
+    const setRes = await adminAgent
+      .post(`/admin/tasks/${taskId}/badge`)
+      .type('form')
+      .send({ name: 'Icon Badge', icon: icon.id });
+    expect([301, 302, 303]).toContain(setRes.status);
+
+    const iconPath = badgeIcons.resolveIconPath(icon.id);
+    const absIconPath = path.join(config.PUBLIC_DIR, iconPath.replace(/^\//, ''));
+    expect(fs.existsSync(absIconPath)).toBe(true);
+
+    const deleteRes = await adminAgent.post(`/admin/tasks/${taskId}/delete`);
+    expect(deleteRes.status).toBe(303);
+
+    expect(fs.existsSync(absIconPath)).toBe(true); // untouched
+    expect(db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId)).toBeUndefined();
   });
 });

@@ -10,10 +10,7 @@
 <%- include('partials/header') %>
 
   <header class="badge-detail-header">
-    <img class="badge-detail-art"
-         src="<%= badge.art_path %>"
-         alt="<%= badge.name %>"
-         width="120" height="120" />
+    <%- include('partials/badge-art', { badge: badge, imgClass: 'badge-detail-art', width: 120, height: 120 }) %>
     <h1 class="badge-detail-name"><%= badge.name %></h1>
     <% if (badge.description) { %>
       <p class="badge-detail-desc"><%= badge.description %></p>

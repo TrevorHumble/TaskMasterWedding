@@ -356,7 +356,7 @@ describe('AC9: migration is guarded', () => {
 // AC10: task board shows the badge slot (structural).
 // ---------------------------------------------------------------------------
 describe('AC10: task board shows the badge slot', () => {
-  it('a plain (default) task renders task-badge-row with an img and an upload file input', async () => {
+  it('a plain (default) task renders task-badge-row with the empty-medallion state and a Choose-badge button (#410: no upload input)', async () => {
     const taskId = makeTask('AC10 default task');
 
     const res = await adminAgent.get('/admin/tasks');
@@ -369,13 +369,17 @@ describe('AC10: task board shows the badge slot', () => {
     const card = cardMatch[0];
 
     expect(card).toMatch(/<div class="task-badge-row">/);
-    expect(card).toMatch(/<img class="badge-art"[^>]*src="\/badges\/default-ribbon\.svg"/);
-    expect(card).toMatch(/type="file"[^>]*name="badge_art"/);
+    expect(card).toMatch(/<span class="badge-medallion badge-medallion-empty"/);
+    expect(card).toMatch(/Choose badge/);
+    // #410: the file-upload badge-art control is gone everywhere — the icon
+    // picker (a <dialog>, not an inline per-task control) is the only source.
+    expect(card).not.toMatch(/type="file"/);
+    expect(card).not.toMatch(/name="badge_art"/);
   });
 
-  it('a customized task renders its own art and OMITS the upload control', async () => {
+  it('a customized task renders its icon medallion and a Change-badge button', async () => {
     const taskId = makeTask('AC10 customized task');
-    taskBadges.setTaskBadge(taskId, { name: 'Golden Move', artPath: '/uploads/ac10-custom.jpg' });
+    taskBadges.setTaskBadge(taskId, { name: 'Golden Move', artPath: '/badges/icons/favorite.svg' });
 
     const res = await adminAgent.get('/admin/tasks');
     const cardMatch = res.text.match(
@@ -384,7 +388,8 @@ describe('AC10: task board shows the badge slot', () => {
     const card = cardMatch[0];
 
     expect(card).toMatch(/<div class="task-badge-row">/);
-    expect(card).toMatch(/src="\/uploads\/ac10-custom\.jpg"/);
+    expect(card).toMatch(/src="\/badges\/icons\/favorite\.svg"/);
+    expect(card).toMatch(/Change badge/);
     expect(card).not.toMatch(/name="badge_art"/);
   });
 });

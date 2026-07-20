@@ -926,24 +926,6 @@ const uploadAvatar = multer({
 }).single('avatar');
 
 // ---------------------------------------------------------------------------
-// multer configuration: MEMORY storage for task-badge art intake (issue
-// #483). Same shape as uploadAvatar immediately above — memory storage so
-// the route gets req.file.buffer straight away — but its OWN multer instance
-// bound to a different field ("badge_art"), because this upload has no guest
-// context (it is admin-only, behind requireAdmin, on the task board) and
-// must not be confused with — or accidentally accepted on — the guest
-// avatar field.
-// ---------------------------------------------------------------------------
-const uploadBadgeArt = multer({
-  storage: multer.memoryStorage(),
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: MAX_UPLOAD_BYTES,
-    files: 1,
-  },
-}).single('badge_art');
-
-// ---------------------------------------------------------------------------
 // Thumbnail generation.
 // ---------------------------------------------------------------------------
 
@@ -1053,78 +1035,6 @@ async function saveAvatar(buffer, guestId) {
     .toFile(absAvatar);
 
   _setGuestAvatar.run(name, guestId);
-  return name;
-}
-
-// ---------------------------------------------------------------------------
-// Task-badge art persistence (issue #483). Mirrors saveAvatar's pipeline
-// (memory storage -> HEIC detection/conversion -> sharp re-encode, same
-// allowlist and EXIF-orientation handling) but has no guest to attach the
-// result to — the caller (src/routes/admin.js's POST /admin/tasks/:id/badge)
-// hands the stored path to task-badges.setTaskBadge instead.
-// ---------------------------------------------------------------------------
-
-// Square badge-art dimension in pixels. Badge SVGs render at a 120x120
-// viewBox; storing at double that gives crisp display at 2x device pixel
-// ratio without the file being needlessly large for a wedding-laptop host.
-const BADGE_ART_DIMENSION = 240;
-
-/**
- * Persist a task-badge art image that arrived as an in-memory Buffer (via
- * the uploadBadgeArt middleware above).
- * @param {Buffer} buffer - the raw uploaded bytes (req.file.buffer via uploadBadgeArt)
- * @returns {Promise<string>} the stored filename (relative to UPLOADS_DIR —
- *   build its URL with urlForOriginal, same as any other UPLOADS_DIR file).
- *
- * Notes:
- *  - We normalize to JPEG, same as saveAvatar, so an oddly-encoded upload is
- *    viewable in any browser.
- *  - HEIC is detected and converted exactly as saveAvatar does. UNLIKE
- *    saveAvatar/resolveUploadedFile, this does NOT call
- *    assertHeicDecodeAllowed (the per-guest HEIC-decode rate limit): that
- *    limit is keyed on a guestId this admin-only upload has none of, and its
- *    purpose is throttling a hostile GUEST flooding decodes — this path is
- *    reachable only behind requireAdmin, by the single event admin, so it is
- *    not the flood surface the limit defends against. The pixel-bomb cap and
- *    the global pending-decode cap (both guestId-independent) still apply,
- *    via convertHeicToJpeg below, same as every other HEIC entry point.
- *  - .rotate() honors EXIF orientation, same as saveAvatar/makeThumb.
- */
-async function saveBadgeArt(buffer) {
-  if (!buffer || !buffer.length) {
-    throw new Error(
-      'saveBadgeArt: empty buffer (caller must use the uploadBadgeArt memory-storage middleware).'
-    );
-  }
-
-  let sourceBuffer = buffer;
-  if (looksLikeHeic(buffer)) {
-    try {
-      sourceBuffer = await convertHeicToJpeg(buffer);
-    } catch (convertErr) {
-      if (GUEST_SAFE_CONVERT_CODES.has(convertErr.code)) {
-        throw convertErr;
-      }
-      throw new Error("Sorry, that image couldn't be read. Please try a different image.", {
-        cause: convertErr,
-      });
-    }
-  }
-
-  const name = randomFilename('.jpg');
-  const absPath = path.join(UPLOADS_DIR, name);
-
-  await sharp(sourceBuffer)
-    .rotate()
-    .resize({
-      width: BADGE_ART_DIMENSION,
-      height: BADGE_ART_DIMENSION,
-      fit: 'cover',
-      position: 'attention',
-    })
-    .jpeg({ quality: 82 })
-    .toFile(absPath);
-
   return name;
 }
 
@@ -1426,7 +1336,6 @@ module.exports = {
   upload,
   uploadAvatar,
   uploadMemoryBatch,
-  uploadBadgeArt,
   MAX_UPLOAD_BYTES,
   MEMORY_BATCH_MAX_FILES,
   THUMB_WIDTH,
@@ -1435,7 +1344,6 @@ module.exports = {
   // image processing
   makeThumb,
   saveAvatar,
-  saveBadgeArt,
 
   // HEIC pixel-bomb guard (exported for direct unit testing — see
   // tests/heic-conversion.test.js). MAX_HEIC_PIXELS is the single cap;

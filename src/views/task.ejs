@@ -43,7 +43,7 @@
           <span class="spark gold" style="--dx:-74px; --dy:-4px;  --rot:-120deg; --sd:360ms">&#8226;</span>
           <span class="spark sage" style="--dx:12px;  --dy:-70px; --rot:80deg;   --sd:180ms">&#10048;</span>
           <span class="badge-sway">
-            <img class="badge-art" src="<%= badgeMoment.art_path %>" alt="<%= badgeMoment.name %> badge" />
+            <%- include('partials/badge-art', { badge: badgeMoment, alt: badgeMoment.name + ' badge' }) %>
           </span>
         </div>
 
@@ -67,7 +67,7 @@
   <p class="task-detail-badge center">
     Earns:
     <a href="/badge/<%= taskBadge.code %>">
-      <img class="task-badge-icon" src="<%= taskBadge.art_path %>" alt="" width="24" height="24" />
+      <%- include('partials/badge-art', { badge: taskBadge, alt: '', imgClass: 'task-badge-icon', width: 24, height: 24 }) %>
       <%= taskBadge.name %>
     </a>
   </p>

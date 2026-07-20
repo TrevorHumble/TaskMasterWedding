@@ -1,0 +1,50 @@
+<%# src/views/partials/badge-art.ejs
+    Issue #410: the SINGLE place that decides how a badge's art_path renders.
+    Every badge-display call site (guest task card, task-detail earn line,
+    badge-earned modal, badge detail page, guest home, leaderboard,
+    public profile, admin task board) includes this instead of hand-writing
+    its own <img>, so "how does a badge look" has one owner instead of
+    drifting per page.
+
+    A task badge's art_path is a BARE bundled icon (no ring of its own —
+    src/services/badge-icons.js is the catalog that produced it and the
+    single owner of its path format; this partial asks that module's
+    badgeIsIcon() local, not a hardcoded prefix, whether a given art_path is
+    one). A system/auto/special/metric/transferable badge's art_path is its
+    own fully composed circle SVG (e.g. /badges/garden.svg) and must render
+    exactly as before — untouched pixels, no double ring.
+
+    Locals:
+      badge    (required) - { name, art_path } (task-badges.toTaskBadgeView's
+                 shape, or any badges-table row projected the same way).
+      alt      (optional) - alt text; defaults to badge.name.
+      imgClass (optional) - class for the plain <img> rendered for a
+                 composed/system badge (art_path not a bundled icon).
+                 Defaults to 'badge-art', the class every existing composed-
+                 badge call site already used, so an omitted local renders
+                 byte-for-byte what that call site rendered before this
+                 partial existed.
+      width, height (optional) - width/height attributes for the plain
+                 <img> branch only. The medallion branch is sized entirely
+                 by CSS (ancestor-scoped .badge-medallion overrides, same
+                 pattern the codebase already uses for .badge-art), because a
+                 <span> wrapper has no intrinsic image dimensions to set.
+
+    Sizing an icon-in-ring badge at a new call site: add a
+    "<ancestor> .badge-medallion { width; height; border-width; box-shadow }"
+    rule in theme.css (search "Badge medallion (#410)") rather than passing a
+    size local here — this partial only decides WHICH shape renders, never
+    how big.
+%>
+<% var badgeArtIcon = badge && badgeIsIcon(badge.art_path); %>
+<% var badgeArtAlt = typeof alt !== 'undefined' ? alt : (badge ? badge.name : ''); %>
+<% if (badgeArtIcon) { %>
+  <span class="badge-medallion">
+    <img class="badge-medallion-icon" src="<%= badge.art_path %>" alt="<%= badgeArtAlt %>" />
+  </span>
+<% } else { %>
+  <img class="<%= typeof imgClass !== 'undefined' ? imgClass : 'badge-art' %>"
+       src="<%= badge.art_path %>"
+       alt="<%= badgeArtAlt %>"
+       <% if (typeof width !== 'undefined') { %>width="<%= width %>" height="<%= height %>"<% } %> />
+<% } %>

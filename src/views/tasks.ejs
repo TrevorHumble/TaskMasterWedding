@@ -69,7 +69,7 @@
                 <span class="task-body">
                   <span class="task-title-text"><%= t.title %></span>
                   <span class="task-earnable-badge">
-                    <img class="badge-art" src="<%= t.badge.art_path %>" alt="<%= t.badge.name %>" />
+                    <%- include('partials/badge-art', { badge: t.badge }) %>
                     <span class="task-earnable-copy">Earn <%= t.badge.name %> plus extra points</span>
                   </span>
                 </span>
@@ -103,7 +103,7 @@
                     <span class="task-desc"><%= t.description %></span>
                   <% } %>
                   <span class="task-earnable-badge">
-                    <img class="badge-art" src="<%= t.badge.art_path %>" alt="<%= t.badge.name %>" />
+                    <%- include('partials/badge-art', { badge: t.badge }) %>
                     <span class="task-earnable-copy">Earn <%= t.badge.name %> plus extra points</span>
                   </span>
                 </span>

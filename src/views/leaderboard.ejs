@@ -89,10 +89,7 @@
           <span class="lb-badges">
             <% r.badges.slice(0, badgeCap).forEach(function (b) { %>
               <a href="/badge/<%= b.code %>" title="<%= b.name %>">
-                <img class="lb-badge-icon"
-                     src="<%= b.art_path %>"
-                     alt="<%= b.name %>"
-                     width="24" height="24" />
+                <%- include('partials/badge-art', { badge: b, imgClass: 'lb-badge-icon', width: 24, height: 24 }) %>
               </a>
             <% }); %>
             <% if (r.badges.length > badgeCap) { %>
