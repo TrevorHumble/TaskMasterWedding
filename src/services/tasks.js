@@ -121,6 +121,46 @@ function isSealed(taskRow, todayIso) {
 }
 
 /**
+ * The ONE owner of "is taskRow's day today" (issue #754 review fix, MAJOR B):
+ * true exactly when `taskRow.special_date` equals `todayIso`. Two callers
+ * need this identical calendar fact — src/services/submissions.js's on-day
+ * bonus banking (does the bonus actually get banked) and
+ * src/routes/guest.js's "+N pts Today Only" flag (is the gold flag shown) —
+ * and before this function existed each independently wrote
+ * `special_date === todayIso` inline, so widening the on-day window would
+ * have needed the same edit made twice, with nothing forcing the two to
+ * agree. Validates `todayIso` the same way isSealed() does, for the same
+ * reason: two owners of one rule must not disagree about invalid input.
+ *
+ * @param {{special_date?: string|null}} taskRow
+ * @param {string} todayIso - YYYY-MM-DD, the event-local "today".
+ * @returns {boolean}
+ */
+function isOnDay(taskRow, todayIso) {
+  if (!ISO_DATE_RE.test(todayIso)) {
+    throw new Error(`isOnDay: todayIso must be YYYY-MM-DD, got ${JSON.stringify(todayIso)}`);
+  }
+  return !!(taskRow && taskRow.special_date === todayIso);
+}
+
+/**
+ * True for a value shaped like a real YYYY-MM-DD date string (issue #754
+ * review fix, MINOR I) — the same shape ISO_DATE_RE already validates
+ * `todayIso` against above. Exported so a caller holding a task row's OWN
+ * `special_date` (a free-form TEXT column with no shape constraint — see
+ * isSealed's doc comment) can defensively check it before doing date math
+ * that would otherwise throw on a malformed value, e.g.
+ * eventDays.dayOpensAt()'s Intl.DateTimeFormat calls, which throw a
+ * RangeError on an instant built from an unparseable date.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isValidDateString(value) {
+  return typeof value === 'string' && ISO_DATE_RE.test(value);
+}
+
+/**
  * The SQL fragment mirroring isSealed() above, for a caller running a query
  * instead of testing an already-loaded row (e.g. a future list query that
  * must exclude a sealed challenge — #754). Same alias convention as
@@ -279,6 +319,8 @@ module.exports = {
   liveTaskWhere,
   isTaskLive,
   isSealed,
+  isOnDay,
+  isValidDateString,
   sealedTaskWhere,
   isChallenge,
   challengeTaskWhere,

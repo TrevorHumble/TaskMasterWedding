@@ -1,0 +1,90 @@
+<%# src/views/partials/task-todo-row.ejs
+    Issue #624: one to-do row on the guest task list. Extracted to a partial
+    because tasks.ejs loops through this same row markup twice — once for
+    one-day-only challenges, once for ordinary tasks — and the markup must not
+    fork between the two passes. (The starter profile-photo row in between
+    them is a real to-do row too, but a distinct one-off shape — see
+    tasks.ejs's own inline <li> for it — so it does not go through this
+    partial; issue #754 review fix, NIT K.)
+
+    Three states, in the order a guest meets them:
+      locked   — a one-day-only challenge whose day has not arrived
+      isToday  — its day is now, so the bonus is live
+      (plain)  — an ordinary task, or a challenge whose day has passed
+
+    Local: t — the task row.
+%>
+<% if (t.locked) { %>
+  <%# Mystery box: no title, no description, no badge — the tease IS the point,
+      and hiding the title also keeps a host's plans (the bouquet toss, the
+      sparkler send-off) from being spoiled a day early. Not a link: the detail
+      page 404s until its day. %>
+  <li class="task-row task-todo task-locked">
+    <span class="task-link task-link-locked">
+      <span class="task-lock-wrap" aria-hidden="true">
+        <svg class="task-lock-icon" viewBox="0 0 24 24" focusable="false">
+          <path d="M8 10V7.5a4 4 0 0 1 8 0V10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          <rect x="4.5" y="10" width="15" height="10.5" rx="2.5" fill="currentColor" />
+        </svg>
+      </span>
+      <%
+        // Initial values are rendered server-side so the countdown is correct
+        // on first paint and still readable with JavaScript off;
+        // src/public/js/task-countdown.js only keeps it ticking. The unlock
+        // instant is an absolute timestamp (event-local midnight, offset
+        // included), so the arithmetic is right no matter which timezone the
+        // guest's own phone is set to.
+        var msLeft = Math.max(0, new Date(t.unlockAt).getTime() - Date.now());
+        var cdD = Math.floor(msLeft / 86400000);
+        var cdH = Math.floor(msLeft / 3600000) % 24;
+        var cdM = Math.floor(msLeft / 60000) % 60;
+        var cdS = Math.floor(msLeft / 1000) % 60;
+        var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+      %>
+      <span class="task-body">
+        <%# No title, no day, no description. A true mystery box gives up
+            nothing but the wait — naming the day is itself a clue about what
+            the hosts have planned for it. %>
+        <span class="task-countdown" data-unlock-at="<%= t.unlockAt %>">
+          <span class="task-countdown-label">Unlocks in</span>
+          <span class="task-countdown-clock">
+            <span class="cd-part"><span class="cd-num" data-cd="d"><%= cdD %></span><span class="cd-unit">d</span></span>
+            <span class="cd-part"><span class="cd-num" data-cd="h"><%= pad(cdH) %></span><span class="cd-unit">h</span></span>
+            <span class="cd-part"><span class="cd-num" data-cd="m"><%= pad(cdM) %></span><span class="cd-unit">m</span></span>
+            <span class="cd-part"><span class="cd-num" data-cd="s"><%= pad(cdS) %></span><span class="cd-unit">s</span></span>
+          </span>
+        </span>
+      </span>
+      <span class="task-points task-points-locked">+? pts</span>
+    </span>
+  </li>
+<% } else { %>
+  <li class="task-row task-todo<%= t.isToday ? ' task-today' : '' %>">
+    <a class="task-link" href="/tasks/<%= t.id %>">
+      <span class="task-body">
+        <% if (t.isToday) { %>
+          <span class="task-today-flag">+<%= t.specialBonus %> pts Today Only</span>
+        <% } %>
+        <span class="task-title-text"><%= t.title %></span>
+        <% if (t.description) { %>
+          <span class="task-desc"><%= t.description %></span>
+        <% } %>
+        <span class="task-earnable-badge">
+          <%- include('badge-art', { badge: t.badge }) %>
+          <span class="task-earnable-copy">Best photos earn <%= t.badge.name %> + bonus points</span>
+        </span>
+      </span>
+      <% if (t.isToday) { %>
+        <%# On its own day the price tag shows what the guest actually banks
+            today (worth + the host-set bonus), with the base struck through so
+            the reason for the jump is readable at a glance. %>
+        <span class="task-points task-points-today">
+          <span class="task-points-was">+<%= t.worth %></span>
+          +<%= t.worth + t.specialBonus %> pts
+        </span>
+      <% } else { %>
+        <span class="task-points">+<%= t.worth %> pt<%= t.worth === 1 ? '' : 's' %></span>
+      <% } %>
+    </a>
+  </li>
+<% } %>

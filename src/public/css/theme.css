@@ -1083,6 +1083,15 @@ a.stat:hover {
   font-weight: 600;
   color: var(--color-primary);
 }
+/* Issue #624 (absorbing #752): on the GUEST list the points are the reason to
+   play, and 12px made them the smallest text on a row whose title is 17px.
+   Scoped to .task-row so the admin task board — which reuses .task-points
+   inside .admin-task-card, where the number is reference data, not a reward —
+   keeps its own denser scale. */
+.task-row .task-points {
+  font-size: 16px;
+  font-weight: 700;
+}
 /* Earnable-badge line (issue #486): the badge the guest earns for this task,
    shown before the photo is taken. Reuses the shared .badge-art frame (the
    fixed-size class admin-tasks.ejs already uses for the same badge data) so
@@ -1114,6 +1123,140 @@ a.stat:hover {
 .task-earnable-copy {
   font-size: var(--fs-small);
   color: var(--color-text-muted);
+}
+
+/* ---- One-day-only challenge rows (issue #624) ---- */
+/* Locked: the day has not arrived. A mystery box — no title, no badge, not a
+   link (the detail page 404s until its day). Muted well so it reads as "not
+   yet" rather than "broken", with the lock where a done row carries its
+   thumbnail, so the leading column stays visually consistent down the list. */
+.task-row.task-locked {
+  background: var(--green-50);
+}
+.task-row.task-locked:hover {
+  background: var(--green-50);
+}
+.task-link-locked {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-3);
+  cursor: default;
+}
+/* The chevron stays, dimmed. It is doing layout work as well as signalling
+   affordance: every other row ends points-then-chevron, so dropping it here
+   pulled the locked row's points out of the column the whole list shares.
+   Greyed rather than removed — present for alignment, visibly inert. */
+.task-link-locked::after {
+  color: var(--green-300);
+}
+.task-lock-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--white);
+  border: var(--border-hairline);
+}
+.task-lock-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-muted);
+}
+.task-row.task-locked .task-title-text {
+  color: var(--color-text-muted);
+}
+.task-points-locked {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+/* The countdown is the point of a locked card — it is what turns "come back
+   later" into "come back in fourteen hours". So it outranks the title in
+   weight and size, and its digits are tabular so the row does not twitch
+   sideways every time a number ticks over. */
+.task-countdown {
+  display: block;
+  margin-top: var(--space-1);
+}
+.task-countdown-label {
+  display: block;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.task-countdown-clock {
+  display: flex;
+  align-items: baseline;
+  /* Four units have to sit on one line at 375px inside a ~190px body column,
+     so the gap is tight by necessity, not by taste. */
+  gap: var(--space-1);
+  font-family: var(--font-display);
+  color: var(--color-primary);
+}
+.cd-part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+}
+.cd-num {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  /* Tabular figures are load-bearing here, not a nicety: the seconds digit
+     changes every tick, and proportional numerals would jitter the whole row
+     sideways once a second. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+.cd-unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+/* The moment it hits zero, before the page pulls the real card in. Words, not
+   digits, so they take a readable size instead of the numeral scale. */
+.task-countdown.is-unlocking .task-countdown-clock {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+/* Today: its day is now, so the bonus is live. Gold is the site's prize
+   accent (--place-1, the leaderboard's first-place colour) — the same signal
+   the guest already reads as "this one is worth more". */
+.task-row.task-today {
+  background: linear-gradient(90deg, rgba(200, 162, 76, 0.14), transparent 60%);
+}
+.task-today-flag {
+  display: inline-block;
+  margin-bottom: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--place-1);
+  color: var(--place-1-ink);
+  font-size: var(--fs-eyebrow);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.task-points-today {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--green-900);
+}
+.task-points-was {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-decoration: line-through;
 }
 /* Done rows: the guest's own photo is the completion indicator — a 40px
    thumbnail with a small sage check-badge overlapping its corner. No pills,
