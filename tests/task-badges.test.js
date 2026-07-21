@@ -359,42 +359,49 @@ describe('AC9: migration is guarded', () => {
 
 // ---------------------------------------------------------------------------
 // AC10: task board shows the badge slot (structural).
+//
+// RETARGETED for issue #682's redesign: the admin task board is now
+// `<li class="admin-task-card">` (not `<article class="task-admin-card">`),
+// and "Choose badge"/"Change badge" are buttons inside the shared create-
+// wizard/edit-popup dialogs (rendered once per page), not an inline per-task
+// control — so those two assertions now check the PAGE, not the card.
 // ---------------------------------------------------------------------------
 describe('AC10: task board shows the badge slot', () => {
-  it('a plain (default) task renders task-badge-row with the empty-medallion state and a Choose-badge button (#410: no upload input)', async () => {
+  it('a plain (default) task renders the empty-medallion state with "No badge" (#410: no upload input)', async () => {
     const taskId = makeTask('AC10 default task');
 
     const res = await adminAgent.get('/admin/tasks');
     expect(res.status).toBe(200);
 
     const cardMatch = res.text.match(
-      new RegExp(`<article class="task-admin-card[^"]*" id="task-${taskId}">[\\s\\S]*?</article>`)
+      new RegExp(`<li class="admin-task-card[^"]*"\\s+id="task-${taskId}"[\\s\\S]*?</li>`)
     );
     expect(cardMatch).toBeTruthy();
     const card = cardMatch[0];
 
-    expect(card).toMatch(/<div class="task-badge-row">/);
     expect(card).toMatch(/<span class="badge-medallion badge-medallion-empty"/);
-    expect(card).toMatch(/Choose badge/);
+    expect(card).toMatch(/No badge/);
     // #410: the file-upload badge-art control is gone everywhere — the icon
-    // picker (a <dialog>, not an inline per-task control) is the only source.
+    // picker (a shared <dialog>, not an inline per-task control) is the only
+    // source, and its own "Choose badge" trigger lives once per page.
     expect(card).not.toMatch(/type="file"/);
     expect(card).not.toMatch(/name="badge_art"/);
+    expect(res.text).toContain('Choose badge');
   });
 
-  it('a customized task renders its icon medallion and a Change-badge button', async () => {
+  it('a customized task renders its icon medallion and name', async () => {
     const taskId = makeTask('AC10 customized task');
     taskBadges.setTaskBadge(taskId, { name: 'Golden Move', artPath: '/badges/icons/favorite.svg' });
 
     const res = await adminAgent.get('/admin/tasks');
     const cardMatch = res.text.match(
-      new RegExp(`<article class="task-admin-card[^"]*" id="task-${taskId}">[\\s\\S]*?</article>`)
+      new RegExp(`<li class="admin-task-card[^"]*"\\s+id="task-${taskId}"[\\s\\S]*?</li>`)
     );
     const card = cardMatch[0];
 
-    expect(card).toMatch(/<div class="task-badge-row">/);
     expect(card).toMatch(/src="\/badges\/icons\/favorite\.svg"/);
-    expect(card).toMatch(/Change badge/);
+    expect(card).toMatch(/Golden Move/);
     expect(card).not.toMatch(/name="badge_art"/);
+    expect(res.text).toContain('Change badge');
   });
 });

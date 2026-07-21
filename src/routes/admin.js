@@ -11,12 +11,25 @@
 //   GET  /admin/config                   event timezone + wedding dates (issue #681)
 //   POST /admin/config                   save event timezone + wedding dates (issue #681)
 //   GET  /admin/tasks                    task list + add form
-//   POST /admin/tasks                    create a task
-//   POST /admin/tasks/:id/edit           edit a task title/description
+//   POST /admin/tasks                    create a task (3-step wizard: title/
+//                                         description/worth/special_mode/
+//                                         REQUIRED badge — issue #682)
+//   POST /admin/tasks/:id/edit           edit a task's title/description/
+//                                         worth/badge/special_mode together
+//                                         (issue #682)
 //   POST /admin/tasks/:id/badge          set a task's badge name/art
 //   POST /admin/tasks/:id/delete         delete a task (cascades submissions)
 //   POST /admin/tasks/:id/active         toggle special_mode (none/hidden)
-//   POST /admin/tasks/reorder            move a task up/down (sort_order)
+//   POST /admin/tasks/reorder-all        persist a full drag-reordered
+//                                         task-id list (issue #682; does NOT
+//                                         call recompute — pure reorder never
+//                                         changes the active-task set). The
+//                                         old neighbor-swap POST /admin/tasks/
+//                                         reorder (up/down/top) was REMOVED —
+//                                         the redesign deleted its up/down/top
+//                                         UI and its sort_order semantics
+//                                         diverged from this route's 0..n-1
+//                                         regime.
 //   GET  /admin/photos                   guest-gallery-parity photo wall (issue #259);
 //                                         each photo carries its real comment thread,
 //                                         hidden comments included (issue #684)
@@ -84,6 +97,51 @@ function redirectWithMsg(res, path, msg, anchor) {
   const sep = path.indexOf('?') === -1 ? '?' : '&';
   const hash = anchor ? '#' + anchor : '';
   res.redirect(303, path + sep + 'msg=' + encodeURIComponent(msg) + hash);
+}
+
+// Validate and resolve a posted badge-icon pick (review fix, issue #682) —
+// the ONE place POST /admin/tasks, POST /admin/tasks/:id/edit, and POST
+// /admin/tasks/:id/badge all parse a posted `icon` id against
+// src/services/badge-icons.js's catalog, so the three routes can never drift
+// on what counts as a valid pick or how a missing one is treated.
+//
+// Performs NO write — the caller still calls task-badges.setTaskBadge itself.
+// This is deliberate: POST /admin/tasks must validate BEFORE it INSERTs a
+// task row (a missing/invalid badge must create no row at all), so there is
+// no taskId yet at the point this runs for that caller.
+//
+// `required: true` (create) refuses a missing/blank icon outright
+// (`{ok:false, reason:'missing'}`). `required: false` (edit / the dedicated
+// badge route) treats a missing/blank icon as "nothing to change about the
+// badge" (`{ok:true, provided:false}`) rather than an error — but a NAME-only
+// submit with no icon is still meaningful there, so `provided` reflects only
+// whether an icon was posted; a caller checks `name` too before deciding
+// whether to call setTaskBadge at all.
+//
+// A blank name is passed through as '' unconditionally — task-badges.js's
+// setTaskBadge already has its own "blank name keeps the existing badge name"
+// rule (so a host who swaps icons without retyping a custom name doesn't get
+// it silently overwritten by the icon's generic catalog name); create's own
+// caller applies its OWN icon-name fallback afterward, since a brand-new task
+// has no prior name to preserve in the first place.
+//
+// @param {unknown} iconId - the posted icon field (badge_icon or icon).
+// @param {unknown} rawName - the posted name field (badge_name or name).
+// @param {{required: boolean}} opts
+// @returns {{ok:true, provided:boolean, name:string, artPath:string|undefined}
+//   | {ok:false, reason:'missing'|'invalid'}}
+function resolveBadgeIcon(iconId, rawName, { required }) {
+  const name = typeof rawName === 'string' ? rawName.trim() : '';
+  if (typeof iconId !== 'string' || !iconId) {
+    if (required) {
+      return { ok: false, reason: 'missing' };
+    }
+    return { ok: true, provided: false, name, artPath: undefined };
+  }
+  if (!badgeIcons.isValidIconId(iconId)) {
+    return { ok: false, reason: 'invalid' };
+  }
+  return { ok: true, provided: true, name, artPath: badgeIcons.resolveIconPath(iconId) };
 }
 
 // Redirect back to GET /admin/photos after a favorite/badge/moderation
@@ -635,10 +693,14 @@ router.get('/tasks', (req, res) => {
       title: t.title,
       description: t.description || '',
       sort_order: t.sort_order,
-      // admin-tasks.ejs is NOT touched by issue #727 (its redesign is #682's
-      // job) — this derived compat field lets it keep rendering exactly the
-      // is_active boolean it always has, sourced from the one active-task
-      // owner instead of a real is_active column (which no longer exists).
+      // Real worth/special_mode (issue #682/#727) — the admin card's "+N pts"
+      // and Hidden chip render these directly now; no more (id % 3) + 1
+      // placeholder.
+      worth: t.worth,
+      special_mode: t.special_mode,
+      // Derived compat field so admin-tasks.ejs's is-hidden class check keeps
+      // reading a plain boolean, sourced from the one active-task owner
+      // instead of a real is_active column (which no longer exists).
       is_active: tasks.isTaskLive(t) ? 1 : 0,
       submissions: subStmt.get(t.id).n,
       isFirst: idx === 0,
@@ -665,15 +727,51 @@ router.get('/tasks', (req, res) => {
   });
 });
 
-// POST /admin/tasks  — create a task. Bottom of the order by default; the
-// "Add to top" checkbox (issue #258) puts it at position 1 so a mid-event
-// task can be featured without a click-reload reorder marathon.
+// POST /admin/tasks  — create a task (issue #682: the 3-step wizard —
+// Details/Special/Badge — collapses to one POST). Bottom of the order by
+// default; an `add_to_top` field (issue #258; no longer exposed by the
+// wizard's own UI, but still honored so a direct POST can still ask for it)
+// puts it at position 1 so a mid-event task can be featured without a
+// click-reload reorder marathon.
+//
+// Body: title (required), description (optional), worth (1-3, falls back to
+// tasks.DEFAULT_WORTH if missing/out of range — tasks.normalizeWorth), and
+// special_mode ('none'/'hidden', falls back to tasks.MODE_NONE for anything
+// else — tasks.normalizeMode; the SAME write-side owner POST /admin/tasks/
+// :id/edit routes through below, so the two can never disagree on what an
+// unrecognized mode becomes), badge_icon (a src/services/badge-icons.js
+// catalog id — REQUIRED, AC-A: no valid icon means no task row is written at
+// all), badge_name (optional — falls back to the icon's own catalog display
+// name).
+//
+// The special_mode is part of the single INSERT below, not a follow-up
+// UPDATE — a task created as Hidden is hidden from its very first row, never
+// briefly live between create and a later edit (owner-flagged gap, the
+// "Owner-approved design" section of #682).
 router.post('/tasks', (req, res) => {
   const title = (req.body.title || '').trim();
   const description = (req.body.description || '').trim();
   if (!title) {
     return redirectWithMsg(res, '/admin/tasks', 'A task needs a title.');
   }
+
+  const worth = tasks.normalizeWorth(req.body.worth, tasks.DEFAULT_WORTH);
+  const specialMode = tasks.normalizeMode(req.body.special_mode, tasks.MODE_NONE);
+
+  // Badge is REQUIRED (AC-A) — the wizard's own step 3 already disables its
+  // submit button until a badge is chosen, but the server is the real gate:
+  // a POST with no valid catalog icon id creates NO task row. Validated
+  // BEFORE any write below — resolveBadgeIcon performs no DB write itself.
+  const badgeResolved = resolveBadgeIcon(req.body.badge_icon, req.body.badge_name, {
+    required: true,
+  });
+  if (!badgeResolved.ok) {
+    return redirectWithMsg(res, '/admin/tasks', 'Choose a badge before creating the task.');
+  }
+  // A brand-new task has no prior badge name to preserve, unlike edit — a
+  // blank name falls back to the icon's own catalog display name here only.
+  const badgeName = badgeResolved.name || badgeIcons.iconName(req.body.badge_icon);
+
   let order;
   if (req.body.add_to_top) {
     const minRow = db.prepare('SELECT MIN(sort_order) AS m FROM tasks').get();
@@ -682,39 +780,111 @@ router.post('/tasks', (req, res) => {
     const maxRow = db.prepare('SELECT MAX(sort_order) AS m FROM tasks').get();
     order = (maxRow.m == null ? -1 : maxRow.m) + 1;
   }
-  // No is_active/worth/special_mode column named here — worth (DEFAULT 1)
-  // and special_mode (DEFAULT 'none') apply from the tasks table's own
-  // defaults (issue #727), same as they did for the retired is_active column
-  // before it.
-  db.prepare('INSERT INTO tasks (title, description, sort_order) VALUES (?, ?, ?)').run(
-    title,
-    description,
-    order
-  );
-  // A new active task can make an existing COMPLETIONIST holder stale (issue
-  // #701 AC1) — recompute every guest's badges against the now-larger active
-  // set before redirecting.
-  scoring.recomputeAfterTaskChange();
+
+  // Atomic (review fix): the task INSERT and its badge write are one
+  // transaction — if setTaskBadge threw, a bare sequential pair could commit
+  // the task row alone, leaving a task with no badge despite badge being
+  // supposedly required. better-sqlite3 nests transaction functions via
+  // SAVEPOINTs, so calling setTaskBadge (itself a db.transaction) from inside
+  // this one is safe.
+  const createTask = db.transaction(() => {
+    const info = db
+      .prepare(
+        'INSERT INTO tasks (title, description, sort_order, worth, special_mode) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(title, description, order, worth, specialMode);
+    const taskId = info.lastInsertRowid;
+
+    // One task, one badge (issue #483) — resolveTaskBadge would otherwise
+    // lazily insert the shared default-ribbon row the first time this task's
+    // card renders; the wizard always supplies a real chosen badge up front,
+    // so write it now through the same single writer POST /admin/tasks/:id/badge
+    // uses below.
+    taskBadges.setTaskBadge(taskId, { name: badgeName, artPath: badgeResolved.artPath });
+    return taskId;
+  });
+  createTask();
+
+  // A newly created LIVE task can make an existing COMPLETIONIST holder
+  // stale (issue #701 AC1) by growing the active set; a task created Hidden
+  // does not change the active set at all, so this stays conditional
+  // (review fix) instead of firing unconditionally on every create. Goes
+  // through tasks.isTaskLive — the SAME liveness predicate every other reader
+  // uses — rather than a second hand-written `!== MODE_HIDDEN` check (review
+  // fix: a hand-written comparison here would be a second liveness predicate,
+  // the exact drift class this module exists to prevent).
+  if (tasks.isTaskLive({ special_mode: specialMode })) {
+    scoring.recomputeAfterTaskChange();
+  }
   redirectWithMsg(res, '/admin/tasks', 'Task added.');
 });
 
-// POST /admin/tasks/:id/edit  — edit title and description
+// POST /admin/tasks/:id/edit  — the single edit-popup save (issue #682):
+// title, description, worth, badge, and special_mode together in one submit.
+//
+// Body: title (required), description (optional), worth (1-3 — falls back to
+// the task's CURRENT worth if missing/out of range via tasks.normalizeWorth,
+// so a direct partial POST — e.g. the pre-#682 title/description-only tests —
+// leaves it untouched), special_mode ('none'/'hidden' — same "keep current on
+// anything else" guard, via tasks.normalizeMode — the SAME write-side owner
+// POST /admin/tasks routes through above, so the two can never disagree on
+// what an unrecognized mode becomes), badge_icon (optional — a catalog id;
+// when present it MUST be valid, or the whole edit is refused, mirroring
+// POST /admin/tasks/:id/badge's own validation), badge_name (optional — a
+// name-only submit with no icon still updates just the name, same contract
+// that route already offered).
 router.post('/tasks/:id/edit', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const title = (req.body.title || '').trim();
   const description = (req.body.description || '').trim();
-  const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   if (!task) {
     return redirectWithMsg(res, '/admin/tasks', 'Task not found.');
   }
   if (!title) {
     return redirectWithMsg(res, '/admin/tasks', 'A task needs a title.');
   }
-  db.prepare('UPDATE tasks SET title = ?, description = ? WHERE id = ?').run(
-    title,
-    description,
-    id
-  );
+
+  const worth = tasks.normalizeWorth(req.body.worth, task.worth);
+  const specialMode = tasks.normalizeMode(req.body.special_mode, task.special_mode);
+
+  // A posted icon must resolve, or the WHOLE edit is refused (AC1-style
+  // validation from POST /admin/tasks/:id/badge) — never silently drop just
+  // the badge half of a combined submit. No DB write happens here yet.
+  const badgeResolved = resolveBadgeIcon(req.body.badge_icon, req.body.badge_name, {
+    required: false,
+  });
+  if (!badgeResolved.ok) {
+    return redirectWithMsg(res, '/admin/tasks', 'That badge icon is not recognized.', 'task-' + id);
+  }
+
+  // Atomic (review fix): the task UPDATE and its conditional badge write are
+  // one transaction — if setTaskBadge threw, a bare sequential pair could
+  // commit the title/worth/mode change alone while leaving the badge half
+  // silently un-applied. better-sqlite3 nests transaction functions via
+  // SAVEPOINTs, so calling setTaskBadge (itself a db.transaction) from inside
+  // this one is safe.
+  const saveEdit = db.transaction(() => {
+    db.prepare(
+      'UPDATE tasks SET title = ?, description = ?, worth = ?, special_mode = ? WHERE id = ?'
+    ).run(title, description, worth, specialMode, id);
+
+    // No icon AND no name submitted (the common "didn't touch the badge
+    // step" case) leaves the badge row completely untouched — same as
+    // POST /admin/tasks/:id/badge's own contract for a body carrying neither.
+    if (badgeResolved.name || badgeResolved.artPath) {
+      taskBadges.setTaskBadge(id, { name: badgeResolved.name, artPath: badgeResolved.artPath });
+    }
+  });
+  saveEdit();
+
+  // Only a special_mode change can move the active-task set (issue #701
+  // parity) — a worth or badge-only edit never does, so this call stays
+  // conditional rather than firing on every save.
+  if (specialMode !== task.special_mode) {
+    scoring.recomputeAfterTaskChange();
+  }
+
   redirectWithMsg(res, '/admin/tasks', 'Task updated.', 'task-' + id);
 });
 
@@ -726,6 +896,15 @@ router.post('/tasks/:id/edit', (req, res) => {
 // rejected via the same redirectWithMsg pattern the route used for a
 // rejected upload; a name-only submit (icon absent) is still valid and
 // leaves art_path unchanged, same as setTaskBadge always allowed.
+//
+// RETAINED, no longer a live UI path (issue #682 review fix): the picker's
+// own submit is now intercepted client-side by admin-tasks.js whenever it was
+// opened from the create wizard or the edit popup (the two ONLY ways a host
+// reaches the picker today), so in practice this route is never hit from the
+// current UI. Kept as a real endpoint anyway for its own direct test coverage
+// and as a stable API surface (a future non-JS or automated caller), not
+// dead code to prune — a future reader should not "clean this up" expecting
+// no caller exists.
 router.post('/tasks/:id/badge', (req, res, next) => {
   const id = parseInt(req.params.id, 10);
 
@@ -749,23 +928,13 @@ router.post('/tasks/:id/badge', (req, res, next) => {
     return redirectWithMsg(res, '/admin/tasks', 'Task not found.');
   }
 
-  const name = (req.body.name || '').trim();
-  const iconId = req.body.icon;
-  let artPath;
-  if (typeof iconId === 'string' && iconId) {
-    if (!badgeIcons.isValidIconId(iconId)) {
-      return redirectWithMsg(
-        res,
-        '/admin/tasks',
-        'That badge icon is not recognized.',
-        'task-' + id
-      );
-    }
-    artPath = badgeIcons.resolveIconPath(iconId);
+  const badgeResolved = resolveBadgeIcon(req.body.icon, req.body.name, { required: false });
+  if (!badgeResolved.ok) {
+    return redirectWithMsg(res, '/admin/tasks', 'That badge icon is not recognized.', 'task-' + id);
   }
 
   try {
-    taskBadges.setTaskBadge(id, { name, artPath });
+    taskBadges.setTaskBadge(id, { name: badgeResolved.name, artPath: badgeResolved.artPath });
     redirectWithMsg(res, '/admin/tasks', 'Badge updated.', 'task-' + id);
   } catch (saveErr) {
     next(saveErr);
@@ -822,6 +991,15 @@ router.post('/tasks/:id/delete', (req, res) => {
 // POST /admin/tasks/:id/active  — toggle visibility to guests (writes
 // special_mode, issue #727 — the route/param name stays "active" for the
 // existing form/URL contract; only the underlying column changed).
+//
+// RETAINED, no longer a live UI path (issue #682 review fix): the redesign's
+// Special radio (None/Hidden, in the create wizard and the edit popup) is now
+// the only host-facing way to change special_mode, and it saves through
+// POST /admin/tasks/:id/edit, not this route — no current view links or
+// posts here. This is now a SECOND UI-less writer of special_mode (the edit
+// route is the other), kept as a stable, independently-tested toggle endpoint
+// rather than dead code; a future reader should not assume some hidden
+// button still calls it.
 router.post('/tasks/:id/active', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const task = db.prepare('SELECT special_mode FROM tasks WHERE id = ?').get(id);
@@ -843,63 +1021,77 @@ router.post('/tasks/:id/active', (req, res) => {
   );
 });
 
-// POST /admin/tasks/reorder  — move one task up or down by swapping sort_order
-// with its neighbor, or straight to the top. Body: id = task id,
-// direction = "up" | "down" | "top". Every outcome redirects back to
-// #task-<id> so the admin lands on the card they moved, not the page top.
-router.post('/tasks/reorder', (req, res) => {
-  const id = parseInt(req.body.id, 10);
-  const direction = (req.body.direction || '').trim();
+// POST /admin/tasks/reorder-all  — issue #682: persist a full drag-reordered
+// task-id list in one write. The admin-tasks.js drag handle lets a card land
+// at ANY position, so the client posts its whole current on-screen order
+// after every drop and this route re-numbers sort_order 0..n-1 to match it
+// exactly. Called via fetch (JSON body), not a page form post — a full
+// navigation after a drag-drop the DOM already reflects would be a jarring
+// reload for no reason, so this is the one XHR-style admin route rather than
+// a redirect. (The old neighbor-swap POST /admin/tasks/reorder — up/down/top
+// — was REMOVED: the redesign deleted its UI, and its sort_order semantics,
+// a swap between two existing values, diverged from this route's contiguous
+// 0..n-1 renumbering.)
+//
+// Body (JSON): { order: [taskId, taskId, ...] } — every entry coerced with
+// parseInt; a non-integer entry is dropped.
+//
+// Set-integrity guard (review fix): the posted id list, once coerced, MUST
+// equal the COMPLETE current set of task ids — same length AND every posted
+// id an existing task, with no existing task left out. A stale or partial
+// post (e.g. a second drag racing an in-flight first one, or a client bug
+// that dropped a card) is refused with no rows touched, rather than
+// renumbering only the posted subset 0..n-1 and leaving every omitted task's
+// sort_order collided at whatever it already was — a silent, hard-to-notice
+// data corruption a full-page reload would then render in an arbitrary order.
+// The current-set SELECT that guard reads runs INSIDE the same transaction as
+// the write below (review fix) — better-sqlite3 is synchronous and this
+// process is the only writer, so nothing could interleave between a bare
+// SELECT-then-UPDATE today, but nesting the read makes that a structural
+// guarantee (the whole check-then-write is one atomic unit) rather than an
+// argument that happens to hold given today's single-process deployment.
+//
+// Pure reorder never changes WHICH tasks are active, only their display
+// order, so this does NOT call scoring.recomputeAfterTaskChange().
+router.post('/tasks/reorder-all', (req, res) => {
+  const order = Array.isArray(req.body.order) ? req.body.order : [];
+  const ids = order.map((v) => parseInt(v, 10)).filter((n) => Number.isInteger(n));
 
-  const task = db.prepare('SELECT id, sort_order FROM tasks WHERE id = ?').get(id);
-  if (!task) {
-    return redirectWithMsg(res, '/admin/tasks', 'Task not found.');
+  if (ids.length === 0) {
+    return res.status(400).json({ ok: false, error: 'No task order provided.' });
   }
 
-  if (direction === 'top') {
-    // One statement, atomic: take a sort_order below the current minimum.
-    // (If the task is already the minimum it just gets min-1 — still first.)
-    db.prepare(
-      'UPDATE tasks SET sort_order = (SELECT MIN(sort_order) FROM tasks) - 1 WHERE id = ?'
-    ).run(id);
-    return redirectWithMsg(res, '/admin/tasks', 'Task moved to the top.', 'task-' + id);
-  }
+  const stmtCurrentIds = db.prepare('SELECT id FROM tasks');
+  const stmtSetOrder = db.prepare('UPDATE tasks SET sort_order = ? WHERE id = ?');
 
-  let neighbor;
-  if (direction === 'up') {
-    // The task with the largest sort_order that is still less than this one.
-    neighbor = db
-      .prepare(
-        `SELECT id, sort_order FROM tasks
-          WHERE sort_order < ?
-          ORDER BY sort_order DESC, id DESC LIMIT 1`
-      )
-      .get(task.sort_order);
-  } else if (direction === 'down') {
-    // The task with the smallest sort_order that is still greater than this one.
-    neighbor = db
-      .prepare(
-        `SELECT id, sort_order FROM tasks
-          WHERE sort_order > ?
-          ORDER BY sort_order ASC, id ASC LIMIT 1`
-      )
-      .get(task.sort_order);
-  } else {
-    return redirectWithMsg(res, '/admin/tasks', 'Bad reorder direction.');
-  }
-
-  if (!neighbor) {
-    // Already at the top or bottom; nothing to do.
-    return redirectWithMsg(res, '/admin/tasks', 'Task is already at the edge.', 'task-' + id);
-  }
-
-  // Swap the two sort_order values inside a transaction.
-  const swap = db.transaction(() => {
-    db.prepare('UPDATE tasks SET sort_order = ? WHERE id = ?').run(neighbor.sort_order, task.id);
-    db.prepare('UPDATE tasks SET sort_order = ? WHERE id = ?').run(task.sort_order, neighbor.id);
+  // Returns null on a set-mismatch refusal (nothing to apply), or true once
+  // the write has been applied — the route below branches on that instead of
+  // throwing/catching, since a refusal here is an ordinary, expected outcome
+  // (a racing concurrent host), not an exceptional one.
+  const applyOrderIfComplete = db.transaction((idList) => {
+    const currentIds = stmtCurrentIds.all().map((row) => row.id);
+    const postedSet = new Set(idList);
+    const currentSet = new Set(currentIds);
+    const isCompleteMatch =
+      postedSet.size === idList.length && // no duplicate ids in the posted list
+      postedSet.size === currentSet.size &&
+      currentIds.every((id) => postedSet.has(id));
+    if (!isCompleteMatch) {
+      return false;
+    }
+    idList.forEach((taskId, index) => {
+      stmtSetOrder.run(index, taskId);
+    });
+    return true;
   });
-  swap();
-  redirectWithMsg(res, '/admin/tasks', 'Task moved.', 'task-' + id);
+
+  if (!applyOrderIfComplete(ids)) {
+    return res
+      .status(400)
+      .json({ ok: false, error: 'Posted order does not match the current full task set.' });
+  }
+
+  res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------

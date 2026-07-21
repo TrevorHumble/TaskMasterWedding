@@ -1,0 +1,99 @@
+<%# src/views/partials/task-edit-dialog.ejs
+    Issue #682: the single edit popup for a task. Opened from a task card
+    (admin-tasks.js reads the card's data-* attributes and fills these fields).
+    Order top-to-bottom is owner-settled: Title, Description, Worth, Badge,
+    Special, then Delete (small, bottom-left) and Save.
+
+    PHASE-2: a real POST to /admin/tasks/:id/edit — admin-tasks.js sets this
+    form's `action` to the tapped card's own edit URL each time it opens (the
+    dialog is shared across every card, so the id can't be baked in here).
+    badge_icon/badge_name are hidden fields filled from a badge-picker pick,
+    same pattern as task-create-dialog.ejs; left blank they mean "leave the
+    task's current badge alone" (server-side contract in POST
+    /admin/tasks/:id/edit). The Delete button does NOT live in a form of its
+    own — it triggers the tapped task's own real, hidden per-task delete form
+    rendered in admin-tasks.ejs's card list (`.admin-task-delete-form`,
+    data-confirm + the real /admin/tasks/:id/delete action already baked in
+    server-side), via requestSubmit() (admin-tasks.js). The Special radio
+    ships None + Hidden only, built to receive One day only / Lucky / Flash as
+    additional accordion options in their own later issues (#624/#650/#649)
+    without restructuring this markup.
+%>
+<dialog id="task-edit-dialog" class="task-dialog" aria-labelledby="task-edit-title">
+  <form class="task-dialog-form" id="task-edit-form" method="post">
+    <header class="task-dialog-head">
+      <h2 class="task-dialog-title" id="task-edit-title">Edit task</h2>
+      <button type="button" class="task-dialog-close" data-dialog-close aria-label="Close">&times;</button>
+    </header>
+
+    <label class="field">
+      <span class="field-label">Title</span>
+      <input type="text" name="title" id="task-edit-title-input" required />
+    </label>
+
+    <label class="field">
+      <span class="field-label">Description</span>
+      <textarea name="description" id="task-edit-desc-input" rows="3"></textarea>
+    </label>
+
+    <fieldset class="field worth-field">
+      <legend class="field-label">Worth</legend>
+      <div class="worth-chips" role="radiogroup" aria-label="Points this task is worth">
+        <% [1, 2, 3].forEach(function (n) { %>
+          <label class="worth-chip">
+            <input type="radio" name="worth" value="<%= n %>" />
+            <span class="worth-chip-face"><%= n %> pt<%= n === 1 ? '' : 's' %></span>
+          </label>
+        <% }); %>
+      </div>
+    </fieldset>
+
+    <div class="field badge-field">
+      <span class="field-label">Badge</span>
+      <div class="badge-field-row">
+        <span class="badge-medallion badge-medallion-empty" id="task-edit-badge-preview" aria-hidden="true">
+          <img class="badge-medallion-icon" id="task-edit-badge-icon" src="" alt="" hidden />
+        </span>
+        <span class="badge-field-name" id="task-edit-badge-name">No badge chosen yet</span>
+        <button type="button" class="btn btn-sm btn-secondary badge-choose-btn"
+                data-task-id="" data-task-title="" data-badge-name="" id="task-edit-badge-btn">
+          Change badge
+        </button>
+      </div>
+      <input type="hidden" name="badge_icon" id="task-edit-badge-icon-value" value="" />
+      <input type="hidden" name="badge_name" id="task-edit-badge-name-value" value="" />
+    </div>
+
+    <fieldset class="field special-field">
+      <legend class="field-label">Special</legend>
+      <div class="special-radio" role="radiogroup" aria-label="Special task mode">
+        <%#
+          #682 ships None + Hidden only — both self-explanatory, so no subtitle
+          (owner note 2026-07-20). The .special-option-face wrapper stays so the
+          later bonus specials (One day only / Lucky / Flash, #624/#650/#649)
+          drop in with their one-line subtitle + accordion panel unchanged.
+        %>
+        <label class="special-option">
+          <input type="radio" name="special_mode" value="none" />
+          <span class="special-option-face">
+            <span class="special-option-title">None</span>
+          </span>
+        </label>
+        <label class="special-option">
+          <input type="radio" name="special_mode" value="hidden" />
+          <span class="special-option-face">
+            <span class="special-option-title">Hidden</span>
+          </span>
+        </label>
+      </div>
+    </fieldset>
+
+    <footer class="task-dialog-foot task-dialog-foot-stacked">
+      <button type="submit" class="btn btn-primary btn-block">Save</button>
+      <div class="task-dialog-foot-split">
+        <button type="button" class="btn btn-danger task-dialog-delete" data-delete-task>Delete</button>
+        <button type="button" class="btn btn-ghost" data-dialog-close>Cancel</button>
+      </div>
+    </footer>
+  </form>
+</dialog>

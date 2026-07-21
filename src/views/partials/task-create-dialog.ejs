@@ -1,0 +1,101 @@
+<%# src/views/partials/task-create-dialog.ejs
+    Issue #682: the step-through create flow. Three steps in one <dialog>:
+      Step 1 — title, description, worth (1/2/3 chips).
+      Step 2 — Special (None / Hidden). Set here so a task meant to be Hidden is
+               never briefly revealed to guests between create and a later edit.
+      Step 3 — badge, REQUIRED (opens the shared #410 badge picker).
+    A task is only created once a badge is chosen (badge required, AC1).
+
+    PHASE-2: a real POST to /admin/tasks. badge_icon/badge_name are hidden
+    fields admin-tasks.js fills from the badge-picker pick (see that file's
+    "Badge picker reflection" section) — the visible badge-choose-btn button
+    only opens the shared picker dialog, it never carries the chosen icon
+    itself.
+%>
+<dialog id="task-create-dialog" class="task-dialog" aria-labelledby="task-create-title">
+  <form class="task-dialog-form" id="task-create-form" method="post" action="/admin/tasks">
+    <header class="task-dialog-head">
+      <h2 class="task-dialog-title" id="task-create-title">New task</h2>
+      <button type="button" class="task-dialog-close" data-dialog-close aria-label="Close">&times;</button>
+    </header>
+
+    <ol class="wizard-progress" aria-hidden="true">
+      <li class="wizard-dot is-current" data-dot="1"></li>
+      <li class="wizard-dot" data-dot="2"></li>
+      <li class="wizard-dot" data-dot="3"></li>
+    </ol>
+
+    <!-- Step 1: details -->
+    <section class="wizard-step" data-step="1">
+      <label class="field">
+        <span class="field-label">Title</span>
+        <input type="text" name="title" id="task-create-title-input" placeholder="e.g. Photo with the couple" />
+      </label>
+      <label class="field">
+        <span class="field-label">Description <span class="field-optional">(optional)</span></span>
+        <textarea name="description" id="task-create-desc-input" rows="3" placeholder="What should the guest photograph?"></textarea>
+      </label>
+      <fieldset class="field worth-field">
+        <legend class="field-label">Worth</legend>
+        <div class="worth-chips" role="radiogroup" aria-label="Points this task is worth">
+          <% [1, 2, 3].forEach(function (n) { %>
+            <label class="worth-chip">
+              <input type="radio" name="worth" value="<%= n %>" <%= n === 1 ? 'checked' : '' %> />
+              <span class="worth-chip-face"><%= n %> pt<%= n === 1 ? '' : 's' %></span>
+            </label>
+          <% }); %>
+        </div>
+      </fieldset>
+      <footer class="task-dialog-foot task-dialog-foot-split">
+        <button type="button" class="btn btn-ghost" data-dialog-close>Cancel</button>
+        <button type="button" class="btn btn-primary" data-wizard-next>Next</button>
+      </footer>
+    </section>
+
+    <!-- Step 2: special -->
+    <section class="wizard-step" data-step="2" hidden>
+      <fieldset class="field special-field">
+        <legend class="field-label">Special</legend>
+        <div class="special-radio" role="radiogroup" aria-label="Special task mode">
+          <label class="special-option">
+            <input type="radio" name="special_mode" value="none" checked />
+            <span class="special-option-face">
+              <span class="special-option-title">None</span>
+            </span>
+          </label>
+          <label class="special-option">
+            <input type="radio" name="special_mode" value="hidden" />
+            <span class="special-option-face">
+              <span class="special-option-title">Hidden</span>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+      <footer class="task-dialog-foot task-dialog-foot-split">
+        <button type="button" class="btn btn-ghost" data-wizard-back>&larr; Back</button>
+        <button type="button" class="btn btn-primary" data-wizard-next>Next: badge</button>
+      </footer>
+    </section>
+
+    <!-- Step 3: badge -->
+    <section class="wizard-step" data-step="3" hidden>
+      <p class="wizard-hint">Every task gives a badge to its best photo. Pick one to finish.</p>
+      <div class="badge-field-row wizard-badge-row">
+        <span class="badge-medallion badge-medallion-empty badge-medallion-lg" id="task-create-badge-preview" aria-hidden="true">
+          <img class="badge-medallion-icon" id="task-create-badge-icon" src="" alt="" hidden />
+        </span>
+        <span class="badge-field-name" id="task-create-badge-name">No badge chosen yet</span>
+      </div>
+      <button type="button" class="btn btn-secondary btn-block badge-choose-btn"
+              data-task-id="" data-task-title="" data-badge-name="" id="task-create-badge-btn">
+        Choose badge
+      </button>
+      <input type="hidden" name="badge_icon" id="task-create-badge-icon-value" value="" />
+      <input type="hidden" name="badge_name" id="task-create-badge-name-value" value="" />
+      <footer class="task-dialog-foot task-dialog-foot-split">
+        <button type="button" class="btn btn-ghost" data-wizard-back>&larr; Back</button>
+        <button type="submit" class="btn btn-primary" id="task-create-submit" disabled>Create task</button>
+      </footer>
+    </section>
+  </form>
+</dialog>

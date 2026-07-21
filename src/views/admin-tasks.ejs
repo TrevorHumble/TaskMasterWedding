@@ -12,98 +12,80 @@
     <a href="/admin">&larr; Dashboard</a>
   </p>
 
-  <form action="/admin/tasks" method="post" class="stacked-form">
-    <h2>Add a task</h2>
-    <label>
-      Title
-      <input type="text" name="title" required placeholder="e.g. Photo with the couple" />
-    </label>
-    <label>
-      Description (optional)
-      <textarea name="description" rows="2" placeholder="What should the guest photograph?"></textarea>
-    </label>
-    <label class="checkbox-label">
-      <input type="checkbox" name="add_to_top" value="1" />
-      Add to top of the list
-    </label>
-    <button type="submit" class="btn btn-primary">Add task</button>
-  </form>
-
-  <div class="task-admin-list">
-    <% tasks.forEach(function (t) { %>
-      <article class="task-admin-card <%= t.is_active ? '' : 'row-inactive' %>" id="task-<%= t.id %>">
-        <form action="/admin/tasks/<%= t.id %>/edit" method="post"
-              id="task-edit-<%= t.id %>" class="task-edit-form">
-          <label>
-            Title
-            <input type="text" name="title" value="<%= t.title %>" required />
-          </label>
-          <label>
-            Description
-            <textarea name="description" rows="3"><%= t.description %></textarea>
-          </label>
-        </form>
-
-        <div class="task-badge-row">
-          <div class="task-badge-row-current">
-            <% if (t.badge.isDefault) { %>
-              <span class="badge-medallion badge-medallion-empty" aria-hidden="true"></span>
-              <span class="badge-name muted">No badge chosen yet</span>
-            <% } else { %>
-              <%- include('partials/badge-art', { badge: t.badge }) %>
-              <span class="badge-name"><%= t.badge.name %></span>
-            <% } %>
-          </div>
-          <button type="button" class="btn btn-sm btn-secondary badge-choose-btn"
-                  data-task-id="<%= t.id %>"
-                  data-task-title="<%= t.title %>"
-                  data-badge-name="<%= t.badge.isDefault ? '' : t.badge.name %>">
-            <%= t.badge.isDefault ? 'Choose badge' : 'Change badge' %>
-          </button>
-        </div>
-
-        <div class="task-card-actions">
-          <button type="submit" form="task-edit-<%= t.id %>" class="btn btn-sm btn-secondary">Save</button>
-          <form action="/admin/tasks/<%= t.id %>/active" method="post">
-            <button type="submit" class="btn btn-sm btn-ghost">
-              <%= t.is_active ? 'Active (hide)' : 'Hidden (show)' %>
-            </button>
-          </form>
-          <form action="/admin/tasks/<%= t.id %>/delete" method="post"
-                data-confirm="Delete the task &quot;<%= t.title %>&quot; and ALL its photo submissions? This cannot be undone.">
-            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-          </form>
-          <span class="task-meta muted">
-            <a href="/gallery?task=<%= t.id %>"><%= t.submissions %> photos</a>
-          </span>
-        </div>
-
-        <div class="task-move-row">
-          <form action="/admin/tasks/reorder" method="post">
-            <input type="hidden" name="id" value="<%= t.id %>" />
-            <input type="hidden" name="direction" value="top" />
-            <button type="submit" class="btn btn-sm btn-ghost" <%= t.isFirst ? 'disabled' : '' %>>Move to top</button>
-          </form>
-          <form action="/admin/tasks/reorder" method="post">
-            <input type="hidden" name="id" value="<%= t.id %>" />
-            <input type="hidden" name="direction" value="up" />
-            <button type="submit" class="btn btn-sm btn-ghost" <%= t.isFirst ? 'disabled' : '' %> aria-label="Move up">▲</button>
-          </form>
-          <form action="/admin/tasks/reorder" method="post">
-            <input type="hidden" name="id" value="<%= t.id %>" />
-            <input type="hidden" name="direction" value="down" />
-            <button type="submit" class="btn btn-sm btn-ghost" <%= t.isLast ? 'disabled' : '' %> aria-label="Move down">▼</button>
-          </form>
-        </div>
-      </article>
-    <% }); %>
-    <% if (tasks.length === 0) { %>
-      <p class="muted">No tasks yet. Add one above.</p>
-    <% } %>
+  <div class="admin-tasks-head">
+    <p class="admin-tasks-count muted"><%= tasks.length %> task<%= tasks.length === 1 ? '' : 's' %></p>
+    <button type="button" class="btn btn-primary btn-sm admin-task-new" data-open-create>New task</button>
   </div>
 
+  <ul class="admin-task-list" id="admin-task-list">
+    <% tasks.forEach(function (t) { %>
+      <li class="admin-task-card <%= t.is_active ? '' : 'is-hidden' %>"
+          id="task-<%= t.id %>"
+          data-task-id="<%= t.id %>"
+          data-title="<%= t.title %>"
+          data-description="<%= t.description %>"
+          data-worth="<%= t.worth %>"
+          data-mode="<%= t.special_mode %>"
+          data-badge-name="<%= t.badge.isDefault ? '' : t.badge.name %>"
+          data-badge-art="<%= t.badge.isDefault ? '' : t.badge.art_path %>"
+          data-badge-default="<%= t.badge.isDefault ? '1' : '0' %>">
+        <span class="admin-task-drag" aria-hidden="true" title="Drag to reorder">
+          <svg viewBox="0 0 16 16" width="16" height="16" focusable="false">
+            <circle cx="5" cy="3" r="1.4" /><circle cx="11" cy="3" r="1.4" />
+            <circle cx="5" cy="8" r="1.4" /><circle cx="11" cy="8" r="1.4" />
+            <circle cx="5" cy="13" r="1.4" /><circle cx="11" cy="13" r="1.4" />
+          </svg>
+        </span>
+        <button type="button" class="admin-task-open" data-edit-task="<%= t.id %>">
+          <span class="admin-task-badge-col">
+            <% if (t.badge.isDefault) { %>
+              <span class="badge-medallion badge-medallion-empty" aria-hidden="true"></span>
+              <span class="admin-task-badge-name muted">No badge</span>
+            <% } else { %>
+              <%- include('partials/badge-art', { badge: t.badge }) %>
+              <span class="admin-task-badge-name"><%= t.badge.name %></span>
+            <% } %>
+          </span>
+          <span class="admin-task-body">
+            <span class="task-title-text"><%= t.title %></span>
+            <% if (t.description) { %>
+              <span class="admin-task-desc"><%= t.description %></span>
+            <% } else { %>
+              <span class="admin-task-desc muted">No description</span>
+            <% } %>
+          </span>
+          <span class="task-points">+<%= t.worth %> pt<%= t.worth === 1 ? '' : 's' %></span>
+        </button>
+        <div class="admin-chip-strip">
+          <% if (!t.is_active) { %>
+            <span class="admin-chip admin-chip-hidden">Hidden</span>
+          <% } %>
+          <a class="admin-task-photos" href="/admin/photos?view=task&amp;task=<%= t.id %>"><%= t.submissions %> photo<%= t.submissions === 1 ? '' : 's' %></a>
+        </div>
+        <%# A real, server-rendered form per task (issue #59's data-confirm
+            convention — src/public/js/admin.js's delegated submit listener,
+            same as the guest/photo/comment delete forms) rather than a
+            hand-rolled window.confirm in admin-tasks.js. Hidden — the visible
+            Delete control lives in the edit popup; its click handler
+            (admin-tasks.js) finds THIS form by data-task-id and calls
+            requestSubmit(), which fires a real 'submit' event admin.js's
+            listener can intercept (form.submit() would NOT). %>
+        <form action="/admin/tasks/<%= t.id %>/delete" method="post"
+              class="admin-task-delete-form" data-task-id="<%= t.id %>"
+              data-confirm="Delete <%= t.title %> and all its photos (photos are removed from disk)? This cannot be undone."
+              hidden></form>
+      </li>
+    <% }); %>
+    <% if (tasks.length === 0) { %>
+      <li class="admin-task-empty muted">No tasks yet. Tap &ldquo;New task&rdquo; to add the first one.</li>
+    <% } %>
+  </ul>
+
+  <%- include('partials/task-edit-dialog') %>
+  <%- include('partials/task-create-dialog') %>
   <%- include('partials/badge-picker', { badgeIcons: badgeIcons }) %>
 
 <script src="/js/admin.js" defer></script>
 <script src="/js/badge-picker.js" defer></script>
+<script src="/js/admin-tasks.js" defer></script>
 <%- include('partials/footer') %>

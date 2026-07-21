@@ -1,9 +1,10 @@
 // tests/task-earnable-badge.test.js
 // Issue #486: the guest task list shows each task's earnable badge — the
 // badge art (custom or default, via issue #483's resolveTaskBadge) plus
-// "earn [name] plus extra points" copy, with no fixed point number attached
-// to that copy. Follows tests/tasks-page.test.js's loadApp()/signInGuest
-// seeding conventions.
+// "Best photos earn [name] + bonus points" copy (issue #682/#652's owner-
+// approved prize framing superseded the original "plus extra points"
+// wording), with no fixed point number attached to that copy. Follows
+// tests/tasks-page.test.js's loadApp()/signInGuest seeding conventions.
 //
 // REQUIRE ORDER: config / db / app are required only AFTER loadApp() sets
 // DATA_DIR / DB_PATH. Do not hoist requires above the loadApp() call.
@@ -79,7 +80,7 @@ describe('earnable badge on task list (#486)', () => {
 
     expect(row).toContain('Golden Move');
     expect(row).toContain('/uploads/golden-move.jpg');
-    expect(row).toContain('plus extra points');
+    expect(row).toContain('+ bonus points');
   });
 
   test('AC2: a task with no custom badge shows the default-ribbon art and the same copy', async () => {
@@ -93,7 +94,7 @@ describe('earnable badge on task list (#486)', () => {
     const defaultBadge = taskBadges.resolveTaskBadge(plainTaskId);
     expect(defaultBadge.art_path).toBe(taskBadges.DEFAULT_RIBBON_ART_PATH);
     expect(row).toContain(taskBadges.DEFAULT_RIBBON_ART_PATH);
-    expect(row).toContain('plus extra points');
+    expect(row).toContain('+ bonus points');
   });
 
   test('AC3: the earnable-badge copy carries no fixed per-task point number', async () => {
@@ -107,7 +108,7 @@ describe('earnable badge on task list (#486)', () => {
     const copyBlocks = res.text.match(/<span class="task-earnable-copy">[^<]*<\/span>/g) || [];
     expect(copyBlocks.length).toBeGreaterThanOrEqual(2);
     for (const block of copyBlocks) {
-      expect(block).toMatch(/plus extra points/);
+      expect(block).toMatch(/\+ bonus points/);
       expect(block).not.toMatch(/\d/);
     }
   });

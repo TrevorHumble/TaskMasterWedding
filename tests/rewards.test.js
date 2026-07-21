@@ -404,3 +404,27 @@ it('the success card supersedes a concurrent plain flash (double-tap race)', asy
   expect(page.text).not.toContain('Photo replaced!');
   expect(page.text).not.toContain('flash-ok');
 });
+
+// ---------------------------------------------------------------------------
+// AC-E (issue #682): the success line reads the task's ACTUAL worth, not a
+// hardcoded "+1 point" — src/views/task.ejs's success-points paragraph now
+// renders task.worth (src/routes/guest.js's GET /tasks/:id selects it).
+// ---------------------------------------------------------------------------
+it('AC-E (#682): a worth-3 task\'s success line reads "+3 points", not a hardcoded "+1 point"', async () => {
+  const token = `rewards-ac-e-${crypto.randomUUID()}`;
+  insertGuest(token);
+  const taskId = db
+    .prepare('INSERT INTO tasks (title, worth) VALUES (?, ?)')
+    .run('AC-E Worth-3 Task', 3).lastInsertRowid;
+
+  const agent = await signInGuestAgent(token);
+  const res = await agent
+    .post(`/tasks/${taskId}/submit`)
+    .attach('photo', validJpeg, { filename: 'ac-e.jpg', contentType: 'image/jpeg' });
+  expect([302, 303]).toContain(res.status);
+
+  const page = await agent.get(res.headers.location);
+  expect(page.text).toContain('Task complete!');
+  expect(page.text).toContain('+3 points');
+  expect(page.text).not.toContain('+1 point');
+});

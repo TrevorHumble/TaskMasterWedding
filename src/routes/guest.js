@@ -405,7 +405,7 @@ router.get('/tasks/:id', function (req, res) {
   }
 
   const task = db
-    .prepare('SELECT id, title, description, special_mode FROM tasks WHERE id = ?')
+    .prepare('SELECT id, title, description, special_mode, worth FROM tasks WHERE id = ?')
     .get(taskId);
 
   // Hide hidden or missing tasks from guests.
