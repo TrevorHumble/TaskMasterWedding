@@ -445,13 +445,52 @@ function seedEvent(db, options = {}) {
     shuffledIndices(rng, guestCount).slice(0, Math.round(guestCount * 0.4))
   );
 
+  // Issue #716: the profile-photo starter point became a DERIVED +1 while
+  // guests.avatar_path is set (previously a one-time BANKED award this
+  // fixture never simulated, so raw avatarGuestIdx membership was harmless
+  // to points — it only enabled avatar-adjacent UI/display realism). Now an
+  // avatar-bearing guest's total gains +1 on top of its completed-count
+  // score, so which guests ACTUALLY receive an avatar file must be filtered
+  // from the raw shuffle above to protect two invariants buildCompletionSpread
+  // already engineered on completed counts alone:
+  //   - guest 0 stays the unique strict-maximum total (AC3, default topTie):
+  //     a guest whose completed count already sits at the "varied but below
+  //     top" ceiling (topCount - 1) is excluded from actually getting an
+  //     avatar — combined with the derived +1 it would tie or beat guest 0's
+  //     total in the worst case (guest 0 itself has no avatar).
+  //   - guest 0 and guest 1 stay EQUAL in topTie mode (#450 AC3): their
+  //     completed counts are deliberately set equal, so guest 1 mirrors
+  //     guest 0's avatar status instead of its own raw shuffle draw —
+  //     otherwise an avatar on only one of them would break the tie.
+  // This never touches completionCounts itself (which would desync
+  // totalVisible / the already-sized photo manifest computed above — see the
+  // "no-orphan files" test), it only decides which flagged guest's avatar
+  // FILE actually gets attached.
+  const topCount = completionCounts[0];
+  const effectiveAvatarGuestIdx = new Set(avatarGuestIdx);
+  for (let i = 1; i < guestCount; i++) {
+    if (topTie && i === 1) {
+      continue; // resolved after the loop, mirroring guest 0 below.
+    }
+    if (completionCounts[i] >= topCount - 1) {
+      effectiveAvatarGuestIdx.delete(i);
+    }
+  }
+  if (topTie && guestCount > 1) {
+    if (effectiveAvatarGuestIdx.has(0)) {
+      effectiveAvatarGuestIdx.add(1);
+    } else {
+      effectiveAvatarGuestIdx.delete(1);
+    }
+  }
+
   // A smaller fraction get non-empty social_links JSON.
   const socialGuestIdx = new Set(
     shuffledIndices(rng, guestCount).slice(0, Math.round(guestCount * 0.25))
   );
   const SOCIAL_PLATFORMS = ['instagram', 'facebook', 'tiktok'];
 
-  const manifest = buildManifest(totalSubmissions, seed, avatarGuestIdx.size);
+  const manifest = buildManifest(totalSubmissions, seed, effectiveAvatarGuestIdx.size);
 
   const run = db.transaction(() => {
     // --- Clean: submissions first (FK), then guests, then event-prefixed tasks. ---
@@ -481,10 +520,11 @@ function seedEvent(db, options = {}) {
       guestNames.push(name);
 
       // No wrap (`% manifest.avatars.length`): manifest.avatars is now sized
-      // to exactly avatarGuestIdx.size (issue #320), and avatarSeq only
-      // increments on an avatar-bearing guest, so a plain post-increment
-      // index always lands in range and never repeats a filename.
-      const avatarPath = avatarGuestIdx.has(i) ? manifest.avatars[avatarSeq++] : null;
+      // to exactly effectiveAvatarGuestIdx.size (issue #320; filtered by
+      // #716 above), and avatarSeq only increments on an avatar-bearing
+      // guest, so a plain post-increment index always lands in range and
+      // never repeats a filename.
+      const avatarPath = effectiveAvatarGuestIdx.has(i) ? manifest.avatars[avatarSeq++] : null;
 
       const socialLinks = socialGuestIdx.has(i)
         ? JSON.stringify({
@@ -499,15 +539,23 @@ function seedEvent(db, options = {}) {
       // guest's total POINTS past it (breaking AC3's unique-max guarantee
       // even though completion COUNTS were engineered correctly), and an
       // uneven bonus between guests 1 and 2 would break their engineered tie.
-      // Every other guest's bonus is capped so completed + bonus stays
-      // strictly below guest 0's completed count.
+      // Every other guest's bonus is capped so completed + bonus + this
+      // guest's own possible derived avatar point (issue #716) stays
+      // strictly below guest 0's total.
       let bonusPoints = 0;
       if (i > 2) {
         const wantsBonus = rng() < 0.17;
         if (wantsBonus) {
           // completionCounts[0] === topCount by construction (buildCompletionSpread
-          // always sets the first guest's count to the engineered top value).
-          const headroom = completionCounts[0] - 1 - completionCounts[i];
+          // always sets the first guest's count to the engineered top
+          // value). avatarBump reserves headroom for this guest's own
+          // possible derived +1 (issue #716's starterTaskContribution) so
+          // completed + bonus + avatarBump never reaches guest 0's total —
+          // belt-and-suspenders alongside the effectiveAvatarGuestIdx filter
+          // above, which already keeps a guest whose completed count sits at
+          // the ceiling from getting an avatar at all.
+          const avatarBump = effectiveAvatarGuestIdx.has(i) ? 1 : 0;
+          const headroom = completionCounts[0] - 1 - completionCounts[i] - avatarBump;
           if (headroom > 0) {
             bonusPoints = 1 + rngInt(rng, Math.min(3, headroom));
           }

@@ -824,11 +824,9 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
       const oldAvatar = guest.avatar_path;
       newAvatarPath = savedAvatar;
 
-      // Issue #409: award the one-time "Upload your profile photo" starter
-      // point now that an avatar has actually saved. Idempotent — no-op if
-      // this guest already earned it (a replacement avatar never re-awards,
-      // AC2), so it is safe to call on every successful save here.
-      scoring.awardProfilePhotoPoint(guest.id);
+      // Issue #716: no separate award step needed here — the starter point
+      // is derived from guests.avatar_path (scoring.starterTaskContribution),
+      // and the UPDATE below sets that column.
 
       // Delete the previous avatar file if it changed. Avatars live in the
       // uploads dir (no thumbnail), so deleteOriginalFile removes them.
@@ -858,14 +856,13 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
 // requireGuest above, from the signed gsid cookie), never from req.body/query
 // (AC2 — no cross-guest removal via a manipulated field).
 //
-// Clearing avatar_path is the only write needed for the #409 interplay
-// (AC4): starterTaskContribution/getPoints derive "done" from
-// `!!avatar_path` alone, so the starter tile reverts to to-do automatically
-// once this runs. guests.avatar_point_awarded is left untouched — it is the
-// one-time award guard (awardProfilePhotoPoint), not a photo-presence flag —
-// so the already-banked point stays banked and a later re-upload finds the
-// flag already 1 and does not re-award (mirrors POST /me/edit's replace
-// path).
+// Clearing avatar_path is the only write needed for the #409/#716 interplay
+// (AC4): starterTaskContribution/getPoints derive BOTH "done" and the point
+// itself from `!!avatar_path` alone (issue #716 — the point is no longer a
+// one-time banked award), so the starter tile reverts to to-do AND the +1
+// leaves the guest's total automatically once this runs, with no separate
+// point-clawback write needed. A later re-upload sets avatar_path again and
+// the point simply returns (mirrors POST /me/edit's replace path).
 //
 // No-op-but-safe when the guest has no avatar (idempotent redirect) — same
 // "nothing to delete" shape as POST /me/edit's replace-avatar branch, which

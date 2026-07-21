@@ -66,7 +66,6 @@ beforeAll(() => {
       token         TEXT    NOT NULL UNIQUE,
       name          TEXT    NOT NULL DEFAULT '',
       avatar_path   TEXT,
-      avatar_point_awarded INTEGER NOT NULL DEFAULT 0,
       social_links  TEXT    NOT NULL DEFAULT '{}',
       bonus_points  INTEGER NOT NULL DEFAULT 0,
       onboarded     INTEGER NOT NULL DEFAULT 0,

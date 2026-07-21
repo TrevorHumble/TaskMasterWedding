@@ -10,10 +10,6 @@ const { db, getGuestByContact } = require('../db');
 const { setFlash, cookieOpts } = require('../middleware/session');
 const photos = require('../services/photos');
 const { normalizeContact, isValidPin, makeUniqueToken } = require('../services/identity');
-// scoring.awardProfilePhotoPoint (issue #409) — the one-time "Upload your
-// profile photo" starter bonus point, called below after a signup avatar
-// actually saves.
-const scoring = require('../services/scoring');
 // Persistent admin-lockout state (issue #283) — replaces the module-scoped
 // failedAttempts/lockedUntil scalars this file used to carry. See
 // src/services/lockout.js's own header comment for the full rationale.
@@ -177,13 +173,11 @@ router.post('/join', joinRateLimiter, (req, res, next) => {
 
       if (!avatarRejected) {
         try {
-          const avatarPath = await trySaveAvatar(req.file, guestId);
-          // Issue #409: award the one-time starter point the moment an
-          // avatar actually saves (trySaveAvatar returns null when no file
-          // was attached — AC3, no award for a name/PIN-only signup).
-          if (avatarPath) {
-            scoring.awardProfilePhotoPoint(guestId);
-          }
+          // Issue #716: the starter point is derived from guests.avatar_path
+          // (scoring.starterTaskContribution), not a separate award step —
+          // trySaveAvatar's own photos.saveAvatar call already sets that
+          // column, so saving here is all this signup path needs to do.
+          await trySaveAvatar(req.file, guestId);
         } catch {
           // sharp could not decode the bytes (corrupt or mislabelled image).
           // The guest account is already created — do not block signup on a
