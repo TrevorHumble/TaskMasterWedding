@@ -11,7 +11,7 @@ const config = require('../../config');
 // undefined. markGuestOnboarded (issue #564) is the single writer of
 // guests.onboarded outside its own schema default — called below from GET
 // /how-to-play.
-const { db, markGuestOnboarded } = require('../db');
+const { db, markGuestOnboarded, getEventConfig } = require('../db');
 
 // requireGuest comes from section 03. It loads the current guest into
 // res.locals.guest (and req.guest) from the signed gsid cookie, or
@@ -56,6 +56,13 @@ const taskBadges = require('../services/task-badges');
 // consults tasks.liveTaskWhere()/isTaskLive() instead of a hand-written
 // is_active/special_mode predicate.
 const tasks = require('../services/tasks');
+
+// eventDays is the ONE "what day is it for the event, and when does a given
+// day open" owner (issue #753) — always the event's configured timezone
+// (db.getEventConfig().timezone), never server UTC. Used below by the
+// one-day-only mystery-box surface (issue #754): the seal/live/today
+// decisions on GET /, GET /tasks, GET /tasks/:id and GET /how-to-play.
+const eventDays = require('../services/event-days');
 
 // Photos service (section 05) — REAL exports only.
 // `upload` is the multer DISK-storage middleware ALREADY BOUND to single('photo')
@@ -115,6 +122,107 @@ const socialRateLimiter = createRateLimiter({
   keyFn: guestOrIpKey,
 });
 
+// ---------------------------------------------------------------------------
+// The one-box ceiling (issue #754, owner rule 2026-07-20): of every LIVE
+// one-day-only challenge currently sealed, at most ONE is ever shown to a
+// guest — the one unlocking soonest. This function is the SINGLE owner of
+// which task ids that ceiling removes; GET /, GET /tasks and GET /how-to-play
+// below each call it (GET / and GET /how-to-play via reachableLiveTaskCount
+// below; GET /tasks directly, since it also needs the row list) instead of
+// re-deciding the rule three times (the same "no second copy" reasoning
+// src/views/tasks.ejs's own comment gives for not re-deciding rows the server
+// already decided), so the /tasks chips, the home progress bar and the
+// how-to-play mission count can never disagree about which challenges are
+// suppressed.
+//
+// A challenge the guest has already completed is excluded from the sealed
+// set entirely (issue #754 review fix, MAJOR A) — it can never itself be
+// suppressed (so a task re-dated into the future after the guest already
+// submitted for it stays visible in Done, title and all) and it never
+// consumes the one-box slot a still-locked challenge needs (so a completed
+// sealed challenge sitting alongside an incomplete one can no longer suppress
+// the only card that should render). #755's refusal rule — blocking a host
+// from re-dating a task that already has submissions — is the PRIMARY guard
+// against this situation ever arising; this exclusion is defence in depth,
+// not a substitute for it.
+//
+// The tie-break comparator is total (issue #754 review fix — a second
+// challenge sharing the exact same special_date must resolve to one
+// deterministic survivor, not whichever happens to sort first in `rows`):
+// special_date, then sort_order, then id. Earlier versions relied on `rows`
+// arriving pre-sorted `sort_order ASC, id ASC` and Array#sort's stability to
+// preserve that order on a special_date tie — a caller obligation nothing
+// enforced. Sorting on all three keys here means the result can never depend
+// on the order `rows` arrives in, so there is no precondition left to state.
+//
+// @param {{id: number, special_date?: string|null, sort_order?: number,
+//   done?: number|boolean}[]} rows - live tasks.
+// @param {string} todayIso - event-local "today" (eventDays.eventLocalDateString).
+// @returns {Set<number>} ids of the sealed challenges NOT shown to a guest.
+// ---------------------------------------------------------------------------
+function suppressedChallengeIds(rows, todayIso) {
+  const sealed = rows.filter(function (t) {
+    // isValidDateString guards the ceiling the same way GET /tasks' own
+    // isDatedChallenge mapping guards locked/isToday/unlockAt below (issue
+    // #754 review fix): special_date is a free-form TEXT column, and
+    // isSealed's plain string comparison treats a regex-invalid value like
+    // '2026-08-1' as sorting ABOVE a valid '2026-08-06' (string '>' compares
+    // character by character, and '1' > '0'), which could put a garbage row
+    // into the sealed set ahead of a real one-day-only challenge and
+    // suppress the real one instead. Without this guard that garbage row
+    // never even renders as its own card (it isn't a real dated challenge),
+    // so the guest sees NO mystery box at all — the same zero-locked-rows
+    // outcome MAJOR A fixed, through a different door.
+    return tasks.isValidDateString(t.special_date) && tasks.isSealed(t, todayIso) && !t.done;
+  });
+  sealed.sort(function (a, b) {
+    if (a.special_date < b.special_date) return -1;
+    if (a.special_date > b.special_date) return 1;
+    const aSort = a.sort_order || 0;
+    const bSort = b.sort_order || 0;
+    if (aSort !== bSort) return aSort - bSort;
+    return a.id - b.id;
+  });
+  const suppressed = new Set();
+  for (let i = 1; i < sealed.length; i++) {
+    suppressed.add(sealed[i].id);
+  }
+  return suppressed;
+}
+
+// ---------------------------------------------------------------------------
+// The reachable-live-task COUNT (issue #754 review fix, MAJOR C): the same
+// "how many live tasks can this guest actually reach" derivation GET / and
+// GET /how-to-play both need — live tasks minus whatever suppressedChallengeIds
+// removes. Before this helper existed, both routes hand-wrote the identical
+// query + suppressedChallengeIds call + `length - size` subtraction; this is
+// now the one owner both call instead. Takes `guestId` (not just `todayIso`)
+// because the MAJOR A exclusion above depends on per-guest completion — the
+// query joins submissions the same way GET /tasks' own query does, so a
+// challenge THIS guest completed is never treated as sealed here either.
+//
+// @param {string} todayIso - event-local "today" (eventDays.eventLocalDateString).
+// @param {number} guestId
+// @returns {number} count of live tasks reachable by this guest, post-ceiling.
+// ---------------------------------------------------------------------------
+function reachableLiveTaskCount(todayIso, guestId) {
+  const rows = db
+    .prepare(
+      `SELECT t.id, t.special_date, t.sort_order,
+              CASE WHEN s.id IS NOT NULL THEN 1 ELSE 0 END AS done
+         FROM tasks t
+         LEFT JOIN submissions s
+                ON s.task_id = t.id
+               AND s.guest_id = ?
+               AND s.taken_down = 0
+        WHERE ${tasks.liveTaskWhere('t')}
+        ORDER BY t.sort_order ASC, t.id ASC`
+    )
+    .all(guestId);
+  const suppressedIds = suppressedChallengeIds(rows, todayIso);
+  return rows.length - suppressedIds.size;
+}
+
 // Every route in this router requires a signed-in guest.
 router.use(requireGuest);
 
@@ -126,10 +234,14 @@ router.use(requireGuest);
 router.get('/', function (req, res) {
   const guest = res.locals.guest;
 
-  // Total live tasks (guests only ever see live tasks).
-  const totalActiveRow = db
-    .prepare(`SELECT COUNT(*) AS n FROM tasks WHERE ${tasks.liveTaskWhere('')}`)
-    .get();
+  // Total live tasks (guests only ever see live tasks), minus any sealed
+  // one-day-only challenge the mystery-box ceiling suppresses (issue #754) —
+  // reachableLiveTaskCount is the single owner of this derivation (review
+  // fix, MAJOR C), shared with GET /how-to-play, so this progress bar can
+  // never count a challenge a guest can never actually reach.
+  const timezone = getEventConfig().timezone;
+  const todayIso = eventDays.eventLocalDateString(timezone);
+  const totalActiveCount = reachableLiveTaskCount(todayIso, guest.id);
 
   // Completed tasks for this guest — routed through scoring.getCompletedCount
   // (issue #104) so this count can never drift from points and badges, which
@@ -144,7 +256,7 @@ router.get('/', function (req, res) {
   // has completed it never sees it sitting in Done while the headline still
   // reads "0 of N".
   const starter = scoring.starterTaskContribution(guest);
-  const totalTasks = totalActiveRow.n + starter.total;
+  const totalTasks = totalActiveCount + starter.total;
   const completedTasksWithStarter = completedTasks + starter.done_count;
 
   // Points and badges from the scoring service (section 06 real exports).
@@ -207,14 +319,21 @@ router.get('/', function (req, res) {
 router.get('/tasks', function (req, res) {
   const guest = res.locals.guest;
 
+  const timezone = getEventConfig().timezone;
+  const todayIso = eventDays.eventLocalDateString(timezone);
+
   // For each live task, join the guest's submission (if any) so we know
   // whether it is done. taken_down submissions do NOT count as done. Named
   // `taskRows` (not `tasks`) so it never shadows the tasks.js service module
-  // required at the top of this file.
+  // required at the top of this file. special_date/special_bonus (issue
+  // #754) are selected alongside the rest so this ONE query serves the
+  // one-box ceiling (suppressedChallengeIds below), the per-row locked/isToday
+  // mapping, AND the existing done/points columns — no second query.
   // s.created_at orders the ?view=done list (the default view no longer uses it — see below).
   const taskRows = db
     .prepare(
       `SELECT t.id, t.title, t.description, t.sort_order, t.worth,
+              t.special_date, t.special_bonus,
               CASE WHEN s.id IS NOT NULL THEN 1 ELSE 0 END AS done,
               s.thumb_path AS thumb_path,
               s.created_at AS done_at
@@ -228,16 +347,68 @@ router.get('/tasks', function (req, res) {
     )
     .all(guest.id);
 
+  // The one-box ceiling (issue #754): applied server-side, BEFORE anything
+  // below ever sees a suppressed row, so a sealed challenge's title can never
+  // leak through page source (criterion 2: "nowhere in the page's markup").
+  // taskRows already carries `done` (this guest's own completion), which
+  // suppressedChallengeIds needs for the MAJOR A exclusion (see its own doc
+  // comment above).
+  const suppressedIds = suppressedChallengeIds(taskRows, todayIso);
+  const visibleTaskRows = taskRows.filter(function (t) {
+    return !suppressedIds.has(t.id);
+  });
+
   // Attach each task's own resolved badge (issue #486) so the list can show
   // "earn [name] plus extra points" before the guest even takes the photo —
   // the same custom-or-default resolution admin.js's task board already
   // uses, so a customized badge shows here the moment it is uploaded.
-  // Mapped onto `taskRows` BEFORE the todo/done split below so both derived
-  // lists carry the badge without a second resolve pass.
-  const tasksWithBadges = taskRows.map(function (t) {
+  // Mapped onto `visibleTaskRows` BEFORE the todo/done split below so both
+  // derived lists carry the badge without a second resolve pass.
+  //
+  // Also resolves the one-day-only mystery-box fields tasks.ejs/task-todo-row
+  // consume (issue #754):
+  //   locked   — tasks.isSealed: this challenge's day has not arrived.
+  //   isToday  — tasks.isOnDay (the single owner, shared with
+  //              submissions.js's bonus-banking check — issue #754 review
+  //              fix, MAJOR B) AND it carries a usable (>0) bonus; a
+  //              challenge whose special_bonus is NULL/0 (submissions.js:98's
+  //              documented legacy-row shape) renders as an ORDINARY row
+  //              instead of a gold flag reading "+null pts" over a
+  //              struck-through "+NaN pts".
+  //   unlockAt — the absolute instant (event-local midnight) this challenge's
+  //              day opens, for the countdown partial's data-unlock-at.
+  //   specialBonus — coerced to a number so the template's arithmetic can
+  //              never read undefined/null.
+  //   onedayPriority — the render-priority flag tasks.ejs partitions the
+  //              to-do list on: `locked || isToday`, not tasks.isChallenge
+  //              (which stays true forever, special_date IS NOT NULL) — so a
+  //              challenge whose day has already passed falls through to an
+  //              ordinary row (locked=false, isToday=false) instead of
+  //              staying pinned to the top of the list all weekend
+  //              (criterion 4's "takes no priority position" clause).
+  //
+  // isDatedChallenge (issue #754 review fix, MINOR I) guards all three
+  // date-derived fields at once: special_date is a free-form TEXT column with
+  // no shape constraint, and eventDays.dayOpensAt()'s Intl date math throws a
+  // RangeError on a value that isn't a real YYYY-MM-DD string. A malformed
+  // special_date is treated as "not a dated challenge at all" — an ordinary
+  // row, unlockAt null — rather than taking down /tasks for every guest.
+  const tasksWithBadges = visibleTaskRows.map(function (t) {
     const badge = taskBadges.resolveTaskBadge(t.id);
+    const isDatedChallenge = tasks.isValidDateString(t.special_date);
+    const locked = isDatedChallenge && tasks.isSealed(t, todayIso);
+    const specialBonus = Number(t.special_bonus) || 0;
+    const isToday = isDatedChallenge && tasks.isOnDay(t, todayIso) && specialBonus > 0;
+    const unlockAt = isDatedChallenge
+      ? eventDays.dayOpensAt(t.special_date, timezone).toISOString()
+      : null;
     return Object.assign({}, t, {
       badge: taskBadges.toTaskBadgeView(badge),
+      locked: locked,
+      isToday: isToday,
+      unlockAt: unlockAt,
+      specialBonus: specialBonus,
+      onedayPriority: locked || isToday,
     });
   });
 
@@ -270,7 +441,7 @@ router.get('/tasks', function (req, res) {
     doneTasks: doneTasks,
     doneCount: doneTasks.length + starter.done_count,
     todoCount: todoTasks.length + starter.todo_count,
-    totalCount: taskRows.length + starter.total,
+    totalCount: visibleTaskRows.length + starter.total,
     starterDone: starter.done,
     starterPoints: starter.points,
   });
@@ -293,10 +464,14 @@ router.get('/tasks', function (req, res) {
 router.get('/how-to-play', function (req, res) {
   const guest = res.locals.guest;
 
-  const taskCountRow = db
-    .prepare(`SELECT COUNT(*) AS n FROM tasks WHERE ${tasks.liveTaskWhere('')}`)
-    .get();
-  const taskCount = taskCountRow.n;
+  // Same exclusion as GET / and GET /tasks (issue #754) — a sealed one-day-only
+  // challenge the mystery-box ceiling suppresses must not inflate this "N
+  // photo missions" count past what a guest can actually reach.
+  // reachableLiveTaskCount is the single owner (review fix, MAJOR C), shared
+  // with GET /'s progress-bar denominator.
+  const timezone = getEventConfig().timezone;
+  const todayIso = eventDays.eventLocalDateString(timezone);
+  const taskCount = reachableLiveTaskCount(todayIso, guest.id);
 
   // Issue #564: mark the guest onboarded on the RENDER of the rules, not on
   // arrival at the route — a guest who somehow never reaches the render
@@ -405,23 +580,27 @@ router.get('/tasks/:id', function (req, res) {
   }
 
   const task = db
-    .prepare('SELECT id, title, description, special_mode, worth FROM tasks WHERE id = ?')
+    .prepare(
+      'SELECT id, title, description, special_mode, special_date, worth FROM tasks WHERE id = ?'
+    )
     .get(taskId);
 
-  // Hide hidden or missing tasks from guests.
+  // Hide hidden or missing tasks from guests outright — no submission of any
+  // shape can make a hidden/deleted task reachable.
   if (!task || !tasks.isTaskLive(task)) {
     return res.status(404).render('404', { title: 'Not found' });
   }
-
-  // This task's own badge (issue #488 follow-up) — always resolvable, shown
-  // and linked whether or not the guest has completed the task yet.
-  const taskBadge = taskBadges.resolveTaskBadge(taskId);
+  const timezone = getEventConfig().timezone;
+  const todayIso = eventDays.eventLocalDateString(timezone);
 
   // The guest's submission for this task, loaded REGARDLESS of taken_down
   // (issue #190): a host takedown must not make the task page fall back to
   // "not done" and invite a resubmit that would have silently reversed the
   // takedown. task.ejs branches on submission.taken_down to render the
-  // "with the hosts" state instead of the ordinary complete state.
+  // "with the hosts" state instead of the ordinary complete state. Loaded
+  // BEFORE the seal gate below (issue #754 review fix, MAJOR A) so the gate
+  // can tell "sealed, and the guest has no visible submission" apart from
+  // "sealed, but the guest already has one" — see that gate's own comment.
   const submission = db
     .prepare(
       `SELECT id, photo_path, thumb_path, caption, created_at, taken_down
@@ -429,6 +608,35 @@ router.get('/tasks/:id', function (req, res) {
         WHERE guest_id = ? AND task_id = ?`
     )
     .get(guest.id, taskId);
+
+  // Hide a (issue #754) currently-sealed one-day-only challenge from guests —
+  // special_date is selected above alongside the rest so isSealed reads the
+  // real value rather than undefined (which would silently report "not
+  // sealed" and leak a guessed URL a day early). A guessed URL for a sealed
+  // task 404s exactly like a hidden one, so it gives up neither the title nor
+  // an early submission (criterion 5) — the submit-side half of this same
+  // gate lives in submissions.js's submitPhoto.
+  //
+  // EXCEPT (issue #754 review fix, MAJOR A; widened by the #754 re-check) when
+  // the guest already holds ANY submission for it — visible or taken down —
+  // e.g. a host re-dated the task's special_date to a future day after the
+  // guest already completed it. #755's refusal rule (blocking that re-date
+  // while submissions exist) is the PRIMARY guard against this ever
+  // happening; this fall-through is defence in depth so the guest's own
+  // already-completed photo can never itself 404 if that guard is ever
+  // bypassed. A TAKEN-DOWN submission also grants this fall-through (not just
+  // a visible one) — task.ejs renders the #190 "your photo is with the hosts"
+  // state for that row on this same page, and submitPhoto's matching gate
+  // (src/services/submissions.js) accepts a resubmit from either state, so
+  // this render-side gate must let the guest reach the page in both.
+  const hasSubmission = !!submission;
+  if (tasks.isSealed(task, todayIso) && !hasSubmission) {
+    return res.status(404).render('404', { title: 'Not found' });
+  }
+
+  // This task's own badge (issue #488 follow-up) — always resolvable, shown
+  // and linked whether or not the guest has completed the task yet.
+  const taskBadge = taskBadges.resolveTaskBadge(taskId);
 
   // Success card + badge modal (issue #255): resolve the one-shot
   // taskComplete reward (read and cleared by attachGuest,

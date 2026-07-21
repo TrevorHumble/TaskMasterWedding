@@ -165,16 +165,18 @@ function normalizeCaption(caption) {
  *
  * Sequence (each step's failure mode is folded into the returned status so
  * the caller never has to catch — see the read-me at the top of this file):
- *   1. The task must exist, be active, and (issue #753) not be a sealed
- *      one-day-only challenge for the event-local "today" — otherwise the
- *      passed-in original file is deleted and the call returns
- *      'task_inactive', exactly the same outcome as a hidden task, so a
- *      guessed task URL cannot bank an early submission before its date.
- *      Checking this here (not before the file is written) is what closes
- *      the orphan-file leak the route used to have: multer writes the
- *      original to disk BEFORE this function is ever called, so this is the
- *      first point that knows enough to say the upload was pointless and
- *      clean it up.
+ *   1. The task must exist and be active. If it is (issue #753) a sealed
+ *      one-day-only challenge for the event-local "today" AND the guest holds
+ *      no existing (guestId, taskId) row (issue #754 review fix — a guest who
+ *      already has a submission, e.g. a task re-dated into the future after
+ *      they completed it, may still replace their own photo), the passed-in
+ *      original file is deleted and the call returns 'task_inactive',
+ *      exactly the same outcome as a hidden task, so a guessed task URL
+ *      cannot bank an early submission before its date. Checking this here
+ *      (not before the file is written) is what closes the orphan-file leak
+ *      the route used to have: multer writes the original to disk BEFORE
+ *      this function is ever called, so this is the first point that knows
+ *      enough to say the upload was pointless and clean it up.
  *   2. A thumbnail is generated from the original. If that throws, the
  *      original is deleted and the call returns 'thumb_failed'.
  *   3. The caption is normalized (see normalizeCaption).
@@ -233,9 +235,22 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
   // call and reused below for both the seal check and the on-day bonus
   // decision, so the two can never disagree about what day it is.
   const todayIso = eventDays.eventLocalDateString(getEventConfig().timezone);
-  if (tasks.isSealed(task, todayIso)) {
-    // Sealed one-day-only challenge: identical outcome to a hidden task — a
-    // guessed URL cannot bank an early submission before its date.
+
+  // Looked up BEFORE the seal check (issue #754 review fix) so the seal gate
+  // can fall through for a guest who already holds a row for this task —
+  // mirrors the GET /tasks/:id gate in src/routes/guest.js, which lets that
+  // same guest reach the detail page (and its "Replace your photo" form) for
+  // a task later re-dated into the future. Without this fall-through the
+  // page renders a form whose own submit 404s: the guest taps Replace,
+  // uploads, and loses the file for nothing. Any existing row counts, taken
+  // down or not — task.ejs offers the Replace form in both variants (see its
+  // own "existing-submission" section), so the submit gate must accept
+  // whatever the render gate already let through.
+  const existing = stmtExistingSubmission.get(guestId, taskId);
+  if (tasks.isSealed(task, todayIso) && !existing) {
+    // Sealed one-day-only challenge, no existing submission to fall back on:
+    // identical outcome to a hidden task — a guessed URL cannot bank an
+    // early submission before its date.
     photos.deleteOriginalFile(file.filename);
     return { status: 'task_inactive' };
   }
@@ -252,11 +267,11 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
   const cap = normalizeCaption(caption);
 
   // The on-day bonus (issue #753): the task's special_bonus banks exactly
-  // when its special_date equals today. An ordinary task (special_date NULL)
-  // never matches, so isOnDay is always false for it.
-  const isOnDay = task.special_date != null && task.special_date === todayIso;
-
-  const existing = stmtExistingSubmission.get(guestId, taskId);
+  // when its special_date equals today. tasks.isOnDay is the single owner of
+  // that calendar fact (issue #754 review fix, MAJOR B) — this module no
+  // longer decides "is today the day" independently of guest.js's "+N pts
+  // Today Only" flag.
+  const isOnDay = tasks.isOnDay(task, todayIso);
 
   let status;
   let submissionId;
