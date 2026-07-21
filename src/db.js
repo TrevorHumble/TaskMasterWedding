@@ -41,13 +41,34 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS tasks (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    title        TEXT    NOT NULL,
-    description  TEXT    NOT NULL DEFAULT '',
-    sort_order   INTEGER NOT NULL DEFAULT 0,
-    worth        INTEGER NOT NULL DEFAULT 1 CHECK (worth BETWEEN 1 AND 3),
-    special_mode TEXT    NOT NULL DEFAULT 'none' CHECK (special_mode IN ('none','hidden')),
-    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    title          TEXT    NOT NULL,
+    description    TEXT    NOT NULL DEFAULT '',
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    worth          INTEGER NOT NULL DEFAULT 1 CHECK (worth BETWEEN 1 AND 3),
+    special_mode   TEXT    NOT NULL DEFAULT 'none' CHECK (special_mode IN ('none','hidden','oneday')),
+    -- One-day-only challenge fields (issue #753). special_date (YYYY-MM-DD,
+    -- NULL = ordinary task) is the AUTHORITATIVE "this task is a challenge"
+    -- fact — the seal predicate, the on-day bonus, and the Completionist
+    -- exclusion all read IT, not special_mode = 'oneday'. special_mode's
+    -- 'oneday' value is the marker written in lockstep alongside it, there
+    -- only so the existing mode machinery (liveTaskWhere/isTaskLive) and a
+    -- future exclusivity guard (#649/#650) can see this task is spoken for.
+    -- Neither column is ever written without the other.
+    special_date   TEXT,
+    special_bonus  INTEGER CHECK (special_bonus IS NULL OR special_bonus BETWEEN 1 AND 3),
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    -- Pairing constraint (issue #753 review fix): special_date and
+    -- special_bonus are either BOTH NULL (an ordinary task) or BOTH set (a
+    -- one-day-only challenge) -- never one without the other. Without this,
+    -- special_date='2026-08-07', special_bonus=NULL is a legal row, and
+    -- submissions.js's banking write binds that NULL bonus straight into
+    -- submissions.bonus_amount (NOT NULL), throwing SQLITE_CONSTRAINT_NOTNULL
+    -- inside submitPhoto for every guest submitting that task. The write
+    -- sites also coalesce defensively (belt-and-suspenders for a row that
+    -- predates this constraint or was hand-edited), but this CHECK is what
+    -- stops the bad row from ever being written in the first place.
+    CONSTRAINT chk_special_pairing CHECK ((special_date IS NULL) = (special_bonus IS NULL))
   );
 
   CREATE TABLE IF NOT EXISTS submissions (
@@ -250,6 +271,99 @@ function ensureTaskWorthAndMode() {
 }
 
 ensureTaskWorthAndMode();
+
+// --- Guarded migration: tasks.special_date/special_bonus + widened CHECK (issue #753) ---
+/**
+ * Rebuild `tasks` to add `special_date`/`special_bonus` and widen the
+ * `special_mode` CHECK to accept 'oneday' alongside 'none'/'hidden', if it
+ * does not already.
+ *
+ * Detection CANNOT be column-presence the way ensureTaskWorthAndMode() above
+ * detects its own old shape: that function returns early the instant
+ * `special_mode` exists, which is true of EVERY database that has already
+ * run #727 — so on the deployed app.db (post-#727, pre-#753) that guard
+ * would never fire, the narrow CHECK IN ('none','hidden') would survive, and
+ * a 'oneday' insert would throw SQLITE_CONSTRAINT_CHECK the first time a
+ * host saved a one-day-only challenge, even though every fresh test database
+ * (whose CREATE TABLE above already has the widened CHECK) would pass green.
+ * Instead this detects the way ensureBadgeTypeCheckWidened() does: read the
+ * stored CREATE TABLE text out of sqlite_master and rebuild unless it
+ * already names 'oneday'. A fresh DB's CREATE TABLE IF NOT EXISTS above
+ * already carries the widened CHECK and both new columns, so this is a
+ * no-op there too, and a no-op on every later boot of an already-migrated
+ * DB.
+ *
+ * SQLite cannot alter a CHECK constraint in place, so on an old-vocabulary
+ * table we rebuild it — same recipe as ensureTaskWorthAndMode/
+ * ensureBadgeTypeCheckWidened above: create a new table with the widened
+ * shape, copy every existing column across by explicit column list
+ * (preserving id so submissions.task_id and badges.task_id — both REFERENCE
+ * tasks(id) — stay valid; special_date/special_bonus are simply absent from
+ * that list, so every pre-existing row gets NULL in both, exactly right for
+ * an ordinary task), drop the old table, rename the new one into place, all
+ * inside one transaction so a mid-migration crash cannot leave the database
+ * half-migrated.
+ *
+ * Same two rebuild hazards ensureTaskWorthAndMode above already solves,
+ * copied verbatim: (a) submissions.task_id and badges.task_id both
+ * REFERENCE tasks(id) ON DELETE CASCADE, and foreign_keys is ON, so a DROP
+ * TABLE tasks mid-rebuild would cascade-delete every task submission and
+ * every task badge (which cascades again into guest_badges) unless
+ * foreign_keys is turned off for the duration of the rebuild and restored
+ * immediately after. (b) This function runs right after
+ * ensureTaskWorthAndMode() above — before any later migration in this file
+ * — so it never races a rebuild that could drop a column it needs to carry
+ * forward.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureTaskSpecialDayColumns() {
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`)
+    .get();
+  // Match the CHECK constraint's own text, not a bare "'oneday'" substring
+  // (issue #753 review fix): the CREATE TABLE above also carries a doc
+  // comment mentioning 'oneday' in prose, and sqlite_master.sql preserves
+  // that comment verbatim alongside the constraint -- a bare substring match
+  // would (harmlessly, today, since both always appear together) leave a
+  // reader unable to tell which occurrence the guard actually depends on.
+  if (!row || row.sql.includes("IN ('none','hidden','oneday')")) {
+    // No tasks table yet, or already widened — nothing to do.
+    return;
+  }
+
+  db.pragma('foreign_keys = OFF');
+  try {
+    const migrate = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE tasks_new (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          title          TEXT    NOT NULL,
+          description    TEXT    NOT NULL DEFAULT '',
+          sort_order     INTEGER NOT NULL DEFAULT 0,
+          worth          INTEGER NOT NULL DEFAULT 1 CHECK (worth BETWEEN 1 AND 3),
+          special_mode   TEXT    NOT NULL DEFAULT 'none' CHECK (special_mode IN ('none','hidden','oneday')),
+          special_date   TEXT,
+          special_bonus  INTEGER CHECK (special_bonus IS NULL OR special_bonus BETWEEN 1 AND 3),
+          created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+          CONSTRAINT chk_special_pairing CHECK ((special_date IS NULL) = (special_bonus IS NULL))
+        );
+
+        INSERT INTO tasks_new (id, title, description, sort_order, worth, special_mode, created_at)
+          SELECT id, title, description, sort_order, worth, special_mode, created_at
+            FROM tasks;
+
+        DROP TABLE tasks;
+        ALTER TABLE tasks_new RENAME TO tasks;
+      `);
+    });
+    migrate();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+ensureTaskSpecialDayColumns();
 
 // --- Guarded migration: submissions.photo_bonus (issue #89) ---
 /**
@@ -664,6 +778,51 @@ function ensureTaskIdNullable() {
 
 ensureTaskIdNullable();
 
+// --- Guarded migration: submissions.bonus_amount/bonus_reason (issue #753) ---
+/**
+ * Add submissions.bonus_amount/bonus_reason if either is not already
+ * present.
+ *
+ * Same guard shape as ensurePhotoBonusColumn/ensureResubmittedColumn above:
+ * the submissions CREATE TABLE deliberately omits both, so they are absent
+ * on BOTH a fresh DB and an existing pre-#753 app.db; each ALTER TABLE runs
+ * once per column, gated on PRAGMA table_info, so a repeat call (or a later
+ * boot) is a no-op and never throws "duplicate column".
+ *
+ * bonus_amount banks the one-day-only on-day bonus AT SUBMIT TIME (never
+ * derived at read time — a photo replace resets created_at, so a derived
+ * bonus would silently vanish when a guest swapped in a better photo the
+ * next day); it defaults to 0, meaning "no banked bonus", which is exactly
+ * right for every pre-existing row (none of them could have banked one) and
+ * for an ordinary/off-day submission going forward. bonus_reason records
+ * which rule banked it ('oneday' for this issue; #649/#650 will write their
+ * own literals into this same shared column) and defaults to NULL. Deliberately
+ * a NEW pair of columns, not a reuse of submissions.photo_bonus — that
+ * column's write path was retired by #684 and it carries unrelated legacy
+ * admin-set values.
+ *
+ * MUST run AFTER ensureTaskIdNullable() above: that function rebuilds
+ * `submissions` from an explicit nine-column list, so a bonus_amount column
+ * added before it runs would be silently dropped on any database still
+ * needing that migration. ensureResubmittedColumn() below sits after
+ * ensureTaskIdNullable() for the identical reason; this migration follows
+ * the same call-order rule.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureSubmissionsBonusColumns() {
+  const cols = db.prepare(`PRAGMA table_info(submissions)`).all();
+  const names = new Set(cols.map((col) => col.name));
+  if (!names.has('bonus_amount')) {
+    db.exec(`ALTER TABLE submissions ADD COLUMN bonus_amount INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!names.has('bonus_reason')) {
+    db.exec(`ALTER TABLE submissions ADD COLUMN bonus_reason TEXT`);
+  }
+}
+
+ensureSubmissionsBonusColumns();
+
 // --- Guarded migration: badge catalog boot-heal (issue #314) ---
 /**
  * Heal the badges table with any catalog rows added since this database was
@@ -1069,6 +1228,7 @@ function cleanupSelfLikes() {
 module.exports = {
   db,
   ensureTaskWorthAndMode,
+  ensureTaskSpecialDayColumns,
   ensurePhotoBonusColumn,
   ensureBadgeTypeCheckWidened,
   ensureBadgeTaskIdColumn,
@@ -1077,6 +1237,7 @@ module.exports = {
   ensurePinnedColumn,
   ensureGuestIdentityColumns,
   ensureTaskIdNullable,
+  ensureSubmissionsBonusColumns,
   ensureBadgeCatalog,
   ensureRetiredBadgesRemoved,
   AUTO_METRIC_BADGE_POINTS,
