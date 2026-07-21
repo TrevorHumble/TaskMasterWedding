@@ -76,6 +76,17 @@ const AUTO_THRESHOLDS = BADGE_THRESHOLDS.map((b) => b.n);
  * @param {number} photoBonus - the photo's submissions.photo_bonus value
  * @param {number} [worth=0] - the task's worth (1-3), or 0 for a memory
  * @returns {number}
+ *
+ * GAP (issue #753 review fix): this no longer matches the aggregate rule it
+ * claims to. Both getPoints() and leaderboard() now add a third term, the
+ * BANKED one-day-only bonus (SUM of submissions.bonus_amount), that this
+ * function does not take a parameter for and cannot compute — it only knows
+ * about the admin-set photo_bonus. A photo that banked a challenge bonus
+ * will show fewer points from photoPoints() than it actually contributes to
+ * the guest's total. #756 (points-parity UI) owns closing this gap — wire
+ * whatever reads this for a per-photo display to also add bonus_amount, or
+ * extend this function to take it as a parameter, before shipping a success
+ * card or feed display against it.
  */
 function photoPoints(photoBonus, worth = 0) {
   return worth + photoBonus;
@@ -129,6 +140,20 @@ const stmtWorthSum = db.prepare(
      FROM submissions s
      JOIN tasks t ON t.id = s.task_id
     WHERE s.guest_id = ? AND s.taken_down = 0`
+);
+
+// Sum a guest's BANKED one-day-only bonus (submissions.bonus_amount, issue
+// #753) over their VISIBLE submissions only — same taken_down = 0 guard as
+// stmtWorthSum/stmtPhotoBonusSum above, so a taken-down photo's banked bonus
+// never counts and a restore brings it back, both halves (worth AND bonus)
+// moving together with no separate scoring term for takedown/restore.
+// bonus_amount is banked AT SUBMIT TIME (never derived here from
+// task.special_date/special_bonus — see submissions.js's submitPhoto doc
+// comment for why a derived read would silently lose the bonus on a later
+// replace), so this is a plain SUM, not a join against tasks.
+// COALESCE(..., 0) covers the no-submissions case.
+const stmtBonusAmountSum = db.prepare(
+  `SELECT COALESCE(SUM(bonus_amount), 0) AS ba FROM submissions WHERE guest_id = ? AND taken_down = 0`
 );
 
 // Sum a guest's badge AWARD points (guest_badges.points) over awards whose
@@ -226,6 +251,9 @@ function getCompletedCount(guestId) {
  * memories earn no base, issue #247)
  *   + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
  *     submissions, task or memory — issue #89, preserved by #247)
+ *   + the BANKED one-day-only bonus (SUM of submissions.bonus_amount over
+ *     ALL visible submissions — issue #753; banked at submit time on the
+ *     task's special_date, 0 for every ordinary submission)
  *   + admin guests.bonus_points
  *   + the DERIVED profile-photo starter term (issue #716; supersedes #409's
  *     one-time banked award): +STARTER_PHOTO_POINT while guests.avatar_path
@@ -249,12 +277,13 @@ function getCompletedCount(guestId) {
 function getPoints(guestId) {
   const worthSum = stmtWorthSum.get(guestId).w;
   const photoBonus = stmtPhotoBonusSum.get(guestId).pb;
+  const bonusAmountSum = stmtBonusAmountSum.get(guestId).ba;
   const guestRow = stmtBonusPoints.get(guestId);
   const bonus = guestRow ? guestRow.bonus_points : 0;
   const starter = starterTaskContribution(guestRow);
   const starterPoints = starter.done ? starter.points : 0;
   const awardPoints = stmtAwardPointsSum.get(guestId).ap;
-  return worthSum + photoBonus + bonus + starterPoints + awardPoints;
+  return worthSum + photoBonus + bonusAmountSum + bonus + starterPoints + awardPoints;
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +619,10 @@ function starterTaskContribution(guest) {
  * worth (issue #727; a memory contributes no base, issue #247)
  * + per-photo bonus (SUM of submissions.photo_bonus over ALL visible
  * submissions, task or memory — issue #89, preserved by #247's design)
+ * + the BANKED one-day-only bonus (SUM of submissions.bonus_amount over ALL
+ * visible submissions — issue #753, same banked-at-submit-time value
+ * getPoints reads, never re-derived here from tasks.special_date/
+ * special_bonus)
  * + guests.bonus_points
  * + the DERIVED profile-photo starter term (issue #716; supersedes #409's
  * one-time banked award): STARTER_PHOTO_POINT while g.avatar_path IS NOT
@@ -666,7 +699,7 @@ function leaderboard() {
          g.avatar_path   AS avatar_path,
          g.bonus_points  AS bonus_points,
          COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END)                                          AS completed,
-         COALESCE(SUM(CASE WHEN s.task_id IS NOT NULL THEN t.worth ELSE 0 END), 0) + COALESCE(SUM(s.photo_bonus), 0) + g.bonus_points +
+         COALESCE(SUM(CASE WHEN s.task_id IS NOT NULL THEN t.worth ELSE 0 END), 0) + COALESCE(SUM(s.photo_bonus), 0) + COALESCE(SUM(s.bonus_amount), 0) + g.bonus_points +
          (CASE WHEN g.avatar_path IS NOT NULL THEN ${STARTER_PHOTO_POINT} ELSE 0 END) +
          COALESCE((
            SELECT SUM(gb.points)

@@ -38,15 +38,27 @@ const tasks = require('./tasks');
 
 // ---------------------------------------------------------------------------
 // COMPLETIONIST (metric, one-time): the guest has a visible submission for
-// EVERY currently-live task. Computed as "count of live tasks this guest
-// has NOT visibly completed" == 0, so an event with zero live tasks would
-// vacuously qualify everyone — acceptable here because the admin always
-// seeds at least one task before guests can play.
+// EVERY currently-live task that is not a one-day-only challenge. Computed
+// as "count of live, non-challenge tasks this guest has NOT visibly
+// completed" == 0, so an event with zero such tasks would vacuously qualify
+// everyone — acceptable here because the admin always seeds at least one
+// ordinary task before guests can play.
+//
+// `tasks.challengeTaskWhere('t')` (issue #753; tasks.js is the declared
+// owner of this predicate, not a hand-written `special_date IS NULL` here)
+// permanently excludes every one-day-only challenge from this "every active
+// task" set — owner decision D2 (#624): a challenge appearing mid-event must
+// never strip Completionist from a guest who already earned it, and a
+// challenge a guest hasn't reached yet must never block them from earning
+// it. special_date, not special_mode = 'oneday', is what this filters on,
+// matching the single authoritative fact every other #753 read (the seal
+// predicate, the on-day bonus) also keys on.
 // ---------------------------------------------------------------------------
 const stmtMissingActiveTaskCount = db.prepare(`
   SELECT COUNT(*) AS n
     FROM tasks t
    WHERE ${tasks.liveTaskWhere('t')}
+     AND NOT ${tasks.challengeTaskWhere('t')}
      AND NOT EXISTS (
        SELECT 1 FROM submissions s
         WHERE s.task_id = t.id

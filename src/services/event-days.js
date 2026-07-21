@@ -12,6 +12,22 @@
 //      its own scan.
 //   2. eventDays(startDate, endDate) -- the calendar-day enumerator every
 //      day-aware surface will read once #682/#646 land.
+//
+// A third responsibility, added by issue #753 for the one-day-only challenge
+// engine (src/services/tasks.js's seal predicate, src/services/submissions.js's
+// on-day bonus banking): "what is today, and when does a given day open" in
+// the EVENT'S configured timezone, never server UTC.
+//   3. eventLocalDateString(timezone, instant) -- today's (or `instant`'s)
+//      YYYY-MM-DD in `timezone`.
+//      dayOpensAt(dateIso, timezone) -- the absolute instant that calendar
+//      day opens (local midnight) in `timezone`, as a UTC Date.
+//      singleDayLabel(dateIso) -- the "Aug 7" label for ONE date, unlike
+//      eventDays() above which can only label a date inside an enumerated
+//      start/end range.
+// Timezone comes from db.getEventConfig().timezone -- callers pass it in
+// rather than this module reading db itself, keeping this file dependency-
+// free (no `db` require, matching src/services/tasks.js's own reasoning) so
+// it stays pure Intl-driven date math a unit test can exercise directly.
 
 'use strict';
 
@@ -116,4 +132,144 @@ function eventDays(startDate, endDate) {
   return days;
 }
 
-module.exports = { timezoneOptions, isKnownTimezone, resolveSelectedZone, eventDays };
+// ---------------------------------------------------------------------------
+// Event-local "today" (issue #753). Built on Intl.DateTimeFormat's
+// formatToParts, which resolves a UTC instant to its wall-clock date/time in
+// any IANA zone WITHOUT the server's own local timezone ever entering the
+// computation -- the same UTC-anchoring discipline eventDays() above uses,
+// just reading a real timezone's offset instead of pinning to UTC itself.
+// ---------------------------------------------------------------------------
+
+/**
+ * `instant`'s calendar date (YYYY-MM-DD) as it reads on a wall clock in
+ * `timezone`. Defaults `instant` to "now" so a caller asking "what day is it
+ * for the event right now" doesn't have to pass `new Date()` itself, while a
+ * test (or a future scheduler) can pin an exact instant -- e.g.
+ * eventLocalDateString('America/Boise', new Date('2026-08-08T04:00:00Z'))
+ * must answer '2026-08-07': that instant is 22:00 MDT the evening before,
+ * not yet past local midnight.
+ *
+ * @param {string} timezone - an IANA zone name (e.g. 'America/Boise').
+ * @param {Date} [instant] - defaults to `new Date()`.
+ * @returns {string} YYYY-MM-DD
+ */
+function eventLocalDateString(timezone, instant) {
+  const when = instant || new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(when);
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+/**
+ * The UTC offset (in milliseconds, east-of-UTC positive) `timezone` is
+ * observing at `utcMs`. Internal helper for dayOpensAt() below: read what a
+ * wall clock in `timezone` shows at that instant, then re-interpret that
+ * wall-clock reading AS IF it were itself a UTC instant -- the difference
+ * between the two is exactly the zone's current offset. Standard technique
+ * for deriving a specific-instant zone offset from Intl alone (no fixed
+ * offset table, so it is correct across a DST transition).
+ * @param {string} timezone
+ * @param {number} utcMs
+ * @returns {number}
+ */
+function tzOffsetMs(timezone, utcMs) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    // hourCycle: 'h23' (issue #753 review fix, replacing hour12: false) makes
+    // local midnight unrepresentable as anything but "00" -- hour12: false
+    // could format it as "24" in some ICU builds, which needed a separate
+    // 24->0 correction below. h23 removes the case entirely rather than
+    // correcting for it.
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(utcMs));
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  const asIfUtc = Date.UTC(
+    get('year'),
+    get('month') - 1,
+    get('day'),
+    get('hour'),
+    get('minute'),
+    get('second')
+  );
+  return asIfUtc - utcMs;
+}
+
+/**
+ * The absolute instant local midnight of `dateIso` (YYYY-MM-DD) occurs in
+ * `timezone`, as a UTC Date. Two-pass offset resolution (compute the offset
+ * at a naive UTC-midnight guess, re-derive the instant, then re-check the
+ * offset at THAT instant and correct once more if it moved) so a date that
+ * falls exactly on a DST transition still resolves to the real local
+ * midnight rather than the wrong side of the transition by an hour.
+ *
+ * Some zones skip local midnight entirely on a DST-forward transition (issue
+ * #753 review fix) -- e.g. America/Santiago on 2026-09-06, which jumps
+ * 00:00 straight to 01:00. There the naive first pass already lands on the
+ * correct instant (the first real moment of that calendar day), but the
+ * second pass's offset re-check sees the POST-transition offset and
+ * "corrects" past it onto the tail end of the PREVIOUS day instead. The
+ * round-trip check below catches exactly this: a corrected candidate that
+ * no longer reads back as `dateIso` in `timezone` is discarded in favor of
+ * the uncorrected one, which — having no real local midnight to land on
+ * either side of the correction — is the right answer for that case.
+ *
+ * @param {string} dateIso - YYYY-MM-DD
+ * @param {string} timezone - an IANA zone name.
+ * @returns {Date}
+ */
+function dayOpensAt(dateIso, timezone) {
+  const [y, m, d] = dateIso.split('-').map(Number);
+  const naiveUtc = Date.UTC(y, m - 1, d, 0, 0, 0);
+  const offset1 = tzOffsetMs(timezone, naiveUtc);
+  const uncorrectedMs = naiveUtc - offset1;
+  let instantMs = uncorrectedMs;
+  const offset2 = tzOffsetMs(timezone, instantMs);
+  if (offset2 !== offset1) {
+    const correctedMs = naiveUtc - offset2;
+    instantMs =
+      eventLocalDateString(timezone, new Date(correctedMs)) === dateIso
+        ? correctedMs
+        : uncorrectedMs;
+  }
+  return new Date(instantMs);
+}
+
+/**
+ * The "Aug 7" label (no year, no weekday) for a SINGLE date, regardless of
+ * whether it falls inside the configured wedding date range -- unlike
+ * eventDays() above, which only labels a date it itself enumerated between
+ * startDate/endDate. Same UTC-anchored Intl.DateTimeFormat formula as
+ * eventDays(), reused rather than re-derived, so the two can never render
+ * the same calendar date with two different label strings.
+ * @param {string} dateIso - YYYY-MM-DD
+ * @returns {string}
+ */
+function singleDayLabel(dateIso) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+  return fmt.format(new Date(`${dateIso}T00:00:00Z`));
+}
+
+module.exports = {
+  timezoneOptions,
+  isKnownTimezone,
+  resolveSelectedZone,
+  eventDays,
+  eventLocalDateString,
+  dayOpensAt,
+  singleDayLabel,
+};

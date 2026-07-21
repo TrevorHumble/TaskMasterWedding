@@ -18,14 +18,16 @@
 const tasks = require('../src/services/tasks');
 
 describe('MODES / isValidMode', () => {
-  it('MODES is exactly [none, hidden] today, and contains MODE_NONE/MODE_HIDDEN', () => {
-    expect(tasks.MODES).toEqual([tasks.MODE_NONE, tasks.MODE_HIDDEN]);
+  it('MODES is exactly [none, hidden, oneday] today (issue #753 registered oneday), and contains MODE_NONE/MODE_HIDDEN/MODE_ONEDAY', () => {
+    expect(tasks.MODES).toEqual([tasks.MODE_NONE, tasks.MODE_HIDDEN, tasks.MODE_ONEDAY]);
   });
 
   it('isValidMode is true only for a MODES member, false for anything else', () => {
     expect(tasks.isValidMode('none')).toBe(true);
     expect(tasks.isValidMode('hidden')).toBe(true);
-    expect(tasks.isValidMode('one_day')).toBe(false); // a FUTURE mode (#624) — not yet real
+    expect(tasks.isValidMode('oneday')).toBe(true);
+    expect(tasks.isValidMode('one_day')).toBe(false); // never a real value — 'oneday' (no underscore) is
+    expect(tasks.isValidMode('lucky')).toBe(false); // a FUTURE mode (#649) — not yet real
     expect(tasks.isValidMode('')).toBe(false);
     expect(tasks.isValidMode(undefined)).toBe(false);
     expect(tasks.isValidMode(null)).toBe(false);

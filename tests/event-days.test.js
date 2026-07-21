@@ -18,6 +18,9 @@ const {
   isKnownTimezone,
   resolveSelectedZone,
   eventDays,
+  eventLocalDateString,
+  dayOpensAt,
+  singleDayLabel,
 } = require('../src/services/event-days');
 
 describe('timezoneOptions', () => {
@@ -119,5 +122,101 @@ describe('eventDays', () => {
       { iso: '2026-07-31', label: 'Jul 31' },
       { iso: '2026-08-01', label: 'Aug 1' },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #753 AC2: "today" and "when a day opens" both answer in the EVENT'S
+// configured timezone, never server UTC. America/Boise observes Mountain
+// Daylight Time (UTC-6) in August, so a UTC instant a few hours past
+// midnight is still the PREVIOUS calendar day locally — exactly the
+// condition that would silently flip a challenge's day boundary if this
+// module ever built the answer from server-local time or bare UTC instead.
+// ---------------------------------------------------------------------------
+describe('eventLocalDateString (issue #753)', () => {
+  it('2026-08-08T04:00Z is still 2026-08-07 in America/Boise (UTC-6 in August)', () => {
+    expect(eventLocalDateString('America/Boise', new Date('2026-08-08T04:00:00Z'))).toBe(
+      '2026-08-07'
+    );
+  });
+
+  it('2026-08-08T06:00:01Z has crossed into 2026-08-08 in America/Boise (just past local midnight)', () => {
+    expect(eventLocalDateString('America/Boise', new Date('2026-08-08T06:00:01Z'))).toBe(
+      '2026-08-08'
+    );
+  });
+
+  it('the same instant reads a different calendar date in a zone ahead of UTC', () => {
+    // 2026-08-08T04:00Z is already 2026-08-08 in Pacific/Auckland (UTC+12),
+    // the opposite side of the date line from the America/Boise case above —
+    // proof this reads the REQUESTED zone, not a hardcoded one.
+    expect(eventLocalDateString('Pacific/Auckland', new Date('2026-08-08T04:00:00Z'))).toBe(
+      '2026-08-08'
+    );
+  });
+
+  it('omitting `instant` defaults to "now" rather than throwing', () => {
+    expect(eventLocalDateString('America/Boise')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('dayOpensAt (issue #753)', () => {
+  it('2026-08-07 opens at 2026-08-07T06:00:00Z in America/Boise (local midnight, MDT = UTC-6)', () => {
+    expect(dayOpensAt('2026-08-07', 'America/Boise').toISOString()).toBe(
+      '2026-08-07T06:00:00.000Z'
+    );
+  });
+
+  it('the returned instant round-trips through eventLocalDateString back to the same date', () => {
+    const opens = dayOpensAt('2026-08-09', 'America/Boise');
+    expect(eventLocalDateString('America/Boise', opens)).toBe('2026-08-09');
+    // One millisecond earlier is still the PREVIOUS calendar day locally —
+    // proof this is the exact boundary instant, not just "sometime that day".
+    const oneMsEarlier = new Date(opens.getTime() - 1);
+    expect(eventLocalDateString('America/Boise', oneMsEarlier)).toBe('2026-08-08');
+  });
+
+  it('a UTC-ahead zone opens its day before UTC midnight, not after', () => {
+    // Pacific/Auckland is UTC+12 in (southern-hemisphere winter) August, so
+    // its local midnight on 2026-08-08 falls on 2026-08-07T12:00:00Z.
+    expect(dayOpensAt('2026-08-08', 'Pacific/Auckland').toISOString()).toBe(
+      '2026-08-07T12:00:00.000Z'
+    );
+  });
+
+  it('a zone whose local midnight does not exist on this date (review fix): America/Santiago skips 00:00->01:00 on 2026-09-06, still round-trips', () => {
+    // Chile's spring-forward transition lands at 2026-09-06T04:00Z: clocks
+    // jump from 00:00 straight to 01:00 local, so there is no instant that
+    // reads as "2026-09-06T00:00" on a Santiago wall clock. The naive first
+    // pass already lands on the correct instant (04:00Z, the first real
+    // moment of 2026-09-06 in that zone); the SECOND pass's offset re-check
+    // used to "correct" past it onto 03:00Z, which reads back as 23:00 on
+    // 2026-09-05 -- the previous day. Assert both the exact instant AND that
+    // it round-trips back through eventLocalDateString, the same shape the
+    // America/Boise round-trip test above asserts.
+    const opens = dayOpensAt('2026-09-06', 'America/Santiago');
+    expect(opens.toISOString()).toBe('2026-09-06T04:00:00.000Z');
+    expect(eventLocalDateString('America/Santiago', opens)).toBe('2026-09-06');
+  });
+});
+
+describe('singleDayLabel (issue #753)', () => {
+  it('formats a single date as "Aug 7" (no year, no weekday)', () => {
+    expect(singleDayLabel('2026-08-07')).toBe('Aug 7');
+  });
+
+  it('formats a date OUTSIDE the configured wedding range — eventDays() cannot do this, singleDayLabel can', () => {
+    expect(singleDayLabel('2026-12-25')).toBe('Dec 25');
+  });
+
+  it('is correct regardless of the server local timezone (same UTC-anchoring as eventDays)', () => {
+    const originalTZ = process.env.TZ;
+    try {
+      process.env.TZ = 'Pacific/Kiritimati';
+      expect(singleDayLabel('2026-08-07')).toBe('Aug 7');
+    } finally {
+      if (originalTZ === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTZ;
+    }
   });
 });
