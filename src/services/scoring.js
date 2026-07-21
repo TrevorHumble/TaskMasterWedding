@@ -61,35 +61,33 @@ const BADGE_THRESHOLDS = [
 const AUTO_THRESHOLDS = BADGE_THRESHOLDS.map((b) => b.n);
 
 /**
- * Points a single photo is worth. The /feed per-photo display calls this so
- * the base lives only here, not as a literal in the route.
+ * Points a single photo is worth. The /feed per-photo display, the
+ * end-of-night slideshow, and the guest success card (issue #756) all call
+ * this so the base+bonus combination lives only here, never re-typed as a
+ * second arithmetic rule at any call site.
  *
  * A TASK photo earns its task's worth (1-3, src/services/tasks.js's
- * MIN_WORTH..MAX_WORTH) plus its admin bonus. A MEMORY (issue #247, task_id
- * IS NULL) earns NO automatic base — only its admin bonus — matching the
- * aggregate rule in getPoints/leaderboard, which exclude a memory's base
- * while still counting its photo_bonus. `worth` defaults to 0 (issue #727):
- * a one-arg call yields just `photoBonus`, never NaN, and a memory caller
- * passes 0 explicitly for the same reason a task caller passes its task's
- * real worth (>= 1).
+ * MIN_WORTH..MAX_WORTH) plus its admin bonus (photoBonus) plus its BANKED
+ * one-day-only challenge bonus (bonusAmount, submissions.bonus_amount, issue
+ * #753) — the same three terms getPoints()/leaderboard() sum in aggregate
+ * (issue #756 closed the gap between this function and that aggregate rule).
+ * A MEMORY (issue #247, task_id IS NULL) earns NO automatic base — only its
+ * admin bonus — matching the aggregate rule, which excludes a memory's base
+ * while still counting its photo_bonus; bonusAmount is always 0 for a memory
+ * too, since nothing ever banks a one-day-only bonus on one. `worth` and
+ * `bonusAmount` both default to 0 (issues #727, #756): a one-arg call yields
+ * just `photoBonus`, never NaN, and a memory caller passes worth=0 explicitly
+ * for the same reason a task caller passes its task's real worth (>= 1).
  *
  * @param {number} photoBonus - the photo's submissions.photo_bonus value
  * @param {number} [worth=0] - the task's worth (1-3), or 0 for a memory
+ * @param {number} [bonusAmount=0] - the photo's BANKED one-day-only bonus
+ *   (submissions.bonus_amount, issue #753); 0 for an ordinary submission and
+ *   for one banked on an off-day
  * @returns {number}
- *
- * GAP (issue #753 review fix): this no longer matches the aggregate rule it
- * claims to. Both getPoints() and leaderboard() now add a third term, the
- * BANKED one-day-only bonus (SUM of submissions.bonus_amount), that this
- * function does not take a parameter for and cannot compute — it only knows
- * about the admin-set photo_bonus. A photo that banked a challenge bonus
- * will show fewer points from photoPoints() than it actually contributes to
- * the guest's total. #756 (points-parity UI) owns closing this gap — wire
- * whatever reads this for a per-photo display to also add bonus_amount, or
- * extend this function to take it as a parameter, before shipping a success
- * card or feed display against it.
  */
-function photoPoints(photoBonus, worth = 0) {
-  return worth + photoBonus;
+function photoPoints(photoBonus, worth = 0, bonusAmount = 0) {
+  return worth + photoBonus + bonusAmount;
 }
 
 // ---------------------------------------------------------------------------

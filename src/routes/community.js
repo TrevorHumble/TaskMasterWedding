@@ -258,22 +258,26 @@ function visibleCommentCount(submissionId) {
 }
 
 /**
- * Attach a `points` field (worth + photo_bonus) to each photo in place, in
- * one grouped query rather than one query per photo — mirrors
- * attachViewerLikes/attachComments above. Loaded only for the submission ids
- * the feed already handed us — those rows are already visible because they
- * came from feed.feedWindow(), which owns the taken_down = 0 rule. This
- * function never re-types that visibility rule; it only reads photo_bonus/
- * worth for ids already known to be visible. The per-photo point value comes
- * from scoring.photoPoints (the single authority for how the base combines
- * with the bonus), so that arithmetic is never re-typed here. A MEMORY (issue
- * #247, task_id IS NULL) earns no automatic base — only its admin bonus — so
- * its task_id is read here to decide whether to pass the joined task's worth
- * or 0, keeping the feed per-photo display consistent with the aggregate
- * getPoints/leaderboard rule that already withholds a memory's base. A photo
- * with no row found (should not happen given the id came from
- * feed.feedWindow()) zero-fills its bonus and worth, so the view never has to
- * branch on a missing field.
+ * Attach a `points` field (worth + photo_bonus + banked bonus_amount) to each
+ * photo in place, in one grouped query rather than one query per photo —
+ * mirrors attachViewerLikes/attachComments above. Loaded only for the
+ * submission ids the feed already handed us — those rows are already visible
+ * because they came from feed.feedWindow(), which owns the taken_down = 0
+ * rule. This function never re-types that visibility rule; it only reads
+ * photo_bonus/worth/bonus_amount for ids already known to be visible. The
+ * per-photo point value comes from scoring.photoPoints (the single authority
+ * for how the base combines with the bonuses), so that arithmetic is never
+ * re-typed here. A MEMORY (issue #247, task_id IS NULL) earns no automatic
+ * base — only its admin bonus — so its task_id is read here to decide
+ * whether to pass the joined task's worth or 0, keeping the feed per-photo
+ * display consistent with the aggregate getPoints/leaderboard rule that
+ * already withholds a memory's base. bonus_amount (issue #753/#756) is read
+ * unconditionally — it is 0 for a memory (nothing ever banks one there) and
+ * for any submission that never banked an on-day bonus, so no task_id guard
+ * is needed for it the way worth needs one. A photo with no row found
+ * (should not happen given the id came from feed.feedWindow()) zero-fills
+ * its bonus, worth, and bonus_amount, so the view never has to branch on a
+ * missing field.
  */
 function attachPhotoPoints(photos) {
   if (photos.length === 0) {
@@ -283,7 +287,7 @@ function attachPhotoPoints(photos) {
   const rows = db
     .prepare(
       `SELECT s.id AS submission_id, s.photo_bonus AS photo_bonus, s.task_id AS task_id,
-              t.worth AS worth
+              s.bonus_amount AS bonus_amount, t.worth AS worth
          FROM submissions s
          LEFT JOIN tasks t ON t.id = s.task_id
         WHERE s.id IN (${placeholders})`
@@ -293,10 +297,11 @@ function attachPhotoPoints(photos) {
   const rowById = new Map(rows.map((r) => [r.submission_id, r]));
   for (const p of photos) {
     const row = rowById.get(p.submission_id);
-    const bonus = row ? row.photo_bonus : 0;
+    const photoBonus = row ? row.photo_bonus : 0;
     // worth 0 for a memory (task_id IS NULL) so photoPoints omits the base.
     const worth = row && row.task_id !== null ? row.worth : 0;
-    p.points = scoring.photoPoints(bonus, worth);
+    const bonusAmount = row ? row.bonus_amount : 0;
+    p.points = scoring.photoPoints(photoBonus, worth, bonusAmount);
   }
   return photos;
 }

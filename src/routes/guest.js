@@ -601,9 +601,21 @@ router.get('/tasks/:id', function (req, res) {
   // BEFORE the seal gate below (issue #754 review fix, MAJOR A) so the gate
   // can tell "sealed, and the guest has no visible submission" apart from
   // "sealed, but the guest already has one" — see that gate's own comment.
+  // bonus_amount and photo_bonus (issue #756) are selected here alongside the
+  // rest so the success-card block below can read the BANKED on-day bonus and
+  // any admin photo bonus straight off this same row — the row that was just
+  // written by the 'created' submit this page is rendering the redirect for.
+  // The one-shot reward cookie (res.locals.taskCompleteReward, cleared by
+  // attachGuest) can be consumed on a LATER page load than the submit itself
+  // — the guest can reopen the task page after the redirect already fired —
+  // so a host may have assigned photo_bonus in the gap; reading it off this
+  // row rather than assuming the DB's own 0 default keeps the card accurate
+  // in that case. These are submissions columns, not tasks columns: they must
+  // NOT move onto the tasks SELECT above (that one has no bonus_amount or
+  // photo_bonus and would throw "no such column").
   const submission = db
     .prepare(
-      `SELECT id, photo_path, thumb_path, caption, created_at, taken_down
+      `SELECT id, photo_path, thumb_path, caption, created_at, taken_down, bonus_amount, photo_bonus
          FROM submissions
         WHERE guest_id = ? AND task_id = ?`
     )
@@ -640,9 +652,18 @@ router.get('/tasks/:id', function (req, res) {
 
   // Success card + badge modal (issue #255): resolve the one-shot
   // taskComplete reward (read and cleared by attachGuest,
-  // src/middleware/session.js) into what task.ejs needs. Points live ONLY on
-  // the inline card (taskComplete.points); a newly-earned badge gets its own
-  // separate badgeMoment, which task.ejs renders as an auto-opening modal.
+  // src/middleware/session.js) into what task.ejs needs. taskComplete carries
+  // BOTH numbers the card prints: `points` is the guest's grand total after
+  // this submission, `earned` (issue #756) is what THIS submission actually
+  // banked (task.worth + any admin photo_bonus + any on-day challenge bonus),
+  // computed through scoring.photoPoints — the single authority for how a
+  // photo's base combines with its bonuses — rather than typing that formula
+  // out here as a second copy of it. Keeping both under one taskComplete
+  // object (instead of a separate render local) means task.ejs can only read
+  // `earned` from inside the same `taskComplete &&` guard that already
+  // protects `points`, so the two can't drift apart. A newly-earned badge
+  // gets its own separate badgeMoment, which task.ejs renders as an
+  // auto-opening modal.
   //
   // Badge codes are resolved against the guest's CURRENT held badges rather
   // than trusted as-is, so a badge id that no longer resolves (defensive; not
@@ -652,7 +673,14 @@ router.get('/tasks/:id', function (req, res) {
   let badgeMoment = null;
   if (res.locals.taskCompleteReward) {
     const reward = res.locals.taskCompleteReward;
-    taskComplete = { points: reward.points };
+    taskComplete = {
+      points: reward.points,
+      earned: scoring.photoPoints(
+        submission ? submission.photo_bonus : 0,
+        task.worth,
+        submission ? submission.bonus_amount : 0
+      ),
+    };
 
     if (reward.newBadgeIds.length > 0) {
       const heldBadges = scoring.getGuestBadges(guest.id);
@@ -691,7 +719,7 @@ router.get('/tasks/:id', function (req, res) {
     task: task,
     taskBadge: taskBadge, // this task's badge — always present, unlike badgeMoment
     submission: submission, // null if none yet
-    taskComplete: taskComplete, // null unless a 'created' submit just redirected here
+    taskComplete: taskComplete, // null unless a 'created' submit just redirected here; carries both .points and .earned
     badgeMoment: badgeMoment, // null unless that submit also earned a new badge
     pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/
   });
