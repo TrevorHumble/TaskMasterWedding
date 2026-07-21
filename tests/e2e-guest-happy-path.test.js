@@ -97,6 +97,14 @@ describe('AC1: guest happy path (sign up -> submit -> see points)', () => {
   it('shows 1 point and the completed task title on GET / after one submission', async () => {
     const title = `Happy Path Task ${crypto.randomUUID()}`;
     const taskId = insertTask(title);
+    // A second active task this guest never submits to — without it, this
+    // guest's one submission would cover EVERY active task in this file's
+    // fresh temp DB and qualify for COMPLETIONIST (issue #709: +1 while
+    // held), inflating the "1 point" total this test asserts below. Keeping
+    // an uncompleted active task around is what makes "1 completed task ==
+    // 1 point" unambiguous, matching how AC2/AC3 below already have several
+    // other active tasks in play.
+    insertTask(`Happy Path Untouched Task ${crypto.randomUUID()}`);
 
     const agent = request.agent(app);
 

@@ -389,9 +389,15 @@ ensureBadgeTaskIdColumn();
  *
  * points defaults to 0 and note/submission_id default to NULL — the ADD
  * COLUMN itself is what gives every PRE-EXISTING row (every system/auto/
- * metric/transferable/special grant ever written through stmtGrantBadge,
- * which never sets these) exactly those defaults, with no separate backfill
- * UPDATE needed (AC7).
+ * metric/transferable/special grant ever written through stmtGrantBadge)
+ * exactly those defaults, with no separate backfill UPDATE needed (AC7).
+ * stmtGrantBadge never sets note/submission_id (those stay NULL for every
+ * grant it writes; only task-badges.awardTaskBadge sets them). It DOES set
+ * points as of issue #709 — AUTO_METRIC_BADGE_POINTS for an auto/metric
+ * grant, 0 for a transferable/admin-special grant — which is exactly why a
+ * SEPARATE one-time backfill (ensureAutoMetricBadgePointsBackfilled, below)
+ * exists: to catch up a row a PRE-#709 database already granted under the
+ * old points = 0 default, which this ADD COLUMN's default cannot reach.
  *
  * submission_id's FK is ON DELETE CASCADE (issue #713) — a fresh DB gets
  * this action directly here, so ensureGuestBadgeSubmissionCascade() below
@@ -719,6 +725,75 @@ function ensureRetiredBadgesRemoved() {
 
 ensureRetiredBadgesRemoved();
 
+// --- Points value + guarded one-time backfill: auto/metric badges (issue #709) ---
+
+/**
+ * The single owner of "how many points a held auto/metric badge is worth"
+ * (issue #709 — a badge is a point event, not just wall art). BOTH this
+ * file's backfill immediately below AND src/services/scoring.js's
+ * recomputeBadges grant call sites need this number, and scoring.js already
+ * imports `db` from here — db.js cannot import scoring.js back (that would
+ * re-enter the db -> scoring -> db require cycle before this module finishes
+ * evaluating; see cleanupSelfLikes' comment above for the same hazard) — so
+ * this file, the lowest module both reach, is where it has to live. It is
+ * also the paid counterpart to `guest_badges.points`'s own `DEFAULT 0`
+ * (ensureGuestBadgeAwardColumns above), a fact this file already owns.
+ *
+ * scoring.js imports this constant rather than re-declaring it; nowhere else
+ * writes a bare `1` for this purpose.
+ */
+const AUTO_METRIC_BADGE_POINTS = 1;
+
+/**
+ * Set guest_badges.points = AUTO_METRIC_BADGE_POINTS for every currently-held
+ * row whose badge is type IN ('auto','metric') and still carries the
+ * pre-#709 default of 0 — BLOOM/BOUQUET/GARDEN (auto) and COMPLETIONIST
+ * (metric) now pay a point for as long as a guest holds them, through the
+ * existing award-points sum (stmtAwardPointsSum / the leaderboard subquery,
+ * src/services/scoring.js) with no new scoring term. Going forward,
+ * scoring.js's recomputeBadges grant call sites write
+ * AUTO_METRIC_BADGE_POINTS on a NEW auto/metric grant directly; this
+ * backfill exists only to catch up a row a pre-#709 database already
+ * granted under the old points = 0 default.
+ *
+ * The filter joins badges.type IN ('auto','metric') — NOT awarded_by =
+ * 'system'. A transferable grant (recomputeTransferableBadges) is also
+ * awarded_by = 'system', so filtering on awarded_by alone would mis-pay it;
+ * joining on the badge's own type is what correctly excludes it (and
+ * excludes an admin-special/custom grant too) regardless of whether
+ * issue #711's transferable-badge retirement has landed on this database.
+ *
+ * The WHERE also requires the row's CURRENT points = 0 — this is a
+ * different concept from AUTO_METRIC_BADGE_POINTS above (it's the "still at
+ * the old default" sentinel, not the paid value), so it stays a literal: a
+ * re-run (or a row some other future writer already set a non-zero value on)
+ * is never clobbered back — this only advances a row still sitting at the
+ * old default.
+ *
+ * Runs AFTER ensureGuestBadgeAwardColumns() above (the points column must
+ * exist before this UPDATE can reference it) and after the badge-catalog
+ * migrations including ensureRetiredBadgesRemoved() immediately above (so
+ * `badges.type` reflects the settled catalog this backfill joins against,
+ * not a mid-migration shape). Naturally idempotent: once every held
+ * auto/metric row already carries the paid value, a later boot's UPDATE
+ * matches zero rows. Exported so tests bind to this real guard rather than
+ * an inline copy.
+ *
+ * @returns {number} the number of guest_badges rows updated.
+ */
+function ensureAutoMetricBadgePointsBackfilled() {
+  return db
+    .prepare(
+      `UPDATE guest_badges
+          SET points = ?
+        WHERE points = 0
+          AND badge_id IN (SELECT id FROM badges WHERE type IN ('auto', 'metric'))`
+    )
+    .run(AUTO_METRIC_BADGE_POINTS).changes;
+}
+
+ensureAutoMetricBadgePointsBackfilled();
+
 // --- Guarded migration: submissions.resubmitted (issue #190) ---
 /**
  * Add submissions.resubmitted if it is not already present.
@@ -1004,6 +1079,8 @@ module.exports = {
   ensureTaskIdNullable,
   ensureBadgeCatalog,
   ensureRetiredBadgesRemoved,
+  AUTO_METRIC_BADGE_POINTS,
+  ensureAutoMetricBadgePointsBackfilled,
   ensureResubmittedColumn,
   ensureAvatarPointAwardedRetired,
   ensureSettingsTable,

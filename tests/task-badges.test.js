@@ -238,8 +238,8 @@ describe('AC6: award points follow the earning photo visibility', () => {
 // ---------------------------------------------------------------------------
 // AC7: system badges never carry award data.
 // ---------------------------------------------------------------------------
-describe('AC7: system badges never carry award data', () => {
-  it('a system-granted BLOOM row has points=0, note IS NULL, submission_id IS NULL', () => {
+describe('AC7: system badges never carry task-badge award data', () => {
+  it('a system-granted BLOOM row has points=AUTO_METRIC_BADGE_POINTS, note IS NULL, submission_id IS NULL', () => {
     // Seed only the one catalog row this test needs, directly — avoids
     // pulling in scripts/seed.js's sample tasks (unnecessary here; see
     // tests/badge-engine.test.js for the fuller-catalog pattern).
@@ -264,7 +264,12 @@ describe('AC7: system badges never carry award data', () => {
       .get(guestId);
     expect(row).toBeTruthy();
     expect(row.awarded_by).toBe('system');
-    expect(row.points).toBe(0);
+    // BLOOM is an auto badge — issue #709: it pays +1 (AUTO_METRIC_BADGE_POINTS)
+    // for as long as the guest holds it, unlike a transferable/admin-special
+    // grant (still points = 0). note/submission_id — the task-badge-specific
+    // award metadata this describe block is really about — stay NULL either way:
+    // stmtGrantBadge never sets them, only task-badges.awardTaskBadge does.
+    expect(row.points).toBe(1);
     expect(row.note).toBeNull();
     expect(row.submission_id).toBeNull();
   });

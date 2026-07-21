@@ -41,8 +41,10 @@ const SEED_ROWS = [
   // id, guest_id, badge_id, awarded_by, created_at, points, note, submission_id
   [1, 1, 1, 'system', '2026-01-01 00:00:00', 5, null, 1],
   [2, 1, 2, 'admin', '2026-01-02 12:30:00', 10, 'nice catch', 2],
-  // A system/auto/special grant: no earning photo, non-default points/note
-  // to prove the migration doesn't clobber them or the NULL.
+  // A system/special grant: no earning photo, non-default note (and points
+  // deliberately left at the column default 0 — see badge id 3's comment
+  // above for why this row's badge is 'special' rather than 'auto') to prove
+  // the FK-cascade migration doesn't clobber them or the NULL.
   [3, 2, 3, 'system', '2026-01-03 08:15:00', 0, 'starter badge', null],
 ];
 
@@ -129,11 +131,18 @@ beforeAll(() => {
     .run(2, 'seed-guest-2', 'Guest Two');
 
   for (let i = 1; i <= 3; i += 1) {
+    // Badge id 3 (row 3's badge, held at points=0) is deliberately type
+    // 'special', not 'auto' — issue #709's own guarded backfill
+    // (ensureAutoMetricBadgePointsBackfilled, also exercised by this same
+    // require('../src/db') below) rewrites a held auto/metric row still at
+    // points=0 to 1, which would otherwise falsify this file's "every row
+    // survives byte-for-byte" claim for a fact this file isn't testing.
+    const type = i === 3 ? 'special' : 'auto';
     seedDb
       .prepare(
-        `INSERT INTO badges (id, code, name, type, art_path) VALUES (?, ?, ?, 'auto', 'badges/x.svg')`
+        `INSERT INTO badges (id, code, name, type, art_path) VALUES (?, ?, ?, ?, 'badges/x.svg')`
       )
-      .run(i, 'CODE' + i, 'Badge ' + i);
+      .run(i, 'CODE' + i, 'Badge ' + i, type);
   }
 
   seedDb
