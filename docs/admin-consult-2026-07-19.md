@@ -49,6 +49,7 @@ logic together, so no unwired backend ever sits around. #682's earlier "one big 
 framing below is superseded by this paragraph.
 
 **Create flow (step-through):**
+
 - Step 1: title, description, worth (1/2/3 chips — #645's tier menu lives here).
 - Step 2: badge, REQUIRED. Picker only — **custom badge upload is dead**. The bundled icon
   set (#410, amended) grows to **~100 curated icons**: the romantic set (hearts, flowers,
@@ -62,6 +63,7 @@ framing below is superseded by this paragraph.
 wins [badge]", +N pts) plus a thin chip strip for admin state (Active/Hidden, day chips,
 lucky/flash markers). Tap a card → the edit popup. This is the anti-clutter rule for every
 future task mechanic: a chip on the card + a control in the popup, nothing more.
+
 - #652 reconciliation: "badge line only when customized" dies (badges are required now);
   what survives is the prize framing — every card reads "Best photo wins [badge]".
 - Reorder: drag handle on the cards (not in the popup). Photo-count metadata REMOVED from
@@ -69,12 +71,14 @@ future task mechanic: a chip on the card + a control in the popup, nothing more.
 
 **Edit popup, top to bottom:** Title · Description · Worth (1/2/3) · Badge (tap to reopen
 picker) · **Special** (radio, below) · Delete (small, bottom-left) · Save.
+
 - "Pick winners" was cut from the popup — badge ranking (#661) enters from the PHOTOS side.
 
 **Special — one radio, never stack (owner: "those don't stack ever"):**
 Options: None · One day only · Lucky task · Flash · Hidden. Each option carries a one-line
 plain-language subtitle (owner-drafted tone), and selecting one accordions its questions
 open beneath it:
+
 - **One day only** — date (chips from Configuration) + bonus (+1/+2/+3). Mystery locked
   card before its day; ON its day pays base + bonus; AFTER its day it stays submittable at
   base points (bonus only for on-day submissions — matches #624).
@@ -245,9 +249,9 @@ late (its rows read #682/#686/#661 state), #662 right after #646. #682 does NOT 
 15. #646 dashboard checklist (as amended; reworks the shipped #256 layout)
 16. #662 smart checklist rows
 17. #490 tile medals · 18. #489 leaderboard badges · 19. #469 prizes
-20. #647 Couple's Heart · 21. #666 host role · 22. #669 photos pagination
-23. #656 memories points · 24. #527 live task search · 25. #340 edit own comments
-26. #284 security headers/CSRF · 27. #539 empty-DB drill · 28. #292 load-test drill
+18. #647 Couple's Heart · 21. #666 host role · 22. #669 photos pagination
+19. #656 memories points · 24. #527 live task search · 25. #340 edit own comments
+20. #284 security headers/CSRF · 27. #539 empty-DB drill · 28. #292 load-test drill
 
 If green and time remains: #649 flash, #650 lucky, #648 first-to-finish, #651 duels,
 #253 friends circle, #363 badge-art restyle (10 catalog badges incl. most-liked),

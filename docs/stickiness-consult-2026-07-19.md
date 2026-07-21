@@ -5,7 +5,7 @@ owner Q&A session that settled most open questions. **This document is pre-issue
 nothing here is buildable until it becomes a GitHub issue that passes issue review per the
 pipeline. Status lives on the board, not here; once an issue is filed or amended, the board wins.
 
-Goal frame: stickiness here means a guest keeps *choosing* to re-open the app across the
+Goal frame: stickiness here means a guest keeps _choosing_ to re-open the app across the
 3-day weekend and the game keeps sending them back into the room — not long-term retention.
 
 **Filed 2026-07-19 — the board is now canonical for all of these:**
@@ -30,7 +30,7 @@ N6 flash tasks → **#649** · N7 lucky task → **#650** · N8 duels → **#651
    - **Price tag** — a label on the artifact ("+3 pts", a lock with "Opens Saturday", a countdown).
    - **Receipt** — a one-line "why" at the payoff ("First! +1 bonus", "Lucky task! +2").
    - **Ambient marker** — an envied marker on someone else's win (crown, First! ribbon, gold heart).
-   A mechanic that needs a paragraph gets redesigned or cut, not documented.
+     A mechanic that needs a paragraph gets redesigned or cut, not documented.
 4. **Pace the reveals across the weekend.** Friday: base loop only. Saturday onward: daily
    challenge lock, first flash task, crowd-favorite crowns. One new thing per session, and
    Saturday's app feels newer than Friday's.
@@ -40,11 +40,11 @@ N6 flash tasks → **#649** · N7 lucky task → **#650** · N8 duels → **#651
    multiplies the value of everything else.
 6. **Non-point rewards are free variance.** Badge moments, the Task Master's note, gold
    hearts, appearing on the slideshow — use them; they don't inflate the economy.
-7. **Bonuses bank when earned** *(owner, 2026-07-19)*: a time-derived bonus (daily on-day,
+7. **Bonuses bank when earned** _(owner, 2026-07-19)_: a time-derived bonus (daily on-day,
    flash-window, lucky) is stored at award time and survives a later photo replace. A guest
    improving their photo must never lose points for it. **Exception:** first-to-finish is
    deliberately NOT banked — see N5's anti-junk rule.
-8. **The app never calls the internet** *(verified 2026-07-19)*: fonts are already bundled
+8. **The app never calls the internet** _(verified 2026-07-19)_: fonts are already bundled
    under `src/public/fonts/`, no CDN references exist in views or theme.css. Every new asset
    (badge icon set etc.) ships as files in the repo — venue wifi can die and nothing breaks.
 
@@ -57,6 +57,7 @@ N6 flash tasks → **#649** · N7 lucky task → **#650** · N8 duels → **#651
 Verdict: right idea; appointment mechanics + on-day bonus is straight live-event design.
 
 Settled (owner, 2026-07-19):
+
 - **Locked card is a MYSTERY BOX**: shown before its day as "Saturday's challenge 🔒" with
   NO title — more tease, more table talk, and can't spoil host plans (e.g. bouquet toss).
 - **On-day bonus banks at submit time** (global decision 7): a later replace keeps it.
@@ -73,6 +74,7 @@ only mechanic that makes guests look at each other's contributions. Biggest vari
 in the queue.
 
 Settled (owner, 2026-07-19):
+
 - **Ships after the bell (N1).** Without delivery, crowd-vote point swings read as buggy math.
 - **Self-likes are BLOCKED, not silently discounted**: tapping the heart on your own photo
   plays a small "nope" fail animation and records nothing — clearer than a heart that lights
@@ -137,9 +139,9 @@ treatment (user story, G/W/T, plan, dependency map) before it is real.
 - **Pitch:** a bell with an unread count ("+3"). Tapping shows a recap of what happened to
   you: likes on your photos (batched — "3 people liked your ring-shot photo"), comments on
   your photos, badges earned (row taps replay the full award modal), steal-able badges won
-  *and lost*, host bonus points. Pull-only; nothing ever buzzes.
-- **Settled:** one issue with #563 inside (owner, 2026-07-19). Only things that happened *to
-  you* — no "X passed you" anxiety rows. Likes batched. Badge auto-celebration on next page
+  _and lost_, host bonus points. Pull-only; nothing ever buzzes.
+- **Settled:** one issue with #563 inside (owner, 2026-07-19). Only things that happened _to
+  you_ — no "X passed you" anxiety rows. Likes batched. Badge auto-celebration on next page
   load still fires independent of the bell (the bell is the archive/replay, not the only
   delivery).
 - **Placement — NOT settled:** proposed header top-right (convention; visible everywhere).
@@ -181,6 +183,7 @@ treatment (user story, G/W/T, plan, dependency map) before it is real.
   settle in the issue).
 
 ### Tier 4 — beyond-MVP (owner, 2026-07-19: file all as issues, label beyond-MVP; owner may
+
 personally get some in if time allows)
 
 ### N5. First-to-finish bonus
@@ -218,9 +221,9 @@ personally get some in if time allows)
 
 ### N9. Task-badge copy fix — stop over-promising
 
-- **Settled (owner, 2026-07-19):** the "Earn *[badge]*" line shows **only when the host has
+- **Settled (owner, 2026-07-19):** the "Earn _[badge]_" line shows **only when the host has
   customized the task's badge**; plain tasks show points only. Custom badges become special
-  instead of wallpaper. Also reword to prize framing: "Best photo wins *[badge]*" — a task
+  instead of wallpaper. Also reword to prize framing: "Best photo wins _[badge]_" — a task
   badge is judged, not earned by completion.
 
 ### N10. Next-badge nudge (backlog)
@@ -233,21 +236,16 @@ personally get some in if time allows)
 ## Part 3 — Priority order (3 weeks to Aug 7) — CONFIRMED by owner 2026-07-19
 
 Tier 1 — make the rewards that exist actually land:
+
 1. N1 bell (with #563 inside; placement via visual loop)
 2. #611 success screen (with slots for bonus receipts)
 
-Tier 2 — the new loops:
-3. #625 crowd votes (self-like block, ships after bell)
-4. #626 pedestal
-5. #624 daily challenges (mystery box, banked bonus, Boise config)
-6. N2 per-task values
+Tier 2 — the new loops: 3. #625 crowd votes (self-like block, ships after bell) 4. #626 pedestal 5. #624 daily challenges (mystery box, banked bonus, Boise config) 6. N2 per-task values
 
-Tier 3 — visible stakes and status:
-7. #469 prizes · #468 slideshow (live during party) · #490/#489 badge visibility ·
-   N9 copy fix · #410 + icon set · N3 admin checklist · N4 Couple's Heart
+Tier 3 — visible stakes and status: 7. #469 prizes · #468 slideshow (live during party) · #490/#489 badge visibility ·
+N9 copy fix · #410 + icon set · N3 admin checklist · N4 Couple's Heart
 
-Tier 4 — beyond-MVP (all get issues; owner may pull in if time allows):
-8. N6 flash tasks · N5 first-to-finish · N8 duels · N7 lucky task
+Tier 4 — beyond-MVP (all get issues; owner may pull in if time allows): 8. N6 flash tasks · N5 first-to-finish · N8 duels · N7 lucky task
 
 ---
 

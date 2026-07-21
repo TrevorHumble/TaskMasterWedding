@@ -47,23 +47,23 @@ These six decisions cut across every page:
 
 ### Dashboard
 
-| Before (the shipped #256 page) | After |
-| --- | --- |
-| Six tappable stats + activity pulse + menu-list actions (shipped mid-consult by the concurrent session); owner's question "what is this page for" stands | Stats shrink to three: guests · live tasks · open bugs (red when any open) |
-| | One flat **state-driven checklist** — rows check themselves off from real app state ("Set a lucky task for Aug 8"; one "Pick winners — [task]" row per ended task with photos waiting; "Look at N new bug reports"); curated tips fill gaps. Not grouped by day. |
-| | Setup links at the bottom: Configuration (administrator-only) · Invite guests · Download the keepsake export |
+| Before (the shipped #256 page)                                                                                                                           | After                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Six tappable stats + activity pulse + menu-list actions (shipped mid-consult by the concurrent session); owner's question "what is this page for" stands | Stats shrink to three: guests · live tasks · open bugs (red when any open)                                                                                                                                                                                       |
+|                                                                                                                                                          | One flat **state-driven checklist** — rows check themselves off from real app state ("Set a lucky task for Aug 8"; one "Pick winners — [task]" row per ended task with photos waiting; "Look at N new bug reports"); curated tips fill gaps. Not grouped by day. |
+|                                                                                                                                                          | Setup links at the bottom: Configuration (administrator-only) · Invite guests · Download the keepsake export                                                                                                                                                     |
 
 ### Tasks
 
-| Before | After |
-| --- | --- |
-| One long page of always-open edit forms per task | Cards rendered exactly as guests see them (badge, title, "Best photo wins [badge]", +N pts) + a thin admin chip strip (state, day, lucky/flash); drag handle to reorder; tap a card to edit |
-| Badge optional, ugly default; upload form inline | Badge **required** at creation via the icon picker (step 2 of a step-through: title/description/worth first, then badge) |
-| No point values | Worth 1/2/3 chips (absorbs #645) |
-| Active/hide toggle + separate concepts | One **Special** radio — None · One day only · Lucky task · Flash · Hidden — each with a one-line plain-language subtitle; picking one accordions its questions open. Specials never stack. |
-| — | One day only: date + bonus; mystery card before its day; submittable after at base points. Lucky: day + bonus; invisible; every on-day completer gets the bonus on the success screen. Flash: bonus + duration (10-min stepper) + start now or scheduled day/time; countdown banner for guests; reverts when it ends. |
-| "Pick winners" ideas floated in the popup | Cut — badge ranking is entered from the Photos side |
-| Photo count in the editor | Removed ("information on top of information") |
+| Before                                           | After                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One long page of always-open edit forms per task | Cards rendered exactly as guests see them (badge, title, "Best photo wins [badge]", +N pts) + a thin admin chip strip (state, day, lucky/flash); drag handle to reorder; tap a card to edit                                                                                                                           |
+| Badge optional, ugly default; upload form inline | Badge **required** at creation via the icon picker (step 2 of a step-through: title/description/worth first, then badge)                                                                                                                                                                                              |
+| No point values                                  | Worth 1/2/3 chips (absorbs #645)                                                                                                                                                                                                                                                                                      |
+| Active/hide toggle + separate concepts           | One **Special** radio — None · One day only · Lucky task · Flash · Hidden — each with a one-line plain-language subtitle; picking one accordions its questions open. Specials never stack.                                                                                                                            |
+| —                                                | One day only: date + bonus; mystery card before its day; submittable after at base points. Lucky: day + bonus; invisible; every on-day completer gets the bonus on the success screen. Flash: bonus + duration (10-min stepper) + start now or scheduled day/time; countdown banner for guests; reverts when it ends. |
+| "Pick winners" ideas floated in the popup        | Cut — badge ranking is entered from the Photos side                                                                                                                                                                                                                                                                   |
+| Photo count in the editor                        | Removed ("information on top of information")                                                                                                                                                                                                                                                                         |
 
 Ships as **vertical issues** (rescoped 2026-07-19): #682 is the page fully wired (radio
 carries None + Hidden only); each special — one-day #624, lucky #650, flash #649 — later
@@ -72,24 +72,24 @@ unwired backend sits around.
 
 ### Guests
 
-| Before | After |
-| --- | --- |
-| Cards with name form, pin-first checkbox, identity forms, bonus-points form, badge-award dropdown, delete | Search + compact rows (avatar, name, pts, tasks, Blocked state) → tap → popup |
-| Pin first in gallery | **Deleted outright** |
-| Bonus points | **Deleted** (economy rule above) |
-| Badge award dropdown + "Create a custom badge" form | **Deleted** (badge rules above) |
-| Re-entry code shown in plain text | Masked as dots; tap the eye to reveal (pairs with #666 hiding PINs from helpers) |
-| — | **Friends circle** toggle (the #253 inner-circle) |
-| — | **Block** toggle: locked out immediately, photos/comments hidden (reversible); unblock restores. Delete stays the nuclear option. No IP bans — venue wifi shares one address; account block is the tool. |
+| Before                                                                                                    | After                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cards with name form, pin-first checkbox, identity forms, bonus-points form, badge-award dropdown, delete | Search + compact rows (avatar, name, pts, tasks, Blocked state) → tap → popup                                                                                                                            |
+| Pin first in gallery                                                                                      | **Deleted outright**                                                                                                                                                                                     |
+| Bonus points                                                                                              | **Deleted** (economy rule above)                                                                                                                                                                         |
+| Badge award dropdown + "Create a custom badge" form                                                       | **Deleted** (badge rules above)                                                                                                                                                                          |
+| Re-entry code shown in plain text                                                                         | Masked as dots; tap the eye to reveal (pairs with #666 hiding PINs from helpers)                                                                                                                         |
+| —                                                                                                         | **Friends circle** toggle (the #253 inner-circle)                                                                                                                                                        |
+| —                                                                                                         | **Block** toggle: locked out immediately, photos/comments hidden (reversible); unblock restores. Delete stays the nuclear option. No IP bans — venue wifi shares one address; account block is the tool. |
 
 ### Photos
 
-| Before (the shipped #259 page) | After |
-| --- | --- |
-| Gallery-parity grid + feed the owner likes, with full-res lightbox (#673, shipped) | Kept |
-| Take down/Restore buried inside the Give-a-badge dialog — the owner's exact complaint | Three-dot menu on the photo with the one contextual action: Take down photo / Restore photo; the badge dialog becomes award-only (#684) |
-| Leftover per-photo points route (form already gone in #259) | Route retired; existing awarded points keep counting (#684) |
-| Comments moderated on a separate page | **Comments moderated in the viewer**, under the photo, each with Hide; hidden ones stay struck-through with Restore, invisible to guests (#684) |
+| Before (the shipped #259 page)                                                        | After                                                                                                                                           |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gallery-parity grid + feed the owner likes, with full-res lightbox (#673, shipped)    | Kept                                                                                                                                            |
+| Take down/Restore buried inside the Give-a-badge dialog — the owner's exact complaint | Three-dot menu on the photo with the one contextual action: Take down photo / Restore photo; the badge dialog becomes award-only (#684)         |
+| Leftover per-photo points route (form already gone in #259)                           | Route retired; existing awarded points keep counting (#684)                                                                                     |
+| Comments moderated on a separate page                                                 | **Comments moderated in the viewer**, under the photo, each with Hide; hidden ones stay struck-through with Restore, invisible to guests (#684) |
 
 ### Comments
 
@@ -99,16 +99,16 @@ point. Accepted tradeoff: no all-newest-comments queue; reactive moderation is r
 
 ### Bugs
 
-| Before | After |
-| --- | --- |
-| Report + one "Resolved" button | Three states: **open** → "Open GitHub issue" (prefilled new-issue link — report text, guest, page, timestamp; no token, no API) or "Close — not an issue" → **tracked** / **closed** (kept, struck through) |
-| Preview instances always show an empty Bugs page | Seed stories gain fake bug reports so `npm run preview` has a populated page |
-| | Dashboard bug tile counts only truly open reports |
+| Before                                           | After                                                                                                                                                                                                       |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Report + one "Resolved" button                   | Three states: **open** → "Open GitHub issue" (prefilled new-issue link — report text, guest, page, timestamp; no token, no API) or "Close — not an issue" → **tracked** / **closed** (kept, struck through) |
+| Preview instances always show an empty Bugs page | Seed stories gain fake bug reports so `npm run preview` has a populated page                                                                                                                                |
+|                                                  | Dashboard bug tile counts only truly open reports                                                                                                                                                           |
 
 ### Poster → Invite
 
-| Before | After |
-| --- | --- |
+| Before              | After                                                                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Print-a-poster page | **Invite** page: QR in black or theme green, saved as PNG (place it anywhere yourself); join link with Copy + native Share buttons |
 
 ---
