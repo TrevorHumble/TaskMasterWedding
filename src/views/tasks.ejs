@@ -18,6 +18,51 @@
       totalCount by the route (same owner) so the chip counts next to the
       lists never disagree with what's actually inside them. %>
 
+  <%# PHASE-1 PREVIEW SCAFFOLD (issue #624) — DELETE IN PHASE 2.
+      Fake rows so the owner can settle the look of a one-day-only challenge
+      against a live preview before any route/service exists. In phase 2 the
+      route supplies these fields on real task rows and this whole block goes
+      away:
+        t.oneday      — this task is a one-day-only challenge
+        t.locked      — its day has not arrived yet (nothing about it is shown)
+        t.unlockAt    — the absolute instant it opens (event-local midnight)
+        t.isToday     — its day is today, so the bonus is live right now
+        t.specialBonus— host-set on-day bonus, 1/2/3
+      TWO locked rows are seeded deliberately: only the nearest may ever reach
+      the guest (see the mystery-box rule below), so a second one is the only
+      way to see that rule actually holding.
+      Descriptions are also pasted onto the seeded ordinary tasks here, purely
+      so the owner can see how a row sits with real copy in it — the seed data
+      itself is untouched (it lives outside the phase-1 fence).
+  %>
+  <% if (typeof todoTasks !== 'undefined' && todoTasks.length) { %>
+    <%
+      var demoDescriptions = [
+        'Get the whole table in one frame — nobody sitting this one out.',
+        'Find someone you have never met and take a photo together.',
+        'Catch the couple when they do not know you are looking.',
+        'Best hat at the reception. Wearer must be in the shot.',
+        'Something borrowed, something blue — photograph one of them.',
+      ];
+      todoTasks.forEach(function (t, i) {
+        if (!t.description) t.description = demoDescriptions[i % demoDescriptions.length];
+      });
+      todoTasks = [
+        { id: 'demo-locked', oneday: true, locked: true,
+          unlockAt: new Date(Date.now() + (2 * 86400 + 14 * 3600 + 7 * 60) * 1000).toISOString(),
+          badge: todoTasks[0].badge },
+        { id: 'demo-locked-later', oneday: true, locked: true,
+          unlockAt: new Date(Date.now() + (3 * 86400) * 1000).toISOString(),
+          badge: todoTasks[0].badge },
+        { id: 'demo-today', oneday: true, locked: false, isToday: true,
+          dayLabel: 'Aug 7', specialBonus: 3, worth: 2,
+          title: 'Toast the couple on camera',
+          description: 'Raise a glass and say it out loud.',
+          badge: todoTasks[0].badge },
+      ].concat(todoTasks);
+    %>
+  <% } %>
+
   <% var allDone = totalCount > 0 && todoCount === 0; %>
   <% if (allDone) { %>
     <section class="tasks-memory-cta">
@@ -83,7 +128,36 @@
       <% if (todoTasks.length === 0 && starterDone) { %>
         <p class="muted">All done &mdash; you&rsquo;ve finished every task. The Wedding Masters are impressed.</p>
       <% } else { %>
+        <%
+          // One-day-only challenges lead the to-do list — above the starter
+          // profile-photo row and every ordinary task — because they are the
+          // only rows that expire. Within them, the one live TODAY sits above
+          // the locked one. Everything else keeps its host sort order.
+          var onedayTodo = todoTasks.filter(function (t) { return t.oneday; });
+          var ordinaryTodo = todoTasks.filter(function (t) { return !t.oneday; });
+
+          // THE MYSTERY-BOX RULE (owner, 2026-07-20): a guest may see at most
+          // ONE locked card at a time, ever — and that ceiling is shared with
+          // every other special type (flash #649, lucky #650), not one box
+          // each. A second locked card turns a mystery into a queue, and a
+          // queue is just a list of things you cannot do yet. Only the one
+          // unlocking soonest survives; the rest stay entirely invisible until
+          // their turn comes.
+          var lockedTodo = onedayTodo.filter(function (t) { return t.locked; });
+          lockedTodo.sort(function (a, b) {
+            return new Date(a.unlockAt).getTime() - new Date(b.unlockAt).getTime();
+          });
+          onedayTodo = onedayTodo
+            .filter(function (t) { return !t.locked; })
+            .concat(lockedTodo.slice(0, 1));
+          onedayTodo.sort(function (a, b) {
+            return (b.isToday ? 1 : 0) - (a.isToday ? 1 : 0);
+          });
+        %>
         <ul class="task-list">
+          <% onedayTodo.forEach(function (t) { %>
+            <%- include('partials/task-todo-row', { t: t }) %>
+          <% }); %>
           <% if (!starterDone) { %>
             <li class="task-row task-todo">
               <a class="task-link" href="/me/edit">
@@ -95,22 +169,8 @@
               </a>
             </li>
           <% } %>
-          <% todoTasks.forEach(function (t) { %>
-            <li class="task-row task-todo">
-              <a class="task-link" href="/tasks/<%= t.id %>">
-                <span class="task-body">
-                  <span class="task-title-text"><%= t.title %></span>
-                  <% if (t.description) { %>
-                    <span class="task-desc"><%= t.description %></span>
-                  <% } %>
-                  <span class="task-earnable-badge">
-                    <%- include('partials/badge-art', { badge: t.badge }) %>
-                    <span class="task-earnable-copy">Best photos earn <%= t.badge.name %> + bonus points</span>
-                  </span>
-                </span>
-                <span class="task-points">+<%= t.worth %> pt<%= t.worth === 1 ? '' : 's' %></span>
-              </a>
-            </li>
+          <% ordinaryTodo.forEach(function (t) { %>
+            <%- include('partials/task-todo-row', { t: t }) %>
           <% }); %>
         </ul>
       <% } %>
@@ -122,5 +182,9 @@
   <% } %>
 
   <p class="back-link"><a href="/">&#8592; Back to my profile</a></p>
+
+  <%# Issue #624: keeps the locked challenge's countdown ticking. Deferred and
+      self-guarding — it exits immediately when the page has no locked card. %>
+  <script src="/js/task-countdown.js" defer></script>
 
 <%- include('partials/footer') %>

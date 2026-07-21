@@ -17,6 +17,12 @@
     <button type="button" class="btn btn-primary btn-sm admin-task-new" data-open-create>New task</button>
   </div>
 
+  <%# PHASE-1 PREVIEW SCAFFOLD (issue #624) — DELETE IN PHASE 2. Marks the
+      first task as a one-day-only challenge so the owner can see the card
+      chip live. Phase 2's admin route supplies t.oneday / t.dayLabel from the
+      task's stored special_date. %>
+  <% if (tasks.length) { tasks[0].oneday = true; tasks[0].dayLabel = 'Aug 8'; } %>
+
   <ul class="admin-task-list" id="admin-task-list">
     <% tasks.forEach(function (t) { %>
       <li class="admin-task-card <%= t.is_active ? '' : 'is-hidden' %>"
@@ -59,6 +65,9 @@
         <div class="admin-chip-strip">
           <% if (!t.is_active) { %>
             <span class="admin-chip admin-chip-hidden">Hidden</span>
+          <% } %>
+          <% if (t.oneday) { %>
+            <span class="admin-chip admin-chip-oneday"><%= t.dayLabel %> only</span>
           <% } %>
           <a class="admin-task-photos" href="/admin/photos?view=task&amp;task=<%= t.id %>"><%= t.submissions %> photo<%= t.submissions === 1 ? '' : 's' %></a>
         </div>
