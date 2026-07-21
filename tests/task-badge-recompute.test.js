@@ -20,6 +20,7 @@ const { loadApp, makeAdminAgent } = require('./helpers/testApp');
 let db;
 let adminAgent;
 let completionistBadgeId;
+let scoring;
 
 let guestTokenSeq = 0;
 function makeGuest(name) {
@@ -71,6 +72,11 @@ beforeAll(async () => {
   const loaded = loadApp();
   db = loaded.db;
   adminAgent = await makeAdminAgent(loaded.app);
+  // Required only for the spy in the "worth-only edit" test below (to prove
+  // the conditional skip, not to call recompute* directly — see the file
+  // comment above about never calling scoring.recompute* in a test body to
+  // FABRICATE state, which this does not do).
+  scoring = require('../src/services/scoring');
   // Seed the real catalog so COMPLETIONIST/EARLYBIRD exist, mirroring
   // tests/badge-engine.test.js.
   require('../scripts/seed.js');
@@ -91,7 +97,11 @@ describe('AC1: POST /admin/tasks strips a now-stale Completionist', () => {
     grantCompletionistDirect(guest);
     expect(heldCodes(guest)).toContain('COMPLETIONIST');
 
-    await adminAgent.post('/admin/tasks').type('form').send({ title: 'AC1 Task B — new' });
+    // Issue #682: badge is now required server-side on every POST /admin/tasks.
+    await adminAgent
+      .post('/admin/tasks')
+      .type('form')
+      .send({ title: 'AC1 Task B — new', badge_icon: 'favorite' });
 
     expect(heldCodes(guest)).not.toContain('COMPLETIONIST');
   });
@@ -164,7 +174,10 @@ describe('AC5: admin-awarded badges are never touched, and the recompute is idem
     expect(heldCodes(guest)).toContain('EARLYBIRD');
 
     // Fire each of the three task-set routes once.
-    await adminAgent.post('/admin/tasks').type('form').send({ title: 'AC5 Add' });
+    await adminAgent
+      .post('/admin/tasks')
+      .type('form')
+      .send({ title: 'AC5 Add', badge_icon: 'favorite' });
     const toggleTask = makeTask('AC5 Toggle Task', 1);
     await adminAgent.post(`/admin/tasks/${toggleTask}/active`).type('form').send({});
     const deleteTask = makeTask('AC5 Delete Task', 1);
@@ -218,6 +231,89 @@ describe('AC5: admin-awarded badges are never touched, and the recompute is idem
   });
 });
 
+// ---------------------------------------------------------------------------
+// Issue #682: the NEW single edit-popup save (POST /admin/tasks/:id/edit) now
+// also writes special_mode (folded into the same submit as title/description/
+// worth/badge). These tests mirror AC2/AC3 above but drive the membership
+// change through the COMBINED edit route instead of the old dedicated toggle
+// route (POST /admin/tasks/:id/active) — the same #701 recompute parity the
+// issue's "Carry the recompute" amendment requires of every route that
+// replaces the old ones.
+// ---------------------------------------------------------------------------
+describe('#682 edit-route recompute parity: POST /admin/tasks/:id/edit', () => {
+  it('un-hiding via special_mode=none strips a now-stale Completionist', async () => {
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
+    const taskA = makeTask('Edit AC2 Task A', 1);
+    const hiddenTask = makeTask('Edit AC2 Hidden Task', 0);
+    const guest = makeGuest('Edit AC2 Guest');
+    submit(guest, taskA);
+    grantCompletionistDirect(guest);
+    expect(heldCodes(guest)).toContain('COMPLETIONIST');
+
+    await adminAgent
+      .post(`/admin/tasks/${hiddenTask}/edit`)
+      .type('form')
+      .send({ title: 'Edit AC2 Hidden Task', special_mode: 'none' });
+
+    expect(
+      db.prepare('SELECT special_mode FROM tasks WHERE id = ?').get(hiddenTask).special_mode
+    ).toBe('none');
+    expect(heldCodes(guest)).not.toContain('COMPLETIONIST');
+  });
+
+  it('hiding via special_mode=hidden awards a newly-earned Completionist', async () => {
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
+    const taskA = makeTask('Edit AC3 Task A', 1);
+    const uncoveredTask = makeTask('Edit AC3 Uncovered Task', 1);
+    const guest = makeGuest('Edit AC3 Guest');
+    submit(guest, taskA);
+    expect(heldCodes(guest)).not.toContain('COMPLETIONIST');
+
+    await adminAgent
+      .post(`/admin/tasks/${uncoveredTask}/edit`)
+      .type('form')
+      .send({ title: 'Edit AC3 Uncovered Task', special_mode: 'hidden' });
+
+    expect(
+      db.prepare('SELECT special_mode FROM tasks WHERE id = ?').get(uncoveredTask).special_mode
+    ).toBe('hidden');
+    expect(heldCodes(guest)).toContain('COMPLETIONIST');
+  });
+
+  it('a worth-only or badge-only edit (no special_mode change) does NOT call recomputeAfterTaskChange at all', async () => {
+    // Discriminating (review fix): a guest who already qualifies for
+    // COMPLETIONIST still qualifies after a spurious recompute too, so
+    // asserting only the held-badge OUTCOME (as this test did before) never
+    // proves the conditional actually skipped the call — it would pass
+    // identically whether or not the route wrongly recomputed on every save.
+    // Spy on the real scoring.recomputeAfterTaskChange (the exact function
+    // src/routes/admin.js's edit handler calls) and assert it is NOT invoked
+    // for a worth-only change.
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
+    const taskA = makeTask('Edit Worth-Only Task', 1);
+    const guest = makeGuest('Edit Worth-Only Guest');
+    submit(guest, taskA);
+    grantCompletionistDirect(guest);
+    expect(heldCodes(guest)).toContain('COMPLETIONIST');
+
+    const recomputeSpy = vi.spyOn(scoring, 'recomputeAfterTaskChange');
+    try {
+      await adminAgent
+        .post(`/admin/tasks/${taskA}/edit`)
+        .type('form')
+        .send({ title: 'Edit Worth-Only Task', worth: 3, special_mode: 'none' });
+
+      expect(db.prepare('SELECT worth FROM tasks WHERE id = ?').get(taskA).worth).toBe(3);
+      expect(recomputeSpy).not.toHaveBeenCalled();
+      // The (unrecomputed) badge state is naturally still correct — nothing
+      // moved the active-task set, so there was nothing to recompute away.
+      expect(heldCodes(guest)).toContain('COMPLETIONIST');
+    } finally {
+      recomputeSpy.mockRestore();
+    }
+  });
+});
+
 describe('AC5 (edge case): recomputeAfterTaskChange is a safe no-op with zero guests', () => {
   // MUST run last in this file: within one test file `require('../../src/app')`
   // is cached after its first call, so this suite shares ONE db with every
@@ -233,7 +329,7 @@ describe('AC5 (edge case): recomputeAfterTaskChange is a safe no-op with zero gu
     const res = await adminAgent
       .post('/admin/tasks')
       .type('form')
-      .send({ title: 'No Guests Yet Task' });
+      .send({ title: 'No Guests Yet Task', badge_icon: 'favorite' });
 
     expect(res.status).toBe(303);
     expect(db.prepare('SELECT COUNT(*) AS n FROM guest_badges').get().n).toBe(0);

@@ -71,7 +71,7 @@
                   <span class="task-title-text"><%= t.title %></span>
                   <span class="task-earnable-badge">
                     <%- include('partials/badge-art', { badge: t.badge }) %>
-                    <span class="task-earnable-copy">Earn <%= t.badge.name %> plus extra points</span>
+                    <span class="task-earnable-copy">Best photos earn <%= t.badge.name %> + bonus points</span>
                   </span>
                 </span>
               </a>
@@ -105,7 +105,7 @@
                   <% } %>
                   <span class="task-earnable-badge">
                     <%- include('partials/badge-art', { badge: t.badge }) %>
-                    <span class="task-earnable-copy">Earn <%= t.badge.name %> plus extra points</span>
+                    <span class="task-earnable-copy">Best photos earn <%= t.badge.name %> + bonus points</span>
                   </span>
                 </span>
                 <span class="task-points">+<%= t.worth %> pt<%= t.worth === 1 ? '' : 's' %></span>

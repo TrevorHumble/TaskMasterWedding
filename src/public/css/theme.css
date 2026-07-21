@@ -5164,3 +5164,413 @@ body:has(dialog[open]) {
   padding: var(--space-3) var(--space-4) var(--space-4);
   border-top: var(--border-hairline);
 }
+
+/* ===========================================================
+   Admin Tasks redesign (#682) — WYSIWYG card list, edit popup,
+   step-through create. Reuses the guest task-card look
+   (.task-title-text/.task-earnable-copy/.task-points/.badge-medallion)
+   and the shared design tokens.
+   =========================================================== */
+
+/* ---- List header ---- */
+.admin-tasks-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 var(--space-3);
+}
+.admin-tasks-count {
+  margin: 0;
+  font-size: var(--fs-small);
+}
+
+/* ---- The card list ---- */
+.admin-task-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+}
+.admin-task-card {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  grid-template-rows: auto auto;
+  align-items: stretch;
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--white);
+  box-shadow: var(--shadow-card);
+  margin-bottom: var(--space-3);
+  transition: transform var(--dur-base) var(--ease-soft);
+}
+.admin-task-card.is-hidden {
+  opacity: 0.6;
+}
+/* While dragging: the card lifts and follows the pointer (transform set in
+   admin-tasks.js). It must NOT run the reorder slide-transition on itself. */
+.admin-task-card.is-dragging {
+  transition: none;
+  position: relative;
+  z-index: 5;
+  box-shadow: var(--shadow-raise);
+  cursor: grabbing;
+}
+.admin-task-drag {
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-hairline);
+  cursor: grab;
+  touch-action: none;
+}
+.admin-task-drag:active {
+  cursor: grabbing;
+}
+.admin-task-drag svg {
+  fill: currentColor;
+}
+.admin-task-open {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-3) var(--space-2) 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.admin-task-open::after {
+  content: '\203A'; /* right chevron */
+  flex: 0 0 auto;
+  font-size: var(--fs-h3);
+  color: var(--color-text-muted);
+}
+/* Badge column: a slightly larger medallion with its name beneath (small). */
+.admin-task-badge-col {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 60px;
+}
+.admin-task-badge-col .badge-medallion {
+  width: 44px;
+  height: 44px;
+}
+.admin-task-badge-name {
+  max-width: 60px;
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: center;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  /* A long single-word badge name (e.g. one the host types) must break so it
+     wraps within the narrow column and the 2-line clamp can ellipsize it,
+     instead of rendering one unbreakable line that clips hard mid-word. */
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.admin-task-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.admin-task-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 2px;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.admin-task-open .task-points {
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+
+/* ---- Admin chip strip (row 2: state left, photo count bottom-right) ---- */
+.admin-chip-strip {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3) 0;
+}
+.admin-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.admin-chip-hidden {
+  background: var(--green-900);
+  color: var(--white);
+}
+.admin-task-photos {
+  margin-left: auto;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+.admin-task-empty {
+  list-style: none;
+  padding: var(--space-5);
+  text-align: center;
+  border: 1px dashed var(--color-hairline);
+  border-radius: var(--radius-card);
+}
+
+/* ===========================================================
+   Shared task dialog (edit popup + create wizard)
+   Mirrors .badge-picker-dialog structure/tokens.
+   =========================================================== */
+.task-dialog {
+  width: min(460px, 100vw - 32px);
+  max-height: 90vh;
+  max-height: 90dvh;
+  margin: auto;
+  padding: 0;
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-raise);
+  background: var(--white);
+  color: var(--color-text);
+}
+.task-dialog::backdrop {
+  background: rgba(20, 30, 24, 0.55);
+}
+.task-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+.task-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.task-dialog-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  color: var(--color-heading);
+}
+.task-dialog-close {
+  min-width: 44px;
+  min-height: 44px;
+  margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0 0;
+  border: none;
+  background: none;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.task-dialog-close:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ---- Form fields ---- */
+.field {
+  display: block;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+.field-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.field-optional {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+.field input[type='text'],
+.field textarea {
+  width: 100%;
+}
+
+/* ---- Worth chips (1/2/3) ---- */
+.worth-chips {
+  display: flex;
+  gap: var(--space-2);
+}
+.worth-chip {
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.worth-chip input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.worth-chip-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-bg);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.worth-chip:has(input:checked) .worth-chip-face {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.worth-chip:has(input:focus-visible) .worth-chip-face {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ---- Badge field row ---- */
+.badge-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.badge-field-row .badge-medallion {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+}
+.badge-field-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-small);
+}
+
+/* ---- Special radio (None / Hidden; accordion-ready) ---- */
+.special-radio {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.special-option {
+  display: block;
+  cursor: pointer;
+}
+.special-option input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.special-option-face {
+  display: block;
+  padding: var(--space-3);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-input);
+  background: var(--color-bg);
+}
+.special-option:has(input:checked) .special-option-face {
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+.special-option:has(input:focus-visible) .special-option-face {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.special-option-title {
+  display: block;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.special-option-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+
+/* ---- Dialog footer ---- */
+.task-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+.task-dialog-foot-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+.task-dialog-foot-split {
+  display: flex;
+  gap: var(--space-2);
+}
+.task-dialog-foot-split > .btn {
+  flex: 1 1 0;
+}
+
+/* ---- Create wizard ---- */
+.wizard-progress {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wizard-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-hairline);
+}
+.wizard-dot.is-current {
+  background: var(--color-primary);
+}
+.wizard-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.wizard-step[hidden] {
+  display: none;
+}
+.wizard-hint {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.wizard-badge-row {
+  justify-content: flex-start;
+}
+.wizard-badge-row .badge-medallion-lg {
+  width: 56px;
+  height: 56px;
+}
