@@ -544,8 +544,8 @@ function buildSlideshowSection(rows, titleItem, winnerLabel) {
  *
  * Rank metric per section:
  *   - Most Liked opener: like_count, ties broken by points.
- *   - Task groups: scoring.photoPoints(photo_bonus, worth), ties broken by
- *     like_count.
+ *   - Task groups: scoring.photoPoints(photo_bonus, worth, bonus_amount),
+ *     ties broken by like_count.
  *
  * @returns {object[]} flat `sequence` matching the frozen slideshow view's
  *   contract (src/views/slideshow.ejs): `{ type: 'title', title, kicker,
@@ -571,6 +571,7 @@ function slideshowSequence() {
               s.photo_path    AS photo_path,
               s.caption       AS caption,
               s.photo_bonus   AS photo_bonus,
+              s.bonus_amount  AS bonus_amount,
               s.task_id       AS task_id,
               g.name          AS guest_name,
               t.title         AS task_title,
@@ -592,7 +593,14 @@ function slideshowSequence() {
     // worth 0 only for a memory (task_id IS NULL, issue #247, so the LEFT
     // JOIN's t.worth comes back NULL) — same rule community.js's
     // attachPhotoPoints applies to this same function (issue #727).
-    row.points = scoring.photoPoints(row.photo_bonus, row.task_id !== null ? row.worth : 0);
+    // bonus_amount (issue #753/#756) needs no such guard — it is 0 for a
+    // memory (nothing ever banks a one-day-only bonus on one) and for any
+    // submission that never banked an on-day bonus.
+    row.points = scoring.photoPoints(
+      row.photo_bonus,
+      row.task_id !== null ? row.worth : 0,
+      row.bonus_amount
+    );
   }
 
   // --- Most Liked opener --------------------------------------------------
