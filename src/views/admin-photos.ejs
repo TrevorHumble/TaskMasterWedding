@@ -11,10 +11,19 @@
   // give-a-badge state (src/services/favorites.js, src/services/photo-badges.js),
   // real moderation. Locals from the route: photos (EVERY submission,
   // incl. taken-down — an admin wall shows everything; the guest gallery's
-  // taken-down exclusion does not apply here), favorites (favorited
+  // taken-down exclusion does not apply here — EXCEPT on a scoped
+  // view=task&task=<id> request, issue #748, where photos is already
+  // narrowed to that one task's submissions only), favorites (favorited
   // submissions, same "show everything" rule), groups (view=task/user only,
-  // already q-filtered, LIVE submissions only), view, q, badgeCatalog
-  // (the 5 give-a-badge choices with their current N/5 counts).
+  // already q-filtered, LIVE submissions only — EXCEPT a scoped request,
+  // which yields at most one group holding ALL of that task's submissions,
+  // taken-down included, with q ignored entirely), view, q, taskScope
+  // (issue #748 — the scoped task's { id, title } row, or null when
+  // unscoped; picks the empty-state branch below), taskScopeId (the same
+  // scope already rendered down to a bare id or '', so every mutating form
+  // writes it as flatly as it writes view/q — the route resolves the null,
+  // not the template), badgeCatalog (the 5 give-a-badge choices with their
+  // current N/5 counts).
   //
   // View switching and search are real navigation (mirrors src/views/gallery.ejs
   // exactly) — only the grid<->feed toggle is client-side, because the inline
@@ -95,6 +104,7 @@
         <input type="hidden" name="view" value="<%= view %>">
         <input type="hidden" name="q" value="<%= q %>">
         <input type="hidden" name="panel" value="<%= panel %>">
+        <input type="hidden" name="task" value="<%= taskScopeId %>">
         <button
           type="submit"
           class="admin-tile-btn admin-fav<%= p._fav ? ' admin-fav-on' : '' %>"
@@ -138,18 +148,26 @@
 
 <div data-gallery-chrome>
   <% if (showGroups) { %>
-    <% groups.forEach(function (g) { %>
-      <section class="gallery-group">
-        <div class="gallery-group-head">
-          <% if (view === 'user') { %>
-            <span class="gallery-person-avatar"><%= initials(g.heading) || '?' %></span>
-          <% } %>
-          <h2 class="gallery-group-heading"><%= g.heading %></h2>
-          <span class="gallery-group-count"><%= g.photos.length %> photo<%= g.photos.length === 1 ? '' : 's' %></span>
-        </div>
-        <%- adminGrid(g.photos, '') %>
-      </section>
-    <% }); %>
+    <% if (taskScope && groups.length === 0) { %>
+      <%# Scoped to one task with zero submissions (issue #748 AC2) — the
+          same empty-state copy the unscoped Recent wall uses below (the
+          Favorites wall has its own wording), so a scoped host sees a
+          visible message, never a blank body. %>
+      <p class="muted">No photos submitted yet.</p>
+    <% } else { %>
+      <% groups.forEach(function (g) { %>
+        <section class="gallery-group">
+          <div class="gallery-group-head">
+            <% if (view === 'user') { %>
+              <span class="gallery-person-avatar"><%= initials(g.heading) || '?' %></span>
+            <% } %>
+            <h2 class="gallery-group-heading"><%= g.heading %></h2>
+            <span class="gallery-group-count"><%= g.photos.length %> photo<%= g.photos.length === 1 ? '' : 's' %></span>
+          </div>
+          <%- adminGrid(g.photos, '') %>
+        </section>
+      <% }); %>
+    <% } %>
   <% } else if (view === 'fav') { %>
     <% if (favorites.length === 0) { %>
       <p class="muted">No favorites yet. Tap the heart on a photo to pin it here.</p>
@@ -180,6 +198,7 @@
         <input type="hidden" name="view" value="<%= view %>">
         <input type="hidden" name="q" value="<%= q %>">
         <input type="hidden" name="panel" value="feed">
+        <input type="hidden" name="task" value="<%= taskScopeId %>">
         <button type="submit" class="admin-comment-action admin-comment-restore">Restore</button>
       </form>
     <% } else { %>
@@ -187,6 +206,7 @@
         <input type="hidden" name="view" value="<%= view %>">
         <input type="hidden" name="q" value="<%= q %>">
         <input type="hidden" name="panel" value="feed">
+        <input type="hidden" name="task" value="<%= taskScopeId %>">
         <button type="submit" class="admin-comment-action admin-comment-hide">Hide</button>
       </form>
     <% } %>
@@ -219,6 +239,7 @@
                   <input type="hidden" name="view" value="<%= view %>">
                   <input type="hidden" name="q" value="<%= q %>">
                   <input type="hidden" name="panel" value="feed">
+                  <input type="hidden" name="task" value="<%= taskScopeId %>">
                   <button type="submit" class="photo-owner-menu-item">Restore photo</button>
                 </form>
               <% } else { %>
@@ -226,6 +247,7 @@
                   <input type="hidden" name="view" value="<%= view %>">
                   <input type="hidden" name="q" value="<%= q %>">
                   <input type="hidden" name="panel" value="feed">
+                  <input type="hidden" name="task" value="<%= taskScopeId %>">
                   <button type="submit" class="photo-owner-menu-item photo-owner-delete">Take down photo</button>
                 </form>
               <% } %>
@@ -277,6 +299,7 @@
               <input type="hidden" name="view" value="<%= view %>">
               <input type="hidden" name="q" value="<%= q %>">
               <input type="hidden" name="panel" value="feed">
+              <input type="hidden" name="task" value="<%= taskScopeId %>">
               <button
                 type="submit"
                 class="like-button admin-feed-fav<%= p._fav ? ' like-button-liked' : '' %>"
@@ -420,6 +443,7 @@
         <input type="hidden" name="panel" id="adminBadgeAwardPanel" value="">
         <input type="hidden" name="action" value="toggle">
         <input type="hidden" name="code" id="adminBadgeSelectedCode" value="<%= badgeCatalog[0] ? badgeCatalog[0].code : '' %>">
+        <input type="hidden" name="task" value="<%= taskScopeId %>">
         <button type="submit" class="btn" id="adminBadgeAward">Award badge</button>
       </form>
     </div>
