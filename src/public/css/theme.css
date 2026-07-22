@@ -5466,6 +5466,12 @@ body:has(dialog[open]) {
   background: var(--green-900);
   color: var(--white);
 }
+/* One-day-only challenge (issue #624): gold, matching the guest card's
+   "Today only" flag so the host recognises the same lever on both sides. */
+.admin-chip-oneday {
+  background: var(--place-1);
+  color: var(--place-1-ink);
+}
 .admin-task-photos {
   margin-left: auto;
   font-size: var(--fs-eyebrow);
@@ -5655,6 +5661,62 @@ body:has(dialog[open]) {
   display: block;
   margin-top: 2px;
   font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+
+/* ---- Special accordion panel (issue #624; #649/#650 reuse it) ----
+   One group = one radio option plus the settings that only make sense once
+   that option is picked. Opened by CSS `:has(input:checked)` alone — the same
+   mechanism the radio faces and worth chips already use — so it needs no
+   script and is correct on first paint. */
+.special-option-group {
+  display: flex;
+  flex-direction: column;
+}
+.special-panel {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: calc(-1 * var(--radius-input));
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  border: 1px solid var(--color-primary);
+  border-top: none;
+  border-radius: 0 0 var(--radius-input) var(--radius-input);
+  background: var(--green-50);
+}
+/* Scoped to the radio inside .special-option — the MODE radio — and not to
+   any `input:checked` in the group. The panel's own day/bonus chips are
+   checked radios too, so an unscoped :has() would hold the accordion open
+   from first paint whether or not the mode was picked. */
+.special-option-group:has(.special-option input:checked) .special-panel {
+  display: flex;
+}
+/* Square off the face's bottom corners so the open panel reads as one
+   attached sheet rather than two stacked boxes. */
+.special-option-group:has(.special-option input:checked) .special-option-face {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.special-panel-field {
+  display: flex;
+  flex-direction: column;
+}
+.day-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+/* Day chips are worth chips carrying "Aug 7" instead of "1 pt": wider text,
+   so they trade side padding for it and keep a three-day weekend on one row
+   inside the dialog. More days than fit simply wrap. */
+.day-chip .worth-chip-face {
+  min-width: 0;
+  padding: 0 var(--space-3);
+}
+.special-panel-hint {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-small);
+  line-height: var(--lh-snug);
   color: var(--color-text-muted);
 }
 

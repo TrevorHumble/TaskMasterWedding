@@ -17,6 +17,26 @@
   var picker = document.getElementById('badge-picker');
   var editForm = editDialog && editDialog.querySelector('#task-edit-form');
 
+  // The approved default (issue #755 criterion 2): first configured day,
+  // +1 bonus — applied when a host promotes an undated task to One day only
+  // (both create and edit), so the accordion never opens blank. Read from
+  // the FIRST day-chip DOM node rather than hard-coded, so it always matches
+  // whatever src/routes/admin.js's GET /admin/tasks actually rendered — the
+  // one owner of "what is the first configured day" stays server-side.
+  //
+  // Scoped to `.day-chips` (review fix, issue #755) — the hidden stale-date
+  // input (`#task-edit-special-date-stale`) shares the exact same
+  // `name="special_date"`, and an unqualified `dialog.querySelector` would
+  // only avoid matching it by document order (it happens to render AFTER
+  // the day chips) — the same fragility plan step 4 banned for the
+  // `.worth-chip` lookups elsewhere in this file. `.day-chips` never
+  // contains that hidden input, so this is correct regardless of markup
+  // order.
+  function firstDayChipValue(dialog) {
+    var chip = dialog && dialog.querySelector('.day-chips input[name="special_date"]');
+    return chip ? chip.value : '';
+  }
+
   // Which of our dialogs opened the shared badge picker, so its submit
   // reflects the pick into that dialog's preview (and hidden badge_icon/
   // badge_name fields) instead of running the picker's own POST.
@@ -44,13 +64,59 @@
     editDialog.querySelector('#task-edit-desc-input').value = g('description');
 
     var worth = g('worth') || '1';
-    var worthRadio = editDialog.querySelector('.worth-chip input[value="' + worth + '"]');
+    // Scoped by `name`, not by class (issue #755 review note): the day and
+    // bonus chips both reuse class="worth-chip", and the bonus chips carry
+    // the same 1/2/3 values the worth chips do — a bare first-match query
+    // here would silently grab a bonus chip if the accordion ever preceded
+    // the Worth fieldset in document order.
+    var worthRadio = editDialog.querySelector('input[name="worth"][value="' + worth + '"]');
     if (worthRadio) worthRadio.checked = true;
 
     var mode = g('mode') || 'none';
     var modeRadio = editDialog.querySelector('.special-option input[value="' + mode + '"]');
     if (modeRadio) modeRadio.checked = true;
 
+    // Day/bonus chips (issue #755 criteria 1-3b): clear BOTH groups first,
+    // exactly the same reason the badge fields are reset on every open below
+    // — without this a previously edited task's Aug 9 / +3 selection leaks
+    // onto the next task opened and gets written on save (criterion 2).
+    editDialog.querySelectorAll('input[name="special_date"]').forEach(function (r) {
+      r.checked = false;
+    });
+    editDialog.querySelectorAll('input[name="special_bonus"]').forEach(function (r) {
+      r.checked = false;
+    });
+    var staleDateInput = editDialog.querySelector('#task-edit-special-date-stale');
+    if (staleDateInput) {
+      staleDateInput.value = '';
+      staleDateInput.disabled = true;
+    }
+
+    var storedDate = g('special-date');
+    var storedBonus = g('special-bonus');
+    if (storedDate) {
+      var dateChip = editDialog.querySelector(
+        'input[name="special_date"][value="' + storedDate + '"]'
+      );
+      if (dateChip) {
+        dateChip.checked = true;
+      } else if (staleDateInput) {
+        // Stored date matches no rendered chip (criterion 3b — the host
+        // narrowed the wedding dates after dating this task). Carry it
+        // through a disabled-by-default hidden input so a title-only edit
+        // re-posts the SAME stale date rather than posting nothing, which
+        // would read as a pair CHANGE (criterion 3's own reasoning for why
+        // this input exists).
+        staleDateInput.value = storedDate;
+        staleDateInput.disabled = false;
+      }
+    }
+    if (storedBonus) {
+      var bonusChip = editDialog.querySelector(
+        'input[name="special_bonus"][value="' + storedBonus + '"]'
+      );
+      if (bonusChip) bonusChip.checked = true;
+    }
     reflectBadge(
       editDialog.querySelector('#task-edit-badge-preview'),
       editDialog.querySelector('#task-edit-badge-icon'),
@@ -75,6 +141,51 @@
     if (del) del.setAttribute('data-task-id', taskId);
 
     openDialog(editDialog);
+  }
+
+  // Any day-chip click disables the stale-date input again (issue #755
+  // criterion 3b) — the chips become the only source of special_date the
+  // moment the host picks one, so the body never carries two values for that
+  // field. Registered ONCE via delegation on the dialog (not inside
+  // openEdit, which runs on every popup open) so this never accumulates a
+  // fresh listener per open.
+  if (editDialog) {
+    editDialog.addEventListener('change', function (event) {
+      if (event.target.matches && event.target.matches('input[name="special_date"]')) {
+        var staleDateInput = editDialog.querySelector('#task-edit-special-date-stale');
+        if (staleDateInput) staleDateInput.disabled = true;
+        return;
+      }
+      // Promoting an UNDATED task to One day only in the EDIT popup (issue
+      // #755 criterion 2): apply the approved default (first configured day,
+      // +1) the same way resetCreate() does for the create flow, rather than
+      // leaving the accordion blank. Only fires when nothing is already
+      // selected — a task openEdit() already populated with its own stored
+      // day/bonus (or the stale-date hidden input) is left exactly as it is.
+      if (
+        event.target.matches &&
+        event.target.matches('input[name="special_mode"][value="oneday"]') &&
+        event.target.checked
+      ) {
+        var staleInput = editDialog.querySelector('#task-edit-special-date-stale');
+        var hasDay =
+          editDialog.querySelector('input[name="special_date"]:checked') ||
+          (staleInput && !staleInput.disabled && staleInput.value);
+        if (!hasDay) {
+          var firstDay = firstDayChipValue(editDialog);
+          if (firstDay) {
+            var dayChip = editDialog.querySelector(
+              'input[name="special_date"][value="' + firstDay + '"]'
+            );
+            if (dayChip) dayChip.checked = true;
+          }
+        }
+        if (!editDialog.querySelector('input[name="special_bonus"]:checked')) {
+          var bonus1 = editDialog.querySelector('input[name="special_bonus"][value="1"]');
+          if (bonus1) bonus1.checked = true;
+        }
+      }
+    });
   }
 
   // Set the hidden badge_icon/badge_name inputs a dialog's form posts —
@@ -113,10 +224,25 @@
     var d = createDialog.querySelector('#task-create-desc-input');
     if (t) t.value = '';
     if (d) d.value = '';
-    var w1 = createDialog.querySelector('.worth-chip input[value="1"]');
+    var w1 = createDialog.querySelector('input[name="worth"][value="1"]');
     if (w1) w1.checked = true;
     var none = createDialog.querySelector('.special-option input[value="none"]');
     if (none) none.checked = true;
+    // The approved One day only default (issue #755 criterion 2): first
+    // configured day, +1 bonus — set even while None is the checked mode
+    // (the accordion stays closed by CSS alone until the host picks One day
+    // only) so the FIRST time they do, it opens on the default rather than
+    // blank, and their first Save is not bounced by criterion 3's
+    // missing-date rule.
+    var firstDay = firstDayChipValue(createDialog);
+    if (firstDay) {
+      var dayChip = createDialog.querySelector(
+        'input[name="special_date"][value="' + firstDay + '"]'
+      );
+      if (dayChip) dayChip.checked = true;
+    }
+    var bonus1 = createDialog.querySelector('input[name="special_bonus"][value="1"]');
+    if (bonus1) bonus1.checked = true;
     reflectBadge(
       createDialog.querySelector('#task-create-badge-preview'),
       createDialog.querySelector('#task-create-badge-icon'),

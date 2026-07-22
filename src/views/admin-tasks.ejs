@@ -26,6 +26,8 @@
           data-description="<%= t.description %>"
           data-worth="<%= t.worth %>"
           data-mode="<%= t.special_mode %>"
+          data-special-date="<%= t.special_date || '' %>"
+          data-special-bonus="<%= t.special_bonus || '' %>"
           data-badge-name="<%= t.badge.isDefault ? '' : t.badge.name %>"
           data-badge-art="<%= t.badge.isDefault ? '' : t.badge.art_path %>"
           data-badge-default="<%= t.badge.isDefault ? '1' : '0' %>">
@@ -59,6 +61,9 @@
         <div class="admin-chip-strip">
           <% if (!t.is_active) { %>
             <span class="admin-chip admin-chip-hidden">Hidden</span>
+          <% } %>
+          <% if (t.oneday) { %>
+            <span class="admin-chip admin-chip-oneday"><%= t.dayLabel %> only</span>
           <% } %>
           <a class="admin-task-photos" href="/admin/photos?view=task&amp;task=<%= t.id %>"><%= t.submissions %> photo<%= t.submissions === 1 ? '' : 's' %></a>
         </div>
