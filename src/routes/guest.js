@@ -322,18 +322,27 @@ router.get('/tasks', function (req, res) {
   const timezone = getEventConfig().timezone;
   const todayIso = eventDays.eventLocalDateString(timezone);
 
+  // clock (issue #762 plan step 1) — built once per request, beside
+  // todayIso, so every row in one render answers to the same instant.
+  // tasks.bonusForTask (called per row below) throws on a non-finite nowMs,
+  // so it cannot be omitted here the way it could be for a caller that never
+  // reaches the flash branch.
+  const clock = { todayIso: todayIso, nowMs: Date.now() };
+
   // For each live task, join the guest's submission (if any) so we know
   // whether it is done. taken_down submissions do NOT count as done. Named
   // `taskRows` (not `tasks`) so it never shadows the tasks.js service module
   // required at the top of this file. special_date/special_bonus (issue
-  // #754) are selected alongside the rest so this ONE query serves the
-  // one-box ceiling (suppressedChallengeIds below), the per-row locked/isToday
+  // #754) and flash_start_at/flash_minutes/flash_bonus (issue #762) are
+  // selected alongside the rest so this ONE query serves the one-box ceiling
+  // (suppressedChallengeIds below), the per-row locked/isToday/flashActive
   // mapping, AND the existing done/points columns — no second query.
   // s.created_at orders the ?view=done list (the default view no longer uses it — see below).
   const taskRows = db
     .prepare(
       `SELECT t.id, t.title, t.description, t.sort_order, t.worth,
               t.special_date, t.special_bonus,
+              t.flash_start_at, t.flash_minutes, t.flash_bonus,
               CASE WHEN s.id IS NOT NULL THEN 1 ELSE 0 END AS done,
               s.thumb_path AS thumb_path,
               s.created_at AS done_at
@@ -371,21 +380,32 @@ router.get('/tasks', function (req, res) {
   //   isToday  — tasks.isOnDay (the single owner, shared with
   //              submissions.js's bonus-banking check — issue #754 review
   //              fix, MAJOR B) AND it carries a usable (>0) bonus; a
-  //              challenge whose special_bonus is NULL/0 (submissions.js:98's
-  //              documented legacy-row shape) renders as an ORDINARY row
-  //              instead of a gold flag reading "+null pts" over a
-  //              struck-through "+NaN pts".
+  //              challenge whose special_bonus is NULL/0 (the legacy
+  //              pre-chk_special_pairing row shape documented in
+  //              submissions.js — special_date set, special_bonus still
+  //              NULL) renders as an ORDINARY row instead of a gold flag
+  //              reading "+null pts" over a struck-through "+NaN pts".
   //   unlockAt — the absolute instant (event-local midnight) this challenge's
   //              day opens, for the countdown partial's data-unlock-at.
   //   specialBonus — coerced to a number so the template's arithmetic can
   //              never read undefined/null.
-  //   onedayPriority — the render-priority flag tasks.ejs partitions the
-  //              to-do list on: `locked || isToday`, not tasks.isChallenge
-  //              (which stays true forever, special_date IS NOT NULL) — so a
-  //              challenge whose day has already passed falls through to an
-  //              ordinary row (locked=false, isToday=false) instead of
-  //              staying pinned to the top of the list all weekend
-  //              (criterion 4's "takes no priority position" clause).
+  //
+  //   This route deliberately does NOT also emit a render-priority flag
+  //   (issue #762 review fix, MINOR — a prior version carried
+  //   `specialPriority: locked || isToday || flashActive` here, a SECOND
+  //   owner of "which rows are special" alongside tasks.ejs's own
+  //   specialRank() ranking function; a future special type added to rank
+  //   alone, without also widening this flag, would land its row silently in
+  //   ordinaryTodo, un-ranked, in host sort order, with no marker position —
+  //   nothing would fail, the row would just be in the wrong place).
+  //   tasks.ejs's specialRank() is now the single owner of both "is this row
+  //   special" and "where does it sort": membership is derived FROM the
+  //   rank (below the shared ordinary floor) rather than asserted here a
+  //   second way. A challenge whose day has already passed still falls
+  //   through to an ordinary rank (locked=false, isToday=false) instead of
+  //   staying pinned to the top of the list all weekend (criterion 4's
+  //   "takes no priority position" clause) — specialRank reads exactly the
+  //   same locked/isToday/flashActive booleans this map already computes.
   //
   // isDatedChallenge (issue #754 review fix, MINOR I) guards all three
   // date-derived fields at once: special_date is a free-form TEXT column with
@@ -393,6 +413,53 @@ router.get('/tasks', function (req, res) {
   // RangeError on a value that isn't a real YYYY-MM-DD string. A malformed
   // special_date is treated as "not a dated challenge at all" — an ordinary
   // row, unlockAt null — rather than taking down /tasks for every guest.
+  //
+  // Flash fields (issue #762 plan step 1; review fix -- MAJOR duplicated
+  // ownership) — flashActive, flashEndsAt, flashBonus, flashTotalMs:
+  //   flashActive/flashBonus — read off tasks.bonusForTask(t, clock), the
+  //              declared single owner of "is anything paying, and if so
+  //              what" (src/services/tasks.js). Before this fix, flashActive
+  //              was hand-composed here as
+  //              `whatSpecial(...) === SPECIAL_FLASH && flashState(...) ===
+  //              FLASH_ACTIVE` — a second copy of the exact precedence-plus-
+  //              paying rule bonusForTask already owns, and flashBonus was
+  //              read straight off the column rather than the amount
+  //              bonusForTask says will actually bank. A future guard added
+  //              to the flash rule's `paying` (SPECIAL_RULES, tasks.js) would
+  //              move bonusForTask's answer without moving this hand-composed
+  //              copy, letting the pill advertise a bonus the submission does
+  //              not pay -- precisely the defect criterion 2 exists to
+  //              prevent, arriving through a second, un-collapsed owner.
+  //              `bonusDecision.reason === tasks.BONUS_REASON_FLASH` (rather
+  //              than just `bonusDecision !== null`) is criterion 2's
+  //              tie-break: the 'daily' rule can also be the one paying, and
+  //              only a FLASH payout should ever set flashActive.
+  //   flashWindowVal — tasks.flashWindow(t): the one owner of the window's
+  //              arithmetic (src/services/tasks.js). Computed once per row;
+  //              flashActive implies it is non-null (bonusForTask cannot pay
+  //              'flash' for a row flashWindow() answers null for -- see
+  //              flashState's own doc comment), so flashEndsAt/flashTotalMs
+  //              read it without a further null check.
+  //   flashEndsAt — the window's end instant as an ISO string, for the
+  //              countdown script's data-ends-at, only when active.
+  //   flashTotalMs — the window's total duration, for the drain fill's
+  //              denominator, only when active.
+  //
+  //   Two known seams (issue #762), worth a comment rather than a guard —
+  //   re-deriving exclusivity locally here to dodge either one would
+  //   recreate the two-owners defect criterion 2 exists to prevent:
+  //     - the 'daily' rule calls tasks.isSealed, which compares
+  //       special_date > todayIso as strings. A row whose special_date is
+  //       malformed can therefore claim 'daily' and suppress a live flash,
+  //       even though isToday/locked above are guarded by
+  //       tasks.isValidDateString (isDatedChallenge).
+  //     - isToday is gated on specialBonus > 0, while the 'daily' rule is
+  //       spoken for on isSealed || isOnDay alone. A legacy row dated today
+  //       with a NULL special_bonus and a simultaneously active flash
+  //       therefore renders NO marker at all — Today Only suppressed by the
+  //       > 0 gate, flash suppressed because 'daily' is spoken for — and
+  //       banks 0. chk_special_pairing covers rows written after #753, so
+  //       this is legacy-only.
   const tasksWithBadges = visibleTaskRows.map(function (t) {
     const badge = taskBadges.resolveTaskBadge(t.id);
     const isDatedChallenge = tasks.isValidDateString(t.special_date);
@@ -402,13 +469,20 @@ router.get('/tasks', function (req, res) {
     const unlockAt = isDatedChallenge
       ? eventDays.dayOpensAt(t.special_date, timezone).toISOString()
       : null;
+    const bonusDecision = tasks.bonusForTask(t, clock);
+    const flashActive = bonusDecision !== null && bonusDecision.reason === tasks.BONUS_REASON_FLASH;
+    const flashWindowVal = tasks.flashWindow(t);
+    const flashBonus = flashActive ? bonusDecision.amount : 0;
     return Object.assign({}, t, {
       badge: taskBadges.toTaskBadgeView(badge),
       locked: locked,
       isToday: isToday,
       unlockAt: unlockAt,
       specialBonus: specialBonus,
-      onedayPriority: locked || isToday,
+      flashActive: flashActive,
+      flashEndsAt: flashActive ? new Date(flashWindowVal.endMs).toISOString() : null,
+      flashBonus: flashBonus,
+      flashTotalMs: flashActive ? flashWindowVal.totalMs : null,
     });
   });
 

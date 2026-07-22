@@ -84,27 +84,46 @@
         <p class="muted">All done &mdash; you&rsquo;ve finished every task. The Wedding Masters are impressed.</p>
       <% } else { %>
         <%
-          // One-day-only challenges lead the to-do list — above the starter
-          // profile-photo row and every ordinary task — because they are the
-          // only rows that expire. Within them, the one live TODAY sits above
-          // the locked one. Everything else keeps its host sort order.
+          // The special rows (flash, today, locked) lead the to-do list —
+          // above the starter profile-photo row and every ordinary task —
+          // because they are the ones that expire or unlock. specialRank()
+          // is the ONE owner of both "is this row special" and "where does
+          // it sort" (issue #762 criterion 7; review fix, MINOR — a prior
+          // version answered the first question separately, via a
+          // `specialPriority` flag src/routes/guest.js emitted alongside
+          // this rank function, so a future special type added to rank
+          // alone, without also widening that flag, would land its row
+          // silently in ordinaryTodo, un-ranked, in host sort order — nothing
+          // would fail, the row would just render in the wrong place).
+          // ORDINARY_RANK is the shared floor: every row ranked below it is
+          // special and gets sorted; every row ranked AT it is ordinary and
+          // keeps host sort order untouched. A future special type (#650's
+          // lucky task) slots in by adding one more `if` here, and nothing
+          // elsewhere needs to change.
           //
           // The mystery-box one-box ceiling (owner, 2026-07-20: a guest may
           // see at most one locked card at a time, ever) is applied SERVER
           // SIDE now (src/routes/guest.js's suppressedChallengeIds) — a
           // suppressed sealed challenge never reaches this template at all,
-          // so onedayTodo below can never hold more than one locked row. A
+          // so priorityTodo below can never hold more than one locked row. A
           // second copy of that ceiling here would re-decide rows the server
           // already decided, and would diverge the moment a second special
           // type (#649/#650) shares the same suppression rule.
-          var onedayTodo = todoTasks.filter(function (t) { return t.onedayPriority; });
-          var ordinaryTodo = todoTasks.filter(function (t) { return !t.onedayPriority; });
-          onedayTodo.sort(function (a, b) {
-            return (b.isToday ? 1 : 0) - (a.isToday ? 1 : 0);
+          var ORDINARY_RANK = 3;
+          function specialRank(t) {
+            if (t.flashActive) return 0;
+            if (t.isToday) return 1;
+            if (t.locked) return 2;
+            return ORDINARY_RANK;
+          }
+          var priorityTodo = todoTasks.filter(function (t) { return specialRank(t) < ORDINARY_RANK; });
+          var ordinaryTodo = todoTasks.filter(function (t) { return specialRank(t) === ORDINARY_RANK; });
+          priorityTodo.sort(function (a, b) {
+            return specialRank(a) - specialRank(b);
           });
         %>
         <ul class="task-list">
-          <% onedayTodo.forEach(function (t) { %>
+          <% priorityTodo.forEach(function (t) { %>
             <%- include('partials/task-todo-row', { t: t }) %>
           <% }); %>
           <% if (!starterDone) { %>
@@ -132,8 +151,12 @@
 
   <p class="back-link"><a href="/">&#8592; Back to my profile</a></p>
 
-  <%# Issue #624: keeps the locked challenge's countdown ticking. Deferred and
-      self-guarding — it exits immediately when the page has no locked card. %>
+  <%# Issues #624 and #762: keeps both live clocks ticking — the locked
+      challenge's "unlocks in" countdown and a flash window's remaining time.
+      Deferred and self-guarding: it exits immediately only when the page has
+      NEITHER a locked card nor a flash flag. Narrowing that guard back to the
+      locked card alone would silently stop every flash clock and drain fill on
+      a page with no mystery box. %>
   <script src="/js/task-countdown.js" defer></script>
 
 <%- include('partials/footer') %>
