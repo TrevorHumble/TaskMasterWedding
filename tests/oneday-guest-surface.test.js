@@ -427,10 +427,13 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
 
     // Takes no priority position: it renders in host sort_order among the
     // ordinary tasks, i.e. AFTER the lower-sort_order ordinary task even
-    // though sort_order alone would put it first — because it is not
-    // flagged `onedayPriority`, it lands in ordinaryTodo, sorted after
-    // onedayTodo/starter. Concretely: it must not appear before the starter
-    // row (this guest has no avatar, so the starter row renders first).
+    // though sort_order alone would put it first — because tasks.ejs's
+    // specialRank() (issue #762 review fix -- the single owner of both
+    // membership and order, replacing the old onedayPriority/specialPriority
+    // flag) ranks it at the shared ORDINARY_RANK floor, it lands in
+    // ordinaryTodo, sorted after priorityTodo/starter. Concretely: it must
+    // not appear before the starter row (this guest has no avatar, so the
+    // starter row renders first).
     const starterIdx = res.text.indexOf('Upload your profile photo');
     expect(starterIdx).toBeGreaterThan(-1);
     expect(starterIdx).toBeLessThan(passedIdx);

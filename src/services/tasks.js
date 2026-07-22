@@ -429,6 +429,59 @@ function parseFlashInstant(value) {
 }
 
 /**
+ * The ONE owner of a flash task's window arithmetic (issue #762 plan step
+ * 2): `{startMs, endMs, totalMs}` for any row that is a well-formed flash,
+ * or `null` for any row flashState() below would call 'none' for.
+ *
+ * flashState() calls this rather than repeating the arithmetic a few lines
+ * below it — one copy of the window rule in one function, not two copies in
+ * one file. src/routes/guest.js consults it too, for the same reason: the
+ * guest's countdown targets `endMs` and the drain fill divides by `totalMs`,
+ * and hand-rolling either of those a second time in the route (against
+ * `flash_start_at` directly) would let the clock and the fill disagree the
+ * moment the window's shape changes — a grace period, different rounding —
+ * because only one of the two copies would have moved.
+ *
+ * Malformed-row handling is identical to flashState()'s own list (see that
+ * function's doc comment for the full enumeration): any of the three
+ * columns missing, `flash_minutes` not a positive integer, `flash_bonus`
+ * outside `[FLASH_MIN_BONUS, FLASH_MAX_BONUS]`, or `flash_start_at` failing
+ * parseFlashInstant()'s combined shape-and-real-date check. `taskRow` itself
+ * is NOT validated the way `nowMs` is validated elsewhere in this file —
+ * this function takes no clock, so there is no caller-supplied parameter to
+ * distrust here; the row is the only input, and every shape it can take is
+ * already enumerated above.
+ *
+ * @param {{flash_start_at?: string|null, flash_minutes?: number|null, flash_bonus?: number|null}} taskRow
+ * @returns {{startMs: number, endMs: number, totalMs: number}|null}
+ */
+function flashWindow(taskRow) {
+  if (!taskRow) {
+    return null;
+  }
+  const startAt = taskRow.flash_start_at;
+  const minutes = taskRow.flash_minutes;
+  const bonus = taskRow.flash_bonus;
+
+  if (startAt == null || minutes == null || bonus == null) {
+    return null;
+  }
+  if (!Number.isInteger(minutes) || minutes < 1) {
+    return null;
+  }
+  if (!Number.isInteger(bonus) || bonus < FLASH_MIN_BONUS || bonus > FLASH_MAX_BONUS) {
+    return null;
+  }
+  const startMs = parseFlashInstant(startAt);
+  if (startMs === null) {
+    return null;
+  }
+
+  const totalMs = minutes * 60000;
+  return { startMs: startMs, endMs: startMs + totalMs, totalMs: totalMs };
+}
+
+/**
  * The ONE owner of a flash task's window state (issue #761): whether
  * `taskRow`'s flash is scheduled, presently active, expired, or not armed at
  * all (or not well-formed), as of `nowMs`.
@@ -439,14 +492,16 @@ function parseFlashInstant(value) {
  * millisecond before the end banks, a submit at the end instant itself does
  * not (criterion 2).
  *
- * Returns 'none' — never a throw, never 'expired' inferred from a comparison
- * against NaN — for any row that is not a well-formed flash: any of the
- * three columns missing (step 1 leaves this trio with no CHECK/pairing
- * constraint, so a partially-populated row is a legal database state this
- * function must survive); flash_minutes not a positive integer (covers zero,
- * negative, and fractional); flash_bonus outside [1, 3]; or flash_start_at
- * failing parseFlashInstant()'s combined shape-and-real-date check (one call
- * now covers both — see that function's comment).
+ * The window itself — S and S+D — comes from flashWindow() above (issue
+ * #762 plan step 2) rather than being recomputed here: this function reads
+ * `taskRow` only to hand it to flashWindow(), and does no arithmetic of its
+ * own against `flash_start_at`/`flash_minutes` beyond that call. Returns
+ * 'none' — never a throw, never 'expired' inferred from a comparison against
+ * NaN — for any row flashWindow() answers null for (see that function's doc
+ * comment for the full enumeration of malformed shapes this guards
+ * against): step 1 leaves the flash trio with no CHECK/pairing constraint,
+ * so a partially-populated row is a legal database state this function must
+ * survive.
  *
  * `nowMs` IS validated, unlike `taskRow`'s fields above (issue #761 review
  * fix): it is a caller-supplied clock, not row data, and an invalid
@@ -483,32 +538,14 @@ function flashState(taskRow, nowMs) {
   if (!Number.isFinite(nowMs)) {
     throw new Error(`flashState: nowMs must be epoch milliseconds, got ${JSON.stringify(nowMs)}`);
   }
-  if (!taskRow) {
+  const flashWindowVal = flashWindow(taskRow);
+  if (flashWindowVal === null) {
     return FLASH_NONE;
   }
-  const startAt = taskRow.flash_start_at;
-  const minutes = taskRow.flash_minutes;
-  const bonus = taskRow.flash_bonus;
-
-  if (startAt == null || minutes == null || bonus == null) {
-    return FLASH_NONE;
-  }
-  if (!Number.isInteger(minutes) || minutes < 1) {
-    return FLASH_NONE;
-  }
-  if (!Number.isInteger(bonus) || bonus < FLASH_MIN_BONUS || bonus > FLASH_MAX_BONUS) {
-    return FLASH_NONE;
-  }
-  const startMs = parseFlashInstant(startAt);
-  if (startMs === null) {
-    return FLASH_NONE;
-  }
-
-  const endMs = startMs + minutes * 60000;
-  if (nowMs < startMs) {
+  if (nowMs < flashWindowVal.startMs) {
     return FLASH_SCHEDULED;
   }
-  if (nowMs < endMs) {
+  if (nowMs < flashWindowVal.endMs) {
     return FLASH_ACTIVE;
   }
   return FLASH_EXPIRED;
@@ -827,6 +864,7 @@ module.exports = {
   BONUS_REASON_ONEDAY,
   BONUS_REASON_FLASH,
   isValidFlashInstant,
+  flashWindow,
   flashState,
   whatSpecial,
   bonusForTask,

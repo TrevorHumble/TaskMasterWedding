@@ -159,6 +159,59 @@ describe('criterion 2: flashState -- one owner, four states, half-open window', 
 });
 
 // ---------------------------------------------------------------------------
+// Issue #762 plan step 2: flashWindow is the one owner of the window's
+// arithmetic, and flashState delegates to it rather than repeating the
+// startMs/endMs math a second time in the same file.
+// ---------------------------------------------------------------------------
+describe('issue #762: flashWindow -- the one owner of the window arithmetic', () => {
+  const START = '2026-08-07T18:00:00.000Z';
+  const startMs = Date.parse(START);
+  const minutes = 10;
+  const totalMs = minutes * 60000;
+  const endMs = startMs + totalMs;
+  const validRow = { flash_start_at: START, flash_minutes: minutes, flash_bonus: 2 };
+
+  it('returns {startMs, endMs, totalMs} for a well-formed flash row', () => {
+    expect(tasksSvc.flashWindow(validRow)).toEqual({ startMs, endMs, totalMs });
+  });
+
+  it('returns null for every degenerate row flashState answers "none" for', () => {
+    const cases = [
+      undefined,
+      null,
+      {},
+      { flash_start_at: START }, // partially populated
+      { flash_start_at: START, flash_minutes: minutes }, // partially populated
+      { ...validRow, flash_minutes: 0 },
+      { ...validRow, flash_minutes: -5 },
+      { ...validRow, flash_minutes: 2.5 }, // fractional
+      { ...validRow, flash_bonus: 0 },
+      { ...validRow, flash_bonus: 4 },
+      { ...validRow, flash_start_at: '2026-08-07T18:30:00-06:00' }, // valid ISO-8601, wrong shape
+      { ...validRow, flash_start_at: '2026-02-31T00:00:00.000Z' }, // pinned shape, impossible date
+    ];
+    for (const row of cases) {
+      expect(tasksSvc.flashWindow(row)).toBeNull();
+    }
+  });
+
+  it("flashState reads its scheduled/active/expired boundaries from flashWindow's own startMs/endMs -- the two can never disagree", () => {
+    const window = tasksSvc.flashWindow(validRow);
+    expect(tasksSvc.flashState(validRow, window.startMs - 1)).toBe('scheduled');
+    expect(tasksSvc.flashState(validRow, window.startMs)).toBe('active');
+    expect(tasksSvc.flashState(validRow, window.endMs - 1)).toBe('active');
+    expect(tasksSvc.flashState(validRow, window.endMs)).toBe('expired');
+  });
+
+  it("totalMs is always endMs - startMs, the guest countdown's clock and the drain fill's denominator derived from the same one call", () => {
+    const row = { flash_start_at: '2026-08-07T09:00:00.000Z', flash_minutes: 150, flash_bonus: 1 };
+    const window = tasksSvc.flashWindow(row);
+    expect(window.totalMs).toBe(window.endMs - window.startMs);
+    expect(window.totalMs).toBe(150 * 60000);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Review fix: flashState must validate its OWN clock parameter, not
 // just the row -- an invalid nowMs is a caller bug, not a legitimate
 // database shape, and must throw rather than silently misreading the window
