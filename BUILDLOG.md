@@ -264,4 +264,5 @@ The run-time Live-log ledger (per-increment `[HH:MM] elapsed=…` lines) lives i
 ## 2026-06-28
 
 Repo initialized from the as-built Garden Party Pastels app; an adversarial review and refactor are underway.
+
 - 2026-07-21 - #646 the dashboard IS the host checklist: three-cell stat grid with an in-grid `N things need you` row, one flat state-driven checklist (bugs pinned, config first, tips gated to an empty list, done greyed), daily roll-forward, unshipped features omitted via PRAGMA. Owner-approved live, frozen by hash. Push split to #768; app-wide CSRF gap found and filed as #769. PR #770, merged b11f8e2.
