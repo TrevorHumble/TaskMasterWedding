@@ -1,0 +1,26 @@
+<%# Issue #656 — the ONE place the standalone memory payoff line is worded.
+
+    Included by exactly three CTAs, all of which want a separate line rather
+    than prose: the finished-all-tasks card (src/views/tasks.ejs) and both
+    "Got more from tonight?" prompts on src/views/task.ejs (the fresh success
+    card, and the return-visit/replace prompt). They include this partial
+    instead of retyping the promise, so they cannot drift into promising
+    different things, and so the literal-promise rule (#652: never promise a
+    payoff the engine does not pay) is enforced in one file, not three.
+
+    What it promises, and why each half is literally true:
+      - "+1 point for your first memory each day": this issue's memory-day
+        bonus, one per event-local day, derived from the guest's visible
+        memories.
+      - "any photo can win a badge": the Wedding Masters hand-award the photo
+        badges (src/services/photo-badges.js) to any photo, memory or task.
+
+    Three surfaces deliberately do NOT include this partial (owner calls,
+    2026-07-21):
+      - /memories/new and /how-to-play are already paragraphs; a second
+        standalone line under them read as bolted-on, so they fold the same
+        promise into their existing sentence in their own prose.
+      - the "Share a memory" to-do row on /tasks carries its own description
+        and its own +1 price tag, which appears and disappears with the day's
+        bonus — a fixed line would contradict the tag. %>
+<p class="memory-payoff">+1 point for your first memory each day, and any photo can win a badge.</p>

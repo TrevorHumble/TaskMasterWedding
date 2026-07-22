@@ -16,12 +16,22 @@
       (incomplete) or the done list (complete) — same <li class="task-row">
       markup as a real task — and is counted into todoCount/doneCount/
       totalCount by the route (same owner) so the chip counts next to the
-      lists never disagree with what's actually inside them. %>
+      lists never disagree with what's actually inside them.
+
+      This counting contract holds for the STARTER row only. The "Share a
+      memory" row below (issue #656) is a second synthetic row with the same
+      markup shape, but it is deliberately NOT counted into todoCount/
+      doneCount/totalCount: it can never be "done" the way the starter can
+      (it resets every event-local day instead of completing once), so
+      counting it into todoCount would mean todoCount === 0 could never be
+      reached and `allDone`, below, could never fire. See the memory row's
+      own comment further down for the full reasoning. %>
 
   <% var allDone = totalCount > 0 && todoCount === 0; %>
   <% if (allDone) { %>
     <section class="tasks-memory-cta">
       <p class="tasks-memory-cta-title">You&rsquo;ve finished every task! Have more photos, more memories to share?</p>
+      <%- include('partials/memory-payoff') %>
       <a class="btn btn-block" href="/memories/new">Share a memory</a>
     </section>
   <% } %>
@@ -140,14 +150,51 @@
           <% ordinaryTodo.forEach(function (t) { %>
             <%- include('partials/task-todo-row', { t: t }) %>
           <% }); %>
+          <%# Share a memory is the LAST to-do row (owner call, 2026-07-21).
+              It is a synthetic row like the starter profile-photo row above —
+              no tasks table row backs it — but unlike the starter it never
+              leaves the list, because it resets every event-local day rather
+              than completing once.
+
+              memoryBonusAvailable (issue #656) is supplied by the route (GET
+              /tasks, src/routes/guest.js): true when the guest has NO visible
+              memory whose event-local day equals today's event-local day,
+              false otherwise.
+
+              When the +1 is available the row shows "+1 pt". When it is
+              already claimed today the price tag is OMITTED entirely — not
+              "+0", not "Complete", nothing (owner call): the row still invites
+              the next photo, it just stops advertising a point it will not
+              pay. %>
+          <li class="task-row task-todo">
+            <a class="task-link" href="/memories/new">
+              <span class="task-body">
+                <span class="task-title-text">Share a memory</span>
+                <%# Owner call, 2026-07-21: this line is written the SAME way in
+                    both states. It still reads "First memory of the day earns
+                    +1" after the guest has taken today's point, when only the
+                    price tag disappears. That is deliberate and owner-settled,
+                    not an oversight, and not the #652 over-promise class: the
+                    line describes the standing rule, and the price tag is the
+                    thing that tracks today. Do not "fix" it to a
+                    claimed-state variant without asking the owner. %>
+                <span class="task-desc">Any photo you love, task or not. First memory of the day earns +1</span>
+              </span>
+              <% if (memoryBonusAvailable) { %>
+                <span class="task-points">+1 pt</span>
+              <% } %>
+            </a>
+          </li>
         </ul>
       <% } %>
     <% } %>
   <% } %>
 
-  <% if (!allDone) { %>
-    <a class="btn btn-secondary btn-block task-share-memory" href="/memories/new">Share a memory</a>
-  <% } %>
+  <%# The standalone "Share a memory" button that used to sit here is gone
+      (owner call, 2026-07-21): it is now the last row of the to-do list
+      above, so the page has ONE place to share a memory, not two. The
+      finished-all card at the top of the page still carries its own button
+      for the case where the to-do list is empty and never renders. %>
 
   <p class="back-link"><a href="/">&#8592; Back to my profile</a></p>
 

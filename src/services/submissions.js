@@ -506,10 +506,17 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
  *   - never replaces an existing row (a guest may share any number of
  *     memories; there is no (guestId, NULL) row to collide with — SQLite's
  *     UNIQUE(guest_id, task_id) treats every NULL as distinct);
- *   - never calls scoring.recomputeAfterSubmissionChange — memories are
- *     deliberately excluded from points and system-computed badges (the
- *     "40 memory uploads shouldn't flood the leaderboard" rule),
- *     so there is nothing here for a recompute to change.
+ *   - never calls scoring.recomputeAfterSubmissionChange. Since issue #656
+ *     memories are NOT excluded from points — the first memory of an
+ *     event-local day contributes the memory-day term
+ *     (scoring.memoryDayCount) to the guest's total — but that term is
+ *     DERIVED on every read from `created_at`, never banked into a stored
+ *     column, so there is still nothing here for a recompute to WRITE. Badges are
+ *     unaffected either way: no metric/auto badge rule reads a memory row
+ *     (scoring.getCompletedCount's task_id IS NOT NULL filter excludes
+ *     memories from the completed-task count every auto badge threshold and
+ *     COMPLETIONIST read), so a recompute here would still be a no-op for
+ *     badges specifically. The absent call is a decision, not an omission.
  *
  * Each file gets the same photos.makeThumb() step submitPhoto uses. Thumbnail
  * generation is async (sharp) and must complete before the row insert, so it
