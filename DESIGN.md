@@ -1230,3 +1230,38 @@ badges are _granted_ — `recomputeBadges` iterates that array, not the catalog.
 from the catalog would make `src/services/scoring.js` depend on `scripts/`, inverting today's layering, and
 touches guest-critical granting rather than celebration ordering; it is separate work, recorded as a
 deferred finding on parking issue #588.
+
+## Community guard completeness: stack-derived, not hand-maintained (#574)
+
+**Date:** 2026-07-22. **Status:** accepted.
+
+`src/routes/community.js`'s `requireGuest` gate is path-scoped (`router.use(['/gallery', '/feed',
+'/leaderboard', '/p', '/badge', '/u', '/slideshow'], requireGuest)`, issue #466) rather than filterless,
+because the community router is mounted at `/` and is the last router before the 404 handler — a
+filterless `router.use(requireGuest)` there would swallow every unknown path, itself a regression (a
+404 would become a redirect). Path-scoping is therefore required, not a shortcut; the gap it leaves is
+that the guard list and the router's actual route registrations are two hand-maintained copies of one
+fact, with nothing keeping them in sync when a route is added.
+
+`tests/community-guard-coverage.test.js` closes that gap by deriving the check from the router's own
+`stack` at test time — walking every registered `layer.route` rather than restating the seven prefixes
+as a second (or, if the test itself hand-listed paths, third) copy. The suite's actual guarantee is that
+every REGISTERED route is gated for an anonymous request, however it is gated (the shared prefix list, or
+a route's own inline `requireGuest` — several POST routes already use the latter) — not merely that the
+prefix list happens to be complete, which a route gated by other means would satisfy trivially while a
+route gated by neither would not. The suite also asserts (AC5) that the router's stack carries exactly one
+non-route layer — the `requireGuest` guard itself — so a future `router.use('/hall-of-fame', subRouter)`,
+whose nested routes a stack walk at this level never descends into, fails the check instead of silently
+passing under AC2's route-count floor.
+
+The suite's AC4 case proves the check catches the issue's own failure scenario without re-typing the real
+guard list — doing so would recreate, inside the test that exists to close it, the exact two-copies drift
+this issue is about. AC4's throwaway router (never mutating the real one) is instead gated by a single
+arbitrary prefix that is not any of community.js's seven, carrying one route registered under a different,
+unlisted prefix. The route is discovered by running the SAME `walkRoutes()` the real suite uses against
+this throwaway router, not hand-passed as a literal method/path — so a future narrowing of `walkRoutes()`
+that silently stopped discovering a class of route would fail AC4's `.find()` first, rather than the
+whole suite quietly losing coverage while AC1 and AC2 kept passing on what little `walkRoutes()` still
+found. The derived check is then asserted to fail specifically on the assertion it makes (received status
+200 where 302 was expected), not merely to reject for any reason — proving the check fires, not just that
+something throws.
