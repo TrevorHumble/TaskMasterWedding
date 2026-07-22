@@ -2,19 +2,22 @@
 // Issue #255: the task-complete success card + badge-earned MODAL. Covers:
 //   AC1 — a completion that earns NO new badge: the inline card contains
 //         "Task complete!", "+1 point", and the guest's fresh total ("5
-//         points" for a guest at 4 points completing one task), AND the page
-//         contains no `badge-dialog` element
+//         points" for a guest at 4 points completing one task), AND no
+//         celebration fires (no /js/badge-moment.js, no populated title) —
+//         the shared `#badge-dialog` shell itself now renders on every
+//         signed-in guest page regardless (issue #644), so its bare presence
+//         is no longer the right signal; see the AC1 test's own comment.
 //   AC2 — crossing a badge threshold (BLOOM at 5 completions) renders a
 //         `<dialog class="badge-dialog">` whose text includes the badge name
 //         "First Bloom", the title "First Bloom!", and the catalog
 //         description "Completed 5 tasks.", with NO points language inside
 //         that dialog; the inline card still shows "+1 point". A following
-//         non-threshold completion shows neither the name nor the dialog.
+//         non-threshold completion shows neither the name nor an auto-open.
 //   AC3 — submissions.submitPhoto's return value carries the newly-earned
 //         badge id(s) on the crossing call, then an empty list on the next
 //         (unit-level, direct calls, no HTTP)
 //   AC4 — a replace (status 'replaced'/'replaced_hidden') keeps the existing
-//         plain flash — neither the inline success card nor the badge dialog
+//         plain flash — no inline success card and no celebration
 //   AC5 — the badge-pop/sway/ring/spark bloom keyframes are gated under
 //         prefers-reduced-motion: no-preference (structural, CSS source check)
 //   AC6 — the modal is a native <dialog> opened via showModal() (structural:
@@ -152,8 +155,21 @@ it('AC1: a completion earning NO new badge shows "Task complete!" / "+1 point" /
   // stray "5" elsewhere on the page — an inversion-sensitive check: a
   // stale/wrong total (e.g. still "4 points") would fail this.
   expect(page.text).toContain('5 points');
-  // AC1's other half: no badge modal at all for a no-badge completion.
-  expect(page.text).not.toContain('badge-dialog');
+  // AC1's other half: no badge CELEBRATION for a no-badge completion. The
+  // shared #badge-dialog shell itself now renders on every signed-in guest
+  // page regardless (issue #644 review: it must exist even with nothing
+  // owed, so a later recap badge row can replay into it without navigating)
+  // — the real signal of "did a celebration fire" is the auto-open script
+  // and a populated title, both absent here.
+  expect(page.text).not.toContain('/js/badge-moment.js');
+  const dialog = extractBadgeDialog(page.text);
+  // Unconditional (issue #644 review, PR finding): an `if (dialog !== null)`
+  // guard here could never fail if resolveBadgeMoment regressed to omitting
+  // the shell entirely — the assertion would simply be skipped, silently
+  // passing. The shell renders on every signed-in guest page regardless of
+  // whether a celebration is owed, so dialog is always non-null here.
+  expect(dialog).not.toBeNull();
+  expect(dialog).toContain('<h2 class="badge-title"></h2>');
 });
 
 // ---------------------------------------------------------------------------
@@ -186,10 +202,19 @@ it('AC2: crossing the BLOOM threshold renders a badge-dialog with the name + hea
   expect(dialog).not.toContain('+1 point');
   expect(dialog).not.toContain('points');
 
-  // A SIXTH completion crosses no new threshold (BOUQUET is at 10) — neither
-  // the badge name nor a badge-dialog element must appear. Inversion check:
-  // if the before/after diff were dropped in favor of "list every badge the
-  // guest holds," BLOOM would wrongly still show up here too.
+  // A SIXTH completion crosses no new threshold (BOUQUET is at 10) — the
+  // celebration must not auto-open again. Issue #644 gives First Bloom a
+  // PERMANENT row in the "what you missed" recap panel from here on (so it
+  // can be replayed on demand at any later time — that issue's AC1), so the
+  // bare string "First Bloom" legitimately appears on every later page now;
+  // asserting its total absence would be testing a behavior #644
+  // deliberately changed. What must still be absent is the AUTO-OPEN
+  // signal: the badge-moment.js include, and a populated (non-empty)
+  // dialog title — the shared #badge-dialog itself may exist (to serve that
+  // permanent recap row's on-demand replay), but empty/unpopulated.
+  // Inversion check: if the before/after diff were dropped in favor of
+  // "list every badge the guest holds," the dialog would wrongly auto-open
+  // (badge-moment.js present) here too.
   const sixthTaskId = insertTask('AC2 sixth task');
   const sixthRes = await agent
     .post(`/tasks/${sixthTaskId}/submit`)
@@ -197,8 +222,13 @@ it('AC2: crossing the BLOOM threshold renders a badge-dialog with the name + hea
   expect([302, 303]).toContain(sixthRes.status);
 
   const sixthPage = await agent.get(sixthRes.headers.location);
-  expect(sixthPage.text).not.toContain('First Bloom');
-  expect(sixthPage.text).not.toContain('badge-dialog');
+  expect(sixthPage.text).not.toContain('/js/badge-moment.js');
+  const sixthDialog = extractBadgeDialog(sixthPage.text);
+  // Unconditional, same reasoning as AC1's dialog check above (issue #644
+  // review, PR finding): the shell always renders on a signed-in guest page,
+  // so this guard could never fail even if extraction silently broke.
+  expect(sixthDialog).not.toBeNull();
+  expect(sixthDialog).not.toContain('First Bloom!');
 });
 
 // ---------------------------------------------------------------------------
@@ -264,7 +294,9 @@ it('AC4: a replace (not a new completion) keeps the plain "Photo replaced!" flas
 
   const page = await agent.get(replaceRes.headers.location);
   expect(page.text).not.toContain('Task complete!');
-  expect(page.text).not.toContain('badge-dialog');
+  // No CELEBRATION fires for a replace — see AC1's identical note above for
+  // why this checks the auto-open script rather than the dialog shell.
+  expect(page.text).not.toContain('/js/badge-moment.js');
   expect(page.text).toContain('Photo replaced!');
 });
 
@@ -292,7 +324,9 @@ it('AC4b: replaced_hidden (resubmit onto a taken-down row) keeps its plain flash
 
   const page = await agent.get(resubmitRes.headers.location);
   expect(page.text).not.toContain('Task complete!');
-  expect(page.text).not.toContain('badge-dialog');
+  // No CELEBRATION fires for a replace — see AC1's identical note above for
+  // why this checks the auto-open script rather than the dialog shell.
+  expect(page.text).not.toContain('/js/badge-moment.js');
   expect(page.text).toContain('Photo received — it will appear once the hosts approve it.');
 });
 
@@ -330,10 +364,16 @@ it.each(['badge-pop', 'badge-sway', 'badge-ring', 'spark'])(
 
 // ---------------------------------------------------------------------------
 // AC6 (structural: the modal is a native <dialog> opened via showModal())
+//
+// Issue #644 plan step 4 moved the shared #255 celebration dialog's markup
+// out of src/views/task.ejs and into src/views/partials/header.ejs — every
+// guest page needs it now, not just the task page (AC1: "the response
+// contains the celebration dialog" for ANY guest page). This assertion moved
+// with it, per that issue's own note that this exact test would need to.
 // ---------------------------------------------------------------------------
-it('AC6: task.ejs renders a <dialog class="badge-dialog"> and badge-moment.js calls showModal()', () => {
+it('AC6: header.ejs renders a <dialog class="badge-dialog"> and badge-moment.js calls showModal()', () => {
   const viewSource = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'views', 'task.ejs'),
+    path.join(__dirname, '..', 'src', 'views', 'partials', 'header.ejs'),
     'utf8'
   );
   expect(viewSource).toMatch(/<dialog\s+class="badge-dialog"/);

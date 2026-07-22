@@ -46,9 +46,15 @@ takedown, explained on a receipt.
 
 **Rule:** one column pair on `submissions` — banked bonus amount + banked bonus reason —
 with three writers and one reader. The scoring term (rule 1) sums the amount over visible
-submissions exactly like `photo_bonus`; the success screen (#611) and bell (#644) render
-the reason. Three separate columns or three separate scoring terms is the defect. The
-first of #624/#649/#650 to land owns the migration; the other two consume it.
+submissions exactly like `photo_bonus`; the success screen (#611) renders the reason.
+Three separate columns or three separate scoring terms is the defect. The first of
+#624/#649/#650 to land owns the migration; the other two consume it.
+
+Amended by #644: the recap does NOT also render this reason. The owner decided
+(2026-07-21) that a recap row explaining a bonus the guest already saw explained on the
+success screen is a duplicate receipt, not a second surface — #644's scope is badge
+grant/revoke, likes, and comments only. The success screen (#611) remains the sole reader
+of `bonus_reason`.
 
 ## 4. One recompute seam, with a trigger checklist
 
@@ -67,9 +73,18 @@ checklist: submission create/replace, takedown/restore, like toggle, task
 add/toggle/delete (#701). Known additions owed: guest delete (N8), block/unblock (#683).
 A route that mutates a scoring input and is not on this list is a defect.
 
-**Rule C — the bell listens at the same door.** When #644 lands, reward/loss events are
-emitted from these seams (row-bearing badges) and from the like-toggle derived diff
-(crowd favorite) — never from per-surface display code.
+**Rule C — the recap listens at the same door, for row-bearing badges.** #644 emits
+badge grant/revoke events from the recompute door's own inner statements
+(`recomputeBadges`/`recomputeTransferableBadges`) for recompute-driven badges — never
+from per-surface display code. Two emitters are deliberately NOT on this door, and this
+is not a violation of Rule B (which governs SCORING recompute triggers, not the recap's
+event log): #644's own host-award seams (`awardSpecialBadge`/`removeSpecialBadge`) fire
+from the admin action itself, since a host award is not a recomputed fact to begin with;
+and #783's moderation events (photo takedown/restore, comment hide/restore) fire from the
+host **routes** that perform the moderation, not from `photos.hideSubmission`'s recompute
+seam, for the identical reason — the actor being recorded is the host's action, not a
+derived recompute. Crowd-favorite reward/loss events (from the like-toggle derived diff)
+remain owned by #625.
 
 ## 5. One badge medallion
 

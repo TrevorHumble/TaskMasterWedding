@@ -3,6 +3,10 @@
 
 const { db } = require('../db');
 const config = require('../../config');
+// The recap's cheap unread-count read (issue #644 plan step 6) — never the
+// full row union (src/services/notifications.js's getRecap), which the
+// strip/profile row do not need just to decide whether to show a count.
+const notifications = require('../services/notifications');
 
 /**
  * The single owner of the signed-cookie attribute shape shared by the guest
@@ -153,6 +157,33 @@ function attachGuest(req, res, next) {
   // — one place computes "what page is this", partials/header.ejs is the
   // only place that reads it.
   res.locals.currentPath = req.path;
+
+  // The recap's unread count (issue #644 plan step 6) — one res.locals value
+  // set here alongside currentPath, read directly by header.ejs (the strip)
+  // and guest-home.ejs (the profile row's count chip) without every guest
+  // route having to pass it explicitly. Read-only (no stamp, no write) AND
+  // genuinely cheap (notifications.getUnreadCount is three indexed COUNT(*)
+  // queries, not a row union), so — unlike the recap PAGE below — it is safe
+  // to compute on every request, including a POST that redirects without
+  // ever rendering a page.
+  //
+  // recapRows/recapHasMore do NOT live here (issue #644 review — an earlier
+  // version of this file called notifications.getRecap() right alongside
+  // getUnreadCount, on the mistaken belief that getRecap's own PAGE_SIZE cap
+  // already made it cheap; it did not, since getRecap still ran a full
+  // three-source merge-and-sort internally before slicing, unconditionally,
+  // on every single request in the app whether or not that request ever
+  // rendered the recap panel). Assembling the first page is now
+  // src/services/render-locals.js's withBadgeMoment() job instead — the
+  // render-time-only helper every guest res.render() already passes through
+  // for the unrelated badgeMoment stamp — so it only ever runs for a request
+  // that is actually about to render a guest page. See that module's own
+  // comment for the full reasoning.
+  if (guest) {
+    res.locals.recapUnreadCount = notifications.getUnreadCount(guest.id);
+  } else {
+    res.locals.recapUnreadCount = 0;
+  }
 
   next();
 }

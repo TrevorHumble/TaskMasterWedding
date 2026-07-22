@@ -30,6 +30,25 @@
     <p class="progress-caption"><%= completedTasks %> of <%= totalTasks %> task<%= totalTasks === 1 ? '' : 's' %> complete</p>
   </section>
 
+  <%# Permanent home for the recap (issue #644): always present, so a
+      dismissed strip is never a dead end. Opening from here fires the same
+      POST /recap/seen as the strip — src/public/js/recap.js listens for a
+      click on EITHER #recap-open or #recap-open-profile. %>
+  <section class="notifications-section">
+    <button type="button" class="notifications-entry" id="recap-open-profile">
+      <span class="notifications-entry-glyph" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="M12 3a5.5 5.5 0 0 0-5.5 5.5c0 3.2-.7 5-1.6 6.1a.8.8 0 0 0 .6 1.3h13a.8.8 0 0 0 .6-1.3c-.9-1.1-1.6-2.9-1.6-6.1A5.5 5.5 0 0 0 12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 18.4a2.1 2.1 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </span>
+      <span class="notifications-entry-label">Notifications</span>
+      <% if (typeof recapUnreadCount !== 'undefined' && recapUnreadCount > 0) { %>
+        <span class="notifications-entry-count"><%= recapUnreadCount %></span>
+      <% } %>
+      <span class="notifications-entry-chevron" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+    </button>
+  </section>
+
   <section class="badges-section">
     <h2 class="section-title">My Badges</h2>
     <% if (badges.length === 0) { %>

@@ -1163,6 +1163,106 @@ arithmetic a second time in the route would let the clock and the fill disagree 
 shape changes. The "no SQL-fragment counterpart" claim in the #761 point (2) still holds for both
 functions — neither ships one, for the same reason stated there.
 
+## Recap: derived events vs. written events, and the badge-moment stamp (#644)
+
+**Date:** 2026-07-22. **Status:** shipped.
+
+**Two event shapes, on purpose, not by drift.** #644's recap unions three sources, and only one of
+them is a stored table (`notification_events`). Badge grants/revokes are WRITTEN — `guest_badges`'
+own row is either overwritten by a later grant or deleted outright on revoke, so nothing else can
+reconstruct "this guest held Completionist, then lost it" after the fact (AC4). Likes and comments are
+DERIVED, live, from the `likes`/`comments` tables themselves at read time — following the same
+"derive over store" rule the rest of the scoring economy already commits to
+(`docs/economy-architecture-2026-07-20.md` Rule 4A), rather than doubling every like/comment into a
+second table that could drift from the first. A stored badge event and a derived like/comment event
+therefore behave differently in one load-bearing way: the stored badge row is PERMANENT (it stays in
+the recap forever, tinted read/white by comparison to the guest's checkpoint, so a badge row can still
+replay its celebration on demand long after it first showed — AC1's "without depending on the badge
+still being owed"), while a derived like-batch row is EPHEMERAL — it exists in the list, and its
+displayed count reflects, only likes strictly newer than the checkpoint (AC3: "a photo with 5 older
+likes and 3 new ones still reads 3", never a lifetime total). Comments sit with the permanent group
+(one row per comment, tinted like a badge row) since each comment already carries its own natural
+per-event identity the way a like batch does not.
+
+**`kind` is two vocabularies, deliberately not one.** `notification_events.kind` is the STORED fact
+(`badge_granted`, `badge_revoked`, `badge_removed` — the last split from `badge_revoked` in PR review,
+see below — and four more #783/#778 will emit: `photo_takedown`, `photo_restore`, `comment_hidden`,
+`comment_restored`). `src/services/notifications.js`'s `KIND_VIEW` map is the separate VIEW treatment
+(`badge`, `loss`, `photo`, plus `announce`/`gold` from #778/#647) the frozen phase-1 markup renders as
+`.recap-row-<view>`. Four stored kinds collapse onto the single view treatment `loss`
+(`badge_revoked`/`badge_removed`/`photo_takedown`/`comment_hidden`) — that collision is exactly why the
+two can never be the same field. #644 owns the complete map (all seven stored kinds), even though it
+emits only three of them; #783 wires the emitters for the other four against a map that already has
+their row waiting.
+
+**`badge_revoked` split into `badge_revoked` (system) and `badge_removed` (host) — found in PR
+review.** `scoring.js`'s `removeSpecialBadge` (a host un-awarding a mistakenly-given special/custom
+badge) originally emitted the same `badge_revoked` kind as the threshold-recompute revoke paths
+(`recomputeBadges`/`recomputeTransferableBadges`). `badge_revoked`'s copy asserts a specific reason
+("the hosts added a task") and links to `/tasks` — both true for a recompute revoke, both false for a
+direct host removal, which has no task-set change behind it and nowhere useful to send the guest.
+Rather than make the shared copy vague enough to cover both reasons, `removeSpecialBadge` now emits its
+own `badge_removed` kind, dead (no link), with copy that names only what actually happened: the badge
+was removed by the hosts.
+
+**The badge-moment stamp moved off the reward cookie, onto `celebrated_at`.** Before #644, the task
+page's badge-earned modal was driven entirely by the one-shot `taskComplete` cookie's `newBadgeIds` —
+a badge only ever celebrated if the SAME request that granted it also happened to render the task page
+(the #563 defect this issue absorbs: a badge granted while the guest was on any other page, or awarded
+by a host, was never shown). #644 replaces that with `guest_badges.celebrated_at`: every real grant
+path (`recomputeBadges`, `recomputeTransferableBadges`, `awardSpecialBadge`) leaves it `NULL` by simply
+never naming it in the `INSERT`, so a fresh grant is "owed" by construction, on ANY guest page, not
+just the one that happened to trigger it. `src/services/render-locals.js`'s `resolveBadgeMoment()` — the
+ONE place that reads and stamps this column — is called from a single shared helper, `withBadgeMoment()`,
+which every `res.render()` in both `src/routes/guest.js` and `src/routes/community.js` passes through
+(not a per-route decision list a future route could forget to join). It deliberately does NOT run in
+`attachGuest` middleware: that middleware runs on every request including a POST that redirects without
+ever rendering a page, and stamping there would consume a celebration the guest never actually saw —
+reproducing #563 through a different door.
+
+**"Owed" requires a matching recap event, not just a `NULL` timestamp — found in review.** The first
+implementation gated `resolveBadgeMoment` on `celebrated_at IS NULL` alone. Several pre-existing tests
+(e.g. `tests/badge-display.test.js`) grant a `guest_badges` row by direct `INSERT`, bypassing
+`scoring.js` entirely, to set up a fixture — under the naive rule, that row is also `NULL` and therefore
+"owed," so the very next `GET /` unexpectedly auto-opened a celebration modal for a badge no real grant
+path had ever announced, breaking assertions written years before this issue existed. The fix adds an
+`EXISTS` join against `notification_events` (`kind = 'badge_granted'`) to `resolveBadgeMoment`'s owed
+query: a badge is only "owed" if one of #644's own emitters actually wrote a row for it. Every real
+grant path always does (the emit call sits right beside the grant statement — plan step 2/3); a
+test-fixture `INSERT` that skips `scoring.js` does not, and now correctly never triggers a celebration
+it never earned through this app's own doors. This also keeps two questions — "does this badge
+auto-open" and "does this badge appear in the recap, replayable" — answering from the same underlying
+fact, since the recap list is itself built only from `notification_events` rows.
+
+**Known gap: the `day`/`flash`/`task` announcement glyphs are not in the tree — found in PR review.**
+#644's own implementation plan (step 8) said to KEEP three `.recap-icon-<kind>`-style glyph branches
+for #778's future announcement rows (`day`, `flash`, `task`) even though nothing in #644's own scope
+emits them yet, the same way `gold` (#647) and `announce` (#778) were kept and wired into
+`src/services/notifications.js`'s `KIND_GLYPH` map. That phase-1 art was never actually committed to
+this branch, so there is nothing to restore — `git log --all -S` over both `KIND_GLYPH` and
+`theme.css`'s `.recap-icon-*` rules turns up no prior commit defining them. Inventing new SVG glyphs
+here, unreviewed, would ship un-approved art under a "restored" label. #778's own implementation plan
+already accounts for exactly this possibility: its plan step 4 says to verify these branches survived
+and, "if they were dropped, restoring them is this issue's work, not a new issue." Left undone here on
+purpose; #778 owns closing this gap when it lands the emitters that need the art.
+
+**Known limitation: a like landing in the same whole second as a `markSeen` checkpoint is lost —
+found in PR review.** `notifications.js`'s unread-count and row-existence checks
+(`stmtUnreadLikeSubmissionCount`, `stmtLikeBatches`) both compare a like's `created_at` to the guest's
+checkpoint with a strict `>` (the shared `LIKE_EXISTENCE_WHERE` predicate), matching every other timestamp comparison
+in this module. SQLite's `datetime('now')` has only whole-SECOND resolution (the same fact this
+module's cursor-tie comment already documents for `notification_events`), so a like written in the
+identical wall-clock second as a `POST /recap/seen` call reads as "not newer" and is excluded — and
+because a like row is DERIVED (this module's read-time union, not a stored event), that exclusion is
+permanent: the like never reappears in a later panel open or count the way a stored badge row would.
+The window is a single second wide and requires the guest's own like-notify and their own
+recap-checkpoint-advance to land in it, so it is rare in practice for a three-day wedding. Closing it
+cleanly would mean moving every timestamp this module compares (checkpoints, `notification_events`,
+`likes`, `comments`) to sub-second resolution — a schema and comparison change reaching well past this
+module into every other `datetime('now')` comparison in the app-wide "read fresh" pattern — which is
+out of proportion to the size of the gap it closes. Recorded as an accepted, narrow limitation rather
+than fixed.
+
 ## Admin Photos, task-scoped: taken-down included, feed narrowed, H1 reads the scope (#748)
 
 **Date:** 2026-07-22. **Status:** accepted, no visual-approval loop needed (no new pixel — see the
@@ -1230,6 +1330,17 @@ badges are _granted_ — `recomputeBadges` iterates that array, not the catalog.
 from the catalog would make `src/services/scoring.js` depend on `scripts/`, inverting today's layering, and
 touches guest-critical granting rather than celebration ordering; it is separate work, recorded as a
 deferred finding on parking issue #588.
+
+**Amended at merge with #644 (2026-07-22): the call site named above moved.** This section's claim that
+`GET /tasks/:id` calls `primaryNewBadge` "instead of carrying its own loop" describes what #714 shipped
+onto pre-#644 `main`; #644's badge-moment stamp (previous section) replaced that whole per-route
+resolution with `src/services/render-locals.js`'s `resolveBadgeMoment()`, which calls
+`scoring.primaryNewBadge(guestId, owedBadgeCodes)` from the ONE shared `withBadgeMoment()` seam instead —
+`GET /tasks/:id` no longer resolves a badge moment itself at all. `compareBadgeMoment`/`primaryNewBadge`
+themselves are unchanged by this move; only their caller is. `BADGE_MOMENT_PRIORITY`, the hard-coded list
+this section's opening paragraph describes retiring from `guest.js`, had a second, independent copy in
+`render-locals.js` (added while #644 and #714 were building in parallel, on separate branches, each
+unaware of the other's retirement) — that copy is deleted by the same merge for the identical reason.
 
 ## Community guard completeness: stack-derived, not hand-maintained (#574)
 
