@@ -1,23 +1,27 @@
 // tests/admin-dashboard.test.js
-// Covers issue #256 acceptance criteria — the admin dashboard's six-stat
-// grid, activity pulse line, and menu-list action rows (phase-2 wiring of
-// the owner-approved phase-1 view onto real data):
-//   AC1 — 2 unresolved bug reports render a stat cell showing "2", labeled
-//         "Open bug reports", wrapped in an anchor to /admin/bugs; the grid
-//         holds exactly six stat anchors (no empty cell).
-//   AC2 — 0 unresolved bug reports render "0" without the danger color class.
+// Covers the parts of GET /admin that issue #646 did NOT move into
+// tests/admin-checklist.test.js — the three-cell stat grid, the pulse line,
+// and the four setup links (the approved screen, owner-settled 2026-07-21).
+// Behavioral coverage of the checklist itself (rows, nudge, manual toggle,
+// tips gate, feature-detection) lives entirely in admin-checklist.test.js;
+// this file no longer asserts the pre-#646 six-stat grid or seven-row
+// menu-list, both of which the visual-approval freeze replaced.
+//   AC1 — 2 unresolved bug reports show "2" in the "Open bugs" stat cell,
+//         wrapped in an anchor to /admin/bugs; the grid holds exactly three
+//         <a class="stat"> anchors (guests, live tasks, open bugs).
+//   AC2 — 0 unresolved bug reports show "0" without the danger color class.
 //   AC3 — the newest visible submission's guest name appears on the pulse
-//         line ("Last photo ... <name>").
-//   AC4 — the action rows render as a single <ul class="menu-list"> of
-//         exactly seven <li class="menu-row"> rows (the six plain-link rows,
-//         including issue #681's Configuration row, plus issue #468's
-//         "Play slideshow" dialog-opening button, added by that issue's
-//         owner-approved AC6), labels in the specified order, each with a
-//         .menu-icon; none of the six <a class="menu-link"> rows carries a
-//         bespoke primary/emphasis modifier class (the seventh row is a
-//         <button>, not an <a>, and is intentionally exempt from that
-//         assertion — see #468).
-// Plus a unit test for src/services/relative-time.js's relativeTime().
+//         line ("Last photo ... <name>"); no visible submissions render the
+//         approved empty-state copy.
+//   AC4 — the four setup links render as a single <ul class="menu-list"> of
+//         exactly four <li class="menu-row"> rows (Configuration, Invite
+//         guests, Download the keepsake export, Play slideshow), labels in
+//         order, each with a .menu-icon; none of the three <a
+//         class="menu-link"> rows carries a bespoke primary/emphasis
+//         modifier class (the fourth row is a <button>, intentionally exempt
+//         from that assertion).
+// Plus a unit test for src/services/relative-time.js's relativeTime()
+// (unaffected by #646 — kept in full).
 //
 // REQUIRE ORDER: config / db / app are required only via loadApp() — see
 // tests/helpers/testApp.js "REQUIRE ORDER MATTERS".
@@ -44,6 +48,7 @@ function resetTables() {
   db.prepare('DELETE FROM submissions').run();
   db.prepare('DELETE FROM guests').run();
   db.prepare('DELETE FROM tasks').run();
+  db.prepare('DELETE FROM settings').run();
 }
 
 function insertGuest(token, name) {
@@ -72,8 +77,8 @@ function insertSubmission(guestId, taskId, takenDown, createdAt) {
   ).run(guestId, taskId, 'p.jpg', 't.jpg', takenDown ? 1 : 0, createdAt);
 }
 
-describe('AC1: open bug reports render as the sixth stat cell', () => {
-  test('2 unresolved bug reports show "2" in an anchor to /admin/bugs; six stat anchors total', async () => {
+describe('AC1: open bug reports render in the three-cell stat grid', () => {
+  test('2 unresolved bug reports show "2" in an anchor to /admin/bugs; three stat anchors total', async () => {
     resetTables();
     const guestId = insertGuest('ac1-token', 'Reporter One');
     insertBugReport(guestId, false);
@@ -85,10 +90,10 @@ describe('AC1: open bug reports render as the sixth stat cell', () => {
     expect(res.status).toBe(200);
 
     const statAnchors = res.text.match(/<a class="stat"/g) || [];
-    expect(statAnchors.length).toBe(6);
+    expect(statAnchors.length).toBe(3);
 
     const bugCellMatch = res.text.match(
-      /<a class="stat" href="\/admin\/bugs">\s*<span class="stat-num[^"]*">(\d+)<\/span>\s*<span class="stat-label">Open bug reports<\/span>/
+      /<a class="stat" href="\/admin\/bugs">\s*<span class="stat-num[^"]*">(\d+)<\/span>\s*<span class="stat-label">Open bugs<\/span>/
     );
     expect(bugCellMatch).not.toBeNull();
     expect(bugCellMatch[1]).toBe('2');
@@ -103,7 +108,7 @@ describe('AC2: zero open bug reports render without the danger color class', () 
     expect(res.status).toBe(200);
 
     const bugCellMatch = res.text.match(
-      /<a class="stat" href="\/admin\/bugs">\s*<span class="([^"]*)">0<\/span>\s*<span class="stat-label">Open bug reports<\/span>/
+      /<a class="stat" href="\/admin\/bugs">\s*<span class="([^"]*)">0<\/span>\s*<span class="stat-label">Open bugs<\/span>/
     );
     expect(bugCellMatch).not.toBeNull();
     expect(bugCellMatch[1]).toBe('stat-num');
@@ -130,26 +135,30 @@ describe("AC3: the pulse line names the newest visible submission's guest", () =
     expect(res.text).toMatch(/Last photo[\s\S]*?Ellie Patel/);
   });
 
-  test('no visible submissions render the empty-state pulse copy', async () => {
+  test('no visible submissions render the approved empty-state pulse copy', async () => {
     resetTables();
 
     const res = await adminAgent.get('/admin');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('No photos yet — the QR cards are ready when you are.');
+    expect(res.text).toContain('No photos yet. The place-cards are ready when you are.');
   });
 });
 
-describe('AC4: action rows render as a single cohesive menu-list', () => {
-  test('exactly seven menu-row rows, exact label order, each with a menu-icon, no modifier class on the <a> rows', async () => {
+describe('AC4: the setup links render as a single cohesive menu-list', () => {
+  test('exactly four menu-row rows, exact label order, each with a menu-icon, no modifier class on the <a> rows', async () => {
     resetTables();
 
     const res = await adminAgent.get('/admin');
     expect(res.status).toBe(200);
 
-    const rowMatches = res.text.match(/<li class="menu-row">/g) || [];
-    expect(rowMatches.length).toBe(7);
+    const setupIdx = res.text.indexOf('<h2 class="section-heading">Setup</h2>');
+    expect(setupIdx).toBeGreaterThan(-1);
+    const setupBlock = res.text.slice(setupIdx);
 
-    const listMatch = res.text.match(/<ul class="menu-list">([\s\S]*?)<\/ul>/);
+    const rowMatches = setupBlock.match(/<li class="menu-row">/g) || [];
+    expect(rowMatches.length).toBe(4);
+
+    const listMatch = setupBlock.match(/<ul class="menu-list">([\s\S]*?)<\/ul>/);
     expect(listMatch).not.toBeNull();
     const listHtml = listMatch[1];
 
@@ -161,24 +170,21 @@ describe('AC4: action rows render as a single cohesive menu-list', () => {
       (m) => m[1]
     );
     expect(labels).toEqual([
-      'Photos &amp; takedowns',
-      'Manage tasks',
-      'Manage guests',
-      'Print QR place-cards',
-      'Configuration &mdash; timezone &amp; dates',
-      'Download export (ZIP + spreadsheet)',
+      'Configuration: timezone &amp; dates',
+      'Invite guests',
+      'Download the keepsake export',
       'Play slideshow',
     ]);
 
     // Every row has a menu-icon (including the "Play slideshow" button row).
     const iconCount = (listHtml.match(/class="menu-icon"/g) || []).length;
-    expect(iconCount).toBe(7);
+    expect(iconCount).toBe(4);
 
     // No bespoke primary/emphasis modifier class on any row's link — every
     // .menu-link in this list carries exactly the base class, nothing else
     // (unlike guest-home.ejs's menu-link-muted / menu-link-button variants).
     const linkClassLists = [...listHtml.matchAll(/<a class="([^"]*)"/g)].map((m) => m[1]);
-    expect(linkClassLists.length).toBe(6);
+    expect(linkClassLists.length).toBe(3);
     linkClassLists.forEach((classList) => {
       expect(classList).toBe('menu-link');
     });

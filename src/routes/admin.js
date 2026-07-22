@@ -1,7 +1,8 @@
 // src/routes/admin.js
 // Admin router. Every route here is behind requireAdmin (applied below).
 // Routes:
-//   GET  /admin                          dashboard
+//   GET  /admin                          dashboard (issue #646: live checklist)
+//   POST /admin/checklist/:id/toggle     toggle a manual checklist item (issue #646)
 //   GET  /admin/guests                   guests table
 //   POST /admin/guests/:id/edit          rename a guest / set gallery pin
 //   POST /admin/guests/:id/delete        delete a guest (cascades submissions/badges; deletes photo files)
@@ -76,6 +77,7 @@ const {
   eventDays: computeEventDays,
   singleDayLabel,
 } = require('../services/event-days');
+const hostChecklist = require('../services/host-checklist');
 
 const router = express.Router();
 
@@ -209,20 +211,13 @@ router.get('/qrsheet', renderNotFound);
 // GET /admin  — dashboard
 // ---------------------------------------------------------------------------
 router.get('/', (req, res) => {
-  const activeTaskCountRow = db
-    .prepare(`SELECT COUNT(*) AS n FROM tasks WHERE ${tasks.liveTaskWhere('')}`)
-    .get();
-  const counts = {
-    guests: db.prepare('SELECT COUNT(*) AS n FROM guests').get().n,
-    activeTasks: activeTaskCountRow.n,
-    submissions: db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,
-    livePhotos: db.prepare('SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 0').get().n,
-    takenDown: db.prepare('SELECT COUNT(*) AS n FROM submissions WHERE taken_down = 1').get().n,
-    badgesAwarded: db.prepare('SELECT COUNT(*) AS n FROM guest_badges').get().n,
-  };
-
-  // Sixth stat cell (issue #256 / #245): unresolved bug-report count.
-  const openBugs = db.prepare('SELECT COUNT(*) AS n FROM bug_reports WHERE resolved = 0').get().n;
+  // The flat checklist (issue #646): host-checklist.js is the single owner
+  // of row definitions, bucket ordering, the bug pin, and the tips gate — it
+  // already walks guests/tasks/bug_reports to build those rows, so it is
+  // also the single owner of the three stat-grid counts (`stats`, issue #646
+  // review fix). This route consumes buildRows() once and re-queries none of
+  // its tables itself.
+  const { rows, openCount, urgentCount, stats } = hostChecklist.buildRows();
 
   // Pulse line (issue #256): the newest VISIBLE submission. feed.js owns the
   // visibility predicate and newest-first ordering (its VISIBLE_WHERE /
@@ -237,12 +232,45 @@ router.get('/', (req, res) => {
 
   res.render('admin-dashboard', {
     title: 'Admin Dashboard',
-    counts,
-    openBugs,
+    counts: { guests: stats.guests, activeTasks: stats.activeTasks },
+    openBugs: stats.openBugs,
     lastPhoto,
+    rows,
+    openCount,
+    urgentCount,
     msg: req.query.msg || '',
     isAdmin: true,
   });
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/checklist/:id/toggle  — flip one manual checklist item's
+// checked state (issue #646 AC5). The only writer of `settings` keys
+// `checklist.<id>`.
+//
+// Writes the OPPOSITE of the `checked` field the form posts back (issue #646
+// review fix), not the opposite of a fresh isManualChecked() read at request
+// time — the form's hidden `checked` field carries the state the page
+// rendered WITH, so a double-tap (two rapid submits of the same rendered
+// button, before the first redirect lands) posts the identical `checked`
+// value twice and both requests compute the identical target state, landing
+// idempotently instead of one flip cancelling the other. A malformed or
+// missing `checked` field (a stale/hand-crafted POST) falls back to the
+// current DB read, matching the old toggle-on-read behavior rather than
+// refusing the request.
+// ---------------------------------------------------------------------------
+router.post('/checklist/:id/toggle', (req, res) => {
+  const id = req.params.id;
+  if (!hostChecklist.isValidManualId(id)) {
+    return redirectWithMsg(res, '/admin', 'Unknown checklist item.');
+  }
+  const postedChecked = req.body.checked;
+  const asRendered =
+    postedChecked === '1' || postedChecked === '0'
+      ? postedChecked === '1'
+      : hostChecklist.isManualChecked(id);
+  hostChecklist.setManualChecked(id, !asRendered);
+  redirectWithMsg(res, '/admin', 'Checklist updated.', 'checklist');
 });
 
 // ---------------------------------------------------------------------------

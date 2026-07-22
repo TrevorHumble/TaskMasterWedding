@@ -947,3 +947,66 @@ the freeze's own rationale and only blocked the owner from recording decisions d
 three weeks this repo is making the most of them. `docs/` was never frozen wholesale in the first place
 (only `docs/north-star.md`, the goals contract, was), which made `DESIGN.md` the sole documentation file
 the freeze actually reached.
+
+## Host checklist: one row-definition module, feature-detected rows (#646)
+
+**Date:** 2026-07-21. **Status:** accepted.
+
+**What changed.** `src/services/host-checklist.js` is the single owner of the admin dashboard's
+checklist: every row's definition, its evaluation against live state, the bucket ordering (bugs pinned,
+then open auto rows with configuration first, then manual rows, then tips, then done rows), the nudge
+counts, and the tips gate. `src/routes/admin.js`'s `GET /admin` handler calls `buildRows()` once and
+hands the result straight to `src/views/admin-dashboard.ejs`; neither the route nor the view re-derives
+any ordering, gating, or row-eligibility logic of its own.
+
+**Why one module, not the route or the view.** The dashboard's per-row rules (bug pin overrides
+everything else; a row's own open/done transition; the tips gate depending on the state of every OTHER
+row; the daily-challenge roll-forward reading tomorrow's date only once today's is covered) are facts
+about the checklist as a whole, not about any one row or about how the page is rendered. Splitting them
+between the route (which already owns unrelated stat-grid queries) and the view (which the freeze holds
+to "markup and classes only, no new logic") would create exactly the two-owners-of-one-rule drift this
+codebase's own convention warns against elsewhere (see `src/services/tasks.js`'s `liveTaskWhere`,
+`src/services/feed.js`'s `VISIBLE_WHERE`) — a future auto row added to only one of the two files would
+silently disagree with the other about ordering or counting.
+
+**Why an unshipped feature's row is omitted, not hard-dependent on merge order.** Three of the design
+table's row types are backed by columns or tables owned by issues that had not merged as of this
+issue's own implementation: lucky tasks (#650) and per-task photo ranking (#661/#662) — issue #649
+(flash) and #753/#754 (daily challenge, one-day-only) HAD already merged, so their rows are live in this
+build, not stubs. `host-checklist.js` runs a `PRAGMA table_info` presence check before it reads a column
+it does not itself own (`hasColumn('tasks', 'flash_start_at')`, etc.), and simply skips the row when the
+backing feature is absent, rather than throwing or trusting a build-order assumption. The alternative —
+coupling this module's release to the exact order the other four issues land in — would make a
+merge-queue reshuffle (entirely plausible three weeks out from the wedding) a correctness bug here
+instead of a no-op. Per-task photo ranking has no presence check at all: no column or table for
+"winners chosen" exists anywhere in the current schema for that row type to detect, so the row is
+omitted outright rather than gated on a check that has nothing to test.
+
+**Why manual rows post through a plain form, not new client-side JavaScript.** The design calls for
+exactly one interaction shape reused from elsewhere in this admin: a form POST that flips one piece of
+server-held state and redirects back (`POST /admin/bugs/:id/resolve`, `POST /admin/guests/:id/badge`'s
+toggle case). Manual items are persisted the same way `src/services/lockout.js` persists its own
+counters — a `settings` key/value row read and written through the exported `db` handle — so no new
+storage shape or read/write pattern was introduced. The one visual cost is that a `<button>` needs a
+full CSS reset before it can render pixel-identical to the frozen `.check-link` anchor style (a bare
+button carries browser chrome an `<a>`/`<span>` never does); that reset (`button.check-link` in
+`src/public/css/theme.css`) is additive CSS this issue added.
+
+**What CSS this issue actually shipped in `src/public/css/theme.css`** (corrected — an earlier version
+of this note claimed the `button.check-link` reset was the ONLY rule added, which was false: it also
+omitted the rest of what shipped). The `.stat-grid-3` / `.check-*` / `.stat-nudge` block is this issue's
+own addition, not a pre-existing frozen rule — the phase-1 visual-approval loop settled the LOOK on
+localhost first, and this issue is what turned that approved look into real, checked-in CSS for the
+first time. Nothing pre-existing in `theme.css` was edited or deleted; every rule added here is new. A
+follow-up review pass also found and removed four rules from this same block (`.nudge-strip`,
+`.nudge-count`, `.nudge-copy`, `.nudge-sub`) that belonged to a nudge-row treatment the owner rejected in
+favor of the full-width `.stat-nudge` cell — dead CSS with zero consumers in any view, deleted rather
+than left to rot.
+
+**CSRF deviation from the issue plan (recorded, #769).** The issue's implementation plan called the
+manual-toggle POST "CSRF-protected." This app carries no CSRF middleware or token anywhere
+(`grep -rni csrf src` returns nothing) — `POST /admin/checklist/:id/toggle` matches the same
+session-cookie-only protection every other admin POST route already uses (`POST /admin/bugs/:id/resolve`,
+`POST /admin/guests/:id/badge`, etc.), which is consistent with existing prior art but is not actually
+CSRF protection. The gap is real and app-wide, not specific to this issue's one new route; it is tracked
+separately as #769 rather than being invented ad hoc inside this issue's narrow Touches.

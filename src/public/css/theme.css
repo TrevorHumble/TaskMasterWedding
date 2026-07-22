@@ -5779,3 +5779,133 @@ body:has(dialog[open]) {
   width: 56px;
   height: 56px;
 }
+
+/* ----------------------- Admin dashboard: nudge + checklist (issue #646) -----------------------
+   Owner-approved on the live preview, 2026-07-21; frozen by
+   tools/persist-visual-approval.ps1. */
+.stat-grid-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* Checklist rows reuse the menu-list hairline rhythm, with a check box in the
+   icon slot instead of a glyph. */
+.check-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+}
+.check-row {
+  border-bottom: var(--border-hairline);
+}
+.check-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 13px var(--space-1);
+  text-decoration: none;
+  color: var(--color-text);
+}
+a.check-link:hover {
+  background: var(--green-50);
+  text-decoration: none;
+}
+a.check-link::after {
+  content: '\203A';
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: var(--fs-h3);
+  color: var(--color-text-muted);
+}
+.check-box {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-hairline);
+  border-radius: 4px;
+  color: var(--color-primary);
+}
+.check-body {
+  display: flex;
+  flex-direction: column;
+}
+.check-label {
+  font-weight: 600;
+}
+.check-sub {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.check-done .check-box {
+  border-color: var(--color-primary);
+}
+.check-done .check-label {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+.check-urgent .check-box {
+  border-color: var(--err-ink);
+}
+.check-urgent .check-label {
+  color: var(--err-ink);
+}
+.check-tip .check-box {
+  border-color: transparent;
+  color: var(--color-text-muted);
+}
+.check-tip .check-label {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+/* Nudge row: one full-width cell across the bottom of the stat grid. */
+.stat-nudge {
+  grid-column: 1 / -1;
+  background: var(--white);
+  padding: var(--space-4) var(--space-3);
+  text-align: center;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.stat-nudge:hover {
+  background: var(--green-50);
+  text-decoration: none;
+}
+.stat-nudge-urgent {
+  background: var(--err-bg);
+  color: var(--err-ink);
+}
+.stat-nudge-urgent:hover {
+  background: var(--err-bg);
+}
+
+/* Manual checklist rows (issue #646): the only rows with a tappable
+   checkbox, posted via a plain form instead of a navigation link. The
+   <button> needs a full style reset before .check-link's own rules (above)
+   can apply -- browsers give a bare <button> border/background/font that a
+   <span> or <a> never carries -- so it renders pixel-identical to every
+   other check-link row rather than looking like a form control. Additive
+   only: no existing .check-* rule above is touched. */
+.check-manual-form {
+  margin: 0;
+}
+button.check-link {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 13px var(--space-1);
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+}
+button.check-link:hover {
+  background: var(--green-50);
+}
