@@ -45,8 +45,14 @@ const eventDays = require('./event-days');
 // `undefined` and report "not sealed" for every one-day-only task, and
 // without special_bonus the banking write would bind `undefined` into
 // submissions.bonus_amount, a NOT NULL column, throwing inside submitPhoto.
+// flash_start_at/flash_minutes/flash_bonus (issue #761) are read for the
+// identical reason, one row load serving the in-window bonus decision below
+// too — the same undefined-binds-into-a-NOT-NULL-column failure the #753
+// comment warns about would recur for flash_bonus if this select skipped it.
 const stmtActiveTask = db.prepare(
-  'SELECT id, special_mode, special_date, special_bonus FROM tasks WHERE id = ?'
+  `SELECT id, special_mode, special_date, special_bonus,
+          flash_start_at, flash_minutes, flash_bonus
+     FROM tasks WHERE id = ?`
 );
 
 // bonus_amount (issue #753) is read alongside the existing three columns so
@@ -140,13 +146,25 @@ const stmtInsertMemory = db.prepare(
 // single-source shape COMMENT_MAX_LENGTH uses for the comment composer.
 const CAPTION_MAX_LENGTH = 500;
 
-// The bonus_reason literal this issue's one-day-only banking writes (issue
-// #753's design: "#649 and #650 write their own literals into this same
-// shared column, so the vocabulary starts here"). Exported so a future
-// reader (a moderation view, a test) can compare against THIS constant
-// rather than a hand-copied 'oneday' string that could drift from what
-// submitPhoto actually writes.
-const BONUS_REASON_ONEDAY = 'oneday';
+// The bonus_reason literals the 'daily' and 'flash' rules bank (issue #753's
+// design: "#649 and #650 write their own literals into this same shared
+// column, so the vocabulary starts here"). tasks.js is the single OWNER of
+// these two literals (issue #761 review fix — all three reviewers): its
+// SPECIAL_RULES entries' `reason` fields are what bonusForTask() actually
+// writes into submissions.bonus_reason, so this file re-exports the same two
+// constants tasks.js declares rather than carrying its own independent
+// `const` copy of the identical strings. Before this fix, this module
+// declared and exported its own `BONUS_REASON_ONEDAY`/`BONUS_REASON_FLASH`,
+// dead inside their own module (nothing here read them — bonusForTask() was
+// the write path), with a comment conceding "the two must always hold the
+// identical value" and nothing enforcing that; a rule added to tasks.js's
+// SPECIAL_RULES alone (as #650's 'lucky' will be) would leave this file's
+// exported constant set silently one entry short of what actually gets
+// written, and #611's receipt / #644's bell (the named future readers of
+// this column) would compare a submission's reason against an export that
+// simply doesn't exist. Exported here unchanged (re-exported, not renamed)
+// so every current importer is unaffected.
+const { BONUS_REASON_ONEDAY, BONUS_REASON_FLASH } = tasks;
 
 /**
  * Trim and cap a caption to the stored column's limit. A missing or non-string
@@ -198,7 +216,10 @@ function normalizeCaption(caption) {
  *      way, but ONLY when it has not already banked a bonus
  *      (`existing.bonus_amount === 0`) — a resubmit on a later, off-day date
  *      must never overwrite (or zero out) a bonus already banked on the day
- *      itself.
+ *      itself. Issue #761's flash bonus is banked the identical way, from
+ *      the identical single decision (see the `bonusDecision` computation
+ *      below) — on-day wins when a task is somehow both on-day and
+ *      in-window, so the two bonuses never stack (#649's exclusivity rule).
  *   5. Auto-badges are recomputed for the guest. A failure here is logged and
  *      swallowed — the submission the guest just made must never be lost
  *      because a badge recount had a problem.
@@ -222,9 +243,55 @@ function normalizeCaption(caption) {
  *        descriptor: filename is the stored original's relative filename,
  *        path is its absolute path on disk (what makeThumb reads from).
  * @param {*} params.caption - raw caption input; normalized internally.
+ * @param {number} [params.nowMs] - epoch milliseconds used for the flash
+ *        window decision (tasks.flashState, issue #761). OPTIONAL and
+ *        defaulting to the real current time when absent (`undefined`) or
+ *        `null` — load-bearing, not incidental: the sole production caller
+ *        (src/routes/guest.js's POST /tasks/:id/submit handler, outside this
+ *        issue's Touches) passes no `nowMs` key, so a required parameter
+ *        would arrive `undefined` there and no flash would ever bank for a
+ *        real guest. Explicitly falling back on `null` too (issue #761
+ *        review fix), not merely `undefined`: a default parameter
+ *        (`nowMs = Date.now()`) only fires for `undefined`, so a caller that
+ *        passes `nowMs: null` would otherwise reach tasks.flashState() with
+ *        a `null` clock, which that function now deliberately throws on
+ *        rather than silently misreading the window state. Treating `null`
+ *        the same as "not passed" keeps this an optional seam in practice,
+ *        not merely in the destructuring default, and is a deliberate
+ *        choice: this parameter's only job is an optional test/future-caller
+ *        override, so a caller handing it an explicit non-value is read as
+ *        "no override," not as a request to crash.
+ *
+ *        A `NaN` `nowMs`, by contrast, is NOT treated as "not passed" (issue
+ *        #761 review fix): it means the caller computed a clock and
+ *        got garbage, and silently substituting the real clock would bank
+ *        (or fail to bank) against an instant the caller never asked for.
+ *        `NaN` falls through unchanged to tasks.flashState()'s own
+ *        `Number.isFinite` guard, which throws — reporting the caller's bug
+ *        instead of masking it. `nowMs: 0` (falsy but not nullish) is a real
+ *        clock value and is honored as-is, never replaced.
+ *
+ *        A test injects a genuine fixed instant instead, which is also what
+ *        makes a scheduled-then-armed flash testable with no real `sleep`
+ *        and no write between the two submits (criterion 7) — either of
+ *        those would itself be the "action in between" the criterion
+ *        requires there to be none of. The event-local DAY clock (`todayIso`
+ *        below) is a separate, pre-existing seam — derived internally from
+ *        `eventDays.eventLocalDateString(...)`, not reachable through this
+ *        parameter, and unaffected by it.
  * @returns {Promise<{status: 'created'|'replaced'|'replaced_hidden'|'task_inactive'|'thumb_failed', submissionId?: number, newBadgeIds?: string[], pointsTotal?: number}>}
  */
-async function submitPhoto({ guestId, taskId, file, caption }) {
+async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
+  // Only nullish (absent/undefined, or explicit null) means "use the real
+  // clock" — see the nowMs param doc above for why this is not simply a
+  // `nowMs = Date.now()` destructuring default (issue #761 review fix). A
+  // NaN nowMs is deliberately NOT caught here (issue #761 review fix): it
+  // falls through unchanged to tasks.flashState()'s own
+  // Number.isFinite guard, which throws — a caller-computed garbage clock is
+  // a caller bug to report, not a "not passed" signal to mask with the real
+  // clock. `nowMs: 0` is likewise passed through unchanged: it is a real
+  // (falsy but not nullish) clock value, not a "not passed" signal.
+  const clockMs = nowMs == null ? Date.now() : nowMs;
   const task = stmtActiveTask.get(taskId);
   if (!task || !tasks.isTaskLive(task)) {
     photos.deleteOriginalFile(file.filename);
@@ -266,38 +333,67 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
 
   const cap = normalizeCaption(caption);
 
-  // The on-day bonus (issue #753): the task's special_bonus banks exactly
-  // when its special_date equals today. tasks.isOnDay is the single owner of
-  // that calendar fact (issue #754 review fix, MAJOR B) — this module no
-  // longer decides "is today the day" independently of guest.js's "+N pts
-  // Today Only" flag.
-  const isOnDay = tasks.isOnDay(task, todayIso);
+  // The single banking decision (issue #761 plan step 3; review fix):
+  // tasks.bonusForTask() derives
+  // {amount, reason} directly from the SAME SPECIAL_RULES list and the same
+  // ordered findSpecialRule walk tasks.whatSpecial() (the exclusivity guard)
+  // uses, reading the column/reason straight off whichever rule is
+  // presently paying — so this banking decision and the guard can never
+  // independently drift out of step the way a hand-restated precedence here
+  // once did, AND a new rule (#650's 'lucky') is fully wired for banking by
+  // adding ONE SPECIAL_RULES entry in tasks.js, not a second hand-written
+  // mapping here. Concretely: a task with special_date set to a FUTURE day
+  // (sealed) whose flash window is simultaneously active, submitted by a
+  // guest who already holds a row on this task (the only way to reach the
+  // seal gate's existing-row fall-through above), used to bank 'flash' here
+  // under the old isOnDay-then-flashActive hand fork — isOnDay was false
+  // (the date is in the future) so it fell straight to flashActive (true) —
+  // while tasks.whatSpecial() answered 'daily' for the identical row and
+  // instant. bonusForTask() closes that gap: 'daily' owns the row (it is
+  // sealed), so 'flash''s paying condition is never even consulted, and
+  // 'daily' itself isn't paying yet (isOnDay is false), so bonusForTask()
+  // returns null and nothing banks — matching the guard instead of silently
+  // disagreeing with it. `null` means neither rule is presently paying — an
+  // ordinary submission, one that is off-day and out-of-window, or one that
+  // is sealed/scheduled but not yet in its own paying instant.
+  const bonusDecision = tasks.bonusForTask(task, { todayIso, nowMs: clockMs });
 
   let status;
   let submissionId;
   if (existing) {
     submissionId = existing.id;
 
-    // Coalesce special_bonus (issue #753 review fix): the schema's
-    // chk_special_pairing CHECK stops a NEW row from ever pairing
-    // special_date with a NULL special_bonus, but it cannot retroactively
-    // fix a row written before that constraint existed, or one edited by
-    // hand straight in the DB file. Binding `?? 0` here means that
-    // impossible-in-theory shape still can't throw SQLITE_CONSTRAINT_NOTNULL
-    // into submitPhoto and turn into "photo couldn't save" for the guest.
+    // coalescedBonus decides whether THIS replace should also bank a bonus:
+    // only when bonusDecision names one (the task is presently paying) AND
+    // the existing row has not already banked one (existing.bonus_amount ===
+    // 0) -- a resubmit on a later, off-day/out-of-window date must never
+    // overwrite (or zero out) a bonus already banked (issue #753 review fix,
+    // generalized by #761 plan step 3 to whichever rule bonusDecision
+    // names). bonusDecision.amount itself is always a plain number here,
+    // never null/undefined -- tasks.bonusForTask() (src/services/tasks.js)
+    // is the owner of that guarantee now (issue #761 review fix): it
+    // coalesces the 'daily' rule's special_bonus column to 0 for a
+    // legacy pre-chk_special_pairing row (special_date set, special_bonus
+    // still NULL), and needs no such coalesce for 'flash' because
+    // tasks.flashState() -- and so tasks.bonusForTask() -- already
+    // refuse to pay 'flash' unless flash_bonus is an integer in [1, 3]
+    // (issue #761 review fix). See SPECIAL_RULES' two entries in
+    // tasks.js for the full reasoning; this file no longer carries its own
+    // copy.
     //
-    // bonusReason is written ONLY when the coalesced amount is actually > 0
-    // (review fix): on that same legacy-row shape, special_bonus coalesces
-    // to 0, and #649/#650 read bonus_reason by literal to decide whether a
-    // bonus rule paid out -- a reason of 'oneday' sitting next to amount 0
-    // would tell them a rule paid when nothing was actually banked.
+    // bonusReason comes straight off bonusDecision.reason (issue #761 review
+    // fix) -- tasks.bonusForTask() is now the single owner of "no
+    // reason beside a zero amount" (see its own doc comment), already
+    // returning `reason: null` whenever `amount` coalesced to 0 on that same
+    // legacy-row shape. This branch no longer re-applies its own `> 0` guard
+    // around that same rule a second time.
     const coalescedBonus =
-      isOnDay && existing.bonus_amount === 0 ? (task.special_bonus ?? 0) : null;
+      bonusDecision && existing.bonus_amount === 0 ? bonusDecision.amount : null;
     const bankArgs =
       coalescedBonus !== null
         ? {
             bonusAmount: coalescedBonus,
-            bonusReason: coalescedBonus > 0 ? BONUS_REASON_ONEDAY : null,
+            bonusReason: bonusDecision.reason,
           }
         : null;
 
@@ -342,10 +438,19 @@ async function submitPhoto({ guestId, taskId, file, caption }) {
       console.error('superseded-file cleanup failed:', err);
     }
   } else {
-    // Coalesce special_bonus the same way the replace branch above does —
-    // see that branch's comment (issue #753 review fix).
-    const bonusAmount = isOnDay ? (task.special_bonus ?? 0) : 0;
-    const bonusReason = isOnDay ? BONUS_REASON_ONEDAY : null;
+    // Coalesce the same way the replace branch above does — see that
+    // branch's comment. This DELIBERATELY TIGHTENS the insert branch (issue
+    // #761 plan step 3): before this issue it wrote bonus_reason
+    // unconditionally (`isOnDay ? BONUS_REASON_ONEDAY : null`) beside an
+    // amount that coalesces to 0 on a legacy row whose special_bonus is
+    // NULL — exactly the reason-beside-zero state tasks.bonusForTask() now
+    // forbids by construction (issue #761 review fix: see that
+    // function's own doc comment). bonusReason comes straight off
+    // bonusDecision.reason, with no `> 0` guard re-applied here — both
+    // branches now defer to the SAME producer-owned rule instead of each
+    // carrying their own copy that could drift.
+    const bonusAmount = bonusDecision ? bonusDecision.amount : 0;
+    const bonusReason = bonusDecision ? bonusDecision.reason : null;
     const info = stmtInsertSubmission.run(
       guestId,
       taskId,
@@ -457,4 +562,5 @@ module.exports = {
   normalizeCaption,
   CAPTION_MAX_LENGTH,
   BONUS_REASON_ONEDAY,
+  BONUS_REASON_FLASH,
 };

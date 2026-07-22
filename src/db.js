@@ -52,11 +52,31 @@ db.exec(`
     -- fact — the seal predicate, the on-day bonus, and the Completionist
     -- exclusion all read IT, not special_mode = 'oneday'. special_mode's
     -- 'oneday' value is the marker written in lockstep alongside it, there
-    -- only so the existing mode machinery (liveTaskWhere/isTaskLive) and a
-    -- future exclusivity guard (#649/#650) can see this task is spoken for.
-    -- Neither column is ever written without the other.
+    -- only so the existing mode machinery (liveTaskWhere/isTaskLive) can see
+    -- the task is live. (Corrected, issue #761 review fix: this comment used
+    -- to also say a future exclusivity guard would read special_mode to see
+    -- the task is spoken for. It doesn't — the guard that shipped in #761,
+    -- src/services/tasks.js's whatSpecial(), reads special_date directly,
+    -- and the flash columns below, never special_mode.) Neither special_date
+    -- nor special_bonus is ever written without the other.
     special_date   TEXT,
     special_bonus  INTEGER CHECK (special_bonus IS NULL OR special_bonus BETWEEN 1 AND 3),
+    -- Flash task fields (issue #761). flash_start_at is an absolute UTC
+    -- instant in exactly YYYY-MM-DDTHH:MM:SS.sssZ form (Date.prototype.
+    -- toISOString()'s own output shape), flash_minutes is a whole-minute
+    -- duration (>= 1), flash_bonus is 1-3; NULL flash_start_at means no
+    -- flash armed. Unlike special_date/special_bonus above, this trio
+    -- carries NO CHECK/pairing constraint -- SQLite cannot add a CHECK to an
+    -- existing table, and a rebuild to gain one would re-enter the
+    -- FK-cascade rebuild hazard ensureTaskSpecialDayColumns() documents at
+    -- length for no behavioural gain (issue #761 plan step 1). The
+    -- all-three-or-none pairing is instead enforced by #763's validated
+    -- write path and, on the read side, by src/services/tasks.js's
+    -- flashState() treating a partially-populated row as 'none' rather than
+    -- trusting the schema to have refused it.
+    flash_start_at TEXT,
+    flash_minutes  INTEGER,
+    flash_bonus    INTEGER,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     -- Pairing constraint (issue #753 review fix): special_date and
     -- special_bonus are either BOTH NULL (an ordinary task) or BOTH set (a
@@ -364,6 +384,59 @@ function ensureTaskSpecialDayColumns() {
 }
 
 ensureTaskSpecialDayColumns();
+
+// --- Guarded migration: tasks.flash_start_at/flash_minutes/flash_bonus (issue #761) ---
+/**
+ * Add tasks.flash_start_at/flash_minutes/flash_bonus if any is not already
+ * present.
+ *
+ * Same guard shape as ensurePhotoBonusColumn below: the tasks CREATE TABLE
+ * above already declares all three (a fresh DB gets them directly), so this
+ * is a no-op there; on an existing pre-#761 app.db none of the three exist
+ * yet, so PRAGMA table_info detects each absence and the ALTER TABLE runs
+ * once per column, gated so a repeat call (or a later boot) is a no-op and
+ * never throws "duplicate column". No DEFAULT is given for any of the three
+ * (NULL for every pre-existing row is exactly right: "no flash armed").
+ *
+ * MUST run immediately after ensureTaskSpecialDayColumns() above, and its
+ * columns must NOT be added to that function's `tasks_new` rebuild list
+ * (issue #761 plan step 1). ensureTaskSpecialDayColumns() only rebuilds
+ * `tasks` on a pre-#753 database, which by definition has no flash columns
+ * yet -- running this guard after it means the rebuild (if any) finishes
+ * first and these ALTERs land on the settled table. `tasks` is rebuilt in
+ * exactly two places in this file (ensureTaskWorthAndMode, above that, and
+ * ensureTaskSpecialDayColumns immediately above this comment), both earlier
+ * than this call site, so no later migration in this file can drop these
+ * columns once added.
+ *
+ * A fresh database and a migrated one end up with the three flash columns in
+ * different physical positions: the CREATE TABLE above places them before
+ * created_at, while this guard's ALTER TABLE always appends a new column
+ * after every existing one, landing them after created_at (and after
+ * whatever else a prior migration already appended) on a migrated app.db.
+ * That divergence is safe and deliberately left uncorrected: every INSERT
+ * into tasks in this codebase names its columns explicitly, and every read
+ * of a task row goes through a property name (row.flash_start_at, etc.),
+ * never a positional index, so column order carries no behavioral meaning
+ * anywhere it is read.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureTaskFlashColumns() {
+  const cols = db.prepare(`PRAGMA table_info(tasks)`).all();
+  const names = new Set(cols.map((col) => col.name));
+  if (!names.has('flash_start_at')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN flash_start_at TEXT`);
+  }
+  if (!names.has('flash_minutes')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN flash_minutes INTEGER`);
+  }
+  if (!names.has('flash_bonus')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN flash_bonus INTEGER`);
+  }
+}
+
+ensureTaskFlashColumns();
 
 // --- Guarded migration: submissions.photo_bonus (issue #89) ---
 /**
@@ -1229,6 +1302,7 @@ module.exports = {
   db,
   ensureTaskWorthAndMode,
   ensureTaskSpecialDayColumns,
+  ensureTaskFlashColumns,
   ensurePhotoBonusColumn,
   ensureBadgeTypeCheckWidened,
   ensureBadgeTaskIdColumn,
