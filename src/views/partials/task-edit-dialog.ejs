@@ -87,6 +87,7 @@
           </span>
         </label>
         <%- include('special-oneday-option', { idPrefix: 'task-edit', eventDays: eventDays }) %>
+        <%- include('special-lucky-option', { idPrefix: 'task-edit', eventDays: eventDays }) %>
       </div>
       <%# Carries a stored special_date that matches no rendered day chip
           (issue #755 criteria 3/3b) — a stale-dated task's day fell outside

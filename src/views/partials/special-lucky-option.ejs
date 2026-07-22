@@ -1,0 +1,71 @@
+<%# src/views/partials/special-lucky-option.ejs
+    Issue #650: the "Lucky task" option in the Special radio, plus the
+    accordion panel that opens under it when it is picked.
+
+    Sibling of special-oneday-option.ejs in the same .special-option-group
+    shape (that partial's own header names #650 as one of the two siblings to
+    come). ONE partial, included by BOTH task-create-dialog.ejs (step 2) and
+    task-edit-dialog.ejs, so the create flow and the edit popup cannot drift.
+
+    The panel is shown by CSS alone (.special-option-group:has(input:checked)),
+    like every other option in the group.
+
+    Locals:
+      idPrefix   — 'task-create' | 'task-edit'; keeps element ids unique when
+                   both dialogs are on the same page.
+      eventDays  — REQUIRED, [{ iso, label }] from the #681 Configuration
+                   page's wedding dates, same local special-oneday-option.ejs
+                   reads. No fallback, deliberately.
+
+    No selection state lives in this partial; create defaults and edit state
+    come from src/public/js/admin-tasks.js, same as the one-day option.
+%>
+<div class="special-option-group">
+  <label class="special-option">
+    <input type="radio" name="special_mode" value="lucky" />
+    <span class="special-option-face">
+      <span class="special-option-title">Lucky task</span>
+      <span class="special-option-sub">A secret bonus on one day &mdash; guests find out only after they post</span>
+    </span>
+  </label>
+
+  <div class="special-panel">
+    <div class="special-panel-field">
+      <span class="field-label" id="<%= idPrefix %>-lucky-day-label">Which day</span>
+      <div class="day-chips" role="radiogroup" aria-labelledby="<%= idPrefix %>-lucky-day-label">
+        <% eventDays.forEach(function (d) { %>
+          <label class="worth-chip day-chip">
+            <input type="radio" name="lucky_date" value="<%= d.iso %>" />
+            <span class="worth-chip-face"><%= d.label %></span>
+          </label>
+        <% }); %>
+      </div>
+    </div>
+
+    <div class="special-panel-field">
+      <span class="field-label" id="<%= idPrefix %>-lucky-bonus-label">Secret bonus</span>
+      <div class="worth-chips" role="radiogroup" aria-labelledby="<%= idPrefix %>-lucky-bonus-label">
+        <% [1, 2, 3].forEach(function (n) { %>
+          <label class="worth-chip">
+            <input type="radio" name="lucky_bonus" value="<%= n %>" />
+            <span class="worth-chip-face">+<%= n %> pt<%= n === 1 ? '' : 's' %></span>
+          </label>
+        <% }); %>
+      </div>
+    </div>
+    <% if (idPrefix === 'task-edit') { %>
+      <%# Carries a stored lucky_date that matches no rendered day chip
+          (issue #650) -- the same stale-date pattern task-edit-dialog.ejs
+          uses for special_date, but living HERE (not in that file) so this
+          partial stays the single owner of every lucky field, per the
+          issue's plan step 6. Disabled by default so it posts nothing;
+          admin-tasks.js's openEdit() enables it and sets its value only for
+          such a task, and disables it again the moment any lucky day chip
+          above is clicked, so the chips stay the only source of lucky_date
+          whenever one matches and the body never carries two values for that
+          field. Renders nothing visible, so it changes no approved pixel —
+          absent from the CREATE dialog, which has no stored date to carry. %>
+      <input type="hidden" name="lucky_date" id="task-edit-lucky-date-stale" disabled />
+    <% } %>
+  </div>
+</div>

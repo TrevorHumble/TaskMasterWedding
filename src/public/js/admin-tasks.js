@@ -37,6 +37,19 @@
     return chip ? chip.value : '';
   }
 
+  // The lucky pick's own approved default (issue #650 plan step 6): first
+  // configured day, +2 — deliberately the MIDPOINT of the 1-3 range, unlike
+  // the one-day option's floor of +1 (firstDayChipValue's own default
+  // above), since a lucky bonus is a surprise rather than a guaranteed
+  // minimum. Scoped to `.day-chips input[name="lucky_date"]` for the exact
+  // same reason firstDayChipValue is scoped — the lucky stale-date input
+  // (`#task-edit-lucky-date-stale`) shares the `name="lucky_date"` name, and
+  // `.day-chips` never contains it.
+  function firstLuckyDayChipValue(dialog) {
+    var chip = dialog && dialog.querySelector('.day-chips input[name="lucky_date"]');
+    return chip ? chip.value : '';
+  }
+
   // Which of our dialogs opened the shared badge picker, so its submit
   // reflects the pick into that dialog's preview (and hidden badge_icon/
   // badge_name fields) instead of running the picker's own POST.
@@ -117,6 +130,83 @@
       );
       if (bonusChip) bonusChip.checked = true;
     }
+
+    // Lucky day/bonus chips (issue #650 plan step 6) — cleared first, same
+    // leak-prevention reason as the one-day pair above.
+    editDialog.querySelectorAll('input[name="lucky_date"]').forEach(function (r) {
+      r.checked = false;
+    });
+    editDialog.querySelectorAll('input[name="lucky_bonus"]').forEach(function (r) {
+      r.checked = false;
+    });
+    var staleLuckyDateInput = editDialog.querySelector('#task-edit-lucky-date-stale');
+    if (staleLuckyDateInput) {
+      staleLuckyDateInput.value = '';
+      staleLuckyDateInput.disabled = true;
+    }
+
+    var storedLuckyDate = g('lucky-date');
+    var storedLuckyBonus = g('lucky-bonus');
+    if (storedLuckyDate) {
+      var luckyDateChip = editDialog.querySelector(
+        'input[name="lucky_date"][value="' + storedLuckyDate + '"]'
+      );
+      if (luckyDateChip) {
+        luckyDateChip.checked = true;
+      } else if (staleLuckyDateInput) {
+        // Stored lucky day matches no rendered chip — the host narrowed the
+        // wedding dates after picking it. Same stale-date carry-through as
+        // the one-day pair above (issue #650 plan step 6).
+        staleLuckyDateInput.value = storedLuckyDate;
+        staleLuckyDateInput.disabled = false;
+      }
+    }
+    if (storedLuckyBonus) {
+      var luckyBonusChip = editDialog.querySelector(
+        'input[name="lucky_bonus"][value="' + storedLuckyBonus + '"]'
+      );
+      if (luckyBonusChip) luckyBonusChip.checked = true;
+    }
+
+    // The Lucky radio's checked state is derived from data-lucky-date, NOT
+    // from the card's data-mode (issue #650 plan step 6) — a lucky task
+    // stores special_mode='none' (or 'hidden'), so the `modeRadio` line
+    // above never checks Lucky on its own. A stored special_date wins the
+    // radio over the lucky pick, though, whenever daily currently owns the
+    // task. issue #650 PR review fix (Finding A): this used to hand-copy the
+    // daily rule's spokenFor predicate here (isSealed||isOnDay, computed
+    // against a data-today attribute) — a second owner of a rule
+    // src/services/tasks.js's whatSpecial() already owns, and one that could
+    // not see a live flash window at all. The server now does that walk once
+    // (GET /admin/tasks, tasks.whatSpecial(t, clock)) and emits its answer as
+    // data-special-kind; this script only reads it back, so "which rule owns
+    // this task" has exactly one owner.
+    //
+    // The test below is a WHITELIST, not a "not daily" blacklist (issue #650
+    // re-check finding): whatSpecial() can answer 'daily', 'flash', 'lucky' or
+    // null, which the board emits as an empty data-special-kind (see
+    // src/views/admin-tasks.ejs's `t.specialKind || ''`). A blacklist naming
+    // only 'daily' lets EVERY other kind fall through to
+    // "check Lucky" — so a row owned by a live flash window would open on the
+    // Lucky radio, the host's title-only save would post special_mode=lucky,
+    // and the server's exclusivity guard would refuse it over a control the
+    // host never touched. That is the exact failure this whole fix exists to
+    // prevent, and a blacklist reintroduces it for every special type added
+    // after this one. A whitelist fails safe instead: an unrecognised kind
+    // falls back to the data-mode radio, which is always saveable.
+    //
+    // A task whose lucky_date has PASSED and carries no special_date opens
+    // with the Lucky radio selected too (data-special-kind is '' — nothing
+    // presently owns it) — accepted, not a bug to "fix": the row is free again
+    // as far as whatSpecial() is concerned, and picking a new day or None
+    // overwrites it (see the issue's implementation plan step 6 and DESIGN.md's
+    // lucky-task ADR).
+    var specialKind = g('special-kind');
+    if (storedLuckyDate && (specialKind === '' || specialKind === 'lucky')) {
+      var luckyRadio = editDialog.querySelector('.special-option input[value="lucky"]');
+      if (luckyRadio) luckyRadio.checked = true;
+    }
+
     reflectBadge(
       editDialog.querySelector('#task-edit-badge-preview'),
       editDialog.querySelector('#task-edit-badge-icon'),
@@ -154,6 +244,45 @@
       if (event.target.matches && event.target.matches('input[name="special_date"]')) {
         var staleDateInput = editDialog.querySelector('#task-edit-special-date-stale');
         if (staleDateInput) staleDateInput.disabled = true;
+        return;
+      }
+      // Any lucky day-chip click disables the lucky stale-date input again
+      // (issue #650 plan step 6), mirroring the one-day pair's own rule
+      // immediately above.
+      if (event.target.matches && event.target.matches('input[name="lucky_date"]')) {
+        var staleLuckyInput = editDialog.querySelector('#task-edit-lucky-date-stale');
+        if (staleLuckyInput) staleLuckyInput.disabled = true;
+        return;
+      }
+      // Promoting an UNDATED task to Lucky in the EDIT popup (issue #650
+      // plan step 6): apply the approved default (first configured day, +2
+      // — the midpoint, not the one-day floor of +1) the same way
+      // resetCreate() does for the create flow. Only fires when nothing is
+      // already selected — a task openEdit() already populated with its own
+      // stored lucky day/bonus (or the stale-date hidden input) is left
+      // exactly as it is.
+      if (
+        event.target.matches &&
+        event.target.matches('input[name="special_mode"][value="lucky"]') &&
+        event.target.checked
+      ) {
+        var staleLucky = editDialog.querySelector('#task-edit-lucky-date-stale');
+        var hasLuckyDay =
+          editDialog.querySelector('input[name="lucky_date"]:checked') ||
+          (staleLucky && !staleLucky.disabled && staleLucky.value);
+        if (!hasLuckyDay) {
+          var firstLuckyDay = firstLuckyDayChipValue(editDialog);
+          if (firstLuckyDay) {
+            var luckyDayChip = editDialog.querySelector(
+              'input[name="lucky_date"][value="' + firstLuckyDay + '"]'
+            );
+            if (luckyDayChip) luckyDayChip.checked = true;
+          }
+        }
+        if (!editDialog.querySelector('input[name="lucky_bonus"]:checked')) {
+          var luckyBonus2 = editDialog.querySelector('input[name="lucky_bonus"][value="2"]');
+          if (luckyBonus2) luckyBonus2.checked = true;
+        }
         return;
       }
       // Promoting an UNDATED task to One day only in the EDIT popup (issue
@@ -243,6 +372,20 @@
     }
     var bonus1 = createDialog.querySelector('input[name="special_bonus"][value="1"]');
     if (bonus1) bonus1.checked = true;
+    // The approved Lucky default (issue #650 plan step 6): first configured
+    // day, +2 — the midpoint of the 1-3 range, deliberately different from
+    // the one-day option's floor of +1 above, since a lucky bonus is a
+    // surprise rather than a guaranteed minimum. Set for the identical
+    // "never opens blank" reason as the one-day default just above.
+    var firstLuckyDay = firstLuckyDayChipValue(createDialog);
+    if (firstLuckyDay) {
+      var luckyDayChip = createDialog.querySelector(
+        'input[name="lucky_date"][value="' + firstLuckyDay + '"]'
+      );
+      if (luckyDayChip) luckyDayChip.checked = true;
+    }
+    var luckyBonus2 = createDialog.querySelector('input[name="lucky_bonus"][value="2"]');
+    if (luckyBonus2) luckyBonus2.checked = true;
     reflectBadge(
       createDialog.querySelector('#task-create-badge-preview'),
       createDialog.querySelector('#task-create-badge-icon'),

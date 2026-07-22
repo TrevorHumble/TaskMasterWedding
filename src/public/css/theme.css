@@ -453,6 +453,31 @@ p {
   font-size: var(--fs-body);
   color: var(--color-text);
 }
+/* The lucky treatment (issue #650): the ONLY place a guest is ever told a task
+   was lucky, so it takes over the whole success card rather than adding a line
+   to it — gold border and gold clover in place of the green border and check,
+   so a lucky win is a visibly different, rarer moment at first glance. Gold is
+   --place-1, the same token the leaderboard champion and the one-day-only chip
+   already use, not a new colour. */
+.success-card--lucky {
+  background: var(--white);
+  border-left-color: var(--place-1);
+  box-shadow: 0 0 0 1px var(--place-1) inset;
+}
+.success-clover {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto var(--space-3);
+  color: var(--place-1);
+  display: block;
+}
+/* Gold is used on the clover and the card edge ONLY, never on text (owner,
+   2026-07-21): --place-1 (#c8a24c) on white is ~2.3:1, well under the WCAG AA
+   4.5:1 floor for body copy. The points line keeps the ordinary text colour
+   and earns its emphasis from weight instead. */
+.success-card--lucky .success-points {
+  font-weight: 600;
+}
 .success-memory-prompt {
   margin: 0;
   font-size: var(--fs-small);

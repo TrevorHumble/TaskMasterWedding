@@ -51,7 +51,11 @@ function setFlash(res, kind, text) {
  * is the single reader/clearer, same division as setFlash/flash.
  *
  * @param {object} res
- * @param {{points: number, newBadgeIds: string[]}} payload
+ * @param {{points: number, newBadgeIds: string[], luckyBonus?: number}} payload
+ *   luckyBonus (issue #650) is an OPTIONAL third field — undefined for an
+ *   ordinary completion, so JSON.stringify simply omits the key. No code
+ *   change needed below: the reader's shape guard checks only `points` and
+ *   `newBadgeIds`, so an extra key rides through untouched either way.
  */
 function setTaskCompleteReward(res, payload) {
   res.cookie('taskComplete', JSON.stringify(payload), cookieOpts(30 * 1000));

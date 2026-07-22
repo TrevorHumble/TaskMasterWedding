@@ -336,11 +336,15 @@ function buildRows(now = new Date()) {
     }
   }
 
-  // --- Lucky task (#650) and rank-and-award (#661/#662) — neither has any
-  // backing column or table in this schema yet, so both row types are
-  // omitted entirely (AC7): there is nothing to feature-detect a column FOR.
-  // Speculative structure for either belongs in its own issue, not stubbed
-  // here ahead of time. ---
+  // --- Lucky task (#650) and rank-and-award (#661/#662) — lucky now HAS a
+  // backing column (tasks.lucky_date, landed by #650), but still gets no
+  // checklist row here: the flash sibling above exists because a host might
+  // forget to schedule ANY flash all weekend, but a checklist row is #646's
+  // surface to add, not this issue's — see the issue's own "Deliberate
+  // omissions, recorded" section ("The host checklist gains no lucky row").
+  // rank-and-award (#661/#662) still has no backing column or table at all,
+  // so that row type stays omitted for the original reason: nothing to
+  // feature-detect a column FOR. ---
 
   // --- Resubmitted photo re-review (submissions.resubmitted, present since
   // issue #190) ---

@@ -11,10 +11,11 @@
 // is_active = 0. The enum is forward-compatible with a future mode because
 // liveness is defined as "not hidden" (`<> 'hidden'`) rather than "= none" —
 // a future mode is live automatically, with no reader needing an update.
-// 'oneday' (#753) already extended it this way. Flash (#761) deliberately
-// does NOT — see the MODES comment below for the reasoning — so a reader
-// hitting this paragraph first should not expect a matching flash mode
-// further down; only lucky (#650, still open) may still add one.
+// 'oneday' (#753) already extended it this way. Flash (#761) and lucky
+// (#650) deliberately do NOT — see the MODES comment below for the
+// reasoning — so a reader hitting this paragraph first should not expect a
+// matching flash or lucky mode further down; both are read-time state
+// instead (see SPECIAL_RULES below), never a stored special_mode member.
 //
 // Mirrors feed.js's VISIBLE_WHERE ownership pattern: liveTaskWhere() returns a
 // SQL fragment string a caller interpolates into its own prepared statement
@@ -67,18 +68,20 @@ const MODE_ONEDAY = 'oneday';
 // instead (flashState()/whatSpecial() below), decorated onto an
 // already-loaded row exactly the way isSealed()/isOnDay() already are for
 // one-day-only. The host-facing "Flash" radio option (#763) is likewise
-// derived render state, never a written special_mode value. Lucky (#650,
-// still open) may still need the lockstep updates below when it lands:
-//   - src/db.js: the tasks.special_mode column's own CHECK constraint —
-//     SQLite enforces this independently of anything in this file, so an
-//     app-layer value MODES accepts but the CHECK rejects fails at
-//     INSERT/UPDATE time with SQLITE_CONSTRAINT_CHECK, not a friendly
-//     validation message.
-//   - src/views/partials/task-create-dialog.ejs and task-edit-dialog.ejs: the
-//     Special radio's option list is hard-coded markup in both partials
-//     (`<input type="radio" name="special_mode" value="...">`) — there is no
-//     shared template loop reading MODES, so a new mode is invisible to the
-//     host until both dialogs grow their own new <label>.
+// derived render state, never a written special_mode value.
+//
+// Lucky (issue #650) landed the same way, for a different reason: the owner
+// wants the task's Special radio to POST special_mode=lucky, but the row
+// never actually stores that value — tasks.normalizeMode below coerces the
+// posted 'lucky' to the handler's fallback ('none', or 'hidden' if the host
+// also hides it), while tasks.lucky_date (src/db.js) carries the "this task
+// is lucky" fact instead. So lucky needs NEITHER of the two by-hand updates
+// below either, for the SAME two reasons flash didn't:
+//   - src/db.js: no CHECK widen needed, because no MODES/special_mode value
+//     is ever written for lucky in the first place.
+//   - the two dialog partials: lucky already has its own radio
+//     (src/views/partials/special-lucky-option.ejs, included by both), so
+//     there is no missing <label> to add.
 const MODES = [MODE_NONE, MODE_HIDDEN, MODE_ONEDAY];
 
 const MIN_WORTH = 1;
@@ -303,6 +306,15 @@ const FLASH_INSTANT_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{
 const FLASH_MIN_BONUS = 1;
 const FLASH_MAX_BONUS = 3;
 
+// The lucky-bonus range (issue #650 plan step 2), exported for the identical
+// reason FLASH_MIN_BONUS/FLASH_MAX_BONUS are: src/routes/admin.js's lucky
+// setter validates a posted lucky_bonus against THESE two constants rather
+// than hand-copying the range the lucky SPECIAL_RULES entry's `paying`
+// predicate enforces below — one owner of "what bonus range is legal,"
+// consulted by the writer and the reader alike.
+const LUCKY_MIN_BONUS = 1;
+const LUCKY_MAX_BONUS = 3;
+
 const FLASH_NONE = 'none';
 const FLASH_SCHEDULED = 'scheduled';
 const FLASH_ACTIVE = 'active';
@@ -318,6 +330,7 @@ const FLASH_EXPIRED = 'expired';
 // a third constant the same way.
 const SPECIAL_DAILY = 'daily';
 const SPECIAL_FLASH = 'flash';
+const SPECIAL_LUCKY = 'lucky';
 
 // The bonus_reason literals SPECIAL_RULES' `reason` fields write into
 // submissions.bonus_reason (issue #761 review fix — all three reviewers).
@@ -345,6 +358,12 @@ const SPECIAL_FLASH = 'flash';
 // 'oneday' row means without a migration.
 const BONUS_REASON_ONEDAY = 'oneday';
 const BONUS_REASON_FLASH = 'flash';
+// Deliberately the SAME spelling as SPECIAL_LUCKY ('lucky') above, unlike the
+// daily/oneday and flash/flash pairs — there is no pre-existing 'lucky'
+// vocabulary anywhere this issue's rows predate, so there was never a reason
+// to invent a second spelling for the same rule the way 'daily'/'oneday'
+// diverged for historical reasons (see that pair's own comment above).
+const BONUS_REASON_LUCKY = 'lucky';
 
 /**
  * True for a value that is BOTH shaped like the pinned flash-instant form,
@@ -639,6 +658,44 @@ const SPECIAL_RULES = [
     },
     paying: (row, clock) => flashState(row, clock.nowMs) === FLASH_ACTIVE,
   },
+  {
+    kind: SPECIAL_LUCKY,
+    // lucky_bonus carries no CHECK/pairing constraint at all (see
+    // tasks.lucky_date's own column comment, src/db.js) -- the bonus-range
+    // check inside `paying` below is the read-side half of the pairing
+    // enforcement the schema no longer provides, exactly mirroring flash's
+    // own comment one entry up: a row with lucky_date set and lucky_bonus
+    // NULL (or out of range) must not pay.
+    bonusColumn: 'lucky_bonus',
+    reason: BONUS_REASON_LUCKY,
+    // The one special that does NOT bank on a replace (issue #650's canon
+    // rule 11 amendment): a guest whose OWN prior submission on this task
+    // survives (as a soft takedown, photos.hideSubmission) and re-uploads on
+    // the lucky day must not win the bonus -- only a guest's FIRST-ever
+    // completion of the task can. Daily and flash omit this key entirely
+    // (their return grows an undefined third key bonusForTask's `toEqual`
+    // callers ignore, issue #650 plan step 2) -- banksOnReplace: false is
+    // the one explicit override, read by submissions.js's replace branch,
+    // never defaulted to true anywhere in THIS file.
+    banksOnReplace: false,
+    // Appended LAST (issue #650 plan step 2): daily and flash each wear a
+    // guest-visible marker advertising what will bank ("Today Only" / the
+    // flash countdown pill); lucky wears none. Landing lucky ahead of either
+    // would let a task display one of those markers while the submission
+    // actually banked the lucky amount instead -- defensive ordering for a
+    // legacy/raced row matching two rules, unreachable through the UI once
+    // the setter guard (src/routes/admin.js) refuses the pair, but the safe
+    // slot regardless.
+    spokenFor: (row, clock) => !!(row && row.lucky_date && row.lucky_date >= clock.todayIso),
+    paying: (row, clock) =>
+      !!(
+        row &&
+        row.lucky_date === clock.todayIso &&
+        Number.isInteger(row.lucky_bonus) &&
+        row.lucky_bonus >= LUCKY_MIN_BONUS &&
+        row.lucky_bonus <= LUCKY_MAX_BONUS
+      ),
+  },
 ];
 
 /**
@@ -694,7 +751,7 @@ function findSpecialRule(taskRow, clock) {
  * @param {{todayIso: string, nowMs: number}} clock - todayIso: YYYY-MM-DD,
  *   the event-local "today" (see isSealed/isOnDay); nowMs: epoch
  *   milliseconds (see flashState).
- * @returns {'daily'|'flash'|null}
+ * @returns {'daily'|'flash'|'lucky'|null}
  */
 function whatSpecial(taskRow, clock) {
   const rule = findSpecialRule(taskRow, clock);
@@ -740,9 +797,19 @@ function whatSpecial(taskRow, clock) {
  * third consumer from forgetting it and writing the exact reason-beside-zero
  * state both branches' comments forbade.
  *
+ * `banksOnReplace` is passed through UNCHANGED from the matched rule (issue
+ * #650 plan step 2) -- never defaulted here. Daily and flash omit the key
+ * entirely, so their returned object grows an `undefined` third key, which
+ * `toEqual` ignores in every existing caller's assertions; only lucky sets it
+ * to the literal `false`. The "anything other than `false` banks" default is
+ * applied by the CONSUMER (src/services/submissions.js's replace branch), not
+ * baked into this return shape -- defaulting it here to `true` would add a
+ * DEFINED key to daily/flash's returns and turn several existing assertions
+ * red (see tests/flash-engine.test.js's `toEqual` checks on this function).
+ *
  * @param {object} taskRow
  * @param {{todayIso: string, nowMs: number}} clock - see whatSpecial above.
- * @returns {{reason: string|null, amount: number}|null}
+ * @returns {{reason: string|null, amount: number, banksOnReplace?: boolean}|null}
  */
 function bonusForTask(taskRow, clock) {
   const rule = findSpecialRule(taskRow, clock);
@@ -751,7 +818,7 @@ function bonusForTask(taskRow, clock) {
   }
   const raw = taskRow[rule.bonusColumn];
   const amount = rule.coalesceNullAmount ? (raw ?? 0) : raw;
-  return { reason: amount > 0 ? rule.reason : null, amount };
+  return { reason: amount > 0 ? rule.reason : null, amount, banksOnReplace: rule.banksOnReplace };
 }
 
 /**
@@ -859,10 +926,14 @@ module.exports = {
   FLASH_SCHEDULED,
   FLASH_ACTIVE,
   FLASH_EXPIRED,
+  LUCKY_MIN_BONUS,
+  LUCKY_MAX_BONUS,
   SPECIAL_DAILY,
   SPECIAL_FLASH,
+  SPECIAL_LUCKY,
   BONUS_REASON_ONEDAY,
   BONUS_REASON_FLASH,
+  BONUS_REASON_LUCKY,
   isValidFlashInstant,
   flashWindow,
   flashState,
