@@ -1162,3 +1162,38 @@ computed (the guest countdown targets `endMs`, the drain fill divides by `totalM
 arithmetic a second time in the route would let the clock and the fill disagree the moment the window's
 shape changes. The "no SQL-fragment counterpart" claim in the #761 point (2) still holds for both
 functions — neither ships one, for the same reason stated there.
+
+## Admin Photos, task-scoped: taken-down included, feed narrowed, H1 reads the scope (#748)
+
+**Date:** 2026-07-22. **Status:** accepted, no visual-approval loop needed (no new pixel — see the
+issue's own Non-goals).
+
+`GET /admin/photos?view=task&task=<id>` (`src/routes/admin.js`) now scopes the existing by-task wall to a
+single task instead of ignoring `task` entirely. Three divergences from the unscoped `view=task` wall this
+scope deliberately introduces, and why:
+
+**Taken-down submissions are included, not filtered.** The unscoped `view=task`/`view=user` wall shows
+LIVE submissions only (`taken_down = 0`) — moderation state is judged elsewhere, in Recent or the inline
+feed. The scoped view drops that filter for its one group. The reason a host taps a task's photo count in
+the first place is to review and moderate that task's entries; a taken-down photo they can no longer see
+is a photo they can no longer restore. Hiding it from the one screen built for judging that task would
+defeat the screen's own purpose.
+
+**The inline feed panel is scoped too, not held at every submission.** Before this issue, `photos` (and
+therefore the feed panel `src/views/admin-photos.ejs` renders from it) always carried the FULL submission
+set regardless of `?view=`/`?q=`, so tapping any tile from any view could land on that photo's feed card.
+A scoped request narrows the SAME query (`WHERE s.task_id = ?`) instead of running a second one, so
+`photos` becomes that one task's submissions — the feed panel is scoped along with everything else derived
+from it. This was the plan's own design, not an oversight: narrowing one query keeps the H1 count, the
+group, and the feed permanently in sync with no separate bookkeeping, and a scoped session has no reason
+to tap into another task's photo anyway (its own tiles are the only ones on screen).
+
+**The H1 count becomes the scoped task's count, not the wall total.** `<%= photos.length %> photo(s)` in
+the page header reads the scoped `photos` array directly — this is a consequence of the point above, not a
+separate special case, but it is worth stating plainly: the Tasks admin page's own "N photos" count next
+to each task card (`src/views/admin-tasks.ejs`) counts LIVE submissions only (`taken_down = 0`,
+`src/routes/admin.js`'s `GET /admin/tasks`), while this scoped heading counts live AND taken-down together.
+A task with 3 live photos and 1 taken down reads "3 photos" on the Tasks board and "4 photos" once the host
+taps through to the scoped Photos view — expected, not a bug, given the first divergence above; the two
+counts are deliberately answering different questions ("how many can a guest see" vs. "how many exist for
+me to judge").

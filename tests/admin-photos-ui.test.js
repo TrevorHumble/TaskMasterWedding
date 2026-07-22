@@ -585,3 +585,289 @@ describe('AC8: removing a badge decrements N/5 and clears the highlight', () => 
     expect(row).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #748 — GET /admin/photos?view=task&task=<id> scopes the by-task wall
+// to a single task: taken-down submissions included (moderation), q ignored,
+// and the scope carried through every mutating form's redirect.
+// ---------------------------------------------------------------------------
+describe('#748: task-scoped view=task&task=<id>', () => {
+  describe("AC1: the scoped group holds exactly that task's 4 submissions (taken-down included, other tasks/memories excluded)", () => {
+    let scopedTaskId;
+
+    beforeAll(() => {
+      scopedTaskId = insertTask('748 Scoped Task');
+      const otherTaskId = insertTask('748 Other Task');
+
+      const g1 = insertGuest('748 Scoped Guest 1', '748-scoped-1');
+      const g2 = insertGuest('748 Scoped Guest 2', '748-scoped-2');
+      const g3 = insertGuest('748 Scoped Guest 3', '748-scoped-3');
+      const g4 = insertGuest('748 Scoped Guest 4', '748-scoped-4');
+      insertSubmission({
+        guestId: g1,
+        taskId: scopedTaskId,
+        photoPath: '748-s1.jpg',
+        thumbPath: '748-s1-t.jpg',
+      });
+      insertSubmission({
+        guestId: g2,
+        taskId: scopedTaskId,
+        photoPath: '748-s2.jpg',
+        thumbPath: '748-s2-t.jpg',
+      });
+      insertSubmission({
+        guestId: g3,
+        taskId: scopedTaskId,
+        photoPath: '748-s3.jpg',
+        thumbPath: '748-s3-t.jpg',
+      });
+      insertSubmission({
+        guestId: g4,
+        taskId: scopedTaskId,
+        photoPath: '748-s4-down.jpg',
+        thumbPath: '748-s4-down-t.jpg',
+        takenDown: 1,
+      });
+
+      // Noise the scoped group must exclude: another task's submission, and a
+      // memory (task_id NULL).
+      const gOther = insertGuest('748 Other Guest', '748-other');
+      insertSubmission({
+        guestId: gOther,
+        taskId: otherTaskId,
+        photoPath: '748-other.jpg',
+        thumbPath: '748-other-t.jpg',
+      });
+      const gMem = insertGuest('748 Memory Guest', '748-memory');
+      insertSubmission({
+        guestId: gMem,
+        taskId: null,
+        photoPath: '748-memory.jpg',
+        thumbPath: '748-memory-t.jpg',
+      });
+    });
+
+    it('renders exactly one group headed by the task title, containing all 4 submissions and no others', async () => {
+      const res = await adminAgent.get('/admin/photos?view=task&task=' + scopedTaskId);
+      expect(res.status).toBe(200);
+      const grid = gridOnly(res.text);
+      expect(grid).toContain('<h2 class="gallery-group-heading">748 Scoped Task</h2>');
+      // Exactly one group — no other task's group renders alongside it.
+      expect((grid.match(/gallery-group-heading/g) || []).length).toBe(1);
+      expect(grid).toContain('/thumbs/748-s1-t.jpg');
+      expect(grid).toContain('/thumbs/748-s2-t.jpg');
+      expect(grid).toContain('/thumbs/748-s3-t.jpg');
+      expect(grid).toContain('/thumbs/748-s4-down-t.jpg');
+      expect(grid).not.toContain('/thumbs/748-other-t.jpg');
+      expect(grid).not.toContain('/thumbs/748-memory-t.jpg');
+    });
+
+    it('the taken-down submission is included and marked "Taken down" (moderation needs it visible)', async () => {
+      const res = await adminAgent.get('/admin/photos?view=task&task=' + scopedTaskId);
+      const chunk = tileChunk(res.text, '748-s4-down-t.jpg');
+      expect(chunk).toContain('admin-tile-down">Taken down<');
+    });
+
+    it('the group\'s own count AND the page H1 count both read "4 photos"', async () => {
+      const res = await adminAgent.get('/admin/photos?view=task&task=' + scopedTaskId);
+      expect(res.text).toContain('<span class="gallery-count">4 photos</span>');
+      expect(res.text).toContain('<span class="gallery-group-count">4 photos</span>');
+    });
+  });
+
+  describe('AC2: a task with no submissions renders the visible empty state, not a blank body', () => {
+    it('responds 200 with "No photos submitted yet." and no group heading', async () => {
+      const emptyTaskId = insertTask('748 Empty Task');
+      const res = await adminAgent.get('/admin/photos?view=task&task=' + emptyTaskId);
+      expect(res.status).toBe(200);
+      const grid = gridOnly(res.text);
+      expect(grid).toContain('No photos submitted yet.');
+      expect(grid).not.toContain('gallery-group-heading');
+    });
+  });
+
+  describe('AC3: an absent, non-numeric, or unknown task param leaves the request unscoped', () => {
+    let taskAId;
+    let taskBId;
+
+    beforeAll(() => {
+      taskAId = insertTask('748 Wall Task A');
+      taskBId = insertTask('748 Wall Task B');
+      const gA = insertGuest('748 Wall Guest A', '748-wall-a');
+      const gB = insertGuest('748 Wall Guest B', '748-wall-b');
+      insertSubmission({
+        guestId: gA,
+        taskId: taskAId,
+        photoPath: '748-wall-a.jpg',
+        thumbPath: '748-wall-a-t.jpg',
+      });
+      insertSubmission({
+        guestId: gB,
+        taskId: taskBId,
+        photoPath: '748-wall-b.jpg',
+        thumbPath: '748-wall-b-t.jpg',
+      });
+    });
+
+    it('an absent task renders the full by-task wall (both tasks grouped) — not view=recent', async () => {
+      const res = await adminAgent.get('/admin/photos?view=task');
+      expect(res.status).toBe(200);
+      const grid = gridOnly(res.text);
+      expect(grid).toContain('748 Wall Task A');
+      expect(grid).toContain('748 Wall Task B');
+      // Proves this is still the task/user view, not the recent fallback,
+      // which never shows a search box (AC3 of issue #259).
+      expect(res.text).toContain('class="gallery-search"');
+    });
+
+    it('a non-numeric task (e.g. "12abc") renders the full by-task wall', async () => {
+      const res = await adminAgent.get('/admin/photos?view=task&task=12abc');
+      expect(res.status).toBe(200);
+      const grid = gridOnly(res.text);
+      expect(grid).toContain('748 Wall Task A');
+      expect(grid).toContain('748 Wall Task B');
+    });
+
+    it('an unknown task id renders the full by-task wall', async () => {
+      const res = await adminAgent.get('/admin/photos?view=task&task=999999');
+      expect(res.status).toBe(200);
+      const grid = gridOnly(res.text);
+      expect(grid).toContain('748 Wall Task A');
+      expect(grid).toContain('748 Wall Task B');
+    });
+
+    it('a repeated task param (Express hands back an array) renders the full by-task wall', async () => {
+      const res = await adminAgent.get(
+        '/admin/photos?view=task&task=' + taskAId + '&task=' + taskBId
+      );
+      expect(res.status).toBe(200);
+      const grid = gridOnly(res.text);
+      expect(grid).toContain('748 Wall Task A');
+      expect(grid).toContain('748 Wall Task B');
+    });
+  });
+
+  describe('AC4: a mutating POST from the scoped view redirects back to the same scope', () => {
+    let scopedTaskId;
+    let submissionId;
+
+    beforeAll(() => {
+      scopedTaskId = insertTask('748 Mutate Task');
+      const guestId = insertGuest('748 Mutate Guest', '748-mutate');
+      submissionId = insertSubmission({
+        guestId,
+        taskId: scopedTaskId,
+        photoPath: '748-mutate.jpg',
+        thumbPath: '748-mutate-t.jpg',
+      });
+    });
+
+    it('takedown redirects to a Location containing view=task and task=<id>', async () => {
+      const res = await adminAgent
+        .post('/admin/photos/' + submissionId + '/takedown')
+        .type('form')
+        .send({ view: 'task', task: String(scopedTaskId) });
+      expect(res.status).toBe(303);
+      expect(res.headers.location).toContain('view=task');
+      expect(res.headers.location).toContain('task=' + scopedTaskId);
+    });
+
+    it('restore redirects to a Location containing view=task and task=<id>', async () => {
+      const res = await adminAgent
+        .post('/admin/photos/' + submissionId + '/restore')
+        .type('form')
+        .send({ view: 'task', task: String(scopedTaskId) });
+      expect(res.status).toBe(303);
+      expect(res.headers.location).toContain('view=task');
+      expect(res.headers.location).toContain('task=' + scopedTaskId);
+    });
+
+    it('favorite redirects to a Location containing view=task and task=<id>', async () => {
+      const res = await adminAgent
+        .post('/admin/photos/' + submissionId + '/favorite')
+        .type('form')
+        .send({ view: 'task', task: String(scopedTaskId) });
+      expect(res.status).toBe(303);
+      expect(res.headers.location).toContain('view=task');
+      expect(res.headers.location).toContain('task=' + scopedTaskId);
+    });
+
+    it('a badge award redirects to a Location containing view=task and task=<id>', async () => {
+      const res = await adminAgent
+        .post('/admin/photos/' + submissionId + '/badge')
+        .type('form')
+        .send({ code: 'SHUTTERBUG', action: 'award', view: 'task', task: String(scopedTaskId) });
+      expect(res.status).toBe(303);
+      expect(res.headers.location).toContain('view=task');
+      expect(res.headers.location).toContain('task=' + scopedTaskId);
+    });
+
+    it('an absent task field produces no task= in the redirect (pre-#748 behavior unaffected)', async () => {
+      const res = await adminAgent
+        .post('/admin/photos/' + submissionId + '/favorite')
+        .type('form')
+        .send({ view: 'recent' });
+      expect(res.status).toBe(303);
+      expect(res.headers.location).toContain('view=recent');
+      expect(res.headers.location).not.toContain('task=');
+    });
+
+    // The redirect assertions above synthesize the POST body themselves, so
+    // they would still pass if the page rendered no `task` field at all —
+    // i.e. if a real host's click sent nothing to carry. This asserts the
+    // view half of that round-trip: the scope is actually in the markup the
+    // browser posts back, and is blank (not 'undefined'/'null') when there
+    // is no scope to carry.
+    it('a scoped page renders the hidden task field, and an unscoped page renders it empty', async () => {
+      const scoped = await adminAgent.get('/admin/photos?view=task&task=' + scopedTaskId);
+      expect(scoped.status).toBe(200);
+      expect(scoped.text).toContain('name="task" value="' + scopedTaskId + '"');
+
+      const unscoped = await adminAgent.get('/admin/photos?view=recent');
+      expect(unscoped.status).toBe(200);
+      expect(unscoped.text).toContain('name="task" value=""');
+      expect(unscoped.text).not.toContain('name="task" value="' + scopedTaskId + '"');
+    });
+  });
+
+  describe('AC5: the Tasks admin page photo-count link carries the same view=task&task=<id> pair', () => {
+    it('the admin-task-photos href reads view=task&amp;task=<id> — the same pair the route reads', async () => {
+      const taskId = insertTask('748 Link Task');
+      const guestId = insertGuest('748 Link Guest', '748-link');
+      insertSubmission({
+        guestId,
+        taskId,
+        photoPath: '748-link.jpg',
+        thumbPath: '748-link-t.jpg',
+      });
+
+      const res = await adminAgent.get('/admin/tasks');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('href="/admin/photos?view=task&amp;task=' + taskId + '"');
+    });
+  });
+
+  describe("AC6: a scoped URL with ?q= ignores q and still renders the task's group", () => {
+    it('the scope wins regardless of whether q matches the task title', async () => {
+      const taskId = insertTask('748 Query Task');
+      const guestId = insertGuest('748 Query Guest', '748-query');
+      insertSubmission({
+        guestId,
+        taskId,
+        photoPath: '748-query.jpg',
+        thumbPath: '748-query-t.jpg',
+      });
+
+      const res = await adminAgent.get(
+        '/admin/photos?view=task&task=' +
+          taskId +
+          '&q=' +
+          encodeURIComponent('totally unrelated text')
+      );
+      expect(res.status).toBe(200);
+      const grid = gridOnly(res.text);
+      expect(grid).toContain('<h2 class="gallery-group-heading">748 Query Task</h2>');
+      expect(grid).toContain('/thumbs/748-query-t.jpg');
+    });
+  });
+});
