@@ -917,7 +917,7 @@ function leaderboard() {
 // second SQL statement (issue #487 design-philosophy review) — this
 // function stays the ONE place the guest_badges/badges join is written.
 const stmtGuestBadgesFull = db.prepare(
-  `SELECT b.id AS badge_id, b.code, b.name, b.art_path, b.type, b.description,
+  `SELECT b.id AS badge_id, b.code, b.name, b.art_path, b.type, b.threshold, b.description,
           gb.awarded_by, gb.points, gb.created_at
      FROM guest_badges gb
      JOIN badges b ON b.id = gb.badge_id
@@ -929,10 +929,12 @@ const stmtGuestBadgesFull = db.prepare(
 
 /**
  * All badges a guest currently holds, each with { badge_id, code, name,
- * art_path, type, description, awarded_by, points, created_at, pointsLabel }.
- * Used by the section 04 home page, the section 07 public profile (via
- * community.js's re-sorting wrapper), the leaderboard, and the section 08
- * admin guest view.
+ * art_path, type, threshold, description, awarded_by, points, created_at,
+ * pointsLabel }. Used by the section 04 home page, the section 07 public
+ * profile (via community.js's re-sorting wrapper), the leaderboard, the
+ * section 08 admin guest view, and (issue #714) primaryNewBadge below, which
+ * is the reason `threshold` rides along on every row rather than being a
+ * second query only that caller runs.
  *
  * pointsLabel (issue #487) is the ONE place "show a points suffix only when
  * the award is worth something" is decided: "+<points> pts" when points > 0,
@@ -948,6 +950,126 @@ function getGuestBadges(guestId) {
     ...b,
     pointsLabel: b.points > 0 ? `+${b.points} pts` : '',
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Celebration priority (issue #714): which of several newly-earned badges the
+// guest.js task-complete modal features, when a single submit crosses more
+// than one badge at once.
+// ---------------------------------------------------------------------------
+
+// Ranks a badge's `type`, never its `code` — the whole point of this issue is
+// that no badge code appears anywhere in the ordering rule (see the issue's
+// "derived rule" section). auto outranks metric so an auto badge (BLOOM/
+// BOUQUET/GARDEN) still wins over COMPLETIONIST, reproducing #255's shipped
+// choice. The map covers every value badges.type's CHECK constraint permits
+// today (src/db.js) — auto/special/metric/transferable/custom — so the
+// UNRANKED_BADGE_TYPE_RANK fallback below is unreachable through the database;
+// it exists only so that widening that CHECK later without touching this map
+// degrades to "sorts last" instead of an undefined rank poisoning the
+// comparison with NaN.
+const BADGE_TYPE_RANK = {
+  auto: 0,
+  metric: 1,
+  transferable: 2,
+  custom: 3,
+  special: 4,
+};
+
+// The rank an unlisted type takes. Deliberately NOT "one past the current
+// last entry": a literal like 5 stops meaning "last" the moment someone adds
+// a sixth type to the map above and gives it that number, at which point a
+// still-unlisted type would tie with a listed one instead of sorting behind
+// it — and no test would notice.
+const UNRANKED_BADGE_TYPE_RANK = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Pure comparator ordering two badge-shaped objects ({ type, threshold, code })
+ * by celebration priority: type rank ascending, then threshold descending (a
+ * higher completed-task threshold is the more impressive badge — 15 beats 10
+ * beats 5), then code ascending as a deterministic tiebreak so two badges
+ * identical on the first two keys never fall back to array order. Exported
+ * (AC3) because badges.type's CHECK constraint makes the unlisted-type branch
+ * unreachable through the database — a synthetic row passed straight to this
+ * function is the only way to exercise it.
+ *
+ * Always returns a finite number, never NaN or undefined: an unlisted `type`
+ * takes UNRANKED_BADGE_TYPE_RANK (sorts last), and a `null` or non-numeric
+ * `threshold` sorts last within its own type rank rather than comparing as
+ * NaN against a real number. The threshold step returns a sign rather than a
+ * difference so its -Infinity sentinel can never leak out as the result.
+ *
+ * @param {{type: string, threshold: ?number, code: string}} a
+ * @param {{type: string, threshold: ?number, code: string}} b
+ * @returns {number} negative if a precedes b, positive if b precedes a, 0 if tied
+ */
+function compareBadgeMoment(a, b) {
+  const rankA = BADGE_TYPE_RANK[a.type] ?? UNRANKED_BADGE_TYPE_RANK;
+  const rankB = BADGE_TYPE_RANK[b.type] ?? UNRANKED_BADGE_TYPE_RANK;
+  if (rankA !== rankB) {
+    return rankA - rankB;
+  }
+
+  // typeof-guard rather than `?? -Infinity`: `??` only substitutes for
+  // null/undefined, so a non-numeric threshold (defensive; the column is
+  // INTEGER but a synthetic AC3 row could hand this any shape) would still
+  // reach a numeric subtraction and produce NaN without this check.
+  const thresholdA = typeof a.threshold === 'number' ? a.threshold : -Infinity;
+  const thresholdB = typeof b.threshold === 'number' ? b.threshold : -Infinity;
+  if (thresholdA !== thresholdB) {
+    // A sign, not `thresholdB - thresholdA`: subtracting the -Infinity
+    // sentinel would return ±Infinity as this comparator's own result. Sorting
+    // reads only the sign either way, but a caller inspecting the number (a
+    // test, a future re-use) should never see the sentinel leak out.
+    return thresholdA > thresholdB ? -1 : 1; // descending: higher threshold first
+  }
+
+  // Deterministic tiebreak — never the order the caller's array arrived in.
+  if (a.code < b.code) return -1;
+  if (a.code > b.code) return 1;
+  return 0;
+}
+
+/**
+ * Resolve which of a submit's newly-earned badge codes the task-complete
+ * modal celebrates (issue #714, replacing the retired BADGE_MOMENT_PRIORITY
+ * hard-coded list in src/routes/guest.js). Reproduces #255's shipped choice
+ * exactly for today's catalog, but reads each candidate's own `type` and
+ * `threshold` off the badges table via getGuestBadges/compareBadgeMoment
+ * rather than a maintained code list — a new catalog badge is ranked on its
+ * own fields the moment it becomes earnable, with no second place to update.
+ *
+ * Returns null immediately for an empty or non-array `newBadgeCodes`, before
+ * calling getGuestBadges — a no-badge submit is the common case (every
+ * ordinary task completion) and must not gain a query the deleted route guard
+ * used to skip via its own `if (reward.newBadgeIds.length > 0)` check.
+ *
+ * `newBadgeCodes` is resolved against the guest's CURRENT held badges, and any
+ * code the guest does not hold is silently dropped — the same defensive
+ * behaviour the retired route code had (a badge id that no longer resolves is
+ * not expected to happen within the same redirect, but degrades to "skip it"
+ * rather than throwing).
+ *
+ * @param {number} guestId
+ * @param {Array<string>} newBadgeCodes - codes this submit newly earned
+ *   (reward.newBadgeIds, src/middleware/session.js's one-shot taskComplete
+ *   cookie payload)
+ * @returns {object|null} the celebrated badge row (getGuestBadges shape), or
+ *   null when there is nothing to celebrate
+ */
+function primaryNewBadge(guestId, newBadgeCodes) {
+  if (!Array.isArray(newBadgeCodes) || newBadgeCodes.length === 0) {
+    return null;
+  }
+
+  const heldBadges = getGuestBadges(guestId);
+  const earnedBadges = heldBadges.filter((b) => newBadgeCodes.includes(b.code));
+  if (earnedBadges.length === 0) {
+    return null;
+  }
+
+  earnedBadges.sort(compareBadgeMoment);
+  return earnedBadges[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -1022,6 +1144,8 @@ module.exports = {
   memoryDayCount,
   memoryDaysFor,
   getGuestBadges,
+  compareBadgeMoment,
+  primaryNewBadge,
   badgeWithHolders,
   recomputeBadges,
   recomputeTransferableBadges,
