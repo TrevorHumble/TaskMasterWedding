@@ -646,12 +646,6 @@ router.post('/bug-report', socialRateLimiter, function (req, res) {
   return res.redirect('/');
 });
 
-// When one submission earns more than one new badge (rare — e.g. an auto
-// badge plus COMPLETIONIST at once), the modal celebrates a single PRIMARY
-// badge by this fixed priority (design, #255). The rest are still awarded
-// and appear on the guest's profile — one modal, one badge (v1).
-const BADGE_MOMENT_PRIORITY = ['GARDEN', 'BOUQUET', 'BLOOM', 'COMPLETIONIST'];
-
 // ---------------------------------------------------------------------------
 // GET /tasks/:id  — one task's detail + the upload form. If the guest has
 // already submitted, show their photo (or, if a host took it down, the
@@ -754,7 +748,11 @@ router.get('/tasks/:id', function (req, res) {
   // Badge codes are resolved against the guest's CURRENT held badges rather
   // than trusted as-is, so a badge id that no longer resolves (defensive; not
   // expected to happen within the same redirect) is silently dropped instead
-  // of rendering a blank badge entry.
+  // of rendering a blank badge entry. Which ONE of several newly-earned badges
+  // gets the modal is scoring.primaryNewBadge's rule to state, not this
+  // route's (issue #714) — restating the ordering keys here would recreate in
+  // prose the second copy that issue exists to delete. It returns null
+  // outright for an empty newBadgeIds, so no separate length guard is needed.
   let taskComplete = null;
   let badgeMoment = null;
   if (res.locals.taskCompleteReward) {
@@ -768,35 +766,17 @@ router.get('/tasks/:id', function (req, res) {
       ),
     };
 
-    if (reward.newBadgeIds.length > 0) {
-      const heldBadges = scoring.getGuestBadges(guest.id);
-      const earnedBadges = heldBadges.filter((b) => reward.newBadgeIds.includes(b.code));
-
-      // Pick the primary badge by fixed priority; if none of the earned
-      // badges appear in the priority list (a future code not yet added to
-      // it), fall back to the first earned badge rather than showing none.
-      let primary = null;
-      for (const code of BADGE_MOMENT_PRIORITY) {
-        primary = earnedBadges.find((b) => b.code === code);
-        if (primary) {
-          break;
-        }
-      }
-      if (!primary) {
-        primary = earnedBadges[0] || null;
-      }
-
-      if (primary) {
-        // Use the badge's OWN catalog data — its name is the title, its
-        // description is the subtitle (scripts/badge-catalog.js). No invented
-        // per-badge copy: the modal shows only what the badge actually carries.
-        badgeMoment = {
-          code: primary.code,
-          name: primary.name,
-          art_path: primary.art_path,
-          description: primary.description,
-        };
-      }
+    const primary = scoring.primaryNewBadge(guest.id, reward.newBadgeIds);
+    if (primary) {
+      // Use the badge's OWN catalog data — its name is the title, its
+      // description is the subtitle (scripts/badge-catalog.js). No invented
+      // per-badge copy: the modal shows only what the badge actually carries.
+      badgeMoment = {
+        code: primary.code,
+        name: primary.name,
+        art_path: primary.art_path,
+        description: primary.description,
+      };
     }
   }
 

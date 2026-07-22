@@ -1197,3 +1197,36 @@ A task with 3 live photos and 1 taken down reads "3 photos" on the Tasks board a
 taps through to the scoped Photos view — expected, not a bug, given the first divergence above; the two
 counts are deliberately answering different questions ("how many can a guest see" vs. "how many exist for
 me to judge").
+
+## Badge celebration priority derived from the catalog, not a code list (#714)
+
+`src/routes/guest.js` used to pick which badge a multi-badge submit celebrates from a literal array,
+`BADGE_MOMENT_PRIORITY = ['GARDEN', 'BOUQUET', 'BLOOM', 'COMPLETIONIST']` (#255) — a second, hand-maintained
+copy of facts the badge catalog (`scripts/badge-catalog.js`) already states as each row's own `type` and
+`threshold`. A code left off that list didn't error; it silently fell through to `earnedBadges[0]`, whose
+result depended on `getGuestBadges`'s SQL `ORDER BY` rather than any stated design — a new catalog badge
+could end up celebrated or not celebrated by accident of insertion order, with no test able to tell the
+difference from "working as designed."
+
+`scoring.compareBadgeMoment(a, b)` replaces the list with a pure three-key comparator over each badge's own
+`type` and `threshold`: type rank ascending (`auto` = 0 outranks `metric` = 1, reproducing #255's shipped
+"an auto badge beats COMPLETIONIST" choice), then threshold descending (a higher completed-task threshold
+is the more impressive badge), then `code` ascending as a deterministic tiebreak.
+`scoring.primaryNewBadge(guestId, newBadgeCodes)` resolves a submit's newly-earned codes against the
+guest's current holdings and returns the winner by this comparator, or `null` for an empty/no-match set —
+the single function `src/routes/guest.js`'s `GET /tasks/:id` now calls instead of carrying its own loop. No
+badge code appears anywhere in either function; a catalog addition is ranked on its own fields the moment
+it becomes earnable, with no second place a reviewer or a future author needs to remember to update.
+
+The type-rank map (`auto`/`metric`/`transferable`/`custom`/`special`) covers every value `badges.type`'s
+CHECK constraint (`src/db.js`) permits today, so an unlisted type is unreachable through the database — it
+exists only so a future widened CHECK degrades to "sorts last" rather than an `undefined` rank poisoning the
+comparison with `NaN`. `compareBadgeMoment` is exported specifically so a test can assert that fallback on a
+synthetic object, since the CHECK constraint makes it otherwise impossible to construct a real row that
+exercises it.
+
+Deliberately out of scope: `BADGE_THRESHOLDS` (`src/services/scoring.js`), which still drives which auto
+badges are _granted_ — `recomputeBadges` iterates that array, not the catalog. Deriving grant thresholds
+from the catalog would make `src/services/scoring.js` depend on `scripts/`, inverting today's layering, and
+touches guest-critical granting rather than celebration ordering; it is separate work, recorded as a
+deferred finding on parking issue #588.
