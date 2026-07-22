@@ -1,0 +1,73 @@
+<%# src/views/partials/special-oneday-option.ejs
+    Issue #755 (the host surface for the #624 umbrella): the "One day only"
+    option in the Special radio, plus the accordion panel that opens under it
+    when it is picked.
+
+    ONE partial, included by BOTH task-create-dialog.ejs (step 2) and
+    task-edit-dialog.ejs, so the two surfaces cannot drift — the create flow
+    and the edit popup are the same control. #649 (Flash) and #650 (Lucky) add
+    their own sibling partials in the same .special-option-group shape; none of
+    them restructure the existing None/Hidden markup.
+
+    The panel is shown by CSS alone (.special-option-group:has(input:checked)),
+    not JavaScript — same `:has(input:checked)` mechanism the worth chips and
+    the Special radio already use, so it needs no admin-tasks.js wiring and
+    works before that script loads.
+
+    Locals:
+      idPrefix   — 'task-create' | 'task-edit'; keeps element ids unique when
+                   both dialogs are on the same page (admin-tasks.ejs includes
+                   both).
+      eventDays  — REQUIRED, [{ iso, label }] from the #681 Configuration
+                   page's wedding dates, via src/services/event-days.js
+                   eventDays(), passed by src/routes/admin.js's GET
+                   /admin/tasks render locals and merged into both includes
+                   by EJS. No fallback (issue #755) — an admin-tasks render
+                   missing this local throws on `.forEach` and 500s the page,
+                   deliberately, rather than silently falling back to a
+                   stale literal day list.
+
+    No selection state lives in this partial (issue #755) — every chip
+    renders unchecked. Create defaults (first configured day, +1) come from
+    admin-tasks.js's resetCreate(); edit state (the stored day/bonus, or the
+    hidden re-post of a stale date matching no chip) comes from openEdit().
+%>
+<div class="special-option-group">
+  <label class="special-option">
+    <input type="radio" name="special_mode" value="oneday" />
+    <span class="special-option-face">
+      <span class="special-option-title">One day only</span>
+      <span class="special-option-sub">Hidden until its day, then worth extra for that day</span>
+    </span>
+  </label>
+
+  <div class="special-panel">
+    <div class="special-panel-field">
+      <span class="field-label" id="<%= idPrefix %>-day-label">Which day</span>
+      <div class="day-chips" role="radiogroup" aria-labelledby="<%= idPrefix %>-day-label">
+        <% eventDays.forEach(function (d) { %>
+          <label class="worth-chip day-chip">
+            <input type="radio" name="special_date" value="<%= d.iso %>" />
+            <span class="worth-chip-face"><%= d.label %></span>
+          </label>
+        <% }); %>
+      </div>
+    </div>
+
+    <div class="special-panel-field">
+      <span class="field-label" id="<%= idPrefix %>-bonus-label">Bonus on that day</span>
+      <div class="worth-chips" role="radiogroup" aria-labelledby="<%= idPrefix %>-bonus-label">
+        <% [1, 2, 3].forEach(function (n) { %>
+          <label class="worth-chip">
+            <input type="radio" name="special_bonus" value="<%= n %>" />
+            <span class="worth-chip-face">+<%= n %> pt<%= n === 1 ? '' : 's' %></span>
+          </label>
+        <% }); %>
+      </div>
+      <p class="special-panel-hint">
+        Guests who post on that day earn the task&rsquo;s points plus this bonus. After
+        the day, the task stays open at its normal points.
+      </p>
+    </div>
+  </div>
+</div>

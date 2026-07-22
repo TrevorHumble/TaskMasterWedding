@@ -14,10 +14,9 @@
     own — it triggers the tapped task's own real, hidden per-task delete form
     rendered in admin-tasks.ejs's card list (`.admin-task-delete-form`,
     data-confirm + the real /admin/tasks/:id/delete action already baked in
-    server-side), via requestSubmit() (admin-tasks.js). The Special radio
-    ships None + Hidden only, built to receive One day only / Lucky / Flash as
-    additional accordion options in their own later issues (#624/#650/#649)
-    without restructuring this markup.
+    server-side), via requestSubmit() (admin-tasks.js). The Special radio ships
+    None, Hidden, and One day only (#755); Lucky/Flash (#650/#649) add their
+    own accordion options onto this same shape without restructuring it.
 %>
 <dialog id="task-edit-dialog" class="task-dialog" aria-labelledby="task-edit-title">
   <form class="task-dialog-form" id="task-edit-form" method="post">
@@ -68,10 +67,12 @@
       <legend class="field-label">Special</legend>
       <div class="special-radio" role="radiogroup" aria-label="Special task mode">
         <%#
-          #682 ships None + Hidden only — both self-explanatory, so no subtitle
-          (owner note 2026-07-20). The .special-option-face wrapper stays so the
-          later bonus specials (One day only / Lucky / Flash, #624/#650/#649)
-          drop in with their one-line subtitle + accordion panel unchanged.
+          #682 shipped None + Hidden, both self-explanatory, so neither carries
+          a subtitle (owner note 2026-07-20). #755 added One day only just
+          below, with its own subtitle + accordion panel. The
+          .special-option-face wrapper stays on None/Hidden anyway so the
+          remaining bonus specials (Lucky / Flash, #650/#649) can drop in on
+          this same shape unchanged.
         %>
         <label class="special-option">
           <input type="radio" name="special_mode" value="none" />
@@ -85,7 +86,17 @@
             <span class="special-option-title">Hidden</span>
           </span>
         </label>
+        <%- include('special-oneday-option', { idPrefix: 'task-edit', eventDays: eventDays }) %>
       </div>
+      <%# Carries a stored special_date that matches no rendered day chip
+          (issue #755 criteria 3/3b) — a stale-dated task's day fell outside
+          the currently configured wedding range. Disabled by default so it
+          posts nothing; admin-tasks.js's openEdit() enables it and sets its
+          value only for such a task, and disables it again the moment any
+          day chip is clicked, so the chips stay the only source of
+          special_date whenever one matches and the body never carries two
+          values for that field. %>
+      <input type="hidden" name="special_date" id="task-edit-special-date-stale" disabled />
     </fieldset>
 
     <footer class="task-dialog-foot task-dialog-foot-stacked">

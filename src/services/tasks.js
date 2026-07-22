@@ -37,18 +37,26 @@ const MODE_ONEDAY = 'oneday';
 // array is NOT the only place a new mode must be registered.
 //
 // 'oneday' (issue #753) is registered here and its CHECK widened in src/db.js
-// (ensureTaskSpecialDayColumns), but this issue ships NO host-facing screen —
-// neither task-create-dialog.ejs nor task-edit-dialog.ejs offers a "Special:
-// one-day-only" radio yet (that is #755's job), and admin.js's create/edit
-// handlers still route every posted special_mode through normalizeMode with
-// no companion special_date field to set. A host cannot reach 'oneday'
-// through the UI today; only a direct/hand-crafted POST could, and would
-// write special_mode = 'oneday' with special_date left NULL — inert (not
-// sealed: isSealed requires special_date; not excluded from Completionist:
-// that exclusion also keys on special_date), never a crash. #755 is the
-// screen that lets a host set special_date, and is deliberately ordered to
-// land LAST (see this issue's dependency map) specifically so nothing
-// downstream can misbehave before it does.
+// (ensureTaskSpecialDayColumns). #755 wired the host-facing screen: both
+// task-create-dialog.ejs and task-edit-dialog.ejs include the shared
+// special-oneday-option.ejs partial, offering a "One day only" radio that
+// opens a day/bonus accordion, and src/routes/admin.js's create/edit
+// handlers accept, validate and persist special_date/special_bonus alongside
+// special_mode. A host reaches 'oneday' through that UI now, and every save
+// that sets special_date does so through the paired write those handlers
+// share with the guard below.
+//
+// The inert state this comment used to describe as the ONLY way to reach
+// 'oneday' — special_mode='oneday' with special_date left NULL — is still
+// reachable, deliberately not closed off by #755's validation (architecture
+// review note): a hand-crafted EDIT POST that carries special_mode=oneday
+// while omitting/blanking special_date on a task ALREADY stored with a NULL
+// pair (an ordinary task) posts a pair equal to what is already stored, so
+// resolveSpecialPairWrite's pairChanged is false and its validation never
+// runs (src/routes/admin.js). The row this produces is still harmless: not
+// sealed (isSealed requires special_date), not excluded from Completionist
+// (that exclusion also keys on special_date), never a crash — same as
+// before this issue.
 //
 // Flash (issue #761) deliberately does NOT extend this list, and needs
 // NEITHER by-hand update below — a correction to what this comment used to
@@ -172,6 +180,37 @@ function isOnDay(taskRow, todayIso) {
  */
 function isValidDateString(value) {
   return typeof value === 'string' && ISO_DATE_RE.test(value);
+}
+
+/**
+ * True for a value that is BOTH shaped like a date (isValidDateString above)
+ * AND names a real calendar date — `isValidDateString('2026-13-45')` is
+ * true (it matches the shape) while this is false. `special_date` is
+ * free-form TEXT with no CHECK constraint tying it to a real calendar day
+ * (see isSealed's doc comment), so a caller that needs to know "can I safely
+ * do date math / render a label from this value" needs the stronger check,
+ * not just the shape one.
+ *
+ * The ONE owner of this combined check (issue #755 review fix — architecture
+ * lens): before this function existed, `src/routes/admin.js` carried its own
+ * local `isRealDate()` (round-tripping the parsed y/m/d through
+ * `Date.UTC()`) for exactly this purpose, duplicating logic this module
+ * already owns every other piece of. `src/routes/guest.js:176`/`:398` still
+ * check shape ONLY (`isValidDateString`), not reality — a value that passes
+ * shape but fails reality (e.g. `'2026-13-45'`) is not on guest.js's Touches
+ * list for this issue and is left exactly as it was, deliberately not
+ * upgraded to this stronger check here.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isRealDateString(value) {
+  if (!isValidDateString(value)) {
+    return false;
+  }
+  const [y, m, d] = value.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 
 /**
@@ -770,6 +809,7 @@ module.exports = {
   isSealed,
   isOnDay,
   isValidDateString,
+  isRealDateString,
   sealedTaskWhere,
   isChallenge,
   challengeTaskWhere,

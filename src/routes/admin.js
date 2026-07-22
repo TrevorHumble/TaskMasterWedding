@@ -70,7 +70,13 @@ const feed = require('../services/feed');
 const { streamExportZip } = require('../services/export');
 const { normalizeContact, isValidPin } = require('../services/identity');
 const { relativeTime } = require('../services/relative-time');
-const { timezoneOptions, isKnownTimezone, resolveSelectedZone } = require('../services/event-days');
+const {
+  timezoneOptions,
+  isKnownTimezone,
+  resolveSelectedZone,
+  eventDays: computeEventDays,
+  singleDayLabel,
+} = require('../services/event-days');
 const hostChecklist = require('../services/host-checklist');
 
 const router = express.Router();
@@ -291,20 +297,176 @@ router.get('/config', (req, res) => {
   });
 });
 
-// A real-calendar-date check, run before the two dates are compared. The
-// shape guard alone (/^\d{4}-\d{2}-\d{2}$/) would let an impossible date a
-// crafted POST supplies (2026-13-45, 2026-02-30) reach setEventConfig, where
-// it later makes eventDays() yield zero day chips downstream (#682/#646). So
-// past the shape check we round-trip the parts through a UTC Date and confirm
-// they survive — 2026-02-30 rolls to Mar 2 and fails the equality.
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-function isRealDate(s) {
-  if (!ISO_DATE_RE.test(s)) {
-    return false;
+// tasks.isRealDateString is the one owner of "shaped like a date AND a real
+// calendar day" — it round-trips y/m/d through Date.UTC(), so 2026-02-30
+// rolls to Mar 2 and fails, and 2026-13-45 fails outright. Three callers here
+// need exactly that question answered: the config route (an impossible date
+// reaching setEventConfig makes eventDays() yield zero day chips downstream —
+// #682/#646), GET /admin/tasks (does this task get a day chip), and POST
+// /admin/tasks/:id/active (may un-hide restore 'oneday').
+//
+// This is NOT the check every OTHER reader of special_date runs:
+// src/routes/guest.js checks SHAPE only (tasks.isValidDateString), not
+// reality. That is accepted, unchanged behavior — guest.js is not on issue
+// #755's Touches list — not a claim that every reader shares this guard.
+
+// True for a value that is a real date AND inside the CURRENTLY configured
+// wedding range (issue #755 criterion 3) — the write-path validator, used
+// only by resolveSpecialPairWrite below. A value can be a real calendar date
+// yet fail this, being dated outside a range the host has since narrowed —
+// exactly criterion 3b's stale-date case, which this refuses and the plain
+// reality check does not.
+function isConfiguredEventDay(value) {
+  if (!tasks.isRealDateString(value)) return false;
+  const cfg = getEventConfig();
+  return computeEventDays(cfg.startDate, cfg.endDate).some((d) => d.iso === value);
+}
+
+// Reason CODES resolveSpecialPairWrite refuses with (review fix, issue #755
+// design-philosophy pass) — mirrors resolveBadgeIcon's own
+// `{ok:false, reason:'missing'|'invalid'}` shape a few lines above: the
+// resolver reports WHAT went wrong, never HOW to word it, so create and edit
+// can phrase their own host-facing message. This matters concretely here —
+// unlike a bad badge pick, a refused CREATE discards the host's entire draft
+// (title, description, worth, badge — nothing was written), which the edit
+// route's refusal does not, so the two messages should not be forced to
+// share one string.
+const PAIR_REASON_INVALID_DATE = 'invalid_date';
+const PAIR_REASON_INVALID_BONUS = 'invalid_bonus';
+const PAIR_REASON_LOCKED = 'locked';
+
+// The ONE owner of "would this save touch the (special_date, special_bonus)
+// pair, and if so is that touch allowed, and what is the pair afterward"
+// (issue #755 criteria 3 and 4) — the create and edit routes below both call
+// this before writing, so the two paths can never disagree about what counts
+// as a pair change, an invalid pair, or a locked task.
+//
+// Branches on the RAW posted `special_mode` (`rawMode`), never the
+// normalized value — criterion 3's own instruction. A `hidden` write and an
+// absent `special_mode` both leave the pair untouched: the RESOLVED
+// `writeDate`/`writeBonus` this function returns on success is the STORED
+// pair unchanged in that case, never a null the caller might mistake for "no
+// value" and use to clobber a real stored date (review fix — the caller no
+// longer branches on a separate `writes` flag to decide this; the resolved
+// pair already IS the answer). A `none` write clears the pair (resolved
+// `writeDate`/`writeBonus` both `null`). An `oneday` write carries the
+// posted date/bonus through as the resolved pair.
+//
+// `pairChanged` (internal) compares the pair this save WOULD write against
+// the pair currently stored — the single fact both refusals below key off.
+// For CREATE, pass `storedDate`/`storedBonus` as `undefined` (deliberately
+// NOT `null` — a real task row's stored special_date IS `null` for an
+// ordinary task, and that must compare as UNCHANGED against a posted `(null,
+// null)` `none`/no-op write; CREATE has no stored task at all, a different
+// fact, and `undefined !== null` is what makes "every posted pair differs"
+// hold on CREATE even for an empty `oneday` posted pair — see criterion 3's
+// own note on this). The RESOLVED pair returned on a no-touch CREATE path
+// still comes back `null`/`null` (never `undefined`, which better-sqlite3's
+// bind() rejects) — `undefined` is only ever the SENTINEL passed in, never
+// what comes back out.
+//
+// Two refusals, evaluated in the order the issue's own pseudocode lists
+// them:
+//   1. validation (criterion 3) — only when `rawMode === 'oneday'` AND
+//      `pairChanged`: the posted date must be a currently configured wedding
+//      day, and the posted bonus must be an integer 1-3. This gate is why a
+//      `none` write (posted pair `(null, null)`, always "changed" relative
+//      to a dated stored pair) is never validated as a missing date — the
+//      whole point of `none` is to clear it.
+//   2. the lock (criterion 4) — whenever `pairChanged` (any mode) AND the
+//      task already carries at least one submission (visible or taken
+//      down): refused, full stop. This gate carries no mode restriction —
+//      it is the one rule with three faces described in the issue's
+//      criterion 4.
+//
+// @param {object} opts
+// @param {unknown} opts.rawMode - req.body.special_mode, unmodified.
+// @param {unknown} opts.rawDate - req.body.special_date, unmodified.
+// @param {unknown} opts.rawBonus - req.body.special_bonus, unmodified.
+// @param {string|null|undefined} opts.storedDate - the task's CURRENT
+//   special_date, or `undefined` on CREATE (no stored task yet — see the
+//   comment above on why this must not be `null`).
+// @param {number|null|undefined} opts.storedBonus - the task's CURRENT
+//   special_bonus, or `undefined` on CREATE.
+// @param {number} opts.submissionCount - submissions (visible + taken down)
+//   already posted to this task; 0 on CREATE (no task exists yet to post to).
+// @returns {{ok: true, writeDate: string|null, writeBonus: number|null}
+//   | {ok: false, reason: 'invalid_date'|'invalid_bonus'|'locked'}}
+function resolveSpecialPairWrite({
+  rawMode,
+  rawDate,
+  rawBonus,
+  storedDate,
+  storedBonus,
+  submissionCount,
+}) {
+  const writes = rawMode === tasks.MODE_NONE || rawMode === tasks.MODE_ONEDAY;
+
+  let writeDate = null;
+  let writeBonus = null;
+  if (rawMode === tasks.MODE_ONEDAY) {
+    writeDate = typeof rawDate === 'string' && rawDate.trim() ? rawDate.trim() : null;
+    const parsedBonus = parseInt(rawBonus, 10);
+    writeBonus = Number.isInteger(parsedBonus) ? parsedBonus : null;
   }
-  const [y, m, d] = s.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+
+  const pairChanged = writes && (writeDate !== storedDate || writeBonus !== storedBonus);
+
+  if (rawMode === tasks.MODE_ONEDAY && pairChanged) {
+    if (!isConfiguredEventDay(writeDate)) {
+      return { ok: false, reason: PAIR_REASON_INVALID_DATE };
+    }
+    if (writeBonus === null || writeBonus < 1 || writeBonus > 3) {
+      return { ok: false, reason: PAIR_REASON_INVALID_BONUS };
+    }
+  }
+
+  if (pairChanged && submissionCount > 0) {
+    return { ok: false, reason: PAIR_REASON_LOCKED };
+  }
+
+  // Resolved pair: `writes` decides source (the computed pair vs. the
+  // stored one), and `undefined` (the CREATE no-stored-task sentinel) is
+  // normalized to `null` here so this function's OUTPUT never leaks the
+  // sentinel its INPUT uses — the caller gets a plain nullable pair either
+  // way, never a third undefined state to handle.
+  const resolvedDate = writes ? writeDate : (storedDate ?? null);
+  const resolvedBonus = writes ? writeBonus : (storedBonus ?? null);
+  return { ok: true, writeDate: resolvedDate, writeBonus: resolvedBonus };
+}
+
+// Word a resolveSpecialPairWrite refusal for the HOST-FACING create flash
+// message. CREATE-specific: a refused create discards the whole draft (no
+// task row of ANY kind was written — title, description, worth, badge all
+// gone), which the wording says explicitly so the host doesn't wonder
+// whether a partial task landed.
+function describeCreatePairRefusal(reason) {
+  switch (reason) {
+    case PAIR_REASON_INVALID_DATE:
+      return 'Choose one of the configured wedding days — your task was not created.';
+    case PAIR_REASON_INVALID_BONUS:
+      return 'Choose a bonus of +1, +2, or +3 for that day — your task was not created.';
+    default:
+      return 'That day/bonus could not be saved — your task was not created.';
+  }
+}
+
+// Word a resolveSpecialPairWrite refusal for the HOST-FACING edit flash
+// message. EDIT-specific: nothing about the task is discarded — the refusal
+// is scoped to the pair alone, and the rest of the save this POST carried
+// (title/description/worth/badge) is simply never applied either, since the
+// whole edit is one refuse-or-apply unit.
+function describeEditPairRefusal(reason) {
+  switch (reason) {
+    case PAIR_REASON_INVALID_DATE:
+      return 'Choose one of the configured wedding days.';
+    case PAIR_REASON_INVALID_BONUS:
+      return 'Choose a bonus of +1, +2, or +3 for that day.';
+    case PAIR_REASON_LOCKED:
+      return 'A guest has already posted to this task — its day and bonus are locked.';
+    default:
+      return 'That day/bonus could not be saved.';
+  }
 }
 
 // POST /admin/config  — validate and persist. Timezone must be a real IANA
@@ -321,7 +483,7 @@ router.post('/config', (req, res) => {
   if (!isKnownTimezone(timezone)) {
     return redirectWithMsg(res, '/admin/config?err=1', 'Please choose a valid timezone.');
   }
-  if (!isRealDate(startDate) || !isRealDate(endDate)) {
+  if (!tasks.isRealDateString(startDate) || !tasks.isRealDateString(endDate)) {
     return redirectWithMsg(res, '/admin/config?err=1', 'Please enter valid start and end dates.');
   }
   if (startDate > endDate) {
@@ -716,6 +878,9 @@ router.get('/tasks', (req, res) => {
     // ribbon art) the first time a task's card is rendered (issue #483) —
     // every task always has a badge to show, never a missing-badge branch.
     const badge = taskBadges.resolveTaskBadge(t.id);
+    // Hoisted (issue #755 review fix — minor) so `oneday`/`dayLabel` below
+    // never evaluate the same guard twice per row.
+    const hasDate = tasks.isRealDateString(t.special_date);
     return {
       id: t.id,
       title: t.title,
@@ -730,6 +895,23 @@ router.get('/tasks', (req, res) => {
       // reading a plain boolean, sourced from the one active-task owner
       // instead of a real is_active column (which no longer exists).
       is_active: tasks.isTaskLive(t) ? 1 : 0,
+      // Raw pair (issue #755) — admin-tasks.ejs emits these as the card's
+      // data-special-date/data-special-bonus attributes, which
+      // admin-tasks.js's openEdit() reads back to drive the edit popup's
+      // day/bonus chips (and the hidden stale-date input for criterion 3b).
+      // Raw, not gated by the reality check — the popup needs the true
+      // stored value even when it is stale/invalid.
+      special_date: t.special_date,
+      special_bonus: t.special_bonus,
+      // Derived pair for the board chip (criterion 5): `hasDate` guards BOTH
+      // shape and reality (tasks.isRealDateString). special_date is a
+      // free-form TEXT column with no shape constraint (src/db.js), and
+      // singleDayLabel() throws a RangeError on a regex-shaped-but-impossible
+      // value like '2026-13-45' — this guard is what keeps GET /admin/tasks
+      // from 500ing on that value; a task failing it renders no chip rather
+      // than crashing the whole board.
+      oneday: hasDate,
+      dayLabel: hasDate ? singleDayLabel(t.special_date) : '',
       submissions: subStmt.get(t.id).n,
       isFirst: idx === 0,
       isLast: idx === taskRows.length - 1,
@@ -742,6 +924,14 @@ router.get('/tasks', (req, res) => {
     };
   });
 
+  // The day-chip catalog both dialog partials render (issue #755) — EJS
+  // merges this local into partials/task-create-dialog.ejs and
+  // partials/task-edit-dialog.ejs (and, through them, special-oneday-
+  // option.ejs) since `include()` shares the calling template's scope by
+  // default. getEventConfig() is already imported at the top of this file.
+  const eventConfig = getEventConfig();
+  const eventDaysList = computeEventDays(eventConfig.startDate, eventConfig.endDate);
+
   res.render('admin-tasks', {
     title: 'Tasks',
     tasks: rows,
@@ -750,6 +940,7 @@ router.get('/tasks', (req, res) => {
       name: ic.name,
       artPath: badgeIcons.iconArtPath(ic.id),
     })),
+    eventDays: eventDaysList,
     msg: req.query.msg || '',
     isAdmin: true,
   });
@@ -764,13 +955,15 @@ router.get('/tasks', (req, res) => {
 //
 // Body: title (required), description (optional), worth (1-3, falls back to
 // tasks.DEFAULT_WORTH if missing/out of range — tasks.normalizeWorth), and
-// special_mode ('none'/'hidden', falls back to tasks.MODE_NONE for anything
-// else — tasks.normalizeMode; the SAME write-side owner POST /admin/tasks/
-// :id/edit routes through below, so the two can never disagree on what an
-// unrecognized mode becomes), badge_icon (a src/services/badge-icons.js
-// catalog id — REQUIRED, AC-A: no valid icon means no task row is written at
-// all), badge_name (optional — falls back to the icon's own catalog display
-// name).
+// special_mode ('none'/'hidden'/'oneday', falls back to tasks.MODE_NONE for
+// anything else — tasks.normalizeMode; the SAME write-side owner POST
+// /admin/tasks/:id/edit routes through below, so the two can never disagree
+// on what an unrecognized mode becomes), special_date/special_bonus (issue
+// #755 — required and validated only when special_mode is 'oneday' and
+// differs from the (nonexistent) stored pair; see resolveSpecialPairWrite),
+// badge_icon (a src/services/badge-icons.js catalog id — REQUIRED, AC-A: no
+// valid icon means no task row is written at all), badge_name (optional —
+// falls back to the icon's own catalog display name).
 //
 // The special_mode is part of the single INSERT below, not a follow-up
 // UPDATE — a task created as Hidden is hidden from its very first row, never
@@ -785,6 +978,25 @@ router.post('/tasks', (req, res) => {
 
   const worth = tasks.normalizeWorth(req.body.worth, tasks.DEFAULT_WORTH);
   const specialMode = tasks.normalizeMode(req.body.special_mode, tasks.MODE_NONE);
+
+  // special_date/special_bonus (issue #755) — validated BEFORE any write, same
+  // discipline as the badge check just below: a bad pair on CREATE means NO
+  // task row is written at all (criterion 3), the same shape an invalid badge
+  // already takes. storedDate/storedBonus are `undefined` (no stored task
+  // yet, so every posted 'oneday' pair "differs from stored" — see
+  // resolveSpecialPairWrite's own comment) and submissionCount is 0 (a
+  // brand-new task can have no submissions, so the lock never fires here).
+  const pairResolved = resolveSpecialPairWrite({
+    rawMode: req.body.special_mode,
+    rawDate: req.body.special_date,
+    rawBonus: req.body.special_bonus,
+    storedDate: undefined,
+    storedBonus: undefined,
+    submissionCount: 0,
+  });
+  if (!pairResolved.ok) {
+    return redirectWithMsg(res, '/admin/tasks', describeCreatePairRefusal(pairResolved.reason));
+  }
 
   // Badge is REQUIRED (AC-A) — the wizard's own step 3 already disables its
   // submit button until a badge is chosen, but the server is the real gate:
@@ -818,9 +1030,18 @@ router.post('/tasks', (req, res) => {
   const createTask = db.transaction(() => {
     const info = db
       .prepare(
-        'INSERT INTO tasks (title, description, sort_order, worth, special_mode) VALUES (?, ?, ?, ?, ?)'
+        `INSERT INTO tasks (title, description, sort_order, worth, special_mode, special_date, special_bonus)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(title, description, order, worth, specialMode);
+      .run(
+        title,
+        description,
+        order,
+        worth,
+        specialMode,
+        pairResolved.writeDate,
+        pairResolved.writeBonus
+      );
     const taskId = info.lastInsertRowid;
 
     // One task, one badge (issue #483) — resolveTaskBadge would otherwise
@@ -853,14 +1074,18 @@ router.post('/tasks', (req, res) => {
 // Body: title (required), description (optional), worth (1-3 — falls back to
 // the task's CURRENT worth if missing/out of range via tasks.normalizeWorth,
 // so a direct partial POST — e.g. the pre-#682 title/description-only tests —
-// leaves it untouched), special_mode ('none'/'hidden' — same "keep current on
-// anything else" guard, via tasks.normalizeMode — the SAME write-side owner
-// POST /admin/tasks routes through above, so the two can never disagree on
-// what an unrecognized mode becomes), badge_icon (optional — a catalog id;
-// when present it MUST be valid, or the whole edit is refused, mirroring
-// POST /admin/tasks/:id/badge's own validation), badge_name (optional — a
-// name-only submit with no icon still updates just the name, same contract
-// that route already offered).
+// leaves it untouched), special_mode ('none'/'hidden'/'oneday' — same "keep
+// current on anything else" guard, via tasks.normalizeMode — the SAME
+// write-side owner POST /admin/tasks routes through above, so the two can
+// never disagree on what an unrecognized mode becomes), special_date/
+// special_bonus (issue #755 — cleared on 'none', untouched on 'hidden' or an
+// absent special_mode, validated and written on 'oneday' only when the pair
+// differs from what is stored, refused if that changed pair is invalid OR
+// this task already carries a submission; see resolveSpecialPairWrite),
+// badge_icon (optional — a catalog id; when present it MUST be valid, or the
+// whole edit is refused, mirroring POST /admin/tasks/:id/badge's own
+// validation), badge_name (optional — a name-only submit with no icon still
+// updates just the name, same contract that route already offered).
 router.post('/tasks/:id/edit', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const title = (req.body.title || '').trim();
@@ -875,6 +1100,39 @@ router.post('/tasks/:id/edit', (req, res) => {
 
   const worth = tasks.normalizeWorth(req.body.worth, task.worth);
   const specialMode = tasks.normalizeMode(req.body.special_mode, task.special_mode);
+
+  // special_date/special_bonus (issue #755) — validated BEFORE any write,
+  // same discipline as the badge check just below. submissionCount feeds
+  // criterion 4's lock: a submission on THIS task (visible or taken down)
+  // refuses any save that would change the pair, no matter which of the
+  // three doors (ordinary->oneday, day/bonus move, oneday->none) it comes
+  // through — resolveSpecialPairWrite is the one place all three are refused
+  // by the same rule.
+  const submissionCount = db
+    .prepare('SELECT COUNT(*) AS n FROM submissions WHERE task_id = ?')
+    .get(id).n;
+  const pairResolved = resolveSpecialPairWrite({
+    rawMode: req.body.special_mode,
+    rawDate: req.body.special_date,
+    rawBonus: req.body.special_bonus,
+    storedDate: task.special_date,
+    storedBonus: task.special_bonus,
+    submissionCount,
+  });
+  if (!pairResolved.ok) {
+    return redirectWithMsg(
+      res,
+      '/admin/tasks',
+      describeEditPairRefusal(pairResolved.reason),
+      'task-' + id
+    );
+  }
+  // The resolved pair IS what gets written — resolveSpecialPairWrite already
+  // decided whether that means the stored pair unchanged (a `hidden` write
+  // or an absent `special_mode`, criterion 6's partial-POST contract) or the
+  // validated posted pair (possibly `(null, null)` for a `none` clear).
+  const nextSpecialDate = pairResolved.writeDate;
+  const nextSpecialBonus = pairResolved.writeBonus;
 
   // A posted icon must resolve, or the WHOLE edit is refused (AC1-style
   // validation from POST /admin/tasks/:id/badge) — never silently drop just
@@ -894,8 +1152,11 @@ router.post('/tasks/:id/edit', (req, res) => {
   // this one is safe.
   const saveEdit = db.transaction(() => {
     db.prepare(
-      'UPDATE tasks SET title = ?, description = ?, worth = ?, special_mode = ? WHERE id = ?'
-    ).run(title, description, worth, specialMode, id);
+      `UPDATE tasks
+          SET title = ?, description = ?, worth = ?, special_mode = ?,
+              special_date = ?, special_bonus = ?
+        WHERE id = ?`
+    ).run(title, description, worth, specialMode, nextSpecialDate, nextSpecialBonus, id);
 
     // No icon AND no name submitted (the common "didn't touch the badge
     // step" case) leaves the badge row completely untouched — same as
@@ -906,10 +1167,17 @@ router.post('/tasks/:id/edit', (req, res) => {
   });
   saveEdit();
 
-  // Only a special_mode change can move the active-task set (issue #701
-  // parity) — a worth or badge-only edit never does, so this call stays
-  // conditional rather than firing on every save.
-  if (specialMode !== task.special_mode) {
+  // A special_mode change can move the active-task set (issue #701 parity).
+  // issue #755 review fix: a special_date CHANGE must trigger the same
+  // recompute even when the mode string itself is unchanged (e.g. a
+  // stale-date repair, or an ordinary/oneday task's date narrowing/widening
+  // without a mode flip is not actually possible today, but the pairing rule
+  // does not guarantee it never will be) — badges.js's COMPLETIONIST
+  // denominator excludes tasks by `special_date IS NULL`, so a date that
+  // starts or stops being set can move who holds it even with special_mode
+  // untouched. A worth or badge-only edit still never does, so this call
+  // stays conditional rather than firing on every save.
+  if (specialMode !== task.special_mode || nextSpecialDate !== task.special_date) {
     scoring.recomputeAfterTaskChange();
   }
 
@@ -1021,21 +1289,36 @@ router.post('/tasks/:id/delete', (req, res) => {
 // existing form/URL contract; only the underlying column changed).
 //
 // RETAINED, no longer a live UI path (issue #682 review fix): the redesign's
-// Special radio (None/Hidden, in the create wizard and the edit popup) is now
-// the only host-facing way to change special_mode, and it saves through
-// POST /admin/tasks/:id/edit, not this route — no current view links or
-// posts here. This is now a SECOND UI-less writer of special_mode (the edit
-// route is the other), kept as a stable, independently-tested toggle endpoint
-// rather than dead code; a future reader should not assume some hidden
-// button still calls it.
+// Special radio (None/Hidden/One day only, in the create wizard and the edit
+// popup) is now the only host-facing way to change special_mode, and it
+// saves through POST /admin/tasks/:id/edit, not this route — no current view
+// links or posts here. This is now a SECOND UI-less writer of special_mode
+// (the edit route is the other), kept as a stable, independently-tested
+// toggle endpoint rather than dead code; a future reader should not assume
+// some hidden button still calls it.
+//
+// Its transitions are NOT a plain none<->hidden flip (issue #755 criterion
+// 6): a live task un-hides back to 'oneday', not 'none', when it still
+// carries a real special_date, per tasks.isRealDateString() — the one owner
+// of that combined shape-and-reality check. Falling back to 'none'
+// unconditionally would strand an Aug 9/+3 challenge's date behind a mode
+// that no longer marks it as one — isSealed() reads the date, not the mode,
+// so guests would keep seeing a locked mystery box for a task the board no
+// longer shows as dated. Hiding itself never touches special_date/
+// special_bonus at all — hide only ever writes special_mode.
 router.post('/tasks/:id/active', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const task = db.prepare('SELECT special_mode FROM tasks WHERE id = ?').get(id);
+  const task = db.prepare('SELECT special_mode, special_date FROM tasks WHERE id = ?').get(id);
   if (!task) {
     return redirectWithMsg(res, '/admin/tasks', 'Task not found.');
   }
   const wasLive = tasks.isTaskLive(task);
-  const nextMode = wasLive ? tasks.MODE_HIDDEN : tasks.MODE_NONE;
+  let nextMode;
+  if (wasLive) {
+    nextMode = tasks.MODE_HIDDEN;
+  } else {
+    nextMode = tasks.isRealDateString(task.special_date) ? tasks.MODE_ONEDAY : tasks.MODE_NONE;
+  }
   db.prepare('UPDATE tasks SET special_mode = ? WHERE id = ?').run(nextMode, id);
   // Un-hiding grows the active set (can strip a now-stale COMPLETIONIST,
   // issue #701 AC2); hiding shrinks it (can award a newly-earned one, AC3).
