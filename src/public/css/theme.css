@@ -5625,6 +5625,20 @@ body:has(dialog[open]) {
   background: var(--place-1);
   color: var(--place-1-ink);
 }
+/* Flash window (issue #649): the same ember the guest task row already wears
+   for a live flash, so the host recognises one lever on both sides — the same
+   reasoning .admin-chip-oneday follows for gold. A SCHEDULED flash has not
+   started yet, so it wears the ember as an outline rather than a fill: armed,
+   not burning. */
+.admin-chip-flash {
+  background: var(--flash-1);
+  color: var(--flash-1-ink);
+}
+.admin-chip-flash-scheduled {
+  border: 1px solid var(--flash-1);
+  color: var(--flash-1);
+  background: transparent;
+}
 .admin-task-photos {
   margin-left: auto;
   font-size: var(--fs-eyebrow);
@@ -5865,6 +5879,129 @@ body:has(dialog[open]) {
 .day-chip .worth-chip-face {
   min-width: 0;
   padding: 0 var(--space-3);
+}
+/* ---- Flash panel (issue #649) ----
+   Lives inside the shared .special-panel accordion above — same sheet, same
+   chips, same hint. Only the three controls one-day-only does not have are
+   new: a free-entry duration, the Now/Pick-a-time switch, and the status
+   strip an already-armed flash shows. */
+.flash-state-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-input);
+  background: var(--flash-1-wash);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.flash-state-text {
+  color: var(--flash-1);
+}
+.flash-state-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--flash-1);
+}
+/* Scheduled: armed but not burning — hollow dot, matching the board chip's
+   outline-vs-fill distinction. */
+.flash-state-scheduled .flash-state-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--flash-1);
+}
+.flash-cancel-btn {
+  margin-left: auto;
+}
+/* Duration stepper: two thumb-sized targets flanking the value, not the
+   native number spinner (stacked 12px arrows — a mouse control on a screen
+   the host is holding in one hand). 56px square clears the 44px floor the
+   worth chips already set. */
+.flash-minutes-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.flash-step-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg);
+  color: var(--color-primary);
+  cursor: pointer;
+}
+.flash-step-btn svg {
+  fill: currentColor;
+}
+.flash-step-btn:active {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+/* The value sits between them and takes the leftover width, so the two
+   buttons stay pinned left and right where the thumbs are. */
+.flash-minutes-value {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.flash-minutes-input {
+  width: 3.5ch;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  text-align: right;
+}
+/* Kill the native spinner — the buttons above replaced it, and leaving both
+   gives the same control two different affordances. */
+.flash-minutes-input::-webkit-outer-spin-button,
+.flash-minutes-input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+.flash-minutes-input[type='number'] {
+  appearance: textfield;
+}
+.flash-minutes-unit {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+/* Day + time reveal: same CSS-only accordion mechanism as .special-panel
+   itself, one level down — scoped to the START chips so the bonus and day
+   radios in the same panel can never hold it open. */
+.flash-when {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.flash-start-field:has(input[name='flash_start_mode'][value='later']:checked) .flash-when {
+  display: flex;
+}
+.flash-time-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.flash-time-label {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.flash-time-input {
+  min-height: 44px;
 }
 .special-panel-hint {
   margin: var(--space-2) 0 0;

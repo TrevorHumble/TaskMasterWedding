@@ -30,6 +30,10 @@
           data-special-bonus="<%= t.special_bonus || '' %>"
           data-lucky-date="<%= t.lucky_date || '' %>"
           data-lucky-bonus="<%= t.lucky_bonus || '' %>"
+          data-flash-bonus="<%= t.flash_bonus || '' %>"
+          data-flash-minutes="<%= t.flash_minutes || '' %>"
+          data-flash-state="<%= t.flashState %>"
+          data-flash-strip-label="<%= t.flashStripLabel %>"
           data-special-kind="<%= t.specialKind || '' %>"
           data-badge-name="<%= t.badge.isDefault ? '' : t.badge.name %>"
           data-badge-art="<%= t.badge.isDefault ? '' : t.badge.art_path %>"
@@ -67,6 +71,15 @@
           <% } %>
           <% if (t.oneday) { %>
             <span class="admin-chip admin-chip-oneday"><%= t.dayLabel %> only</span>
+          <% } %>
+          <%# Flash board chip (issue #763): active -> solid ember, scheduled
+              -> outline ember, off GET /admin/tasks's own flashState +
+              derived remaining-time/when-label projection (never re-derived
+              here). %>
+          <% if (t.flashState === 'active') { %>
+            <span class="admin-chip admin-chip-flash">Flash &middot; <%= t.flashMinutesLeft %> min left</span>
+          <% } else if (t.flashState === 'scheduled') { %>
+            <span class="admin-chip admin-chip-flash-scheduled">Flash at <%= t.flashWhenLabel %></span>
           <% } %>
           <a class="admin-task-photos" href="/admin/photos?view=task&amp;task=<%= t.id %>"><%= t.submissions %> photo<%= t.submissions === 1 ? '' : 's' %></a>
         </div>

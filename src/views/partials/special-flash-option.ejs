@@ -1,0 +1,160 @@
+<%# src/views/partials/special-flash-option.ejs
+    Issue #763 (the host surface for the #649 umbrella): the "Flash" option in
+    the Special radio, plus the accordion panel that opens under it when it is
+    picked.
+
+    ONE partial, included by BOTH task-create-dialog.ejs (step 2) and
+    task-edit-dialog.ejs — the same shape special-oneday-option.ejs already
+    takes, so the create flow and the edit popup are the same control and
+    cannot drift.
+
+    The panel is shown by CSS alone
+    (.special-option-group:has(.special-option input:checked)), not
+    JavaScript — the same mechanism the worth chips, the Special radio and
+    #755's day/bonus accordion already use. The `.special-option` scope in
+    that selector is load-bearing: this panel's own Starts chips include an
+    always-checked `flash_start_mode="now"` radio, and an unscoped
+    `:has(input:checked)` would hold the whole accordion open from first
+    paint regardless of which Special option is picked. The day+time
+    sub-panel opens the same way, off the "Starts" chips.
+
+    "Flash" is NOT a stored special_mode (src/services/tasks.js's MODES list
+    deliberately excludes it — a flash reverts on its own when the window ends,
+    which a stored enum cannot do). It rides the same radio group so the host
+    sees one "what is special about this task" question, and the route reads
+    the flash trio (flash_bonus / flash_minutes / flash_start_at) off the panel
+    below.
+
+    Locals:
+      idPrefix   — 'task-create' | 'task-edit'; keeps element ids unique when
+                   both dialogs are on the same page.
+      eventDays  — REQUIRED, [{ iso, label }] from the #681 Configuration
+                   page's wedding dates (src/routes/admin.js's GET
+                   /admin/tasks render locals). No fallback, same as
+                   special-oneday-option.ejs.
+
+    The status strip's visibility has exactly ONE owner (issue #763 PR
+    review, M3): src/routes/admin.js's GET /admin/tasks projection, where
+    `flashStripLabel` is non-empty precisely when the task's flash state is
+    `active` or `scheduled`. This include always renders the strip hidden —
+    there is no per-state local to pass, because both callers (this file's
+    two includes, in task-create-dialog.ejs and task-edit-dialog.ejs) render
+    a shared, reusable dialog that cannot know in advance which task (if any)
+    will be tapped next. admin-tasks.js's openEdit() is the only place that
+    ever shows it, reading the tapped card's own data-flash-strip-label
+    attribute and keying visibility off that string being non-empty — the
+    same server-computed answer, read back rather than re-derived.
+%>
+<div class="special-option-group">
+  <label class="special-option">
+    <input type="radio" name="special_mode" value="flash" />
+    <span class="special-option-face">
+      <span class="special-option-title">Flash</span>
+      <span class="special-option-sub">Worth extra for a few minutes — right now, or at a moment you pick</span>
+    </span>
+  </label>
+
+  <div class="special-panel">
+    <%# Always rendered (issue #763 plan step 6/7), never conditionally
+        included — this dialog is shared across every card, so admin-
+        tasks.js's openEdit() needs a real DOM node to toggle visibility on
+        and fill per task, not markup that only exists for whichever state
+        this particular server render happened to pass. Unconditionally
+        hidden at first paint via an INLINE style, not the `hidden`
+        attribute: theme.css's own `.flash-state-strip { display: flex }`
+        rule (an author rule) would otherwise outrank the browser's
+        low-priority `[hidden]` UA style — the same hazard theme.css already
+        documents (and restates with `!important`) for `.guest-card[hidden]`
+        — and an inline `style="display:none"` needs no accompanying
+        `theme.css` change to win that fight, which matters because this
+        screen's CSS is part of the owner-approved visual surface recorded in
+        `.review_state/visual-approval/` (NOT the governance freeze, which
+        covers no file under `src/`): an added rule there drifts the approval
+        hash for a purely mechanical reason.
+        admin-tasks.js's openEdit() uses the identical inline-style technique
+        to show/hide and fill it per task, below. %>
+    <div class="flash-state-strip" style="display:none">
+      <span class="flash-state-dot" aria-hidden="true"></span>
+      <span class="flash-state-text"></span>
+      <input type="hidden" name="flash_cancel" value="" data-flash-cancel-input />
+      <button type="button" class="btn btn-sm btn-ghost flash-cancel-btn" data-flash-cancel>Cancel</button>
+    </div>
+
+    <div class="special-panel-field">
+      <span class="field-label" id="<%= idPrefix %>-flash-bonus-label">Bonus while it&rsquo;s on</span>
+      <div class="worth-chips" role="radiogroup" aria-labelledby="<%= idPrefix %>-flash-bonus-label">
+        <% [1, 2, 3].forEach(function (n) { %>
+          <label class="worth-chip">
+            <input type="radio" name="flash_bonus" value="<%= n %>" />
+            <span class="worth-chip-face">+<%= n %> pt<%= n === 1 ? '' : 's' %></span>
+          </label>
+        <% }); %>
+      </div>
+    </div>
+
+    <div class="special-panel-field">
+      <label class="field-label" for="<%= idPrefix %>-flash-minutes">How long</label>
+      <%# Thumb-sized minus/plus flanking the value, rather than the native
+          number spinner's stacked arrows — those are a mouse control, and the
+          host is on a phone in a reception hall. The field itself stays
+          typable, so free entry (owner, 2026-07-20: "5 minutes and 2 hours are
+          both valid") survives; the buttons are the fast path, not the only
+          one. %>
+      <div class="flash-minutes-row">
+        <button type="button" class="flash-step-btn" data-flash-step="-5"
+                aria-label="5 minutes less" aria-controls="<%= idPrefix %>-flash-minutes">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+            <rect x="4" y="11" width="16" height="2.5" rx="1.25" />
+          </svg>
+        </button>
+        <span class="flash-minutes-value">
+          <input type="number" class="flash-minutes-input" id="<%= idPrefix %>-flash-minutes"
+                 name="flash_minutes" min="1" step="1" inputmode="numeric" placeholder="15" />
+          <span class="flash-minutes-unit">minutes</span>
+        </span>
+        <button type="button" class="flash-step-btn" data-flash-step="5"
+                aria-label="5 minutes more" aria-controls="<%= idPrefix %>-flash-minutes">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+            <rect x="4" y="11" width="16" height="2.5" rx="1.25" />
+            <rect x="10.75" y="4.25" width="2.5" height="15.5" rx="1.25" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="special-panel-field flash-start-field">
+      <span class="field-label" id="<%= idPrefix %>-flash-start-label">Starts</span>
+      <div class="worth-chips" role="radiogroup" aria-labelledby="<%= idPrefix %>-flash-start-label">
+        <label class="worth-chip">
+          <input type="radio" name="flash_start_mode" value="now" checked />
+          <span class="worth-chip-face">Now</span>
+        </label>
+        <label class="worth-chip">
+          <input type="radio" name="flash_start_mode" value="later" />
+          <span class="worth-chip-face">Pick a time</span>
+        </label>
+      </div>
+
+      <div class="flash-when">
+        <div class="day-chips" role="radiogroup" aria-label="Which day the flash starts">
+          <% eventDays.forEach(function (d) { %>
+            <label class="worth-chip day-chip">
+              <input type="radio" name="flash_date" value="<%= d.iso %>" />
+              <span class="worth-chip-face"><%= d.label %></span>
+            </label>
+          <% }); %>
+        </div>
+        <label class="flash-time-row" for="<%= idPrefix %>-flash-time">
+          <span class="flash-time-label">at</span>
+          <input type="time" class="flash-time-input" id="<%= idPrefix %>-flash-time" name="flash_time" />
+        </label>
+      </div>
+    </div>
+
+    <p class="special-panel-hint">
+      While it&rsquo;s on, every guest who posts to this task earns the task&rsquo;s points
+      plus this bonus. When the time runs out the task goes back to normal on its
+      own &mdash; bonuses already earned stay earned.
+    </p>
+  </div>
+</div>

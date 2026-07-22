@@ -598,14 +598,270 @@ function describeEditLuckyRefusal(reason) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The flash trio (issue #763) — its OWN resolver, following the exact shape
+// resolveSpecialPairWrite/resolveLuckyPairWrite already establish (report
+// reason CODES, never sentences; validate BEFORE any write; leave the task's
+// stored trio untouched on any refusal), but never folded into either of
+// them: flash is never a stored special_mode member (src/services/tasks.js's
+// MODES comment), its trio is never locked by an existing submission (a
+// flash bonus is banked on the submission row at submit time, same reasoning
+// resolveLuckyPairWrite's own comment gives for lucky), and it carries its
+// own no-op rule the day/bonus pairs above do not need (see the wire-format
+// note below).
+// ---------------------------------------------------------------------------
+const FLASH_REASON_INVALID_MINUTES = 'invalid_minutes';
+const FLASH_REASON_INVALID_BONUS = 'invalid_bonus';
+const FLASH_REASON_INVALID_DAY = 'invalid_day';
+const FLASH_REASON_INVALID_TIME = 'invalid_time';
+const FLASH_REASON_PAST_INSTANT = 'past_instant';
+const FLASH_REASON_NOT_LIVE = 'not_live';
+
+// The <input type="time"> shape, HH:MM 24-hour (issue #763 criterion 4) — the
+// one shape check run before a posted flash_time reaches
+// event-days.js's eventLocalInstant(), so a blank or malformed time (the field
+// carries no `required`, so "Pick a time" left blank posts "") is refused
+// here rather than reaching `new Date(NaN).toISOString()`, which throws a
+// RangeError and would 500 the save.
+const FLASH_TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+// A posted field parsed as a non-negative WHOLE integer, or null for
+// anything that isn't exactly that shape (missing, blank, negative, a
+// decimal, or non-numeric) — deliberately stricter than parseInt() alone,
+// which would accept "5.5" (parses to 5) or "5abc" (parses to 5) as valid.
+// Shared by flash_minutes and flash_bonus below: both are free-entry-shaped
+// fields issue #763's own criterion 4 says must "refuse loudly rather than
+// coerce to a default", unlike tasks.normalizeWorth's forgiving parseInt.
+function parseWholeNumber(raw) {
+  if (raw == null) return null;
+  const str = String(raw).trim();
+  if (!/^\d+$/.test(str)) return null;
+  return parseInt(str, 10);
+}
+
+/**
+ * The ONE owner of "would this save touch the flash trio (flash_bonus,
+ * flash_minutes, flash_start_at), and if so is that touch allowed, and what
+ * is the trio afterward" (issue #763 plan step 2) — the flash counterpart to
+ * resolveSpecialPairWrite/resolveLuckyPairWrite above. Called by both the
+ * create and edit routes before any write.
+ *
+ * Branches on the RAW posted special_mode, mirroring the two pair resolvers:
+ * `flash_cancel=1` short-circuits EVERY other flash field and refusal code
+ * (wire format table) and returns first, before `rawMode` is even read — the
+ * Cancel button submits the same form as Save, so a host who left the
+ * duration empty must still be able to end a running window. A `none` write
+ * clears the whole trio (the same convention resolveLuckyPairWrite already
+ * follows for the lucky pair — otherwise a host who set the task back to
+ * None would watch the board keep counting down). `hidden`, `oneday`,
+ * `lucky`, or an absent/unrecognized special_mode leaves the trio untouched.
+ * Only `flash` itself is an arm/re-arm attempt.
+ *
+ * The no-op rule (issue #763 "Wire format" section — load-bearing scope,
+ * read that section before touching this): on a task whose flash is
+ * PRESENTLY `scheduled` or `active` (tasks.flashState against `clock.nowMs`),
+ * a posted bonus and duration that both equal the STORED values, with Starts
+ * left on `now`, is a no-op on the window — `flash_start_at` is returned
+ * UNCHANGED rather than re-derived from `clock.nowMs`. This only runs on
+ * EDIT (`storedRow` present — CREATE has nothing to compare against) and
+ * never on an EXPIRED or unarmed flash (criterion 1: a task whose window has
+ * expired is always a real re-arm — the trio survives expiry by design, and
+ * the status strip/Cancel escape this rule leans on does not render on an
+ * expired flash). `not_live` is NOT checked for a no-op save (see below) —
+ * only a genuine arm/re-arm can be refused for a hidden task; resaving an
+ * already-armed task's title must not suddenly break because the host later
+ * hid it through the Hidden radio (which never touches this trio).
+ *
+ * @param {object} opts
+ * @param {unknown} opts.rawMode - req.body.special_mode, unmodified.
+ * @param {unknown} opts.rawCancel - req.body.flash_cancel, unmodified.
+ * @param {unknown} opts.rawBonus - req.body.flash_bonus, unmodified.
+ * @param {unknown} opts.rawMinutes - req.body.flash_minutes, unmodified.
+ * @param {unknown} opts.rawStartMode - req.body.flash_start_mode, unmodified.
+ * @param {unknown} opts.rawDate - req.body.flash_date, unmodified.
+ * @param {unknown} opts.rawTime - req.body.flash_time, unmodified.
+ * @param {object|undefined} opts.storedRow - the task's CURRENT row
+ *   (flash_bonus/flash_minutes/flash_start_at read off it), or `undefined`
+ *   on CREATE (no stored task yet).
+ * @param {string} opts.resolvedSpecialMode - the special_mode value THIS
+ *   save is actually going to write (tasks.normalizeMode's own output) —
+ *   what `not_live` checks liveness against, via tasks.isTaskLive(), never a
+ *   hand-written predicate.
+ * @param {{todayIso: string, nowMs: number}} opts.clock
+ * @param {string} opts.timezone - #681's configured event timezone; the
+ *   ONE zone a "Pick a time" day+time pair is interpreted in.
+ * @returns {{ok: true, writeBonus: number|null, writeMinutes: number|null, writeStartAt: string|null}
+ *   | {ok: false, reason: 'invalid_minutes'|'invalid_bonus'|'invalid_day'|'invalid_time'|'past_instant'|'not_live'}}
+ */
+function resolveFlashWrite({
+  rawMode,
+  rawCancel,
+  rawBonus,
+  rawMinutes,
+  rawStartMode,
+  rawDate,
+  rawTime,
+  storedRow,
+  resolvedSpecialMode,
+  clock,
+  timezone,
+}) {
+  if (rawCancel === '1') {
+    return { ok: true, writeBonus: null, writeMinutes: null, writeStartAt: null };
+  }
+
+  const stored = storedRow || {};
+  const storedTrio = {
+    writeBonus: stored.flash_bonus ?? null,
+    writeMinutes: stored.flash_minutes ?? null,
+    writeStartAt: stored.flash_start_at ?? null,
+  };
+
+  if (rawMode === tasks.MODE_NONE) {
+    return { ok: true, writeBonus: null, writeMinutes: null, writeStartAt: null };
+  }
+  if (rawMode !== tasks.SPECIAL_FLASH) {
+    return { ok: true, ...storedTrio };
+  }
+
+  // rawMode === 'flash' from here on: an arm or re-arm attempt.
+  const minutes = parseWholeNumber(rawMinutes);
+  // The floor (a positive integer) is owned by tasks.flashWindow() (issue
+  // #763 PR review fix, M4) — probing it with the candidate minutes against
+  // a known-valid bonus and instant makes flashWindow() itself the validity
+  // oracle for "is this a duration the engine will ever pay", rather than
+  // re-stating its floor as a bare `minutes < 1` here. Without this, a future
+  // move of the engine's floor would let the writer save a trio the engine
+  // then refuses to ever fire, with no error anywhere. The probe's bonus/
+  // instant are fixed to known-good values so a null result here can only
+  // mean `minutes` itself failed the engine's own check — `bonus` is
+  // resolved and checked separately, immediately below.
+  const minutesProbe = tasks.flashWindow({
+    flash_start_at: new Date(clock.nowMs).toISOString(),
+    flash_minutes: minutes,
+    flash_bonus: tasks.FLASH_MIN_BONUS,
+  });
+  if (minutesProbe === null) {
+    return { ok: false, reason: FLASH_REASON_INVALID_MINUTES };
+  }
+  const bonus = parseWholeNumber(rawBonus);
+  if (bonus === null || bonus < tasks.FLASH_MIN_BONUS || bonus > tasks.FLASH_MAX_BONUS) {
+    return { ok: false, reason: FLASH_REASON_INVALID_BONUS };
+  }
+  const startMode = rawStartMode === 'later' ? 'later' : 'now';
+
+  if (storedRow && startMode === 'now') {
+    const currentState = tasks.flashState(stored, clock.nowMs);
+    const isReplayable =
+      currentState === tasks.FLASH_SCHEDULED || currentState === tasks.FLASH_ACTIVE;
+    if (isReplayable && bonus === stored.flash_bonus && minutes === stored.flash_minutes) {
+      return { ok: true, ...storedTrio };
+    }
+  }
+
+  // Only a genuine arm/re-arm reaches this liveness gate (issue #763 AC4) —
+  // consumes tasks.isTaskLive(), never a hand-written predicate, against the
+  // special_mode value THIS save is actually about to write.
+  if (!tasks.isTaskLive({ special_mode: resolvedSpecialMode })) {
+    return { ok: false, reason: FLASH_REASON_NOT_LIVE };
+  }
+
+  let startAtMs;
+  if (startMode === 'now') {
+    startAtMs = clock.nowMs;
+  } else {
+    const day = typeof rawDate === 'string' ? rawDate.trim() : '';
+    if (!isConfiguredEventDay(day)) {
+      return { ok: false, reason: FLASH_REASON_INVALID_DAY };
+    }
+    const time = typeof rawTime === 'string' ? rawTime.trim() : '';
+    const match = FLASH_TIME_RE.exec(time);
+    if (!match) {
+      return { ok: false, reason: FLASH_REASON_INVALID_TIME };
+    }
+    const hour = parseInt(match[1], 10);
+    const minute = parseInt(match[2], 10);
+    startAtMs = eventDaysSvc.eventLocalInstant(day, timezone, hour, minute).getTime();
+  }
+
+  if (startAtMs < clock.nowMs) {
+    return { ok: false, reason: FLASH_REASON_PAST_INSTANT };
+  }
+
+  const writeStartAt = new Date(startAtMs).toISOString();
+  // Defensive (issue #763 plan step 2 — this resolver "consumes
+  // tasks.isValidFlashInstant()"): Date#toISOString() emits the pinned
+  // 4-digit-year shape for every ordinary date, but NOT for one past year
+  // 9999 — toISOString() switches to an expanded `+010000-01-01T...` form
+  // there. That branch is NOT reachable through any current input: a year
+  // >= 10000 can never be a configured event day, because
+  // tasks.isRealDateString gates every one of them on a 4-digit-year regex
+  // (and year 9999 itself still emits the pinned shape). Asserting here,
+  // rather than only trusting construction, means that extreme case — or a
+  // future refactor that changes how startAtMs becomes a string — cannot
+  // silently start writing a value #761's flashState() would read as 'none'
+  // forever.
+  if (!tasks.isValidFlashInstant(writeStartAt)) {
+    throw new Error(`resolveFlashWrite: constructed an invalid flash instant ${writeStartAt}`);
+  }
+
+  return { ok: true, writeBonus: bonus, writeMinutes: minutes, writeStartAt };
+}
+
+// Word a resolveFlashWrite refusal for the HOST-FACING create flash
+// message — CREATE-specific wording mirrors describeCreatePairRefusal's own
+// "your task was not created" framing (a refused create writes no task row
+// of any kind).
+function describeCreateFlashRefusal(reason) {
+  switch (reason) {
+    case FLASH_REASON_INVALID_MINUTES:
+      return 'Enter a whole number of minutes (1 or more) for the flash — your task was not created.';
+    case FLASH_REASON_INVALID_BONUS:
+      return 'Choose a flash bonus of +1, +2, or +3 — your task was not created.';
+    case FLASH_REASON_INVALID_DAY:
+      return 'Choose one of the configured wedding days for the flash to start — your task was not created.';
+    case FLASH_REASON_INVALID_TIME:
+      return 'Choose a time for the flash to start — your task was not created.';
+    case FLASH_REASON_PAST_INSTANT:
+      return "That flash start time has already passed — your task wasn't created.";
+    case FLASH_REASON_NOT_LIVE:
+      return 'A hidden task cannot carry a flash — your task was not created.';
+    default:
+      return 'That flash could not be saved — your task was not created.';
+  }
+}
+
+// Word a resolveFlashWrite refusal for the HOST-FACING edit flash message —
+// EDIT-specific wording mirrors describeEditPairRefusal's own scoped-to-the-
+// field framing (nothing else about the task is discarded).
+function describeEditFlashRefusal(reason) {
+  switch (reason) {
+    case FLASH_REASON_INVALID_MINUTES:
+      return 'Enter a whole number of minutes (1 or more) for the flash.';
+    case FLASH_REASON_INVALID_BONUS:
+      return 'Choose a flash bonus of +1, +2, or +3.';
+    case FLASH_REASON_INVALID_DAY:
+      return 'Choose one of the configured wedding days for the flash to start.';
+    case FLASH_REASON_INVALID_TIME:
+      return 'Choose a time for the flash to start.';
+    case FLASH_REASON_PAST_INSTANT:
+      return 'That flash start time has already passed.';
+    case FLASH_REASON_NOT_LIVE:
+      return 'A hidden task cannot carry a flash — un-hide it first.';
+    default:
+      return 'That flash could not be saved.';
+  }
+}
+
 // The exclusivity guard's first production callers (issue #650 plan step 3 —
 // tasks.whatSpecial's own doc comment, src/services/tasks.js, names this
 // exact call site as the reason it ships with no production caller yet).
 // Runs from both the create and edit handlers below, whenever the posted RAW
 // special_mode itself names a special kind — 'oneday' (checked against
-// tasks.SPECIAL_DAILY) or 'lucky' (tasks.SPECIAL_LUCKY) — and is SKIPPED for
-// 'none'/'hidden', which must stay the host's cancel/hide paths and never get
-// refused by this guard. `currentRow` is `{}` on CREATE (no stored task yet,
+// tasks.SPECIAL_DAILY), 'lucky' (tasks.SPECIAL_LUCKY), or 'flash' (issue
+// #763, tasks.SPECIAL_FLASH) — and is SKIPPED for 'none'/'hidden', which must
+// stay the host's cancel/hide paths and never get refused by this guard.
+// `currentRow` is `{}` on CREATE (no stored task yet,
 // so tasks.whatSpecial always answers null and this is vacuous by
 // construction) and the real row on EDIT — where it naturally never refuses
 // a task re-saving the SAME kind it already is (whatSpecial(task, clock)
@@ -616,9 +872,9 @@ function describeEditLuckyRefusal(reason) {
 //
 // @param {object} currentRow - the task's current row, or {} on CREATE.
 // @param {{todayIso: string, nowMs: number}} clock
-// @param {string} settingKind - one of tasks.SPECIAL_DAILY/SPECIAL_LUCKY —
-//   the exported constant, never derived from the posted special_mode
-//   (neither flash nor lucky stores one to derive it from).
+// @param {string} settingKind - one of tasks.SPECIAL_DAILY/SPECIAL_FLASH/
+//   SPECIAL_LUCKY — the exported constant, never derived from the posted
+//   special_mode (neither flash nor lucky stores one to derive it from).
 // @returns {{ok: true} | {ok: false, existingKind: string}}
 function checkExclusivity(currentRow, clock, settingKind) {
   const existingKind = tasks.whatSpecial(currentRow, clock);
@@ -641,10 +897,17 @@ function checkExclusivity(currentRow, clock, settingKind) {
 // never called with a null settingKind.
 //
 // @param {unknown} rawMode - req.body.special_mode, unmodified.
-// @returns {string|null} one of tasks.SPECIAL_DAILY/SPECIAL_LUCKY, or null.
+// @returns {string|null} one of tasks.SPECIAL_DAILY/SPECIAL_FLASH/
+//   SPECIAL_LUCKY, or null.
 function specialKindBeingSet(rawMode) {
   if (rawMode === tasks.MODE_ONEDAY) return tasks.SPECIAL_DAILY;
   if (rawMode === tasks.SPECIAL_LUCKY) return tasks.SPECIAL_LUCKY;
+  // Issue #763 plan step 3: teach the existing mapper about flash's raw
+  // sentinel too — before this, a flash arm skipped the guard entirely (this
+  // function returned null for 'flash', so checkExclusivity was never even
+  // called), letting a flash get armed on top of an already-live one-day-only
+  // challenge or the lucky task with no refusal anywhere.
+  if (rawMode === tasks.SPECIAL_FLASH) return tasks.SPECIAL_FLASH;
   return null;
 }
 
@@ -1097,6 +1360,12 @@ router.get('/tasks', (req, res) => {
   // itself documents.
   const clock = currentClock();
 
+  // Hoisted above the row-building map (issue #763 plan step 4) — the flash
+  // projection below needs the configured timezone for formatFlashWhen(),
+  // and the day-chip catalog further down needs the same config object; one
+  // read, not two.
+  const eventConfig = getEventConfig();
+
   // Attach how many live submissions each task has (informational).
   const subStmt = db.prepare(
     'SELECT COUNT(*) AS n FROM submissions WHERE task_id = ? AND taken_down = 0'
@@ -1109,6 +1378,42 @@ router.get('/tasks', (req, res) => {
     // Hoisted (issue #755 review fix — minor) so `oneday`/`dayLabel` below
     // never evaluate the same guard twice per row.
     const hasDate = tasks.isRealDateString(t.special_date);
+
+    // The flash projection (issue #763 plan step 4): flashState plus the
+    // derived remaining-time/when labels the board chip AND the edit
+    // popup's status strip both read (data-flash-* attributes, admin-
+    // tasks.ejs / admin-tasks.js). The remaining-time arithmetic comes from
+    // tasks.flashWindow() — its own doc comment says it exists so a second
+    // caller does not hand-roll `flash_start_at + minutes` again and let the
+    // clock and the fill disagree — never computed inline here.
+    const flashState = tasks.flashState(t, clock.nowMs);
+    const flashWindowVal = tasks.flashWindow(t);
+    let flashMinutesLeft = null;
+    if (flashState === tasks.FLASH_ACTIVE && flashWindowVal) {
+      // Ceiling, floored at 1: an active flash with real time left never
+      // reads "0 min left" on the board just because it is inside its last
+      // minute.
+      flashMinutesLeft = Math.max(1, Math.ceil((flashWindowVal.endMs - clock.nowMs) / 60000));
+    }
+    let flashWhenLabel = '';
+    if (flashState === tasks.FLASH_SCHEDULED && t.flash_start_at) {
+      flashWhenLabel = hostChecklist.formatFlashWhen(t.flash_start_at, eventConfig.timezone, {
+        style: 'timeOnly',
+      });
+    }
+    // The status strip's own ready-made sentence (issue #763 criteria 1/2/6)
+    // — the edit popup is ONE shared dialog reused for every card, so its
+    // strip cannot be server-rendered per task; admin-tasks.js's openEdit()
+    // reads this back verbatim off the tapped card's data-flash-strip-label
+    // attribute rather than re-assembling the sentence client-side from
+    // flashMinutesLeft/flashWhenLabel, so the wording has exactly one owner.
+    let flashStripLabel = '';
+    if (flashState === tasks.FLASH_ACTIVE) {
+      flashStripLabel = `Live now — ${flashMinutesLeft} min left`;
+    } else if (flashState === tasks.FLASH_SCHEDULED) {
+      flashStripLabel = `Starts at ${flashWhenLabel}`;
+    }
+
     return {
       id: t.id,
       title: t.title,
@@ -1149,6 +1454,22 @@ router.get('/tasks', (req, res) => {
       // section: the edit popup is the host's way to see the current pick.
       lucky_date: t.lucky_date,
       lucky_bonus: t.lucky_bonus,
+      // Raw trio (issue #763 plan step 4/6/7) — emitted as data-flash-bonus/
+      // data-flash-minutes so admin-tasks.js's openEdit() can prefill the
+      // bonus chip and duration field on an armed task. flash_start_at is
+      // deliberately NOT emitted raw: the write path never needs the client
+      // to echo it back (resolveFlashWrite reads the CURRENT stored row
+      // straight off the DB for its no-op comparison), so there is nothing
+      // for the client to carry.
+      flash_bonus: t.flash_bonus,
+      flash_minutes: t.flash_minutes,
+      // Derived flash state/labels for the board chip (admin-tasks.ejs) AND
+      // the edit popup's status strip (admin-tasks.js's openEdit(), via the
+      // data-flash-state/data-flash-strip-label attributes below).
+      flashState: flashState,
+      flashMinutesLeft: flashMinutesLeft,
+      flashWhenLabel: flashWhenLabel,
+      flashStripLabel: flashStripLabel,
       // The server-derived answer to "which Special radio does this task's
       // edit popup open on" (issue #650 PR review fix, Finding A). Before
       // this field existed, admin-tasks.js hand-copied the daily rule's
@@ -1178,8 +1499,7 @@ router.get('/tasks', (req, res) => {
   // merges this local into partials/task-create-dialog.ejs and
   // partials/task-edit-dialog.ejs (and, through them, special-oneday-
   // option.ejs) since `include()` shares the calling template's scope by
-  // default. getEventConfig() is already imported at the top of this file.
-  const eventConfig = getEventConfig();
+  // default. `eventConfig` was already read above, before the row map.
   const eventDaysList = computeEventDays(eventConfig.startDate, eventConfig.endDate);
 
   res.render('admin-tasks', {
@@ -1267,6 +1587,36 @@ router.post('/tasks', (req, res) => {
     );
   }
 
+  // One clock for this request (issue #763 PR review, minor 5 — matches
+  // currentClock()'s own comment intent and what the GET handler already
+  // does): both the flash resolver and the exclusivity guard below need "the
+  // same instant", so this is called once, not once per use.
+  const clock = currentClock();
+
+  // The flash trio (issue #763) — same "validated BEFORE any write"
+  // discipline. storedRow is `undefined` (no stored task yet, so the no-op
+  // rule never fires on CREATE — see resolveFlashWrite's own comment) and
+  // resolvedSpecialMode is the ALREADY-normalized `specialMode` this save is
+  // about to write (never 'flash' itself — see tasks.js's MODES comment —
+  // so `not_live` here is vacuous by construction on CREATE, same as the
+  // exclusivity guard below).
+  const flashResolved = resolveFlashWrite({
+    rawMode: rawSpecialMode,
+    rawCancel: req.body.flash_cancel,
+    rawBonus: req.body.flash_bonus,
+    rawMinutes: req.body.flash_minutes,
+    rawStartMode: req.body.flash_start_mode,
+    rawDate: req.body.flash_date,
+    rawTime: req.body.flash_time,
+    storedRow: undefined,
+    resolvedSpecialMode: specialMode,
+    clock,
+    timezone: getEventConfig().timezone,
+  });
+  if (!flashResolved.ok) {
+    return redirectWithMsg(res, '/admin/tasks', describeCreateFlashRefusal(flashResolved.reason));
+  }
+
   // Exclusivity (issue #650 plan step 3) — CREATE has no stored row, so `{}`;
   // the guard is vacuous by construction here, kept anyway so create and edit
   // share one shape. specialKindBeingSet() (issue #650 PR review fix, Finding
@@ -1276,7 +1626,7 @@ router.post('/tasks', (req, res) => {
   // time.
   const settingKind = specialKindBeingSet(rawSpecialMode);
   if (settingKind) {
-    const exclusivity = checkExclusivity({}, currentClock(), settingKind);
+    const exclusivity = checkExclusivity({}, clock, settingKind);
     if (!exclusivity.ok) {
       return redirectWithMsg(
         res,
@@ -1318,8 +1668,8 @@ router.post('/tasks', (req, res) => {
   const createTask = db.transaction(() => {
     const info = db
       .prepare(
-        `INSERT INTO tasks (title, description, sort_order, worth, special_mode, special_date, special_bonus, lucky_date, lucky_bonus)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tasks (title, description, sort_order, worth, special_mode, special_date, special_bonus, lucky_date, lucky_bonus, flash_bonus, flash_minutes, flash_start_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         title,
@@ -1330,7 +1680,10 @@ router.post('/tasks', (req, res) => {
         pairResolved.writeDate,
         pairResolved.writeBonus,
         luckyPairResolved.writeDate,
-        luckyPairResolved.writeBonus
+        luckyPairResolved.writeBonus,
+        flashResolved.writeBonus,
+        flashResolved.writeMinutes,
+        flashResolved.writeStartAt
       );
     const taskId = info.lastInsertRowid;
 
@@ -1434,6 +1787,34 @@ router.post('/tasks/:id/edit', (req, res) => {
     storedBonus: task.lucky_bonus,
   });
 
+  // One clock for this request (issue #763 PR review, minor 5 — matches
+  // currentClock()'s own comment intent and what the GET handler already
+  // does): both the flash resolver and the exclusivity guard further down
+  // need "the same instant", so this is called once, not once per use.
+  const clock = currentClock();
+
+  // The flash trio (issue #763) — resolved BEFORE the one-day refusal check
+  // below, same "validate everything first" discipline the lucky pair just
+  // above follows. `task` is the row's CURRENT flash trio (resolveFlashWrite
+  // reads it for both the no-op comparison and tasks.flashState()), and
+  // `specialMode` is the ALREADY-normalized value this save is about to
+  // write — never 'flash' itself (tasks.js's MODES comment), so `not_live`
+  // checks liveness against whatever real mode (none/hidden/oneday) this
+  // save resolves to.
+  const flashResolved = resolveFlashWrite({
+    rawMode: rawSpecialMode,
+    rawCancel: req.body.flash_cancel,
+    rawBonus: req.body.flash_bonus,
+    rawMinutes: req.body.flash_minutes,
+    rawStartMode: req.body.flash_start_mode,
+    rawDate: req.body.flash_date,
+    rawTime: req.body.flash_time,
+    storedRow: task,
+    resolvedSpecialMode: specialMode,
+    clock,
+    timezone: getEventConfig().timezone,
+  });
+
   if (!pairResolved.ok) {
     // The one-day refusal still discards the whole rest of the edit exactly
     // as before (title/description/worth/badge/the one-day pair) — EXCEPT a
@@ -1476,6 +1857,15 @@ router.post('/tasks/:id/edit', (req, res) => {
     );
   }
 
+  if (!flashResolved.ok) {
+    return redirectWithMsg(
+      res,
+      '/admin/tasks',
+      describeEditFlashRefusal(flashResolved.reason),
+      'task-' + id
+    );
+  }
+
   // The resolved pairs ARE what get written — each resolver already decided
   // whether that means the stored pair unchanged (a `hidden` write or an
   // absent field, criterion 6's partial-POST contract) or the validated
@@ -1484,6 +1874,9 @@ router.post('/tasks/:id/edit', (req, res) => {
   const nextSpecialBonus = pairResolved.writeBonus;
   const nextLuckyDate = luckyPairResolved.writeDate;
   const nextLuckyBonus = luckyPairResolved.writeBonus;
+  const nextFlashBonus = flashResolved.writeBonus;
+  const nextFlashMinutes = flashResolved.writeMinutes;
+  const nextFlashStartAt = flashResolved.writeStartAt;
 
   // Exclusivity (issue #650 plan step 3) — only when the posted mode itself
   // names a special kind; SKIPPED for 'none'/'hidden' (the host's own
@@ -1496,7 +1889,7 @@ router.post('/tasks/:id/edit', (req, res) => {
   // mapping the create handler above uses.
   const settingKind = specialKindBeingSet(rawSpecialMode);
   if (settingKind) {
-    const exclusivity = checkExclusivity(task, currentClock(), settingKind);
+    const exclusivity = checkExclusivity(task, clock, settingKind);
     if (!exclusivity.ok) {
       return redirectWithMsg(
         res,
@@ -1527,7 +1920,8 @@ router.post('/tasks/:id/edit', (req, res) => {
     db.prepare(
       `UPDATE tasks
           SET title = ?, description = ?, worth = ?, special_mode = ?,
-              special_date = ?, special_bonus = ?, lucky_date = ?, lucky_bonus = ?
+              special_date = ?, special_bonus = ?, lucky_date = ?, lucky_bonus = ?,
+              flash_bonus = ?, flash_minutes = ?, flash_start_at = ?
         WHERE id = ?`
     ).run(
       title,
@@ -1538,6 +1932,9 @@ router.post('/tasks/:id/edit', (req, res) => {
       nextSpecialBonus,
       nextLuckyDate,
       nextLuckyBonus,
+      nextFlashBonus,
+      nextFlashMinutes,
+      nextFlashStartAt,
       id
     );
 
