@@ -1,18 +1,40 @@
 <%# src/views/partials/task-todo-row.ejs
     Issue #624: one to-do row on the guest task list. Extracted to a partial
-    because tasks.ejs loops through this same row markup twice — once for
-    one-day-only challenges, once for ordinary tasks — and the markup must not
+    because tasks.ejs loops through this same row markup twice — once for the
+    priority list (flash, then today's challenge, then the locked mystery box),
+    once for ordinary tasks — and the markup must not
     fork between the two passes. (The starter profile-photo row in between
     them is a real to-do row too, but a distinct one-off shape — see
     tasks.ejs's own inline <li> for it — so it does not go through this
     partial; issue #754 review fix, NIT K.)
 
-    Three states, in the order a guest meets them:
-      locked   — a one-day-only challenge whose day has not arrived
-      isToday  — its day is now, so the bonus is live
-      (plain)  — an ordinary task, or a challenge whose day has passed
+    Four states, in the order a guest meets them:
+      locked      — a one-day-only challenge whose day has not arrived
+      flashActive — a live flash window (issue #762); expires in MINUTES,
+                    so it carries its own live clock rather than the
+                    calendar-day language isToday below uses
+      isToday     — its day is now, so the bonus is live
+      (plain)     — an ordinary task, or a challenge whose day has passed
+
+    flashActive and isToday are mutually exclusive by construction — the
+    route (src/routes/guest.js) derives flashActive from
+    tasks.bonusForTask(), the single owner of "is anything paying, and if so
+    what" (checking that the presently-paying rule's reason is
+    BONUS_REASON_FLASH), so a task dated today can never also carry
+    flashActive: true (issue #762 criterion 2 — bonusForTask walks the same
+    ordered SPECIAL_RULES list that makes 'daily' win the tie). Both are
+    still checked as independent `if`s below, not an if/else, because that
+    exclusivity is the ROUTE's contract, not this partial's to re-enforce.
 
     Local: t — the task row.
+%>
+<%
+  // Shared by both the locked card's d/h/m/s countdown and the flash
+  // marker's mm:ss/h:mm:ss clock below (issue #762 review fix, NIT --
+  // dropped the identical pad2 that used to live in the flash branch): the
+  // locked and flash markup live in mutually exclusive branches of this one
+  // compiled function body, so one `pad` above the branch serves both.
+  var pad = function (n) { return n < 10 ? '0' + n : String(n); };
 %>
 <% if (t.locked) { %>
   <%# Mystery box: no title, no description, no badge — the tease IS the point,
@@ -39,7 +61,6 @@
         var cdH = Math.floor(msLeft / 3600000) % 24;
         var cdM = Math.floor(msLeft / 60000) % 60;
         var cdS = Math.floor(msLeft / 1000) % 60;
-        var pad = function (n) { return n < 10 ? '0' + n : String(n); };
       %>
       <span class="task-body">
         <%# No title, no day, no description. A true mystery box gives up
@@ -59,11 +80,51 @@
     </span>
   </li>
 <% } else { %>
-  <li class="task-row task-todo<%= t.isToday ? ' task-today' : '' %>">
+  <%# task-flash-drain is emitted as a literal (issue #762 criterion 3), not
+      derived from a variant local — DRAIN is the only treatment the owner
+      approved, so there is no second treatment to select between. %>
+  <li class="task-row task-todo<%= t.isToday ? ' task-today' : '' %><%= t.flashActive ? ' task-flash task-flash-drain' : '' %>">
     <a class="task-link" href="/tasks/<%= t.id %>">
       <span class="task-body">
         <% if (t.isToday) { %>
-          <span class="task-today-flag">+<%= t.specialBonus %> pts Today Only</span>
+          <span class="task-special-flag task-today-flag">+<%= t.specialBonus %> pts Today Only</span>
+        <% } %>
+        <% if (t.flashActive) { %>
+          <%
+            // Server-side first paint of the flash clock — the guest sees a
+            // correct, non-jumping figure before task-countdown.js ever runs,
+            // and the figure stays correct on load with JavaScript off
+            // (issue #762 criterion 4). Seconds ALWAYS show (they carry the
+            // urgency); hours appear only once there is an hour to show, so a
+            // 40-minute window reads 09:08 and a 2-hour one reads 1:58:34,
+            // never 120:34. task-countdown.js's paintFlash() formats
+            // identically — the two must agree, or the clock would visibly
+            // jump the instant the script takes over.
+            var fMs = Math.max(0, new Date(t.flashEndsAt).getTime() - Date.now());
+            var fH = Math.floor(fMs / 3600000);
+            var fM = Math.floor(fMs / 60000) % 60;
+            var fS = Math.floor(fMs / 1000) % 60;
+            var fClock = fH > 0 ? fH + ':' + pad(fM) + ':' + pad(fS) : pad(fM) + ':' + pad(fS);
+          %>
+          <%# data-ends-at is the absolute end instant task-countdown.js ticks
+              toward — same discipline as the locked card's data-unlock-at
+              above, so the countdown is right regardless of the guest's own
+              phone timezone. data-total-ms is the drain fill's denominator.
+              --flash-left is set server-side on first paint (issue #762
+              criterion 3): the fraction of the window remaining, floored at
+              0 and capped at 100, with no lower bound above 0 — the owner's
+              explicit call (no floor at 20% or 5%; both were built and
+              rejected) is that the fill runs the full range to empty, the
+              clock beside it carrying the last stretch. %>
+          <span class="task-special-flag task-flash-flag" data-ends-at="<%= t.flashEndsAt %>"
+                data-total-ms="<%= t.flashTotalMs %>"
+                style="--flash-left: <%= Math.max(0, Math.min(100, Math.round((fMs / t.flashTotalMs) * 100))) %>%">
+            <span class="task-flash-bolt" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" fill="currentColor"/></svg>
+            </span>
+            <span class="task-flash-copy">+<%= t.flashBonus %> pts right now</span>
+            <span class="task-flash-clock"><%= fClock %></span>
+          </span>
         <% } %>
         <span class="task-title-text"><%= t.title %></span>
         <% if (t.description) { %>
@@ -78,9 +139,26 @@
         <%# On its own day the price tag shows what the guest actually banks
             today (worth + the host-set bonus), with the base struck through so
             the reason for the jump is readable at a glance. %>
-        <span class="task-points task-points-today">
+        <span class="task-points task-points-raised">
           <span class="task-points-was">+<%= t.worth %></span>
           +<%= t.worth + t.specialBonus %> pts
+        </span>
+      <% } else if (t.flashActive) { %>
+        <%# Same price-tag SHAPE as the Today Only row above (struck-through
+            base, then the live total) — reusing the shape is the point: a
+            guest already reads it as "worth more right now", so flash does
+            not invent a second way to say it.
+
+            data-base-label carries what the row is worth once the window is
+            over. When the clock runs out under a guest sitting on the page,
+            task-countdown.js's ended branch falls the price tag back to it
+            (issue #762 criterion 6) — leaving the raised total on screen
+            beside an ended pill would go on advertising a bonus the guest
+            can no longer earn. %>
+        <span class="task-points task-points-raised"
+              data-base-label="+<%= t.worth %> pt<%= t.worth === 1 ? '' : 's' %>">
+          <span class="task-points-was">+<%= t.worth %></span>
+          +<%= t.worth + t.flashBonus %> pts
         </span>
       <% } else { %>
         <span class="task-points">+<%= t.worth %> pt<%= t.worth === 1 ? '' : 's' %></span>

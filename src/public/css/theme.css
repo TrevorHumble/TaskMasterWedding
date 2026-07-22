@@ -1251,18 +1251,37 @@ a.stat:hover {
 .task-row.task-today {
   background: linear-gradient(90deg, rgba(200, 162, 76, 0.14), transparent 60%);
 }
-.task-today-flag {
+/* Shared pill base for the Today Only flag and the flash marker below
+   (issue #762 review fix, MINOR — collapsed two copies of margin-bottom,
+   padding, border-radius, font-size, font-weight, and letter-spacing into
+   one rule; the DESIGN.md note for #762 already claims flash "reuses the
+   Today Only row's shape wholesale," and this is that claim made real in
+   the stylesheet rather than restated as a second copy). Each marker below
+   adds only what actually differs between them: display/layout and colour.
+   Pixels are unchanged from the pre-fix two-copy version — verified by
+   diffing the computed style. */
+.task-special-flag {
   display: inline-block;
   margin-bottom: var(--space-1);
   padding: 2px var(--space-2);
   border-radius: var(--radius-pill);
-  background: var(--place-1);
-  color: var(--place-1-ink);
   font-size: var(--fs-eyebrow);
   font-weight: 700;
   letter-spacing: 0.01em;
 }
-.task-points-today {
+.task-today-flag {
+  background: var(--place-1);
+  color: var(--place-1-ink);
+}
+/* Feature-neutral shape for a "raised" price tag -- struck-through base worth
+   stacked above the live total. Shared by the Today Only row AND the flash
+   marker (issue #762): carries layout and ink only, no gold of its own, so
+   it must NOT be named after either one feature (review fix -- an earlier
+   name, task-points-today, invited a future reader to add `color:
+   var(--place-1)` here since the rule sits right after the Today Only block
+   above, which would silently paint every flash price tag gold too and
+   break the ember/gold separation the owner explicitly asked for). */
+.task-points-raised {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -1276,6 +1295,102 @@ a.stat:hover {
   color: var(--color-text-muted);
   text-decoration: line-through;
 }
+
+/* ---- Flash marker (issue #762) ----
+   Says the same thing a Today Only row says — "this one is worth more right
+   now" — so it reuses that row's SHAPE (the pill, its position above the
+   title, the struck-through price tag) rather than inventing a second
+   vocabulary for the same idea. What separates flash from Today Only is that
+   it expires in MINUTES, not a calendar day, so a live clock carries the
+   urgency instead of a static label. */
+.task-flash-flag {
+  /* .task-special-flag above supplies margin-bottom, the base padding,
+     border-radius, font-size, font-weight, and letter-spacing; this rule
+     overrides only what a bolt-plus-clock pill actually needs beyond the
+     shared shape. */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: 6px; /* tighter than the shared base's left padding, to make room for the bolt glyph */
+}
+.task-flash-bolt {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+}
+.task-flash-bolt svg {
+  width: 100%;
+  height: 100%;
+}
+.task-flash-clock {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* Flash's own hue (owner, 2026-07-21): a dark ember orange, not the
+   leaderboard gold Today Only uses. First built sharing --place-1 on the
+   reasoning that hue should stay shared and motion should do the
+   differentiating; seen live beside a gold Today Only row, the two read as
+   the same thing, and the owner asked for the separation to be carried by
+   colour after all (see DESIGN.md). Held in its own token group rather than
+   a raw hex at each use so a hue change is a THREE-line edit inside this one
+   block (--flash-1, --flash-1-spent, --flash-1-wash each re-express the same
+   value rather than deriving the washes with color-mix(), which is newer
+   than some guest phones will be at this wedding). */
+:root {
+  --flash-1: #b5401a; /* ember — dark fiery orange (owner, 2026-07-21) */
+  --flash-1-ink: var(--white);
+  --flash-1-spent: rgba(181, 64, 26, 0.22); /* the drained half of the pill */
+  --flash-1-wash: rgba(181, 64, 26, 0.12); /* the row tint behind it */
+}
+.task-row.task-flash {
+  background: linear-gradient(90deg, var(--flash-1-wash), transparent 60%);
+}
+.task-flash .task-flash-flag {
+  background: var(--flash-1);
+  color: var(--flash-1-ink);
+}
+
+/* DRAIN: the pill's fill recedes as the window burns down, so how much time
+   is left is readable without reading the digits. One ember at two
+   densities; --flash-left is repainted each tick by task-countdown.js. The
+   motion carries information rather than decorating — which is also why
+   reduced motion (below) costs this treatment nothing: the fill is a STATE,
+   not an animation. Two motion-only candidates (an escalating breath, a
+   shimmer) were built and rejected live because both collapse to a plain
+   pill under prefers-reduced-motion, taking their whole differentiator with
+   them; drain survives it, since only the TWEEN between per-second repaints
+   is dropped. */
+.task-flash-drain .task-flash-flag {
+  background: linear-gradient(
+    90deg,
+    var(--flash-1) 0,
+    var(--flash-1) var(--flash-left, 100%),
+    var(--flash-1-spent) var(--flash-left, 100%)
+  );
+  /* The fill slides rather than stepping, so a once-per-second repaint does
+     not read as a stutter. */
+  transition: background 900ms linear;
+}
+
+/* Ended: the window closed while the guest was sitting on the page. The page
+   deliberately does not reload itself, so the pill has to stop looking like a
+   live offer on its own — it drops to a quiet spent state rather than keeping
+   the ember it no longer earns. A reload renders no marker at all. */
+.task-flash-flag.is-ended {
+  background: var(--flash-1-spent);
+  color: var(--color-text-muted);
+}
+.task-flash-flag.is-ended .task-flash-bolt {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-flash-drain .task-flash-flag {
+    transition: none;
+  }
+}
+
 /* Done rows: the guest's own photo is the completion indicator — a 40px
    thumbnail with a small sage check-badge overlapping its corner. No pills,
    no placeholder squares. */
