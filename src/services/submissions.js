@@ -49,9 +49,15 @@ const eventDays = require('./event-days');
 // identical reason, one row load serving the in-window bonus decision below
 // too — the same undefined-binds-into-a-NOT-NULL-column failure the #753
 // comment warns about would recur for flash_bonus if this select skipped it.
+// lucky_date/lucky_bonus (issue #650) are read for the SAME reason, a third
+// time: without them, tasks.bonusForTask() reads task.lucky_date as
+// `undefined`, the lucky rule's `spokenFor` answers false, and a lucky task
+// banks NOTHING — the exact trap this file's own comment at :42-51 already
+// names twice.
 const stmtActiveTask = db.prepare(
   `SELECT id, special_mode, special_date, special_bonus,
-          flash_start_at, flash_minutes, flash_bonus
+          flash_start_at, flash_minutes, flash_bonus,
+          lucky_date, lucky_bonus
      FROM tasks WHERE id = ?`
 );
 
@@ -158,13 +164,14 @@ const CAPTION_MAX_LENGTH = 500;
 // dead inside their own module (nothing here read them — bonusForTask() was
 // the write path), with a comment conceding "the two must always hold the
 // identical value" and nothing enforcing that; a rule added to tasks.js's
-// SPECIAL_RULES alone (as #650's 'lucky' will be) would leave this file's
+// SPECIAL_RULES alone (as #650's 'lucky' was) would leave this file's
 // exported constant set silently one entry short of what actually gets
 // written, and #611's receipt / #644's bell (the named future readers of
 // this column) would compare a submission's reason against an export that
 // simply doesn't exist. Exported here unchanged (re-exported, not renamed)
-// so every current importer is unaffected.
-const { BONUS_REASON_ONEDAY, BONUS_REASON_FLASH } = tasks;
+// so every current importer is unaffected. BONUS_REASON_LUCKY (issue #650)
+// re-exported the same way, closing the exact gap this comment warned about.
+const { BONUS_REASON_ONEDAY, BONUS_REASON_FLASH, BONUS_REASON_LUCKY } = tasks;
 
 /**
  * Trim and cap a caption to the stored column's limit. A missing or non-string
@@ -279,7 +286,11 @@ function normalizeCaption(caption) {
  *        below) is a separate, pre-existing seam — derived internally from
  *        `eventDays.eventLocalDateString(...)`, not reachable through this
  *        parameter, and unaffected by it.
- * @returns {Promise<{status: 'created'|'replaced'|'replaced_hidden'|'task_inactive'|'thumb_failed', submissionId?: number, newBadgeIds?: string[], pointsTotal?: number}>}
+ * @returns {Promise<{status: 'created'|'replaced'|'replaced_hidden'|'task_inactive'|'thumb_failed', submissionId?: number, newBadgeIds?: string[], pointsTotal?: number, luckyBonus?: number}>}
+ *   luckyBonus (issue #650) is the banked lucky amount, present only when
+ *   status is 'created' AND the presently-paying rule is lucky — `undefined`
+ *   for every ordinary completion and for any replace (lucky never banks on
+ *   a replace; see banksOnReplace on tasks.js's SPECIAL_RULES lucky entry).
  */
 async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
   // Only nullish (absent/undefined, or explicit null) means "use the real
@@ -358,6 +369,19 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
   // is sealed/scheduled but not yet in its own paying instant.
   const bonusDecision = tasks.bonusForTask(task, { todayIso, nowMs: clockMs });
 
+  // The lucky-win flag (issue #650 plan step 4, DESIGN.md's exact prescribed
+  // expression): true only when the presently-paying rule IS lucky. Both
+  // halves are load-bearing. Without the reason test, the gold clover would
+  // fire on an ordinary daily/flash payout too. Without the `!== null` guard,
+  // `bonusDecision.reason` throws a TypeError for every ordinary submission
+  // (bonusForTask() returns bare `null`, not an object, when nothing is
+  // paying) — 500ing POST /tasks/:id/submit, the app's most-travelled write
+  // path. Only ever surfaced to the caller for a 'created' status below (see
+  // the returned object) — a replace can never actually bank lucky
+  // (banksOnReplace: false above), so there is nothing for a replace to
+  // report here even though `luckyActive` itself does not know that.
+  const luckyActive = bonusDecision !== null && bonusDecision.reason === tasks.BONUS_REASON_LUCKY;
+
   let status;
   let submissionId;
   if (existing) {
@@ -387,8 +411,17 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
     // returning `reason: null` whenever `amount` coalesced to 0 on that same
     // legacy-row shape. This branch no longer re-applies its own `> 0` guard
     // around that same rule a second time.
-    const coalescedBonus =
-      bonusDecision && existing.bonus_amount === 0 ? bonusDecision.amount : null;
+    // banksOnThisReplace also requires bonusDecision.banksOnReplace !== false
+    // (issue #650 plan step 4) — lucky's SPECIAL_RULES entry is the one rule
+    // that sets this to the literal `false` (daily/flash leave it
+    // `undefined`, which is "anything other than false", so their existing
+    // behaviour is unchanged). Without this half of the guard, a guest whose
+    // OWN prior (still-existing, soft-taken-down) submission on a task that
+    // becomes lucky today would bank the lucky bonus on their re-upload —
+    // exactly the gaming path the owner named and criterion 3 refuses.
+    const banksOnThisReplace =
+      bonusDecision && bonusDecision.banksOnReplace !== false && existing.bonus_amount === 0;
+    const coalescedBonus = banksOnThisReplace ? bonusDecision.amount : null;
     const bankArgs =
       coalescedBonus !== null
         ? {
@@ -494,7 +527,18 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
   // succeeded.
   const pointsTotal = scoring.getPoints(guestId);
 
-  return { status, submissionId, newBadgeIds, pointsTotal };
+  // luckyBonus (issue #650 plan step 4) is surfaced only for a genuine
+  // 'created' completion — the only status src/routes/guest.js ever turns
+  // into a one-shot success-card reward (setTaskCompleteReward is called for
+  // 'created' alone). Gating on status here, not just on luckyActive, matters
+  // because luckyActive alone would read true on a REPLACE too whenever
+  // lucky is presently paying (banksOnReplace: false only stops the actual
+  // bank, not `paying` itself from answering true) — this field must report
+  // what was ACTUALLY banked, never what bonusForTask() merely says is
+  // theoretically active right now.
+  const luckyBonus = status === 'created' && luckyActive ? bonusDecision.amount : undefined;
+
+  return { status, submissionId, newBadgeIds, pointsTotal, luckyBonus };
 }
 
 /**
@@ -570,4 +614,5 @@ module.exports = {
   CAPTION_MAX_LENGTH,
   BONUS_REASON_ONEDAY,
   BONUS_REASON_FLASH,
+  BONUS_REASON_LUCKY,
 };

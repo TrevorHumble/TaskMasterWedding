@@ -70,13 +70,14 @@ const feed = require('../services/feed');
 const { streamExportZip } = require('../services/export');
 const { normalizeContact, isValidPin } = require('../services/identity');
 const { relativeTime } = require('../services/relative-time');
+const eventDaysSvc = require('../services/event-days');
 const {
   timezoneOptions,
   isKnownTimezone,
   resolveSelectedZone,
   eventDays: computeEventDays,
   singleDayLabel,
-} = require('../services/event-days');
+} = eventDaysSvc;
 const hostChecklist = require('../services/host-checklist');
 
 const router = express.Router();
@@ -464,6 +465,13 @@ function describeCreatePairRefusal(reason) {
 // is scoped to the pair alone, and the rest of the save this POST carried
 // (title/description/worth/badge) is simply never applied either, since the
 // whole edit is one refuse-or-apply unit.
+//
+// Exception (issue #650): POST /tasks/:id/edit's one-day locked-refusal
+// branch additionally applies the lucky-pair CLEAR even when this exact
+// refusal fires (a save cancelling an existing lucky pick via Special=None
+// on a row whose one-day pair is separately locked) — see that route's own
+// comment for why the lucky clear cannot wait for a door the lock never
+// opens.
 function describeEditPairRefusal(reason) {
   switch (reason) {
     case PAIR_REASON_INVALID_DATE:
@@ -475,6 +483,212 @@ function describeEditPairRefusal(reason) {
     default:
       return 'That day/bonus could not be saved.';
   }
+}
+
+// ---------------------------------------------------------------------------
+// The lucky pair (issue #650) — its OWN resolver, deliberately NOT folded
+// into resolveSpecialPairWrite above. That function is documented as "the
+// one place all three [one-day doors] are refused by the same rule", and its
+// caller turns a single ok:false into an early return that writes nothing —
+// threading a second pair through it would mean one refusal verdict covering
+// two INDEPENDENT decisions. Concretely, that trap is: a task can carry BOTH
+// a past special_date and a lucky_date at once (a past challenge is not
+// spokenFor, so the exclusivity guard below permits lucky on it); cancelling
+// the lucky pick via Special=None also makes the one-day pair "changed"
+// (clearing it), and with submissions present the one-day LOCK would refuse
+// the WHOLE save under one shared verdict — stranding lucky_date forever,
+// with no door left to cancel it through ("One day only" refused by
+// exclusivity, "Hidden" leaves lucky_date intact by design, "None" bounces).
+// See POST /tasks/:id/edit below for how the two resolvers' verdicts are
+// combined to close that trap.
+// ---------------------------------------------------------------------------
+const LUCKY_REASON_INVALID_DATE = 'lucky_invalid_date';
+const LUCKY_REASON_INVALID_BONUS = 'lucky_invalid_bonus';
+
+// The ONE owner of "would this save touch the (lucky_date, lucky_bonus)
+// pair, and if so is that touch allowed, and what is the pair afterward" —
+// the lucky counterpart to resolveSpecialPairWrite above, sharing its exact
+// shape (writes/pairChanged/resolved-pair) but never its lock: a lucky
+// bonus is BANKED onto the submission row at submit time (canon rule 11), so
+// clearing or changing lucky_date/lucky_bonus can never re-score a photo a
+// guest already posted — there is nothing here for a submission-count lock
+// to protect, unlike the one-day pair's retroactive on-day bonus.
+//
+// Branches on the RAW posted special_mode, never the normalized value, for
+// the same reason resolveSpecialPairWrite does: a 'lucky' write sources the
+// resolved pair from rawDate/rawBonus; a 'none' write clears it (both null —
+// the host's ONLY cancel path, AC4); 'hidden' or an absent/other value
+// leaves the pair exactly as currently stored (a lucky task can be hidden
+// with its pick intact — "Deliberate omissions, recorded" in the issue).
+//
+// @param {object} opts
+// @param {unknown} opts.rawMode - req.body.special_mode, unmodified.
+// @param {unknown} opts.rawDate - req.body.lucky_date, unmodified.
+// @param {unknown} opts.rawBonus - req.body.lucky_bonus, unmodified.
+// @param {string|null|undefined} opts.storedDate - the task's CURRENT
+//   lucky_date, or `undefined` on CREATE (no stored task yet).
+// @param {number|null|undefined} opts.storedBonus - the task's CURRENT
+//   lucky_bonus, or `undefined` on CREATE.
+// @returns {{ok: true, writeDate: string|null, writeBonus: number|null}
+//   | {ok: false, reason: 'lucky_invalid_date'|'lucky_invalid_bonus'}}
+function resolveLuckyPairWrite({ rawMode, rawDate, rawBonus, storedDate, storedBonus }) {
+  const writes = rawMode === tasks.SPECIAL_LUCKY || rawMode === tasks.MODE_NONE;
+
+  let writeDate = null;
+  let writeBonus = null;
+  if (rawMode === tasks.SPECIAL_LUCKY) {
+    writeDate = typeof rawDate === 'string' && rawDate.trim() ? rawDate.trim() : null;
+    const parsedBonus = parseInt(rawBonus, 10);
+    writeBonus = Number.isInteger(parsedBonus) ? parsedBonus : null;
+  }
+
+  const pairChanged = writes && (writeDate !== storedDate || writeBonus !== storedBonus);
+
+  // Validated only when the pair actually CHANGED (mirroring the one-day
+  // pair's own pairChanged-gated validation) — this is what lets the lucky
+  // stale-date hidden input (admin-tasks.js) survive a host narrowing the
+  // wedding dates after picking a lucky day: a re-posted, no-longer-configured
+  // lucky_date that matches what is already stored is NOT a change, so it is
+  // never bounced by a title-only edit.
+  if (rawMode === tasks.SPECIAL_LUCKY && pairChanged) {
+    if (!isConfiguredEventDay(writeDate)) {
+      return { ok: false, reason: LUCKY_REASON_INVALID_DATE };
+    }
+    if (
+      writeBonus === null ||
+      writeBonus < tasks.LUCKY_MIN_BONUS ||
+      writeBonus > tasks.LUCKY_MAX_BONUS
+    ) {
+      return { ok: false, reason: LUCKY_REASON_INVALID_BONUS };
+    }
+  }
+
+  const resolvedDate = writes ? writeDate : (storedDate ?? null);
+  const resolvedBonus = writes ? writeBonus : (storedBonus ?? null);
+  return { ok: true, writeDate: resolvedDate, writeBonus: resolvedBonus };
+}
+
+// Word a resolveLuckyPairWrite refusal for the HOST-FACING create flash
+// message — CREATE-specific wording mirrors describeCreatePairRefusal's own
+// "your task was not created" framing, for the identical reason: a refused
+// lucky pair on create writes NO task row at all.
+function describeCreateLuckyRefusal(reason) {
+  switch (reason) {
+    case LUCKY_REASON_INVALID_DATE:
+      return 'Choose one of the configured wedding days for the lucky pick — your task was not created.';
+    case LUCKY_REASON_INVALID_BONUS:
+      return 'Choose a secret bonus of +1, +2, or +3 — your task was not created.';
+    default:
+      return 'That lucky day/bonus could not be saved — your task was not created.';
+  }
+}
+
+// Word a resolveLuckyPairWrite refusal for the HOST-FACING edit flash
+// message — mirrors describeEditPairRefusal's own scoped-to-the-pair
+// framing (no LOCKED case here: lucky is never locked, see
+// resolveLuckyPairWrite's own comment).
+function describeEditLuckyRefusal(reason) {
+  switch (reason) {
+    case LUCKY_REASON_INVALID_DATE:
+      return 'Choose one of the configured wedding days for the lucky pick.';
+    case LUCKY_REASON_INVALID_BONUS:
+      return 'Choose a secret bonus of +1, +2, or +3.';
+    default:
+      return 'That lucky day/bonus could not be saved.';
+  }
+}
+
+// The exclusivity guard's first production callers (issue #650 plan step 3 —
+// tasks.whatSpecial's own doc comment, src/services/tasks.js, names this
+// exact call site as the reason it ships with no production caller yet).
+// Runs from both the create and edit handlers below, whenever the posted RAW
+// special_mode itself names a special kind — 'oneday' (checked against
+// tasks.SPECIAL_DAILY) or 'lucky' (tasks.SPECIAL_LUCKY) — and is SKIPPED for
+// 'none'/'hidden', which must stay the host's cancel/hide paths and never get
+// refused by this guard. `currentRow` is `{}` on CREATE (no stored task yet,
+// so tasks.whatSpecial always answers null and this is vacuous by
+// construction) and the real row on EDIT — where it naturally never refuses
+// a task re-saving the SAME kind it already is (whatSpecial(task, clock)
+// reflects the task's OWN current data, so it can only disagree with
+// `settingKind` when a DIFFERENT rule already owns the row: e.g. a task
+// already lucky (a live lucky_date) that the host tries to date as One day
+// only — AC7(c)'s "reverse" case).
+//
+// @param {object} currentRow - the task's current row, or {} on CREATE.
+// @param {{todayIso: string, nowMs: number}} clock
+// @param {string} settingKind - one of tasks.SPECIAL_DAILY/SPECIAL_LUCKY —
+//   the exported constant, never derived from the posted special_mode
+//   (neither flash nor lucky stores one to derive it from).
+// @returns {{ok: true} | {ok: false, existingKind: string}}
+function checkExclusivity(currentRow, clock, settingKind) {
+  const existingKind = tasks.whatSpecial(currentRow, clock);
+  if (existingKind && existingKind !== settingKind) {
+    return { ok: false, existingKind };
+  }
+  return { ok: true };
+}
+
+// The ONE place a posted RAW special_mode maps to the SPECIAL_* kind
+// checkExclusivity is asked to guard (issue #650 PR review fix, Finding C).
+// Before this helper existed, the create and edit handlers each carried an
+// identical, hand-written ternary doing this same mapping — character-for-
+// character duplicated, with no shared owner, so a third special type would
+// have to edit both by hand and nothing would fail if only one copy were
+// updated (the create-side copy is vacuous by construction today — CREATE
+// has no stored row, so the guard it feeds never refuses anything — which is
+// exactly why a missed update there would go unnoticed). Returns null for
+// 'none'/'hidden'/anything else — the guard is skipped entirely for those,
+// never called with a null settingKind.
+//
+// @param {unknown} rawMode - req.body.special_mode, unmodified.
+// @returns {string|null} one of tasks.SPECIAL_DAILY/SPECIAL_LUCKY, or null.
+function specialKindBeingSet(rawMode) {
+  if (rawMode === tasks.MODE_ONEDAY) return tasks.SPECIAL_DAILY;
+  if (rawMode === tasks.SPECIAL_LUCKY) return tasks.SPECIAL_LUCKY;
+  return null;
+}
+
+// Word an exclusivity refusal, naming what the task already is (AC7's own
+// wording requirement) — the one message both the one-day and lucky setters
+// share, since the refusal is symmetric ("already X" reads correctly from
+// either direction).
+function describeExclusivityRefusal(existingKind) {
+  const label =
+    existingKind === tasks.SPECIAL_DAILY
+      ? 'a one-day-only challenge'
+      : existingKind === tasks.SPECIAL_FLASH
+        ? 'a flash task'
+        : existingKind === tasks.SPECIAL_LUCKY
+          ? 'the lucky task'
+          : // Neutral fallback (issue #650 PR review fix, Finding J), never the
+            // bare kind string — `existingKind` here would be an unrecognized
+            // SPECIAL_RULES `kind` value, and printing it verbatim would render
+            // ungrammatical host-facing text like "already flash" (missing its
+            // article) if a future rule's kind spelling doesn't happen to read
+            // as a noun phrase on its own.
+            'another special task';
+  return 'This task is already ' + label + ' — cancel that first.';
+}
+
+// This file's one clock (issue #650 plan step 3 — this file previously had
+// none at all). Built the same way src/services/submissions.js's submitPhoto
+// builds its own clock, around the same two calls submitPhoto assembles:
+// `eventLocalDateString(getEventConfig().timezone)` for the event-local day,
+// `Date.now()` for the instant. Passing `{todayIso}` alone is not a partial
+// success — tasks.whatSpecial() reaches flashState() for any row daily has
+// not spoken for, and that throws on a non-finite nowMs, so every admin task
+// save on a non-daily task would 500 without the second half.
+function currentClock() {
+  // eventDaysSvc.eventLocalDateString (a live property lookup, not a
+  // destructured constant — issue #650 review self-check) so a test can
+  // monkeypatch it the same way tests/flash-engine.test.js and
+  // tests/oneday-challenge-engine.test.js already do for guest.js/
+  // submissions.js's identical clock, instead of this route silently reading
+  // whatever the real wall clock happens to be during a test run.
+  return {
+    todayIso: eventDaysSvc.eventLocalDateString(getEventConfig().timezone),
+    nowMs: Date.now(),
+  };
 }
 
 // POST /admin/config  — validate and persist. Timezone must be a real IANA
@@ -877,6 +1091,12 @@ router.get('/tasks', (req, res) => {
   // module required at the top of this file.
   const taskRows = db.prepare('SELECT * FROM tasks ORDER BY sort_order ASC, id ASC').all();
 
+  // This route's one clock (issue #650 PR review fix, Finding A) — hoisted
+  // above the row-building map so every row's specialKind (below) is
+  // evaluated against the same instant, the same discipline currentClock()
+  // itself documents.
+  const clock = currentClock();
+
   // Attach how many live submissions each task has (informational).
   const subStmt = db.prepare(
     'SELECT COUNT(*) AS n FROM submissions WHERE task_id = ? AND taken_down = 0'
@@ -920,6 +1140,28 @@ router.get('/tasks', (req, res) => {
       // than crashing the whole board.
       oneday: hasDate,
       dayLabel: hasDate ? singleDayLabel(t.special_date) : '',
+      // Raw pair (issue #650 plan step 6) — emitted as data-lucky-date/
+      // data-lucky-bonus so admin-tasks.js's openEdit() can restore a stored
+      // lucky pick (and check the Lucky radio off it, since a lucky task
+      // never stores special_mode='oneday' to derive that from). No board
+      // chip for this pair (unlike special_date/special_bonus's oneday chip
+      // above) — deliberate, recorded in the issue's "Deliberate omissions"
+      // section: the edit popup is the host's way to see the current pick.
+      lucky_date: t.lucky_date,
+      lucky_bonus: t.lucky_bonus,
+      // The server-derived answer to "which Special radio does this task's
+      // edit popup open on" (issue #650 PR review fix, Finding A). Before
+      // this field existed, admin-tasks.js hand-copied the daily rule's
+      // spokenFor predicate (isSealed||isOnDay) client-side to decide whether
+      // a stored special_date should win the Lucky radio over a lucky_date —
+      // a second owner of a rule tasks.js's whatSpecial() already owns, and
+      // one that could not see a live flash window at all. Emitting
+      // tasks.whatSpecial()'s own answer here (as data-special-kind, read by
+      // openEdit()) makes the popup's radio precedence consult the SAME
+      // single ordered SPECIAL_RULES walk every other exclusivity decision
+      // in this app already goes through, instead of a browser-side re-guess
+      // that drifts the moment the rule set changes.
+      specialKind: tasks.whatSpecial(t, clock),
       submissions: subStmt.get(t.id).n,
       isFirst: idx === 0,
       isLast: idx === taskRows.length - 1,
@@ -985,7 +1227,8 @@ router.post('/tasks', (req, res) => {
   }
 
   const worth = tasks.normalizeWorth(req.body.worth, tasks.DEFAULT_WORTH);
-  const specialMode = tasks.normalizeMode(req.body.special_mode, tasks.MODE_NONE);
+  const rawSpecialMode = req.body.special_mode;
+  const specialMode = tasks.normalizeMode(rawSpecialMode, tasks.MODE_NONE);
 
   // special_date/special_bonus (issue #755) — validated BEFORE any write, same
   // discipline as the badge check just below: a bad pair on CREATE means NO
@@ -995,7 +1238,7 @@ router.post('/tasks', (req, res) => {
   // resolveSpecialPairWrite's own comment) and submissionCount is 0 (a
   // brand-new task can have no submissions, so the lock never fires here).
   const pairResolved = resolveSpecialPairWrite({
-    rawMode: req.body.special_mode,
+    rawMode: rawSpecialMode,
     rawDate: req.body.special_date,
     rawBonus: req.body.special_bonus,
     storedDate: undefined,
@@ -1004,6 +1247,43 @@ router.post('/tasks', (req, res) => {
   });
   if (!pairResolved.ok) {
     return redirectWithMsg(res, '/admin/tasks', describeCreatePairRefusal(pairResolved.reason));
+  }
+
+  // Lucky pair (issue #650) — same "validated BEFORE any write" discipline,
+  // storedDate/storedBonus undefined for the identical CREATE reason as the
+  // one-day pair above.
+  const luckyPairResolved = resolveLuckyPairWrite({
+    rawMode: rawSpecialMode,
+    rawDate: req.body.lucky_date,
+    rawBonus: req.body.lucky_bonus,
+    storedDate: undefined,
+    storedBonus: undefined,
+  });
+  if (!luckyPairResolved.ok) {
+    return redirectWithMsg(
+      res,
+      '/admin/tasks',
+      describeCreateLuckyRefusal(luckyPairResolved.reason)
+    );
+  }
+
+  // Exclusivity (issue #650 plan step 3) — CREATE has no stored row, so `{}`;
+  // the guard is vacuous by construction here, kept anyway so create and edit
+  // share one shape. specialKindBeingSet() (issue #650 PR review fix, Finding
+  // C) is the one place a posted raw special_mode maps to the SPECIAL_* kind
+  // this guard checks — a future setter (e.g. flash gaining a settable pick)
+  // has that one function to extend, not this ternary duplicated a third
+  // time.
+  const settingKind = specialKindBeingSet(rawSpecialMode);
+  if (settingKind) {
+    const exclusivity = checkExclusivity({}, currentClock(), settingKind);
+    if (!exclusivity.ok) {
+      return redirectWithMsg(
+        res,
+        '/admin/tasks',
+        describeExclusivityRefusal(exclusivity.existingKind)
+      );
+    }
   }
 
   // Badge is REQUIRED (AC-A) — the wizard's own step 3 already disables its
@@ -1038,8 +1318,8 @@ router.post('/tasks', (req, res) => {
   const createTask = db.transaction(() => {
     const info = db
       .prepare(
-        `INSERT INTO tasks (title, description, sort_order, worth, special_mode, special_date, special_bonus)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tasks (title, description, sort_order, worth, special_mode, special_date, special_bonus, lucky_date, lucky_bonus)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         title,
@@ -1048,9 +1328,22 @@ router.post('/tasks', (req, res) => {
         worth,
         specialMode,
         pairResolved.writeDate,
-        pairResolved.writeBonus
+        pairResolved.writeBonus,
+        luckyPairResolved.writeDate,
+        luckyPairResolved.writeBonus
       );
     const taskId = info.lastInsertRowid;
+
+    // One lucky task per day (issue #650) — writing lucky_date = D first
+    // clears lucky_date/lucky_bonus on any OTHER task already holding that
+    // day, in the SAME transaction as the insert. Touches only the two lucky
+    // columns — never special_mode (see the edit route's identical clear,
+    // below, for why that matters).
+    if (luckyPairResolved.writeDate) {
+      db.prepare(
+        `UPDATE tasks SET lucky_date = NULL, lucky_bonus = NULL WHERE lucky_date = ? AND id != ?`
+      ).run(luckyPairResolved.writeDate, taskId);
+    }
 
     // One task, one badge (issue #483) — resolveTaskBadge would otherwise
     // lazily insert the shared default-ribbon row the first time this task's
@@ -1107,7 +1400,8 @@ router.post('/tasks/:id/edit', (req, res) => {
   }
 
   const worth = tasks.normalizeWorth(req.body.worth, task.worth);
-  const specialMode = tasks.normalizeMode(req.body.special_mode, task.special_mode);
+  const rawSpecialMode = req.body.special_mode;
+  const specialMode = tasks.normalizeMode(rawSpecialMode, task.special_mode);
 
   // special_date/special_bonus (issue #755) — validated BEFORE any write,
   // same discipline as the badge check just below. submissionCount feeds
@@ -1120,27 +1414,98 @@ router.post('/tasks/:id/edit', (req, res) => {
     .prepare('SELECT COUNT(*) AS n FROM submissions WHERE task_id = ?')
     .get(id).n;
   const pairResolved = resolveSpecialPairWrite({
-    rawMode: req.body.special_mode,
+    rawMode: rawSpecialMode,
     rawDate: req.body.special_date,
     rawBonus: req.body.special_bonus,
     storedDate: task.special_date,
     storedBonus: task.special_bonus,
     submissionCount,
   });
+
+  // The lucky pair (issue #650) — resolved BEFORE the one-day refusal check
+  // below, and never locked (a lucky bonus is banked on the submission row
+  // at submit time, canon rule 11, so clearing/changing lucky_date/
+  // lucky_bonus can never re-score a photo already posted).
+  const luckyPairResolved = resolveLuckyPairWrite({
+    rawMode: rawSpecialMode,
+    rawDate: req.body.lucky_date,
+    rawBonus: req.body.lucky_bonus,
+    storedDate: task.lucky_date,
+    storedBonus: task.lucky_bonus,
+  });
+
   if (!pairResolved.ok) {
+    // The one-day refusal still discards the whole rest of the edit exactly
+    // as before (title/description/worth/badge/the one-day pair) — EXCEPT a
+    // Special=None cancel of an EXISTING lucky pick, which must always land
+    // (issue #650 plan step 3's "trap": a task can carry both a past
+    // special_date and a lucky_date, and cancelling lucky via Special=None
+    // also makes the one-day pair "changed", which the lock above refuses
+    // whenever submissions exist — stranding lucky_date with no door left to
+    // cancel it through, unless this clear runs regardless of that refusal).
+    // Touches only the two lucky columns — never special_mode/special_date,
+    // which stay refused and unchanged exactly as describeEditPairRefusal
+    // already says.
+    let msg = describeEditPairRefusal(pairResolved.reason);
+    // Gate on the LUCKY resolver's OWN result (issue #650 PR review fix,
+    // Finding B), not a re-derived `rawSpecialMode === tasks.MODE_NONE` check
+    // — resolveLuckyPairWrite already decided the resolved lucky pair above,
+    // and a resolved-to-null pair on a task that WAS lucky is exactly and
+    // only "this save cancels the lucky pick," across every reachable
+    // rawSpecialMode that can land in this branch (see resolveLuckyPairWrite:
+    // the pair only resolves to null when the raw mode is 'none', or when
+    // there was never a stored pick to preserve).
+    if (luckyPairResolved.writeDate === null && task.lucky_date != null) {
+      db.prepare(`UPDATE tasks SET lucky_date = NULL, lucky_bonus = NULL WHERE id = ?`).run(id);
+      // Composed from the SAME describer that built `msg` above, rather than
+      // a hand-typed sentence duplicating describeEditPairRefusal's own
+      // PAIR_REASON_LOCKED wording — this branch is only reachable with
+      // reason LOCKED (see the comment above), so this reads as "Lucky task
+      // cancelled." plus that one owner's locked-pair wording.
+      msg = 'Lucky task cancelled. ' + describeEditPairRefusal(pairResolved.reason);
+    }
+    return redirectWithMsg(res, '/admin/tasks', msg, 'task-' + id);
+  }
+
+  if (!luckyPairResolved.ok) {
     return redirectWithMsg(
       res,
       '/admin/tasks',
-      describeEditPairRefusal(pairResolved.reason),
+      describeEditLuckyRefusal(luckyPairResolved.reason),
       'task-' + id
     );
   }
-  // The resolved pair IS what gets written — resolveSpecialPairWrite already
-  // decided whether that means the stored pair unchanged (a `hidden` write
-  // or an absent `special_mode`, criterion 6's partial-POST contract) or the
-  // validated posted pair (possibly `(null, null)` for a `none` clear).
+
+  // The resolved pairs ARE what get written — each resolver already decided
+  // whether that means the stored pair unchanged (a `hidden` write or an
+  // absent field, criterion 6's partial-POST contract) or the validated
+  // posted pair (possibly `(null, null)` for a `none` clear).
   const nextSpecialDate = pairResolved.writeDate;
   const nextSpecialBonus = pairResolved.writeBonus;
+  const nextLuckyDate = luckyPairResolved.writeDate;
+  const nextLuckyBonus = luckyPairResolved.writeBonus;
+
+  // Exclusivity (issue #650 plan step 3) — only when the posted mode itself
+  // names a special kind; SKIPPED for 'none'/'hidden' (the host's own
+  // cancel/hide paths must never be refused by this guard). `task` (the
+  // row's CURRENT data, before this save) is what whatSpecial reads, so a
+  // task re-saving the SAME kind it already is never trips this — it can
+  // only disagree when a DIFFERENT rule already owns the row (AC7(c)'s
+  // "reverse" case: a task already lucky that the host tries to date as One
+  // day only). specialKindBeingSet() (Finding C) is the SAME raw-mode-to-kind
+  // mapping the create handler above uses.
+  const settingKind = specialKindBeingSet(rawSpecialMode);
+  if (settingKind) {
+    const exclusivity = checkExclusivity(task, currentClock(), settingKind);
+    if (!exclusivity.ok) {
+      return redirectWithMsg(
+        res,
+        '/admin/tasks',
+        describeExclusivityRefusal(exclusivity.existingKind),
+        'task-' + id
+      );
+    }
+  }
 
   // A posted icon must resolve, or the WHOLE edit is refused (AC1-style
   // validation from POST /admin/tasks/:id/badge) — never silently drop just
@@ -1162,9 +1527,33 @@ router.post('/tasks/:id/edit', (req, res) => {
     db.prepare(
       `UPDATE tasks
           SET title = ?, description = ?, worth = ?, special_mode = ?,
-              special_date = ?, special_bonus = ?
+              special_date = ?, special_bonus = ?, lucky_date = ?, lucky_bonus = ?
         WHERE id = ?`
-    ).run(title, description, worth, specialMode, nextSpecialDate, nextSpecialBonus, id);
+    ).run(
+      title,
+      description,
+      worth,
+      specialMode,
+      nextSpecialDate,
+      nextSpecialBonus,
+      nextLuckyDate,
+      nextLuckyBonus,
+      id
+    );
+
+    // One lucky task per day (issue #650) — writing lucky_date = D here
+    // first clears lucky_date/lucky_bonus on any OTHER task already holding
+    // that day, in the SAME transaction. Touches only the two lucky columns
+    // — in particular it must NOT write special_mode: a lucky task can be
+    // hidden (special_mode='hidden' with lucky_date intact), and
+    // liveTaskWhere is `special_mode <> 'hidden'`, so a clear that also
+    // reset the mode would republish a task the host deliberately hid, to
+    // every guest, with no host action and no message.
+    if (nextLuckyDate) {
+      db.prepare(
+        `UPDATE tasks SET lucky_date = NULL, lucky_bonus = NULL WHERE lucky_date = ? AND id != ?`
+      ).run(nextLuckyDate, id);
+    }
 
     // No icon AND no name submitted (the common "didn't touch the badge
     // step" case) leaves the badge row completely untouched — same as
@@ -1189,7 +1578,20 @@ router.post('/tasks/:id/edit', (req, res) => {
     scoring.recomputeAfterTaskChange();
   }
 
-  redirectWithMsg(res, '/admin/tasks', 'Task updated.', 'task-' + id);
+  // A hidden task can still hold a live lucky pick (issue #650's "Deliberate
+  // omissions, recorded": special_mode='hidden' with lucky_date intact is a
+  // supported state, reachable by picking the Hidden radio on an
+  // already-lucky task — resolveLuckyPairWrite leaves the pair untouched for
+  // any raw mode other than 'lucky'/'none'). Left silent, that parks the
+  // day's only lucky slot where no guest can reach it, with no chip and no
+  // checklist row to notice from (issue #650 PR review fix, Finding F) — one
+  // extra sentence on the save's own success message is the cheapest place
+  // to surface it.
+  let successMsg = 'Task updated.';
+  if (specialMode === tasks.MODE_HIDDEN && nextLuckyDate != null) {
+    successMsg += " This task is hidden, so guests can't win the lucky bonus on it.";
+  }
+  redirectWithMsg(res, '/admin/tasks', successMsg, 'task-' + id);
 });
 
 // POST /admin/tasks/:id/badge  — set a task's badge name and icon (issue

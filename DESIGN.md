@@ -1265,3 +1265,104 @@ whole suite quietly losing coverage while AC1 and AC2 kept passing on what littl
 found. The derived check is then asserted to fail specifically on the assertion it makes (received status
 200 where 302 was expected), not merely to reject for any reason — proving the check fires, not just that
 something throws.
+
+## Lucky task: its own columns, no special_mode member, banked-not-derived, last in the walk (#650)
+
+**Date:** 2026-07-22. **Status:** accepted; engine + host setter shipped, owner-approved guest card and
+admin panel transcribed per the issue's "Approved screens" record.
+
+**(a) Its own columns (`tasks.lucky_date`/`tasks.lucky_bonus`), not #624/#753's `special_date`/
+`special_bonus`.** The one-day-only pair already means something specific — a single all-or-nothing
+challenge day with an on-day bonus, sealed until it arrives — and lucky is a different rule entirely
+(host-picked, secret until won, pays every first-time completer that day, never re-derived from the
+calendar). Sharing one pair of columns between two rules with different pairing, sealing, and payout
+semantics would mean branching inside every reader on which rule currently owns the pair, recreating
+the exact "one column, two meanings" drift class `tasks.special_mode` itself used to be before #727 gave
+worth and mode their own columns. A second pair, each singly-purposed, is the same tradeoff #761 already
+made for flash and costs nothing extra: SQLite doesn't charge for unused NULL columns.
+
+**(b) Lucky is the one special that does NOT bank on a replace, and the rule lives on the
+`SPECIAL_RULES` entry, not a `submissions.js` branch.** Every other special (daily, flash) pays on a
+replace too, because their bonus is tied to a CALENDAR fact (the date, the window) a re-upload still
+satisfies. Lucky's bonus is tied to a DIFFERENT fact — this is the guest's FIRST-EVER completion of the
+task — and a guest's own soft takedown (`photos.hideSubmission`) leaves the original row alive, so any
+re-upload is structurally a replace, never a fresh insert (`submissions.js`'s `UNIQUE(guest_id, task_id)`
+design, unchanged by this issue). Without a rule that refuses to pay on replace, a guest could bank the
+secret bonus twice: once for real, once by deleting and re-posting on the lucky day. The refusal is
+encoded as `banksOnReplace: false` on the lucky `SPECIAL_RULES` entry (`src/services/tasks.js`) rather
+than a hand-written `if (reason === 'lucky') { ... }` fork inside `submissions.js`'s replace branch,
+for the same reason `bonusColumn`/`reason` already live on the rule object instead of a second
+hand-written switch (see the #761 entry above): a fourth special added later inherits the documented
+one-entry contract (`kind`/`bonusColumn`/`reason`/`spokenFor`/`paying`/optionally `banksOnReplace`)
+automatically, instead of a future author needing to remember there is a SECOND place a new rule's
+banking behaviour must also be taught. `bonusForTask()` passes `banksOnReplace` through UNCHANGED
+(daily/flash simply omit the key, which `toEqual` ignores) — the consumer in `submissions.js` applies
+the "anything other than `false` banks" default, not this function.
+
+**(c) Lucky is appended LAST in `SPECIAL_RULES`.** The list order is precedence for a legacy or raced
+row that could match more than one rule — unreachable through the UI once the setter guard refuses the
+pair (this issue's own exclusivity check), so this is defensive ordering, not a product decision. Daily
+and flash both wear a guest-visible marker advertising what will bank (the "Today Only" chip, the flash
+countdown pill); lucky wears none by design (AC2's whole point is that it stays invisible until won).
+Landing lucky ahead of either in the walk would let a task display one of those markers while the
+submission actually banked the lucky amount instead — a guest reads "+2 today only," banks a different
+number, and has no way to reconcile the two. Last is the only slot that can never produce that mismatch.
+
+**(d) The success card is keyed to what the submission BANKED, not to whether today is the lucky day
+— and those two come apart on purpose.** `src/routes/guest.js` computes `taskComplete.luckyBonus` from
+`submitPhoto()`'s own return value (`result.luckyBonus`), never by re-deriving "is today the lucky day"
+or "is this the lucky task" in the route. The gap this closes: a guest who already completed a task
+before it became the day's lucky pick, then swaps in a new photo on the lucky day itself, hits exactly
+the replace-never-banks rule in (b) above — the day is lucky, the task is lucky, but THIS guest's
+submission banks nothing, because it isn't their first completion. Keyed off the calendar, that guest
+would see a celebration over a total that didn't move. Keyed off the bank (what this function actually
+prints below), they see the truth. The one-shot `taskComplete` cookie carries `luckyBonus` as a third,
+optional field alongside the pre-existing `points`/`newBadgeIds` pair (`src/middleware/session.js`'s
+`setTaskCompleteReward`/`attachGuest`) — `undefined` for an ordinary completion, which `JSON.stringify`
+simply omits, so the existing two-key shape guard on the read side needed no code change at all.
+
+**(e) Lucky takes NO `special_mode` member — following #761's flash decision verbatim, for the
+identical reason.** SQLite cannot widen a CHECK constraint in place; gaining a `'lucky'` member would
+force the exact table rebuild `ensureTaskSpecialDayColumns()`'s own comment documents at length — the
+FK-cascade hazard (`submissions.task_id`/`badges.task_id` both `ON DELETE CASCADE`), the #753 guard's
+closed-list substring match at `src/db.js`, and, concretely, three existing tests that assert `'lucky'`
+is not an accepted `special_mode` (`tests/tasks-normalize.test.js`, `tests/oneday-challenge-migration
+.test.js`, `tests/task-worth-mode-migration.test.js`) — all bought for no behavioural gain, since
+`tasks.lucky_date` is already the single authoritative "is this task lucky" fact and nothing anywhere
+reads `special_mode` to learn it. The Special radio posts `special_mode=lucky`, but
+`tasks.normalizeMode` coerces that unrecognized value straight to the handler's own fallback (`'none'`,
+or `'hidden'` if the host also hides the task), so the row that lands in the database always stores a
+member of the existing three-value enum. What this bought, concretely: `src/db.js`'s
+`ensureTaskLuckyColumns()` migration is two plain `ALTER TABLE ADD COLUMN` statements (mirroring
+`ensureTaskFlashColumns()` exactly), no `CREATE TABLE tasks_new`, no `foreign_keys` pragma toggle, and
+all three of the tests named above stayed green untouched, exactly as this decision predicted.
+
+**(f) The admin popup's "which Special radio is checked" answer is SERVER-derived (`tasks.whatSpecial()`),
+not recomputed client-side.** PR review (2026-07-22) caught that `src/public/js/admin-tasks.js`'s
+`openEdit()` originally hand-copied the daily rule's `spokenFor` predicate (`isSealed(...) ||
+isOnDay(...)`) in the browser, comparing a task's stored `special_date` against a `data-today` attribute
+with plain string comparison, to decide whether a stored one-day date should win the Lucky radio over a
+stored `lucky_date`. That was a second owner of a rule `src/services/tasks.js`'s `whatSpecial()` already
+owns — the same one-ordered-list `SPECIAL_RULES` walk this issue's own "Settled design" section leans on
+for exclusivity everywhere else — and it drifts the instant that rule widens: it could not see a live
+flash window at all, so once a flash task's day/window becomes host-settable (#763), a task carrying both
+a flash window and a stored `lucky_date` would open the popup with the Lucky radio checked when flash
+actually owns the row, and a title-only save would repost `special_mode=lucky` straight into the
+exclusivity guard's refusal. The fix moves the answer to the server: `GET /admin/tasks` computes one
+clock and calls `tasks.whatSpecial(t, clock)` per row (the same call every other exclusivity decision in
+this app already makes), emits it as `data-special-kind`, and `admin-tasks.ejs`/`admin-tasks.js` lost the
+`data-today` attribute and its client-side date-math entirely. One owner of "which rule owns this task,"
+consulted by every caller including the popup, instead of a hand-restatement one file away that can only
+ever answer for the ONE rule it was written to know about.
+
+The popup's precedence is a WHITELIST — `storedLuckyDate && (specialKind === '' || specialKind ===
+'lucky')` — and that shape is the point, not an implementation detail. The first attempt at this fix
+shipped the negative form (`specialKind !== 'daily'`), which named the one kind it knew about and let
+every other kind fall through to "check Lucky" — reintroducing the exact flash failure above, and
+pre-arming it for every special type added after. A scoped re-check caught it by EXECUTING the script in
+jsdom rather than reading it. The whitelist fails safe instead: an unrecognised kind falls back to the
+card's own `data-mode` radio, which is always saveable. Both halves of the contract carry
+mutation-verified tests — `tests/admin-tasks-script.test.js` cases (i2)/(i3) go red against the negative
+form, and `tests/lucky-task.test.js`'s board-contract cases go red if `GET /admin/tasks` stops emitting
+`data-special-kind` or the lucky pair. Before those existed, deleting the server field left the entire
+suite green.

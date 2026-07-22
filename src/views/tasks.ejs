@@ -107,9 +107,11 @@
           // would fail, the row would just render in the wrong place).
           // ORDINARY_RANK is the shared floor: every row ranked below it is
           // special and gets sorted; every row ranked AT it is ordinary and
-          // keeps host sort order untouched. A future special type (#650's
-          // lucky task) slots in by adding one more `if` here, and nothing
-          // elsewhere needs to change.
+          // keeps host sort order untouched. Lucky (#650) deliberately adds
+          // NO entry here — it has no guest-facing marker before a guest's
+          // own first completion (that secrecy is AC2's whole point), so
+          // there is nothing to rank or sort: a lucky task's row looks
+          // completely ordinary right up until the submit that wins it.
           //
           // The mystery-box one-box ceiling (owner, 2026-07-20: a guest may
           // see at most one locked card at a time, ever) is applied SERVER
@@ -117,8 +119,9 @@
           // suppressed sealed challenge never reaches this template at all,
           // so priorityTodo below can never hold more than one locked row. A
           // second copy of that ceiling here would re-decide rows the server
-          // already decided, and would diverge the moment a second special
-          // type (#649/#650) shares the same suppression rule.
+          // already decided. Lucky (#650) is not a second type sharing that
+          // rule — it renders no locked card at all, so the ceiling has
+          // nothing to suppress for it.
           var ORDINARY_RANK = 3;
           function specialRank(t) {
             if (t.flashActive) return 0;

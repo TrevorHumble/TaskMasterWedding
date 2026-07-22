@@ -77,6 +77,24 @@ db.exec(`
     flash_start_at TEXT,
     flash_minutes  INTEGER,
     flash_bonus    INTEGER,
+    -- Lucky task fields (issue #650). lucky_date (YYYY-MM-DD) is the
+    -- AUTHORITATIVE "this task is lucky" fact -- there is deliberately NO
+    -- special_mode member for it (following #761's flash decision verbatim:
+    -- gaining one means widening the special_mode CHECK, which SQLite can
+    -- only do by rebuilding the table, re-entering the FK-cascade hazard
+    -- ensureTaskSpecialDayColumns() documents at length, for no behavioural
+    -- gain). A lucky task's radio posts special_mode=lucky but
+    -- tasks.normalizeMode coerces that unknown value to the handler's
+    -- fallback, so the row actually stores special_mode='none' (or 'hidden'
+    -- if the host also hides it) while lucky_date carries the fact --
+    -- read-time state, exactly like the flash trio above. lucky_bonus is the
+    -- host-chosen secret bonus (1-3). Like the flash trio, this pair carries
+    -- NO CHECK/pairing constraint -- the all-or-none pairing is enforced by
+    -- the validated write path (src/routes/admin.js) and, on the read side,
+    -- by src/services/tasks.js's SPECIAL_RULES lucky entry refusing to pay a
+    -- row whose bonus is not an integer in [1, 3].
+    lucky_date     TEXT,
+    lucky_bonus    INTEGER,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     -- Pairing constraint (issue #753 review fix): special_date and
     -- special_bonus are either BOTH NULL (an ordinary task) or BOTH set (a
@@ -437,6 +455,53 @@ function ensureTaskFlashColumns() {
 }
 
 ensureTaskFlashColumns();
+
+// --- Guarded migration: tasks.lucky_date/lucky_bonus (issue #650) ---
+/**
+ * Add tasks.lucky_date/lucky_bonus if either is not already present.
+ *
+ * Same guard shape as ensureTaskFlashColumns() immediately above, modelled on
+ * it exactly: the tasks CREATE TABLE above already declares both columns (a
+ * fresh DB gets them directly), so this is a no-op there; on an existing
+ * pre-#650 app.db neither exists yet, so PRAGMA table_info detects each
+ * absence and the ALTER TABLE runs once per column, gated so a repeat call
+ * (or a later boot) is a no-op and never throws "duplicate column". No
+ * DEFAULT is given for either (NULL for every pre-existing row is exactly
+ * right: "no lucky pick").
+ *
+ * Deliberately a plain ALTER TABLE ADD COLUMN pair, NOT a table rebuild, and
+ * the special_mode CHECK is NOT widened to accept a 'lucky' member (issue
+ * #650 plan step 1 -- see the tasks.lucky_date column's own comment above for
+ * the full reasoning, copied from #761's identical flash decision). Rebuilding
+ * `tasks` here would re-enter the FK-cascade hazard
+ * ensureTaskSpecialDayColumns() documents at length, widen the #753 guard's
+ * closed-list substring match, and turn red the three existing tests that
+ * assert 'lucky' is not an accepted special_mode
+ * (tests/oneday-challenge-migration.test.js, tests/task-worth-mode-migration
+ * .test.js, tests/tasks-normalize.test.js) -- for no behavioural gain, since
+ * lucky_date is the single authoritative "this task is lucky" fact and
+ * nothing reads special_mode to learn it.
+ *
+ * MUST run immediately after ensureTaskFlashColumns() above (mirroring that
+ * function's own call-order note relative to ensureTaskSpecialDayColumns()):
+ * `tasks` is rebuilt in exactly two places in this file, both earlier than
+ * this call site, so no later migration in this file can drop these columns
+ * once added.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureTaskLuckyColumns() {
+  const cols = db.prepare(`PRAGMA table_info(tasks)`).all();
+  const names = new Set(cols.map((col) => col.name));
+  if (!names.has('lucky_date')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN lucky_date TEXT`);
+  }
+  if (!names.has('lucky_bonus')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN lucky_bonus INTEGER`);
+  }
+}
+
+ensureTaskLuckyColumns();
 
 // --- Guarded migration: submissions.photo_bonus (issue #89) ---
 /**
@@ -1303,6 +1368,7 @@ module.exports = {
   ensureTaskWorthAndMode,
   ensureTaskSpecialDayColumns,
   ensureTaskFlashColumns,
+  ensureTaskLuckyColumns,
   ensurePhotoBonusColumn,
   ensureBadgeTypeCheckWidened,
   ensureBadgeTaskIdColumn,

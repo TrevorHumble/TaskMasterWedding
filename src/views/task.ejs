@@ -8,11 +8,34 @@
          (src/routes/guest.js) writes a one-shot taskComplete payload instead
          of setFlash when result.status === 'created', so res.locals.flash is
          null here and header.ejs's flash bar does not also render. -->
-    <section class="success-card" role="status">
-      <svg class="success-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-      <h2 class="success-heading">Task complete!</h2>
+    <%# Issue #650: the lucky treatment. `taskComplete.luckyBonus` is set by
+        src/routes/guest.js ONLY when this submission banked the lucky bonus;
+        it is absent on every ordinary completion, which is what keeps the
+        lucky task secret until it is won. A truthy value is the bonus amount
+        (1-3), so `lucky` is null for every ordinary card and the whole gold
+        treatment below collapses back to the green check. %>
+    <% var lucky = taskComplete.luckyBonus ? { bonus: taskComplete.luckyBonus } : null; %>
+    <section class="success-card<%= lucky ? ' success-card--lucky' : '' %>" role="status">
+      <% if (lucky) { %>
+        <%# The lucky mark (issue #650): a gold four-leaf clover REPLACING the
+            green check, so a lucky win reads as a different, rarer moment from
+            the first glance rather than a footnote under an ordinary one.
+            Four lobes drawn once and rotated about the centre, plus a stem. %>
+        <svg class="success-clover" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 12.4C12.6 16 12.9 19 12.2 22.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          <g fill="currentColor" transform="rotate(45 12 12)">
+            <path d="M12 12C8.22 8.85 6.33 6.65 6.33 4.44A2.52 2.52 0 0 1 12 2.87A2.52 2.52 0 0 1 17.67 4.44C17.67 6.65 15.78 8.85 12 12Z" />
+            <path d="M12 12C8.22 8.85 6.33 6.65 6.33 4.44A2.52 2.52 0 0 1 12 2.87A2.52 2.52 0 0 1 17.67 4.44C17.67 6.65 15.78 8.85 12 12Z" transform="rotate(90 12 12)" />
+            <path d="M12 12C8.22 8.85 6.33 6.65 6.33 4.44A2.52 2.52 0 0 1 12 2.87A2.52 2.52 0 0 1 17.67 4.44C17.67 6.65 15.78 8.85 12 12Z" transform="rotate(180 12 12)" />
+            <path d="M12 12C8.22 8.85 6.33 6.65 6.33 4.44A2.52 2.52 0 0 1 12 2.87A2.52 2.52 0 0 1 17.67 4.44C17.67 6.65 15.78 8.85 12 12Z" transform="rotate(270 12 12)" />
+          </g>
+        </svg>
+      <% } else { %>
+        <svg class="success-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      <% } %>
+      <h2 class="success-heading"><%= lucky ? 'You found the lucky task!' : 'Task complete!' %></h2>
       <p class="success-points">
         <%# Issue #756: taskComplete.earned is what THIS submission actually
             banked (task.worth plus any admin/on-day bonus,
@@ -21,7 +44,15 @@
             is a different number: the guest's grand total after this
             submission. Both live on the same taskComplete object so this
             block can't read one without the other. %>
-        +<%= taskComplete.earned %> point<%= taskComplete.earned === 1 ? '' : 's' %> &mdash; you're at <%= taskComplete.points %> point<%= taskComplete.points === 1 ? '' : 's' %>
+        <% if (lucky) { %>
+          <%# The lucky win shows the split, not one merged number (owner,
+              2026-07-21): the whole point is that the bonus is visible as a
+              bonus. %>
+          <%= taskComplete.earned - lucky.bonus %> + <strong><%= lucky.bonus %> bonus</strong>
+          point<%= lucky.bonus === 1 ? '' : 's' %>! You're at <%= taskComplete.points %>!
+        <% } else { %>
+          +<%= taskComplete.earned %> point<%= taskComplete.earned === 1 ? '' : 's' %> &mdash; you're at <%= taskComplete.points %> point<%= taskComplete.points === 1 ? '' : 's' %>
+        <% } %>
       </p>
       <p class="success-memory-prompt">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
       <%- include('partials/memory-payoff') %>

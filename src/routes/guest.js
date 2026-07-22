@@ -764,6 +764,14 @@ router.get('/tasks/:id', function (req, res) {
         task.worth,
         submission ? submission.bonus_amount : 0
       ),
+      // luckyBonus (issue #650) — carried straight off what submitPhoto
+      // ACTUALLY banked (src/services/submissions.js), never re-derived here
+      // from "is today lucky" or "is this the lucky task": the card follows
+      // the bank, not the calendar (see the issue's "Settled design"). `undefined`
+      // for every ordinary completion — task.ejs's frozen, approved markup
+      // already reads exactly this field and treats a falsy value as "not
+      // lucky".
+      luckyBonus: reward.luckyBonus,
     };
 
     const primary = scoring.primaryNewBadge(guest.id, reward.newBadgeIds);
@@ -876,7 +884,15 @@ router.post('/tasks/:id/submit', uploadRateLimiter, function (req, res) {
     // claiming "Photo replaced!" for something that isn't visible yet. These
     // two statuses keep their existing plain flash (AC4).
     if (result.status === 'created') {
-      setTaskCompleteReward(res, { points: result.pointsTotal, newBadgeIds: result.newBadgeIds });
+      setTaskCompleteReward(res, {
+        points: result.pointsTotal,
+        newBadgeIds: result.newBadgeIds,
+        // luckyBonus (issue #650) — undefined for an ordinary completion,
+        // which JSON.stringify simply omits from the cookie payload rather
+        // than writing a literal "undefined" (so an ordinary card round-trips
+        // through the SAME two-key shape session.js's JSDoc already pinned).
+        luckyBonus: result.luckyBonus,
+      });
     } else if (result.status === 'replaced_hidden') {
       setFlash(res, 'success', 'Photo received — it will appear once the hosts approve it.');
     } else {
