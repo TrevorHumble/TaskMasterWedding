@@ -1477,3 +1477,88 @@ mutation-verified tests — `tests/admin-tasks-script.test.js` cases (i2)/(i3) g
 form, and `tests/lucky-task.test.js`'s board-contract cases go red if `GET /admin/tasks` stops emitting
 `data-special-kind` or the lucky pair. Before those existed, deleting the server field left the entire
 suite green.
+
+## Flash task: HOST surface — sentinel radio, one no-op rule, candidate-selection date math (#763)
+
+**Date:** 2026-07-22. **Status:** accepted; write path + host UI shipped, owner-approved screen
+transcribed per the issue's "Approved screen" record.
+
+**(a) `special_mode=flash` is a host-facing SENTINEL the route intercepts, never a stored value —
+following #761's read-side decision, extended to the write side it left open.** #761 already settled
+that `tasks.js`'s `MODES` stays `[none, hidden, oneday]` forever: a flash reverts to no-special
+automatically the instant its window ends, and a stored enum member cannot expire on its own. What #761
+did not yet have was a WRITER — this issue is it. The Special radio posts `special_mode=flash` exactly
+like it posts `oneday` or `lucky`, so the host sees one "what is special about this task" question with
+one answer at a time; `src/routes/admin.js`'s create/edit handlers read that raw value to decide whether
+`resolveFlashWrite()` should touch the flash trio at all, then hand the SAME raw value to
+`tasks.normalizeMode()`, which — because `'flash'` was never added to `MODES` — falls straight through to
+the caller's fallback (the task's current stored mode on edit, `MODE_NONE` on create) as if the host had
+never touched the radio. An armed task's `special_mode` column, concretely, is whatever it already was;
+only the three flash columns move. This is the same trick #650's lucky radio already plays
+(`resolveLuckyPairWrite` reads raw `'lucky'`, `normalizeMode` coerces it away) — flash is the second, not
+the first, sentinel value riding this radio, and a third special type can follow the identical shape.
+
+**(b) `resolveFlashWrite()` owns exactly one thing `resolveSpecialPairWrite`/`resolveLuckyPairWrite`
+do not need: a no-op rule, because "Now" re-derives on every post.** The one-day and lucky pairs' own
+no-op protection is free — comparing a posted day/bonus against the stored pair is enough, because
+neither pair carries a "which instant" component that changes just by re-submitting the form. Flash's
+`Starts` chip defaults to `Now`, and `Now` is defined as `new Date()` at the moment of the POST (the
+issue's own words: "the clock itself, not a calendar conversion") — so a title-only resave of an ALREADY
+armed task, with the bonus/duration chips still showing their stored values, would otherwise always read
+as "the posted trio differs from stored" (a fresh timestamp never equals an old one) and silently buy the
+room a brand-new window. The fix is scoped narrowly, on purpose (the issue's own "load-bearing scope"
+callout): a no-op is recognised ONLY on a task whose flash is presently `scheduled` or `active`, ONLY when
+`Starts` is `now`, and ONLY when the posted bonus AND minutes both equal what is stored — an EXPIRED
+flash is always a real re-arm, because the trio survives expiry by design (nothing writes at expiry) and
+the escape hatch this rule leans on (Cancel, then a deliberate re-arm) is unreachable on an expired flash:
+the status strip and its Cancel button do not render for one. `not_live` is checked AFTER the no-op
+short-circuit, not before — a task the host later hid through the Hidden radio (which never touches the
+flash trio) can still be title-edited without the save failing over a liveness question the no-op path
+never actually needed answered.
+
+**(c) The general date+time-of-day conversion is its own function, `eventLocalInstant()`, gained via
+candidate selection rather than a widened round-trip guard — the issue's own probe caught the guard rule
+returning an instant an hour EARLY for a DST-gap wall time in every zone east of UTC.**
+`src/services/event-days.js`'s existing two-pass offset correction already computed two candidate instants
+(an "uncorrected" and a "corrected" one) to handle a date landing exactly on a transition; extending it to
+an arbitrary time-of-day, the new rule takes whichever candidate's OWN local reading matches the request
+exactly (covering both the ordinary case and a fall-back-transition AMBIGUOUS wall time, resolved to its
+FIRST occurrence by trying candidates in a fixed order), and falls back to the earliest candidate reading
+AT OR AFTER the request only when neither matches (a spring-forward GAP swallowed the requested wall
+time). `dayOpensAt(dateIso, timezone)` — the two-argument question #753's seal predicate and #754's
+daily-challenge rows have always asked — stays a thin wrapper over `eventLocalInstant()` with hour/minute
+fixed at `0`/`0`, rather than a second, parallel copy of the algorithm that could drift from it; the two
+questions ("when is local midnight" vs. "when is this specific wall-clock moment") are different enough
+that sharing one name across a 2-argument and a 4-argument call was its own defect, fixed alongside this
+one. `tests/event-days.test.js` runs a same-file regression comparing `dayOpensAt()`'s output against a
+locally-defined copy of the pre-#763 two-argument implementation across every zone
+`Intl.supportedValuesOf('timeZone')` reports (418 zones on the Node version this was verified against) and
+9 transition-adjacent dates (3,762 zone/date pairs): zero differences — the existing two-argument callers
+(#753's seal predicate, #754's daily-challenge rows) see no behavioural change at all. A second sweep over
+the same 3,762 pairs asserts `eventLocalInstant()` never returns an instant that reads back, in its own
+target timezone, before the requested wall time.
+
+**(d) The edit popup's flash panel is server-rendered ONCE, in the "nothing armed" state, and filled per
+task by JavaScript — not conditionally included per state.** Every other accordion panel in this dialog
+(one-day, lucky) needs no such split: their day/bonus chips are plain radios, cleared and re-checked by
+`openEdit()` exactly like the flash bonus/minutes fields here. The flash panel's STATUS STRIP is
+different — it is a whole block of markup (`.flash-state-strip`) that either exists or doesn't, and the
+edit dialog is the SAME shared `<dialog>` reused for every card, so no single server render can know in
+advance which task will be tapped next. Rendering the strip conditionally (the PHASE-1 preview's own
+shape) would freeze it at whatever state the LAST page load happened to pass, wrong for every other task
+opened without a full reload. The fix renders the strip unconditionally hidden via an INLINE
+`style="display:none"` — not the `hidden` attribute plus a matching `theme.css` rule — because the
+block's own `.flash-state-strip { display: flex }` rule (an author style) would outrank the browser's
+low-priority `[hidden]` UA style exactly the way `theme.css` already documents for `.guest-card[hidden]`
+(the live-search hide case), which has to restate the UA rule with `!important` to win that fight. An
+inline style needs no such accompanying `theme.css` change to win it, which matters here specifically
+because this screen's CSS is part of the owner-approved visual surface recorded in
+`.review_state/visual-approval/` — an added rule there drifts the approval hash for a purely mechanical
+reason. (That is the visual-approval freeze, not `CLAUDE.md`'s governance freeze, which covers no file
+under `src/`; `theme.css` is edited freely by this very change.)
+`openEdit()` toggles that same inline style and sets the dot class and sentence from the SAME
+server-computed `data-flash-state`/`data-flash-strip-label` attributes the board chip already reads off
+`GET /admin/tasks`'s projection — one owner of "what does this task's flash state read as" (the server:
+`flashStripLabel` is non-empty exactly when the state is `active` or `scheduled`), and the client keys
+its own visibility toggle off that same label being non-empty rather than re-deriving the active/
+scheduled test a second time.

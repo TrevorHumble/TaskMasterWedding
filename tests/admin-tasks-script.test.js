@@ -109,6 +109,71 @@ function luckyAccordion(idPrefix) {
   );
 }
 
+// Flash accordion markup (issue #763) — mirrors
+// src/views/partials/special-flash-option.ejs's real shape closely enough
+// for admin-tasks.js's real selectors to find everything they look for: the
+// Flash radio, the always-rendered (never conditionally included) status
+// strip with its dot/text/cancel-field/cancel-button, the bonus chips, the
+// minutes stepper (id + aria-controls, matching the real partial exactly —
+// the stepper handler in admin-tasks.js reads the field back via
+// document.getElementById(step's own aria-controls)), the Now/Pick-a-time
+// chips, and the day/time sub-fields.
+function flashAccordion(idPrefix) {
+  return (
+    '<div class="special-option-group">' +
+    '<label class="special-option">' +
+    '<input type="radio" name="special_mode" value="flash" />' +
+    '</label>' +
+    '<div class="special-panel">' +
+    '<div class="flash-state-strip flash-state-none" style="display:none">' +
+    '<span class="flash-state-dot"></span>' +
+    '<span class="flash-state-text"></span>' +
+    '<input type="hidden" name="flash_cancel" value="" data-flash-cancel-input />' +
+    '<button type="button" class="flash-cancel-btn" data-flash-cancel>Cancel</button>' +
+    '</div>' +
+    '<div class="worth-chips">' +
+    '<label class="worth-chip"><input type="radio" name="flash_bonus" value="1" /></label>' +
+    '<label class="worth-chip"><input type="radio" name="flash_bonus" value="2" /></label>' +
+    '<label class="worth-chip"><input type="radio" name="flash_bonus" value="3" /></label>' +
+    '</div>' +
+    '<div class="flash-minutes-row">' +
+    '<button type="button" class="flash-step-btn" data-flash-step="-5" aria-controls="' +
+    idPrefix +
+    '-flash-minutes"></button>' +
+    '<input type="number" id="' +
+    idPrefix +
+    '-flash-minutes" name="flash_minutes" min="1" step="1" placeholder="15" />' +
+    '<button type="button" class="flash-step-btn" data-flash-step="5" aria-controls="' +
+    idPrefix +
+    '-flash-minutes"></button>' +
+    '</div>' +
+    '<div class="flash-start-field">' +
+    '<div class="worth-chips">' +
+    '<label class="worth-chip"><input type="radio" name="flash_start_mode" value="now" checked /></label>' +
+    '<label class="worth-chip"><input type="radio" name="flash_start_mode" value="later" /></label>' +
+    '</div>' +
+    '<div class="flash-when">' +
+    '<div class="day-chips">' +
+    '<label class="worth-chip day-chip"><input type="radio" name="flash_date" value="' +
+    DAY1 +
+    '" /></label>' +
+    '<label class="worth-chip day-chip"><input type="radio" name="flash_date" value="' +
+    DAY2 +
+    '" /></label>' +
+    '<label class="worth-chip day-chip"><input type="radio" name="flash_date" value="' +
+    DAY3 +
+    '" /></label>' +
+    '</div>' +
+    '<input type="time" id="' +
+    idPrefix +
+    '-flash-time" name="flash_time" />' +
+    '</div>' +
+    '</div>' +
+    '</div>' +
+    '</div>'
+  );
+}
+
 function editDialogMarkup() {
   return (
     '<dialog id="task-edit-dialog">' +
@@ -124,6 +189,7 @@ function editDialogMarkup() {
     '<label class="special-option"><input type="radio" name="special_mode" value="none" /></label>' +
     '<label class="special-option"><input type="radio" name="special_mode" value="hidden" /></label>' +
     specialAccordion('task-edit') +
+    flashAccordion('task-edit') +
     luckyAccordion('task-edit') +
     '</div>' +
     '<span id="task-edit-badge-preview" class="badge-medallion-empty">' +
@@ -153,6 +219,7 @@ function createDialogMarkup() {
     '<label class="special-option"><input type="radio" name="special_mode" value="none" checked /></label>' +
     '<label class="special-option"><input type="radio" name="special_mode" value="hidden" /></label>' +
     specialAccordion('task-create') +
+    flashAccordion('task-create') +
     luckyAccordion('task-create') +
     '</div>' +
     '<span id="task-create-badge-preview" class="badge-medallion-empty">' +
@@ -180,7 +247,20 @@ function createDialogMarkup() {
 // comments at each call site further down).
 function taskCardMarkup(
   taskId,
-  { title, worth, mode, specialDate, specialBonus, luckyDate, luckyBonus, specialKind }
+  {
+    title,
+    worth,
+    mode,
+    specialDate,
+    specialBonus,
+    luckyDate,
+    luckyBonus,
+    specialKind,
+    flashBonus,
+    flashMinutes,
+    flashState,
+    flashStripLabel,
+  }
 ) {
   return (
     '<li class="admin-task-card" data-task-id="' +
@@ -199,6 +279,14 @@ function taskCardMarkup(
     (luckyDate || '') +
     '" data-lucky-bonus="' +
     (luckyBonus || '') +
+    '" data-flash-bonus="' +
+    (flashBonus || '') +
+    '" data-flash-minutes="' +
+    (flashMinutes || '') +
+    '" data-flash-state="' +
+    (flashState || 'none') +
+    '" data-flash-strip-label="' +
+    (flashStripLabel || '') +
     '" data-special-kind="' +
     (specialKind || '') +
     '" data-badge-name="" data-badge-art="" data-badge-default="1">' +
@@ -281,6 +369,12 @@ function pageMarkup() {
       luckyDate: DAY1, // PAST -- lucky no longer owns this row
       luckyBonus: 2,
       specialKind: 'flash', // a LIVE flash window owns it instead
+      // issue #763: real trio + strip data, now that the Flash radio and
+      // status strip exist to check them against.
+      flashBonus: 2,
+      flashMinutes: 10,
+      flashState: 'active',
+      flashStripLabel: 'Live now — 8 min left',
     }) +
     taskCardMarkup(9, {
       title: 'Task Owned By A Future Special Type',
@@ -292,6 +386,32 @@ function pageMarkup() {
       // type. The radio must fail SAFE (fall back to data-mode), never
       // assume Lucky.
       specialKind: 'somefuturekind',
+    }) +
+    // Cards 10/11 (issue #763 criterion 6): the two OTHER truthful states a
+    // flash panel must show, alongside card 8's active state above.
+    taskCardMarkup(10, {
+      title: 'Scheduled Flash Task',
+      worth: 1,
+      mode: 'none',
+      specialKind: 'flash', // scheduled IS spoken for, same as active
+      flashBonus: 1,
+      flashMinutes: 30,
+      flashState: 'scheduled',
+      flashStripLabel: 'Starts at 7:00 PM',
+    }) +
+    taskCardMarkup(11, {
+      title: 'Expired Flash Task',
+      worth: 1,
+      mode: 'none',
+      // An EXPIRED flash is free again as far as whatSpecial() is concerned
+      // (issue #763 criterion 1/6) -- nothing presently owns the row, even
+      // though the trio survives on the row (flash_bonus/flash_minutes are
+      // still non-empty below). No stale strip, no Flash radio selected.
+      specialKind: '',
+      flashBonus: 2,
+      flashMinutes: 5,
+      flashState: 'expired',
+      flashStripLabel: '',
     }) +
     '</ul>' +
     editDialogMarkup() +
@@ -477,17 +597,66 @@ describe('admin-tasks.js (issue #755 PR review fix — the client-side half now 
     expect(checkedValue(doc, '#task-edit-dialog input[name="special_date"]')).toBe(DAY3);
   });
 
-  test('(i2) a LIVE FLASH window wins the radio over a stored lucky_date', () => {
+  test('(i2) a LIVE FLASH window wins the radio over a stored lucky_date, AND checks its own bonus/minutes/strip (issue #763)', () => {
     // Task 8: data-special-kind="flash" with lucky_date=DAY1 (past). The
-    // Lucky radio must NOT be checked. This is the case the first fix's
+    // Lucky radio must NOT be checked -- this is the case the first fix's
     // `specialKind !== 'daily'` blacklist let through: the popup opened on
     // Lucky, a title-only save posted special_mode=lucky, and the server's
     // exclusivity guard refused it with "already a flash task" -- over a
-    // control the host never touched, and with no flash control on the page
-    // to "cancel first" with.
+    // control the host never touched. Now that the Flash radio and status
+    // strip exist (issue #763), the popup must open on FLASH, not fall back
+    // to 'none': the whole point of the fix is that flash gets its own
+    // control to save through, not a safe-but-wrong fallback.
     openEditFor(doc, 8);
-    expect(checkedValue(doc, '#task-edit-dialog input[name="special_mode"]')).not.toBe('lucky');
+    expect(checkedValue(doc, '#task-edit-dialog input[name="special_mode"]')).toBe('flash');
+    expect(checkedValue(doc, '#task-edit-dialog input[name="flash_bonus"]')).toBe('2');
+    expect(doc.querySelector('#task-edit-flash-minutes').value).toBe('10');
+    var strip = doc.querySelector('#task-edit-dialog .flash-state-strip');
+    expect(strip.style.display).not.toBe('none');
+    expect(strip.classList.contains('flash-state-active')).toBe(true);
+    expect(strip.querySelector('.flash-state-text').textContent).toBe('Live now — 8 min left');
+  });
+
+  test('(i2-scheduled) a SCHEDULED flash checks Flash, fills its own bonus/minutes, and shows the hollow-dot strip text', () => {
+    openEditFor(doc, 10);
+    expect(checkedValue(doc, '#task-edit-dialog input[name="special_mode"]')).toBe('flash');
+    expect(checkedValue(doc, '#task-edit-dialog input[name="flash_bonus"]')).toBe('1');
+    expect(doc.querySelector('#task-edit-flash-minutes').value).toBe('30');
+    var strip = doc.querySelector('#task-edit-dialog .flash-state-strip');
+    expect(strip.style.display).not.toBe('none');
+    expect(strip.classList.contains('flash-state-scheduled')).toBe(true);
+    expect(strip.querySelector('.flash-state-text').textContent).toBe('Starts at 7:00 PM');
+    // Starts always reopens on Now, even for an already-scheduled task (the
+    // no-op rule needs this — see src/routes/admin.js's resolveFlashWrite).
+    expect(checkedValue(doc, '#task-edit-dialog input[name="flash_start_mode"]')).toBe('now');
+  });
+
+  test('(i2-expired) an EXPIRED flash shows no flash selected and no strip (the panel is not even open, since the Special radio lands on data-mode)', () => {
+    // Task 11: flash_bonus/flash_minutes are still non-empty (the trio
+    // survives expiry by design -- the bonus/minutes chips ARE filled from
+    // that raw stored pair, the same "true stored value even when it is
+    // stale" contract the day/bonus chips already follow for a stale
+    // special_date), but flashState is 'expired' and data-special-kind is ''
+    // -- nothing presently owns the row, so the Special radio lands on
+    // data-mode ('none'/'hidden'), the flash accordion panel never opens
+    // (CSS :has(input:checked), scoped to THIS group's own radio), and the
+    // strip stays hidden. Criterion 1/6: an expired flash is always a real
+    // re-arm, never stale state.
+    openEditFor(doc, 11);
     expect(checkedValue(doc, '#task-edit-dialog input[name="special_mode"]')).toBe('none');
+    expect(checkedValue(doc, '#task-edit-dialog input[name="flash_bonus"]')).toBe('2');
+    expect(doc.querySelector('#task-edit-flash-minutes').value).toBe('5');
+    var strip = doc.querySelector('#task-edit-dialog .flash-state-strip');
+    expect(strip.style.display).toBe('none');
+  });
+
+  test('(i2-leak) opening an ordinary card straight after an active-flash one leaves the flash bonus/minutes/strip unchecked (criterion 6 leak)', () => {
+    openEditFor(doc, 8); // active flash, bonus=2, minutes=10
+    openEditFor(doc, 2); // ordinary task
+    expect(checkedValue(doc, '#task-edit-dialog input[name="flash_bonus"]')).toBe(null);
+    expect(doc.querySelector('#task-edit-flash-minutes').value).toBe('');
+    var strip = doc.querySelector('#task-edit-dialog .flash-state-strip');
+    expect(strip.style.display).toBe('none');
   });
 
   test('(i3) an UNRECOGNISED special kind fails safe rather than assuming Lucky', () => {
@@ -571,5 +740,139 @@ describe('admin-tasks.js (issue #755 PR review fix — the client-side half now 
 
     expect(checkedValue(doc, '#task-create-dialog input[name="lucky_date"]')).toBe(DAY1);
     expect(checkedValue(doc, '#task-create-dialog input[name="lucky_bonus"]')).toBe('2');
+  });
+
+  // ---------------------------------------------------------------------
+  // Issue #763: the flash HOST surface's own client-side behavior.
+  // ---------------------------------------------------------------------
+
+  test('(o) resetCreate() clears any flash fields left over from an abandoned earlier create', () => {
+    click(doc, doc.querySelector('[data-open-create]')); // first open: baseline
+    var bonus2 = doc.querySelector('#task-create-dialog input[name="flash_bonus"][value="2"]');
+    bonus2.checked = true;
+    doc.querySelector('#task-create-flash-minutes').value = '45';
+    var later = doc.querySelector(
+      '#task-create-dialog input[name="flash_start_mode"][value="later"]'
+    );
+    later.checked = true;
+
+    click(doc, doc.querySelector('[data-open-create]')); // reopen (create dialog is reused)
+
+    expect(checkedValue(doc, '#task-create-dialog input[name="flash_bonus"]')).toBe(null);
+    expect(doc.querySelector('#task-create-flash-minutes').value).toBe('');
+    expect(checkedValue(doc, '#task-create-dialog input[name="flash_start_mode"]')).toBe('now');
+  });
+
+  test('(p) the flash minutes stepper steps by 5, clamps at min=1, starts from the placeholder when empty, and preserves a typed value the buttons could not reach', () => {
+    openEditFor(doc, 2); // ordinary task -- flash panel starts blank
+    var field = doc.querySelector('#task-edit-flash-minutes');
+    var plusBtn = doc.querySelector('#task-edit-dialog [data-flash-step="5"]');
+    var minusBtn = doc.querySelector('#task-edit-dialog [data-flash-step="-5"]');
+
+    expect(field.value).toBe('');
+    click(doc, plusBtn); // empty field -- starts from the placeholder (15)
+    expect(field.value).toBe('20');
+
+    field.value = '3';
+    click(doc, minusBtn); // 3 - 5 = -2, clamped at the field's own min=1
+    expect(field.value).toBe('1');
+
+    field.value = '7'; // a value the +/-5 buttons could never land on exactly
+    click(doc, plusBtn);
+    expect(field.value).toBe('12'); // typed value preserved as the base
+  });
+
+  test('(q) clicking the status strip Cancel button sets flash_cancel=1 on the SAME form and submits it', () => {
+    openEditFor(doc, 8); // active flash -- the only state the strip (and its Cancel button) is visible in
+    var form = doc.querySelector('#task-edit-form');
+    var submitted = false;
+    var cancelValueAtSubmit = null;
+    form.addEventListener('submit', function (event) {
+      event.preventDefault(); // jsdom has no server to actually post to
+      submitted = true;
+      cancelValueAtSubmit = form.querySelector('[data-flash-cancel-input]').value;
+    });
+
+    var cancelBtn = doc.querySelector('#task-edit-dialog [data-flash-cancel]');
+    click(doc, cancelBtn);
+
+    expect(submitted).toBe(true);
+    expect(cancelValueAtSubmit).toBe('1');
+  });
+
+  test('(r) the flash_cancel field resets to blank on every open, so a stale cancel from a previous task cannot ride along on an unrelated save', () => {
+    openEditFor(doc, 8);
+    doc.querySelector('#task-edit-dialog [data-flash-cancel-input]').value = '1';
+    openEditFor(doc, 2);
+    expect(doc.querySelector('#task-edit-dialog [data-flash-cancel-input]').value).toBe('');
+  });
+
+  test('(s) an unselected special panel disables its own fields, so a leftover out-of-range value cannot silently block Save; the selected panel stays enabled', () => {
+    openEditFor(doc, 2); // ordinary task -- none of the three panels is selected
+    expect(doc.querySelector('#task-edit-flash-minutes').disabled).toBe(true);
+    expect(
+      doc.querySelector('#task-edit-dialog input[name="flash_bonus"][value="1"]').disabled
+    ).toBe(true);
+    expect(
+      doc.querySelector('#task-edit-dialog input[name="special_bonus"][value="1"]').disabled
+    ).toBe(true);
+    expect(
+      doc.querySelector('#task-edit-dialog input[name="lucky_bonus"][value="1"]').disabled
+    ).toBe(true);
+
+    openEditFor(doc, 8); // active flash -- ITS panel is the selected one
+    expect(doc.querySelector('#task-edit-flash-minutes').disabled).toBe(false);
+    expect(
+      doc.querySelector('#task-edit-dialog input[name="flash_bonus"][value="1"]').disabled
+    ).toBe(false);
+    // The one-day and lucky panels stay disabled -- flash, not either of
+    // them, owns this task.
+    expect(
+      doc.querySelector('#task-edit-dialog input[name="special_bonus"][value="1"]').disabled
+    ).toBe(true);
+    expect(
+      doc.querySelector('#task-edit-dialog input[name="lucky_bonus"][value="1"]').disabled
+    ).toBe(true);
+  });
+
+  test('(t) switching the Special radio live re-syncs which panel is enabled, without waiting for a fresh dialog open', () => {
+    openEditFor(doc, 2);
+    var flashMinutes = doc.querySelector('#task-edit-flash-minutes');
+    expect(flashMinutes.disabled).toBe(true);
+
+    var flashRadio = doc.querySelector(
+      '#task-edit-dialog .special-option input[name="special_mode"][value="flash"]'
+    );
+    flashRadio.checked = true;
+    change(doc, flashRadio);
+
+    expect(flashMinutes.disabled).toBe(false);
+  });
+
+  test('(u) hidden fields inside a panel (the stale-date carry-through, flash_cancel) are never touched by the panel disable/enable sync', () => {
+    // Card 7 carries a STALE lucky day -- its own hidden carry-through input
+    // must stay enabled with the stored value regardless of which Special
+    // panel ends up selected (issue #763 PR review, minor 8 re-check: an
+    // earlier version of this fix disabled every element in an inactive
+    // panel, including this one, silently overwriting its own chip-matching
+    // logic).
+    openEditFor(doc, 7);
+    var staleLucky = doc.querySelector('#task-edit-lucky-date-stale');
+    expect(staleLucky.disabled).toBe(false);
+    expect(staleLucky.value).toBe(STALE_DATE);
+  });
+
+  test("(v) the create dialog's special panels start disabled (None is the default) and enable once the host picks one", () => {
+    click(doc, doc.querySelector('[data-open-create]'));
+    var flashMinutes = doc.querySelector('#task-create-flash-minutes');
+    expect(flashMinutes.disabled).toBe(true);
+
+    var flashRadio = doc.querySelector(
+      '#task-create-dialog .special-option input[name="special_mode"][value="flash"]'
+    );
+    flashRadio.checked = true;
+    change(doc, flashRadio);
+
+    expect(flashMinutes.disabled).toBe(false);
   });
 });

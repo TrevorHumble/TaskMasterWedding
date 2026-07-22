@@ -63,6 +63,42 @@
     if (d && d.open && typeof d.close === 'function') d.close();
   }
 
+  // Disables every field inside a NOT-selected special option's accordion
+  // panel (issue #763 PR review, minor 8). The panel is hidden by CSS alone
+  // (`.special-option-group:has(.special-option input:checked)`), but a
+  // CSS-hidden field still participates in native constraint validation —
+  // the flash minutes field's `min="1"` blocks Save on ANY out-of-range
+  // value left in it even while its panel is collapsed, the browser cannot
+  // focus a control it cannot see, and nothing on screen tells the host why
+  // Save did nothing. Disabling a control is the standard's own escape
+  // hatch: it drops out of constraint validation and out of the submitted
+  // form data entirely, without touching anything the host can see
+  // (visibility is still owned by CSS alone). Applied to every
+  // `.special-option-group` uniformly (one-day, flash, lucky), not
+  // special-cased to flash, since the hazard is generic to "a field with a
+  // constraint inside a CSS-hidden accordion panel."
+  //
+  // Excludes `input[type="hidden"]` deliberately: a hidden input is NEVER a
+  // candidate for constraint validation regardless of its disabled state, so
+  // toggling it here would serve no purpose for the hazard above — and both
+  // the flash panel's `flash_cancel` field and the lucky panel's stale-date
+  // hidden input (`#task-edit-lucky-date-stale`) already have their OWN
+  // disabled-state owner elsewhere in this file (openEdit()'s chip-matching
+  // logic, resetCreate()'s default) that must not be clobbered by a blanket
+  // "the panel is active, enable everything inside it" pass.
+  function syncSpecialPanels(dialog) {
+    if (!dialog) return;
+    dialog.querySelectorAll('.special-option-group').forEach(function (group) {
+      var radio = group.querySelector('.special-option input[type="radio"]');
+      var panel = group.querySelector('.special-panel');
+      if (!radio || !panel) return;
+      var active = radio.checked;
+      panel.querySelectorAll('input:not([type="hidden"]), select, textarea').forEach(function (el) {
+        el.disabled = !active;
+      });
+    });
+  }
+
   // ---- Edit popup: fill from the tapped card's data-* attributes ----
   function openEdit(card) {
     if (!editDialog) return;
@@ -88,6 +124,14 @@
     var mode = g('mode') || 'none';
     var modeRadio = editDialog.querySelector('.special-option input[value="' + mode + '"]');
     if (modeRadio) modeRadio.checked = true;
+
+    // The server-derived answer to "which Special radio does this task's
+    // edit popup open on" (tasks.whatSpecial(), emitted as data-special-kind
+    // by GET /admin/tasks — see that route's own comment). Hoisted here
+    // (issue #763) so both the flash override below AND the lucky override
+    // further down can read the SAME value; previously only the lucky block
+    // computed it.
+    var specialKind = g('special-kind');
 
     // Day/bonus chips (issue #755 criteria 1-3b): clear BOTH groups first,
     // exactly the same reason the badge fields are reset on every open below
@@ -129,6 +173,102 @@
         'input[name="special_bonus"][value="' + storedBonus + '"]'
       );
       if (bonusChip) bonusChip.checked = true;
+    }
+
+    // Flash fields (issue #763 plan step 7) — cleared first, same
+    // leak-prevention reason as the one-day pair above: a previously edited
+    // task's bonus/duration selection must never carry onto the next task
+    // opened. No approved "first day / midpoint bonus" default exists for
+    // flash the way it does for one-day/lucky (the static markup itself
+    // ships with no worth-chip pre-checked and the minutes field's
+    // placeholder, "15", is the only hint) — so an UNARMED task's flash
+    // panel opens exactly as blank as its first paint.
+    editDialog.querySelectorAll('input[name="flash_bonus"]').forEach(function (r) {
+      r.checked = false;
+    });
+    var flashMinutesInput = editDialog.querySelector('input[name="flash_minutes"]');
+    if (flashMinutesInput) flashMinutesInput.value = '';
+    // Starts always reopens on Now (the approved screen's own default) —
+    // never on a stale "Pick a time" left over from a previous task, and
+    // never pre-filled toward "later" for an already-scheduled task either:
+    // Now is what makes the no-op rule work at all (src/routes/admin.js's
+    // resolveFlashWrite doc comment) — a title-only resave of a SCHEDULED
+    // task must post Starts=Now so the server can recognise it as a no-op
+    // and leave the scheduled instant untouched.
+    var flashNowRadio = editDialog.querySelector('input[name="flash_start_mode"][value="now"]');
+    if (flashNowRadio) flashNowRadio.checked = true;
+    editDialog.querySelectorAll('input[name="flash_date"]').forEach(function (r) {
+      r.checked = false;
+    });
+    var flashTimeInput = editDialog.querySelector('input[name="flash_time"]');
+    if (flashTimeInput) flashTimeInput.value = '';
+    var flashCancelInput = editDialog.querySelector('[data-flash-cancel-input]');
+    if (flashCancelInput) flashCancelInput.value = '';
+
+    var storedFlashBonus = g('flash-bonus');
+    if (storedFlashBonus) {
+      var flashBonusChip = editDialog.querySelector(
+        'input[name="flash_bonus"][value="' + storedFlashBonus + '"]'
+      );
+      if (flashBonusChip) flashBonusChip.checked = true;
+    }
+    var storedFlashMinutes = g('flash-minutes');
+    if (storedFlashMinutes && flashMinutesInput) {
+      flashMinutesInput.value = storedFlashMinutes;
+    }
+
+    // The Flash radio's checked state is derived from data-special-kind
+    // (issue #763), the SAME server-computed tasks.whatSpecial() answer the
+    // Lucky radio's own override reads below — flash is never a stored
+    // special_mode value (src/services/tasks.js's MODES comment), so the raw
+    // `modeRadio` line above can never check it on its own. Flash and lucky
+    // can never both be true here (whatSpecial answers exactly one kind), so
+    // this and the lucky override below never fight over the same radio.
+    if (specialKind === 'flash') {
+      var flashRadio = editDialog.querySelector('.special-option input[value="flash"]');
+      if (flashRadio) flashRadio.checked = true;
+    }
+
+    // The status strip (issue #763 criterion 6) — truthful per task, filled
+    // from the SAME server-computed labels the board chip reads
+    // (data-flash-state / data-flash-strip-label, GET /admin/tasks's own
+    // projection). This dialog is shared across every card, so its markup
+    // reflects "nothing armed" until this fills it in; scoped to
+    // `.flash-state-strip` (there is exactly one, inside this dialog) rather
+    // than a page-wide query, since a future page could add another.
+    //
+    // "Is the strip visible" has exactly ONE owner (issue #763 PR review,
+    // M3): the server's `flashStripLabel` (src/routes/admin.js's GET
+    // /admin/tasks projection) is non-empty precisely when the state is
+    // `active` or `scheduled` — so this reads data-flash-strip-label being
+    // non-empty rather than re-deriving that same active/scheduled test a
+    // second time from data-flash-state. data-flash-state is still read for
+    // the dot's filled-vs-hollow CSS class (`.flash-state-scheduled
+    // .flash-state-dot`), which is a presentation detail with no second
+    // owner to collapse, unlike the visibility question.
+    //
+    // Visibility is an INLINE style (`element.style.display`), not the
+    // `hidden` property/attribute: special-flash-option.ejs's own initial
+    // render uses the identical inline-style technique for the SAME reason
+    // (see that partial's own comment) — theme.css's `.flash-state-strip {
+    // display: flex }` class rule would otherwise outrank the low-priority
+    // `[hidden]` UA style, and an inline style needs no accompanying CSS
+    // change to win that fight either way.
+    var flashStrip = editDialog.querySelector('.flash-state-strip');
+    if (flashStrip) {
+      var flashState = g('flash-state') || 'none';
+      var flashStripLabel = g('flash-strip-label');
+      flashStrip.classList.remove(
+        'flash-state-none',
+        'flash-state-scheduled',
+        'flash-state-active',
+        'flash-state-expired'
+      );
+      flashStrip.classList.add('flash-state-' + flashState);
+      var flashVisible = !!flashStripLabel;
+      flashStrip.style.display = flashVisible ? '' : 'none';
+      var flashStripText = flashStrip.querySelector('.flash-state-text');
+      if (flashStripText) flashStripText.textContent = flashStripLabel;
     }
 
     // Lucky day/bonus chips (issue #650 plan step 6) — cleared first, same
@@ -200,8 +340,8 @@
     // presently owns it) — accepted, not a bug to "fix": the row is free again
     // as far as whatSpecial() is concerned, and picking a new day or None
     // overwrites it (see the issue's implementation plan step 6 and DESIGN.md's
-    // lucky-task ADR).
-    var specialKind = g('special-kind');
+    // lucky-task ADR). `specialKind` was already read near the top of this
+    // function (issue #763 — the flash override needs it too).
     if (storedLuckyDate && (specialKind === '' || specialKind === 'lucky')) {
       var luckyRadio = editDialog.querySelector('.special-option input[value="lucky"]');
       if (luckyRadio) luckyRadio.checked = true;
@@ -230,6 +370,12 @@
     var del = editDialog.querySelector('[data-delete-task]');
     if (del) del.setAttribute('data-task-id', taskId);
 
+    // After every radio above has settled into its final checked state for
+    // THIS task (issue #763 PR review, minor 8) — syncing any earlier would
+    // disable/enable panels against a state the flash/lucky overrides above
+    // still had left to change.
+    syncSpecialPanels(editDialog);
+
     openDialog(editDialog);
   }
 
@@ -241,6 +387,14 @@
   // fresh listener per open.
   if (editDialog) {
     editDialog.addEventListener('change', function (event) {
+      // Keep the disabled-panel-fields invariant in sync the moment the
+      // host switches which Special option is picked (issue #763 PR
+      // review, minor 8) — no early return, so the branches below (which
+      // fill in day/bonus defaults for the newly-picked option) still run
+      // against the same event.
+      if (event.target.matches && event.target.matches('input[name="special_mode"]')) {
+        syncSpecialPanels(editDialog);
+      }
       if (event.target.matches && event.target.matches('input[name="special_date"]')) {
         var staleDateInput = editDialog.querySelector('#task-edit-special-date-stale');
         if (staleDateInput) staleDateInput.disabled = true;
@@ -317,6 +471,19 @@
     });
   }
 
+  // The create dialog's own Special radio needs the identical sync (issue
+  // #763 PR review, minor 8) — resetCreate() only sets it up for the
+  // dialog's OPENING state (always None); this keeps it correct as the host
+  // clicks between options while it stays open, mirroring the editDialog
+  // listener just above.
+  if (createDialog) {
+    createDialog.addEventListener('change', function (event) {
+      if (event.target.matches && event.target.matches('input[name="special_mode"]')) {
+        syncSpecialPanels(createDialog);
+      }
+    });
+  }
+
   // Set the hidden badge_icon/badge_name inputs a dialog's form posts —
   // shared by the reset-on-open above and the picker-reflection handler
   // below, so the two never disagree about which ids those hidden fields use.
@@ -386,6 +553,32 @@
     }
     var luckyBonus2 = createDialog.querySelector('input[name="lucky_bonus"][value="2"]');
     if (luckyBonus2) luckyBonus2.checked = true;
+    // Flash fields (issue #763) — the create dialog is reused across every
+    // "New task" click in the same page session, so a value left over from
+    // an abandoned earlier create must not leak into the next one. No
+    // approved default bonus/duration exists for flash (see openEdit()'s own
+    // comment on this) — cleared to blank, matching the static markup's own
+    // unchecked-chips/placeholder-only first paint.
+    createDialog.querySelectorAll('input[name="flash_bonus"]').forEach(function (r) {
+      r.checked = false;
+    });
+    var createFlashMinutes = createDialog.querySelector('input[name="flash_minutes"]');
+    if (createFlashMinutes) createFlashMinutes.value = '';
+    var createFlashNow = createDialog.querySelector('input[name="flash_start_mode"][value="now"]');
+    if (createFlashNow) createFlashNow.checked = true;
+    createDialog.querySelectorAll('input[name="flash_date"]').forEach(function (r) {
+      r.checked = false;
+    });
+    var createFlashTime = createDialog.querySelector('input[name="flash_time"]');
+    if (createFlashTime) createFlashTime.value = '';
+    // The create dialog never shows the status strip (a brand-new task can
+    // never already have a flash to cancel), but the hidden flash_cancel
+    // field this partial always renders alongside it must still be cleared
+    // (issue #763 PR review, minor 7 — openEdit() already does this; a
+    // stray '1' left over from a previous dialog session would otherwise
+    // clear the trio on a task that was never touched).
+    var createFlashCancelInput = createDialog.querySelector('[data-flash-cancel-input]');
+    if (createFlashCancelInput) createFlashCancelInput.value = '';
     reflectBadge(
       createDialog.querySelector('#task-create-badge-preview'),
       createDialog.querySelector('#task-create-badge-icon'),
@@ -396,6 +589,11 @@
     setHiddenBadgeFields(createDialog, '', '');
     var submit = createDialog.querySelector('#task-create-submit');
     if (submit) submit.disabled = true;
+    // After every default above has settled (issue #763 PR review, minor 8)
+    // — None is checked by this point, so this disables every field in the
+    // one-day/flash/lucky panels, none of which are visible until the host
+    // picks one.
+    syncSpecialPanels(createDialog);
   }
 
   function showStep(n) {
@@ -468,6 +666,49 @@
           // Very old browser fallback with no confirm — requestSubmit is
           // the only submission path that fires a real 'submit' event.
           targetForm.submit();
+        }
+      }
+      return;
+    }
+
+    // Flash duration stepper (issue #649): the minus/plus buttons flanking the
+    // minutes field. Steps by whatever the button declares, clamps at the
+    // field's own `min` so a tap can never drive it to zero or negative, and
+    // starts from the placeholder when the field is still empty. The field
+    // stays freely typable — this is the thumb-friendly path to a value, not
+    // the only one.
+    var step = t.closest('[data-flash-step]');
+    if (step) {
+      var field = document.getElementById(step.getAttribute('aria-controls'));
+      if (field) {
+        var floor = parseInt(field.getAttribute('min'), 10) || 1;
+        var current = parseInt(field.value, 10);
+        if (!Number.isInteger(current)) current = parseInt(field.placeholder, 10) || floor;
+        field.value = Math.max(floor, current + parseInt(step.getAttribute('data-flash-step'), 10));
+      }
+      return;
+    }
+
+    // Flash cancel (issue #763): the status strip's Cancel button submits
+    // the SAME form as Save — it sets the hidden flash_cancel=1 field this
+    // dialog's own special-flash-option.ejs include already renders
+    // (data-flash-cancel-input) and requestSubmit()s, so admin.js's
+    // resolveFlashWrite (src/routes/admin.js) sees it and short-circuits
+    // every other flash field/refusal (the wire-format table's own words).
+    // requestSubmit(), not submit(), for the same reason the delete flow
+    // above uses it: it fires a real 'submit' event, which matters here
+    // because the form still carries the browser's native `required`
+    // validation on the title field — submit() would bypass that.
+    var cancelBtn = t.closest('[data-flash-cancel]');
+    if (cancelBtn) {
+      var cancelForm = cancelBtn.closest('form');
+      var cancelField = cancelForm && cancelForm.querySelector('[data-flash-cancel-input]');
+      if (cancelField) cancelField.value = '1';
+      if (cancelForm) {
+        if (typeof cancelForm.requestSubmit === 'function') {
+          cancelForm.requestSubmit();
+        } else {
+          cancelForm.submit();
         }
       }
       return;
