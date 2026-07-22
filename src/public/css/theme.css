@@ -326,7 +326,10 @@ p {
    so it cannot force a wrap that didn't already happen at 430px (AC3). */
 .site-nav-row {
   display: flex;
-  gap: var(--space-6);
+  /* Row-gap is deliberately much smaller than column-gap: when a row wraps at
+     narrow widths the 32px column gap was also applying vertically, stranding
+     the wrapped link ~60px below its partner. */
+  gap: var(--space-1) var(--space-6);
   justify-content: center;
   flex-wrap: wrap;
 }
@@ -595,7 +598,7 @@ p {
 
 /* 5 — Action: the shared .btn component (markup carries `btn`), no extra
    sizing. Its keyboard focus ring is the app's shared :focus-visible outline
-   group (search "focus-visible" — .badge-dialog .badge-done is a member), so
+   group (search "focus-visible" — .badge-dialog .badge-continue is a member), so
    it matches every other control and never shows the stray UA black outline. */
 
 /* The bloom: a springy scale-up with overshoot (badge-pop), a staggered
@@ -636,7 +639,7 @@ p {
   .playing .badge-sub {
     animation: rise 620ms ease-out 1180ms both;
   }
-  .playing .badge-done {
+  .playing .badge-continue {
     animation: rise 620ms ease-out 1320ms both;
   }
 
@@ -2247,7 +2250,7 @@ textarea {
 .comment-menu-trigger:focus-visible,
 .comments-dialog-close:focus-visible,
 .comments-dialog-thread .feed-comment a:focus-visible,
-.badge-dialog .badge-done:focus-visible,
+.badge-dialog .badge-continue:focus-visible,
 .avatar-remove:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
@@ -6023,4 +6026,320 @@ button.check-link {
 }
 button.check-link:hover {
   background: var(--green-50);
+}
+
+/* ===================== Recap strip + panel (issue #644) =====================
+   Owner-approved 2026-07-21/22, transcribed from the phase-1 preview to real
+   data by this issue's phase 2 — markup and classes unchanged from the
+   frozen approval. The recap strip is a temporary band under the header: it
+   exists only when something happened, so the header itself is untouched
+   the rest of the time. */
+.recap-strip {
+  display: flex;
+  align-items: stretch;
+  background: var(--color-surface);
+  border-bottom: var(--border-hairline);
+}
+.recap-strip-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-2) var(--space-3) var(--gutter);
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  text-align: left;
+  cursor: pointer;
+}
+.recap-strip-glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-primary);
+}
+.recap-strip-glyph svg {
+  width: 20px;
+  height: 20px;
+}
+.recap-strip-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: var(--lh-snug);
+}
+.recap-strip-chevron {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+.recap-strip-chevron svg {
+  width: 18px;
+  height: 18px;
+}
+.recap-strip-dismiss {
+  flex: none;
+  width: 44px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.recap-panel {
+  width: min(92vw, var(--app-max-width));
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-card);
+  background: var(--white);
+  box-shadow: var(--shadow-raise);
+  color: var(--color-text);
+}
+.recap-panel::backdrop {
+  background: rgba(42, 67, 53, 0.4);
+}
+.recap-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: var(--border-hairline);
+}
+.recap-panel-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  color: var(--color-heading);
+}
+.recap-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.recap-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.recap-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-hairline);
+}
+.recap-row:last-child {
+  border-bottom: none;
+}
+.recap-row-unread {
+  background: var(--color-surface);
+}
+.recap-thumb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-input);
+  object-fit: cover;
+}
+.recap-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--white);
+  border: var(--border-hairline);
+  color: var(--color-primary);
+}
+.recap-icon svg {
+  width: 22px;
+  height: 22px;
+}
+.recap-row-body {
+  min-width: 0;
+}
+.recap-row-text {
+  margin: 0;
+  font-size: var(--fs-small);
+  line-height: var(--lh-snug);
+}
+.recap-row-when {
+  margin: 2px 0 0;
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+}
+
+/* Permanent home for the recap: an always-present row on the profile, so a
+   dismissed strip is never a dead end (phase-1 preview, issue #644). */
+.notifications-section {
+  margin-bottom: var(--space-5);
+}
+.notifications-entry {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--white);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+.notifications-entry-glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-primary);
+}
+.notifications-entry-glyph svg {
+  width: 22px;
+  height: 22px;
+}
+.notifications-entry-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.notifications-entry-count {
+  flex: none;
+  min-width: 24px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: var(--fs-eyebrow);
+  text-align: center;
+}
+.notifications-entry-chevron {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+.notifications-entry-chevron svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Every recap row is a link to the thing that changed (phase-1, issue #644). */
+.recap-row {
+  display: block;
+  padding: 0;
+}
+.recap-row-link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.recap-row-link:hover {
+  text-decoration: none;
+  background: var(--green-50);
+}
+.recap-row-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+}
+.recap-row-text,
+.recap-row-when {
+  display: block;
+}
+.recap-row-chevron {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-hairline);
+}
+.recap-row-chevron svg {
+  width: 18px;
+  height: 18px;
+}
+/* Paging feedback lives INSIDE the scrolling list and always occupies the same
+   height, so a batch arriving never resizes the panel (phase-1, issue #644). */
+.recap-foot {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--fs-eyebrow);
+  text-align: center;
+}
+/* The list grows with its rows up to 60vh, then pins there — so a guest with
+   two notifications gets a short panel, while a long list stays a fixed
+   viewport and nothing shifts under the thumb as batches arrive. */
+.recap-list {
+  max-height: 60vh;
+  overscroll-behavior: contain;
+}
+
+/* Row kinds (phase-1, issue #644): an announcement is not a personal event, a
+   loss is not a reward — each reads differently at a glance. */
+.recap-row-announce .recap-row-link {
+  border-left: 3px solid var(--color-primary);
+  background: var(--green-50);
+}
+.recap-row-announce .recap-icon {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.recap-row-loss .recap-row-text {
+  color: var(--color-text-muted);
+}
+.recap-row-loss .recap-icon {
+  color: var(--color-text-muted);
+}
+.recap-icon-gold {
+  color: #b8912f;
+  border-color: #d9bd76;
+}
+.recap-row-gold .recap-row-text strong {
+  color: #b8912f;
+}
+
+/* A notification whose subject no longer exists (a taken-down photo): shown,
+   but inert — no cursor, no hover, nowhere to go (phase-1, issue #644). */
+.recap-row-inert {
+  cursor: default;
+}
+.recap-row-inert:hover {
+  background: none;
+}
+.recap-row-inert .recap-thumb {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+/* Zero-event recap (phase-1, issue #644). */
+.recap-empty {
+  margin: 0;
+  padding: var(--space-7) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--fs-small);
+  text-align: center;
 }

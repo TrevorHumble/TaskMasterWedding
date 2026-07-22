@@ -81,6 +81,18 @@ const photos = require('../services/photos');
 // Scoring service (section 06) — REAL exports only.
 const scoring = require('../services/scoring');
 
+// The recap service (issue #644) — owns the recap row/count reads and the
+// checkpoint write (POST /recap/seen below).
+const notifications = require('../services/notifications');
+
+// The shared badge-moment stamp (issue #644 plan step 4) — see that module's
+// header comment for why it is a service rather than living here, and why
+// it also carries the render-time recap-page attachment. withBadgeMoment is
+// the ONE call site every res.render() in this file (and, via
+// src/routes/community.js's own require of the same module, every
+// res.render() there) passes through.
+const { withBadgeMoment } = require('../services/render-locals');
+
 // Submission-intake service (issue #106) — owns the whole submit-or-replace
 // sequence for POST /tasks/:id/submit: task-active check, thumbnail, upsert,
 // caption normalization, and scoring recompute. This route calls it once and
@@ -107,10 +119,10 @@ const MEMORY_DISK_FULL_MESSAGE = 'The gallery is full right now — please tell 
 // for the signed-out case, which requireGuest below would redirect anyway).
 // uploadRateLimiter is SHARED between POST /tasks/:id/submit and POST
 // /me/edit (one combined per-guest budget, config.RATE_LIMIT_UPLOAD_MAX);
-// socialRateLimiter backs POST /bug-report alone (its own budget,
-// config.RATE_LIMIT_SOCIAL_MAX — a SEPARATE instance from the one
-// src/routes/community.js creates for /like + /comments, even though both
-// read the same config value).
+// socialRateLimiter is SHARED between POST /bug-report and POST /recap/seen
+// (issue #644) — one combined budget, config.RATE_LIMIT_SOCIAL_MAX — a
+// SEPARATE instance from the one src/routes/community.js creates for /like +
+// /comments, even though both read the same config value.
 const uploadRateLimiter = createRateLimiter({
   windowMs: () => config.RATE_LIMIT_WINDOW_MS,
   max: () => config.RATE_LIMIT_UPLOAD_MAX,
@@ -302,15 +314,18 @@ router.get('/', function (req, res) {
   const progressPercent =
     totalTasks === 0 ? 0 : Math.round((clampedCompletedTasks / totalTasks) * 100);
 
-  res.render('guest-home', {
-    title: 'Home',
-    points: points,
-    badges: badges,
-    submissions: submissions,
-    totalTasks: totalTasks,
-    completedTasks: clampedCompletedTasks,
-    progressPercent: progressPercent,
-  });
+  res.render(
+    'guest-home',
+    withBadgeMoment(req, res, {
+      title: 'Home',
+      points: points,
+      badges: badges,
+      submissions: submissions,
+      totalTasks: totalTasks,
+      completedTasks: clampedCompletedTasks,
+      progressPercent: progressPercent,
+    })
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -508,17 +523,20 @@ router.get('/tasks', function (req, res) {
   // — this route re-derives neither the avatar rule nor the point value.
   const starter = scoring.starterTaskContribution(guest);
 
-  res.render('tasks', {
-    title: 'Tasks',
-    view: req.query.view === 'done' ? 'done' : 'todo',
-    todoTasks: todoTasks,
-    doneTasks: doneTasks,
-    doneCount: doneTasks.length + starter.done_count,
-    todoCount: todoTasks.length + starter.todo_count,
-    totalCount: visibleTaskRows.length + starter.total,
-    starterDone: starter.done,
-    starterPoints: starter.points,
-  });
+  res.render(
+    'tasks',
+    withBadgeMoment(req, res, {
+      title: 'Tasks',
+      view: req.query.view === 'done' ? 'done' : 'todo',
+      todoTasks: todoTasks,
+      doneTasks: doneTasks,
+      doneCount: doneTasks.length + starter.done_count,
+      todoCount: todoTasks.length + starter.todo_count,
+      totalCount: visibleTaskRows.length + starter.total,
+      starterDone: starter.done,
+      starterPoints: starter.points,
+    })
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -557,11 +575,14 @@ router.get('/how-to-play', function (req, res) {
   // 1 again, no state change that matters.
   markGuestOnboarded(guest.id);
 
-  res.render('how-to-play', {
-    title: 'How to play',
-    taskCount: taskCount,
-    showSkip: req.query.first === '1',
-  });
+  res.render(
+    'how-to-play',
+    withBadgeMoment(req, res, {
+      title: 'How to play',
+      taskCount: taskCount,
+      showSkip: req.query.first === '1',
+    })
+  );
 });
 
 // Copy shown to the guest after a bug report is stored (AC1) and when the
@@ -597,7 +618,7 @@ function refererPath(rawReferer) {
 // (AC2: a signed-out visitor is redirected to /join instead — issue #241).
 // ---------------------------------------------------------------------------
 router.get('/bug-report', function (req, res) {
-  res.render('bug-report', { title: 'Report a bug', error: '' });
+  res.render('bug-report', withBadgeMoment(req, res, { title: 'Report a bug', error: '' }));
 });
 
 // ---------------------------------------------------------------------------
@@ -615,7 +636,10 @@ router.post('/bug-report', socialRateLimiter, function (req, res) {
   // AC5: an empty (or whitespace-only) body inserts no row and re-renders the
   // form with the required error copy.
   if (trimmed.length === 0) {
-    return res.render('bug-report', { title: 'Report a bug', error: BUG_REPORT_EMPTY_ERROR });
+    return res.render(
+      'bug-report',
+      withBadgeMoment(req, res, { title: 'Report a bug', error: BUG_REPORT_EMPTY_ERROR })
+    );
   }
 
   // AC6: truncate to BUG_REPORT_BODY_MAX chars — 1001 'a' characters store as
@@ -633,12 +657,6 @@ router.post('/bug-report', socialRateLimiter, function (req, res) {
   setFlash(res, 'success', BUG_REPORT_THANKS);
   return res.redirect('/');
 });
-
-// When one submission earns more than one new badge (rare — e.g. an auto
-// badge plus COMPLETIONIST at once), the modal celebrates a single PRIMARY
-// badge by this fixed priority (design, #255). The rest are still awarded
-// and appear on the guest's profile — one modal, one badge (v1).
-const BADGE_MOMENT_PRIORITY = ['GARDEN', 'BOUQUET', 'BLOOM', 'COMPLETIONIST'];
 
 // ---------------------------------------------------------------------------
 // GET /tasks/:id  — one task's detail + the upload form. If the guest has
@@ -724,27 +742,20 @@ router.get('/tasks/:id', function (req, res) {
   // and linked whether or not the guest has completed the task yet.
   const taskBadge = taskBadges.resolveTaskBadge(taskId);
 
-  // Success card + badge modal (issue #255): resolve the one-shot
-  // taskComplete reward (read and cleared by attachGuest,
-  // src/middleware/session.js) into what task.ejs needs. taskComplete carries
-  // BOTH numbers the card prints: `points` is the guest's grand total after
-  // this submission, `earned` (issue #756) is what THIS submission actually
-  // banked (task.worth + any admin photo_bonus + any on-day challenge bonus),
-  // computed through scoring.photoPoints — the single authority for how a
-  // photo's base combines with its bonuses — rather than typing that formula
-  // out here as a second copy of it. Keeping both under one taskComplete
-  // object (instead of a separate render local) means task.ejs can only read
-  // `earned` from inside the same `taskComplete &&` guard that already
-  // protects `points`, so the two can't drift apart. A newly-earned badge
-  // gets its own separate badgeMoment, which task.ejs renders as an
-  // auto-opening modal.
-  //
-  // Badge codes are resolved against the guest's CURRENT held badges rather
-  // than trusted as-is, so a badge id that no longer resolves (defensive; not
-  // expected to happen within the same redirect) is silently dropped instead
-  // of rendering a blank badge entry.
+  // Success card (issue #255): resolve the one-shot taskComplete reward
+  // (read and cleared by attachGuest, src/middleware/session.js) into what
+  // task.ejs needs. taskComplete carries BOTH numbers the card prints:
+  // `points` is the guest's grand total after this submission, `earned`
+  // (issue #756) is what THIS submission actually banked (task.worth + any
+  // admin photo_bonus + any on-day challenge bonus), computed through
+  // scoring.photoPoints — the single authority for how a photo's base
+  // combines with its bonuses — rather than typing that formula out here as
+  // a second copy of it. The badge celebration is a SEPARATE trigger from
+  // this cookie now (issue #644 plan step 4 — see withBadgeMoment above): a
+  // badge granted by this very submission is "owed" (celebrated_at NULL)
+  // exactly like one granted anywhere else, so it needs no special-casing
+  // here off reward.newBadgeIds.
   let taskComplete = null;
-  let badgeMoment = null;
   if (res.locals.taskCompleteReward) {
     const reward = res.locals.taskCompleteReward;
     taskComplete = {
@@ -755,48 +766,19 @@ router.get('/tasks/:id', function (req, res) {
         submission ? submission.bonus_amount : 0
       ),
     };
-
-    if (reward.newBadgeIds.length > 0) {
-      const heldBadges = scoring.getGuestBadges(guest.id);
-      const earnedBadges = heldBadges.filter((b) => reward.newBadgeIds.includes(b.code));
-
-      // Pick the primary badge by fixed priority; if none of the earned
-      // badges appear in the priority list (a future code not yet added to
-      // it), fall back to the first earned badge rather than showing none.
-      let primary = null;
-      for (const code of BADGE_MOMENT_PRIORITY) {
-        primary = earnedBadges.find((b) => b.code === code);
-        if (primary) {
-          break;
-        }
-      }
-      if (!primary) {
-        primary = earnedBadges[0] || null;
-      }
-
-      if (primary) {
-        // Use the badge's OWN catalog data — its name is the title, its
-        // description is the subtitle (scripts/badge-catalog.js). No invented
-        // per-badge copy: the modal shows only what the badge actually carries.
-        badgeMoment = {
-          code: primary.code,
-          name: primary.name,
-          art_path: primary.art_path,
-          description: primary.description,
-        };
-      }
-    }
   }
 
-  res.render('task', {
-    title: task.title,
-    task: task,
-    taskBadge: taskBadge, // this task's badge — always present, unlike badgeMoment
-    submission: submission, // null if none yet
-    taskComplete: taskComplete, // null unless a 'created' submit just redirected here; carries both .points and .earned
-    badgeMoment: badgeMoment, // null unless that submit also earned a new badge
-    pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/
-  });
+  res.render(
+    'task',
+    withBadgeMoment(req, res, {
+      title: task.title,
+      task: task,
+      taskBadge: taskBadge, // this task's badge — always present, unlike badgeMoment
+      submission: submission, // null if none yet
+      taskComplete: taskComplete, // null unless a 'created' submit just redirected here; carries both .points and .earned
+      pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/
+    })
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -901,7 +883,7 @@ router.post('/tasks/:id/submit', uploadRateLimiter, function (req, res) {
 // (AC6: a signed-out visitor is redirected to /join instead — issue #241).
 // ---------------------------------------------------------------------------
 router.get('/memories/new', function (req, res) {
-  res.render('memory-new', { title: 'Share a memory' });
+  res.render('memory-new', withBadgeMoment(req, res, { title: 'Share a memory' }));
 });
 
 // ---------------------------------------------------------------------------
@@ -948,10 +930,13 @@ router.post('/memories', function (req, res, next) {
 
     if (err) {
       if (err.code === 'LIMIT_FILE_COUNT') {
-        return res.render('memory-new', {
-          title: 'Share a memory',
-          error: 'Ten photos at a time — send the rest in a second batch.',
-        });
+        return res.render(
+          'memory-new',
+          withBadgeMoment(req, res, {
+            title: 'Share a memory',
+            error: 'Ten photos at a time — send the rest in a second batch.',
+          })
+        );
       }
       // Any other multer/file-filter error (size limit or disallowed type,
       // including the shared HEIC-rejection copy — issue #188).
@@ -972,10 +957,13 @@ router.post('/memories', function (req, res, next) {
     const rl = rateLimit.recordMemoryAttempt(guest.id);
     if (!rl.allowed) {
       cleanupBatchOriginals(files);
-      return res.render('memory-new', {
-        title: 'Share a memory',
-        error: MEMORY_RATE_LIMIT_MESSAGE,
-      });
+      return res.render(
+        'memory-new',
+        withBadgeMoment(req, res, {
+          title: 'Share a memory',
+          error: MEMORY_RATE_LIMIT_MESSAGE,
+        })
+      );
     }
 
     // Disk-space guard (AC12). Read free space via the injectable reader; a
@@ -991,10 +979,13 @@ router.post('/memories', function (req, res, next) {
     }
     if (!spaceOk) {
       cleanupBatchOriginals(files);
-      return res.render('memory-new', {
-        title: 'Share a memory',
-        error: MEMORY_DISK_FULL_MESSAGE,
-      });
+      return res.render(
+        'memory-new',
+        withBadgeMoment(req, res, {
+          title: 'Share a memory',
+          error: MEMORY_DISK_FULL_MESSAGE,
+        })
+      );
     }
 
     // Persist the batch. Wrapped so a thrown error routes to the Express error
@@ -1042,11 +1033,14 @@ router.get('/me/edit', function (req, res) {
     social = {};
   }
 
-  res.render('me-edit', {
-    title: 'Edit My Profile',
-    social: social,
-    pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/
-  });
+  res.render(
+    'me-edit',
+    withBadgeMoment(req, res, {
+      title: 'Edit My Profile',
+      social: social,
+      pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/
+    })
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1203,6 +1197,54 @@ router.post('/me/avatar/delete', uploadRateLimiter, function (req, res) {
   }
 
   return res.redirect('/me/edit');
+});
+
+// ---------------------------------------------------------------------------
+// POST /recap/seen  — advance the signed-in guest's recap checkpoint to now
+// (issue #644 plan step 7/9). Fired by src/public/js/recap.js the moment the
+// recap panel is opened, from EITHER entry point (the header strip or the
+// profile Notifications row) — AC2's "after the guest opens the recap, a
+// subsequent render shows no count and no strip" depends entirely on this
+// call firing from both. Dismissing the strip (the × button) never calls
+// this route — dismiss hides the band for the current page load only and
+// must never advance the checkpoint (design: "Dismiss hides, never marks
+// read"), so burying an unseen reward is not possible through that control.
+// No response body needed; the client does not read one.
+// ---------------------------------------------------------------------------
+// socialRateLimiter (shared with POST /bug-report above): a fetch a guest's
+// own browser fires automatically the instant the recap panel opens, not a
+// form a guest deliberately submits, but still a guest-triggered write with
+// no rate limiter of its own before this fix (issue #644 review) — every
+// other POST in this router carries one.
+router.post('/recap/seen', socialRateLimiter, function (req, res) {
+  notifications.markSeen(res.locals.guest.id);
+  res.status(204).end();
+});
+
+// ---------------------------------------------------------------------------
+// GET /recap?before=&beforeKey=  — one older page of the signed-in guest's
+// recap (issue #644 plan step 7). Omit both for the first page (the same
+// page already embedded in header.ejs at initial render — a guest
+// re-fetching page one gets the identical shape); pass the last row's
+// `when`/`key` values to page further back. `beforeKey` is the composite
+// cursor's tie-break (issue #644 review): SQLite's datetime('now') has only
+// whole-SECOND precision, so two rows can share the exact same `when` (e.g.
+// recomputeBadges granting two badges inside one transaction) — `before`
+// alone would either drop or re-serve rows sharing the boundary second.
+// notifications.getRecap composes the two into one comparator; a caller that
+// omits beforeKey (a stale client, or a manual request) still gets a
+// correct — if coarser — page, since getRecap falls back to comparing
+// `when` alone when no key is given. 20 rows per page
+// (src/services/notifications.js's internal PAGE_SIZE).
+// ---------------------------------------------------------------------------
+router.get('/recap', function (req, res) {
+  const before = typeof req.query.before === 'string' ? req.query.before : undefined;
+  const beforeKey = typeof req.query.beforeKey === 'string' ? req.query.beforeKey : undefined;
+  const result = notifications.getRecap(res.locals.guest.id, {
+    before: before,
+    beforeKey: beforeKey,
+  });
+  res.json(result);
 });
 
 module.exports = router;

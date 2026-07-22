@@ -118,7 +118,7 @@ five die — it now picks winners for each task's real badge, not for the dead p
 - Crowd favorite (points + badge + gold): #625 · Duels feed crowd likes: #651
 - Completionist recompute on task changes: #701 · Remove MOSTPHOTOS: new issue, not yet filed
 - No badges/points on people: #683 · Per-photo points route removal: #684
-- Reward delivery: #644 (bell) + #611 (success screen slots for bonus receipts)
+- Reward delivery: #644 (recap) + #611 (success screen slots for bonus receipts)
 - Display surfaces: #489/#490 (medals — #490's TOPSHOT half is dead), #653 (next-badge nudge), #646 (host checklist), #363 (badge art), #469 (prizes)
 - #647 (Couple's Heart): the couple's gold heart is a like marker and pays nothing —
   unrelated to the gold badge rule above. Do not conflate the two golds.
@@ -224,7 +224,7 @@ flowchart LR
     PR["profile + badge strip"]
     FD["feed / gallery crowns"]
     RC["success receipt"]
-    BL["bell recap"]
+    BL["recap"]
   end
 
   T --> ATS
@@ -242,7 +242,7 @@ flowchart LR
   CF -- "crowns on the five tiles" --> FD
   PTS -- "points + bonus reason lines" --> RC
   CF -- "crown won/lost: top-5 diffed<br/>before vs after each like toggle" --> BL
-  R2["recompute door"] -- "badge grants/revokes<br/>emitted as bell events" --> BL
+  R2["recompute door"] -- "badge grants/revokes<br/>emitted as recap events" --> BL
 ```
 
 The split in one line: stores hold what happened and what the host decided; the derived
@@ -325,7 +325,7 @@ flowchart LR
     B1["daily writer"] --> B0
     B2["flash writer"] --> B0
     B3["lucky writer"] --> B0
-    B0 --> B4["receipt + bell<br/>read the reason"]
+    B0 --> B4["receipt reads<br/>the reason"]
   end
 
   subgraph W4["Wall 4: one recompute door"]

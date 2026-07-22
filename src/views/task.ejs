@@ -27,39 +27,12 @@
     </section>
   <% } %>
 
-  <% if (typeof badgeMoment !== 'undefined' && badgeMoment) { %>
-    <!-- Badge modal (issue #255): a native <dialog> matching the #248
-         comments-dialog pattern (src/views/feed.ejs / src/public/js/feed.js)
-         — showModal()/close(), Escape/backdrop dismissal free from the
-         platform. src/public/js/badge-moment.js opens it on load and wires
-         the dismiss button. No points language in here — points live only in
-         the inline success card above. -->
-    <dialog class="badge-dialog" id="badge-dialog" tabindex="-1">
-      <div class="badge-card">
-        <p class="eyebrow badge-eyebrow">You earned a badge</p>
-        <h2 class="badge-title"><%= badgeMoment.name %>!</h2>
-
-        <div class="badge-stage">
-          <span class="badge-ring"></span>
-          <span class="spark gold" style="--dx:-58px; --dy:-46px; --rot:120deg;  --sd:120ms">&#10047;</span>
-          <span class="spark sage" style="--dx:56px;  --dy:-50px; --rot:-90deg;  --sd:200ms">&#10048;</span>
-          <span class="spark mint" style="--dx:72px;  --dy:6px;   --rot:60deg;   --sd:160ms">&#8226;</span>
-          <span class="spark gold" style="--dx:52px;  --dy:58px;  --rot:150deg;  --sd:280ms">&#10057;</span>
-          <span class="spark sage" style="--dx:-8px;  --dy:74px;  --rot:-70deg;  --sd:320ms">&#8226;</span>
-          <span class="spark mint" style="--dx:-64px; --dy:50px;  --rot:100deg;  --sd:220ms">&#10047;</span>
-          <span class="spark gold" style="--dx:-74px; --dy:-4px;  --rot:-120deg; --sd:360ms">&#8226;</span>
-          <span class="spark sage" style="--dx:12px;  --dy:-70px; --rot:80deg;   --sd:180ms">&#10048;</span>
-          <span class="badge-sway">
-            <%- include('partials/badge-art', { badge: badgeMoment, alt: badgeMoment.name + ' badge' }) %>
-          </span>
-        </div>
-
-        <p class="badge-sub"><%= badgeMoment.description %></p>
-        <button type="button" class="btn badge-done">Continue</button>
-      </div>
-    </dialog>
-    <script src="/js/badge-moment.js" defer></script>
-  <% } %>
+  <%# Badge modal (issue #255) — the shared #badge-dialog now lives in
+      partials/header.ejs (issue #644 plan step 4), included above via
+      partials/header; header.ejs decides whether to auto-open it (a
+      badgeMoment owed on THIS render, which may or may not be the badge
+      this very submission just earned — see render-locals.js's withBadgeMoment) and
+      whether to include badge-moment.js. Nothing left to render here. %>
 
   <p class="back-link"><a href="/tasks">&#8592; All tasks</a></p>
   <p class="back-link"><a href="/gallery?task=<%= task.id %>">See photos for this task</a></p>

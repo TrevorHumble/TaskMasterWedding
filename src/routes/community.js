@@ -21,6 +21,19 @@ const submissions = require('../services/submissions');
 // same config value. guestOrIpKey is the single owner of the "guest-keyed,
 // IP fallback when signed out" rule, shared with guest.js.
 const { createRateLimiter, guestOrIpKey } = require('../middleware/rate-limit');
+// The shared badge-moment stamp (issue #644 plan step 4) — withBadgeMoment
+// is the single call site that resolves + pays a guest's owed celebration
+// for the render about to happen; every render call in THIS file goes
+// through it too, so a badge is celebrated exactly once no matter which page
+// (guest-side or community-side) happens to render first. Lives in its own
+// service module, src/services/render-locals.js, rather than being bolted
+// onto src/routes/guest.js's exported Router and required back from here
+// (the shape #644's first pass shipped, and its own review flagged): two
+// ROUTE files requiring each other's exports the way feed.js's own comment
+// on slideshowSequence's deferred `require('./scoring')` warns against is
+// the same load-order hazard, and a service module both routers import
+// downward avoids it outright rather than working around it.
+const { withBadgeMoment } = require('../services/render-locals');
 
 const router = express.Router();
 
@@ -186,17 +199,20 @@ function hasLiked(submissionId, guestId) {
 // hand-copied literal that can drift from this server rule.
 const COMMENT_MAX_LENGTH = 300;
 
-// The ONE statement of "a comment is visible" — mirrors feed.js's VISIBLE_WHERE
-// for submissions. A comment is visible when its own moderation flag is clear;
-// this is a separate flag from the submission-level taken_down that
-// feed.feedWindow() owns. Every query that must agree with the rendered thread
-// (attachComments below, and the badge/See-all count in the comments POST
-// route) composes this constant, so the rule appears exactly once — if comment
-// moderation ever grows a second condition, the count and the list cannot
-// drift apart. The `c.` alias qualifier matches attachComments' JOIN alias and
-// is harmless in the unaliased count query (SQLite resolves it to the one
-// comments table).
-const COMMENT_VISIBLE_WHERE = 'c.taken_down = 0';
+// The ONE statement of "a comment is visible" — owned by feed.js (beside its
+// submission-level VISIBLE_WHERE) and re-exported from there, not re-typed
+// here (issue #644 review — this file's own literal and notifications.js's
+// derived-comment-source literal had drifted into three independent copies
+// of the identical rule). A comment is visible when its own moderation flag
+// is clear; this is a separate flag from the submission-level taken_down
+// that feed.feedWindow() owns. Every query that must agree with the
+// rendered thread (attachComments below, and the badge/See-all count in the
+// comments POST route) composes this constant, so the rule appears exactly
+// once — if comment moderation ever grows a second condition, the count and
+// the list cannot drift apart. The `c.` alias qualifier matches
+// attachComments' JOIN alias and is harmless in the unaliased count query
+// (SQLite resolves it to the one comments table).
+const COMMENT_VISIBLE_WHERE = feed.COMMENT_VISIBLE_WHERE;
 
 /**
  * Attach a `comments` array to each photo in place, in one grouped query
@@ -325,20 +341,24 @@ function attachPhotoPoints(photos) {
 // Single function that owns the gallery template contract.
 // Every branch calls this so the template's expected keys live in one place.
 function renderGallery(
+  req,
   res,
   { view, groups = [], photos = [], page = 1, totalPages = 1, total = 0, taskFilter = null, q = '' }
 ) {
-  return res.render('gallery', {
-    title: 'Gallery',
-    view,
-    groups,
-    photos,
-    page,
-    totalPages,
-    total,
-    taskFilter,
-    q,
-  });
+  return res.render(
+    'gallery',
+    withBadgeMoment(req, res, {
+      title: 'Gallery',
+      view,
+      groups,
+      photos,
+      page,
+      totalPages,
+      total,
+      taskFilter,
+      q,
+    })
+  );
 }
 
 router.get('/gallery', (req, res) => {
@@ -356,7 +376,7 @@ router.get('/gallery', (req, res) => {
   if (req.query.task !== undefined) {
     const parsed = parseInt(req.query.task, 10);
     if (!Number.isInteger(parsed) || parsed < 1) {
-      return renderGallery(res, { view });
+      return renderGallery(req, res, { view });
     }
     taskFilter = parsed;
   }
@@ -370,14 +390,14 @@ router.get('/gallery', (req, res) => {
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const groups = feed.grouped(view, taskFilter, q);
     const total = groups.reduce((sum, g) => sum + g.total, 0);
-    return renderGallery(res, { view, groups, total, taskFilter, q });
+    return renderGallery(req, res, { view, groups, total, taskFilter, q });
   }
 
   // --- recent view: flat, paginated, newest-first. ---
   const requestedPage = parseInt(req.query.page, 10);
   const { photos, page, totalPages, total } = feed.recentPage(taskFilter, requestedPage);
 
-  return renderGallery(res, { view, photos, page, totalPages, total, taskFilter });
+  return renderGallery(req, res, { view, photos, page, totalPages, total, taskFilter });
 });
 
 // ---------------------------------------------------------------------------
@@ -412,15 +432,18 @@ router.get('/feed', (req, res) => {
       : '/feed'
     : null;
 
-  return res.render('feed', {
-    title: 'Feed',
-    pageScript: 'feed.js',
-    photos,
-    commentMaxLength: COMMENT_MAX_LENGTH,
-    captionMaxLength: submissions.CAPTION_MAX_LENGTH,
-    olderHref,
-    newerHref,
-  });
+  return res.render(
+    'feed',
+    withBadgeMoment(req, res, {
+      title: 'Feed',
+      pageScript: 'feed.js',
+      photos,
+      commentMaxLength: COMMENT_MAX_LENGTH,
+      captionMaxLength: submissions.CAPTION_MAX_LENGTH,
+      olderHref,
+      newerHref,
+    })
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -778,14 +801,17 @@ router.get('/p/:submissionId', (req, res) => {
 
   // The template expects next/prev as { submission_id } (or null), truthy-checked.
   // prev = newer (earlier in the newest-first order); next = older.
-  return res.render('photo', {
-    title: photo.task_title,
-    pageScript: 'photo.js',
-    photo,
-    captionMaxLength: submissions.CAPTION_MAX_LENGTH,
-    next: result.found && result.older !== null ? { submission_id: result.older } : null,
-    prev: result.found && result.newer !== null ? { submission_id: result.newer } : null,
-  });
+  return res.render(
+    'photo',
+    withBadgeMoment(req, res, {
+      title: photo.task_title,
+      pageScript: 'photo.js',
+      photo,
+      captionMaxLength: submissions.CAPTION_MAX_LENGTH,
+      next: result.found && result.older !== null ? { submission_id: result.older } : null,
+      prev: result.found && result.newer !== null ? { submission_id: result.newer } : null,
+    })
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -863,13 +889,16 @@ router.get('/leaderboard', (req, res) => {
   // See the low-spread guard comment at distinctRankCount above.
   const showPodium = distinctRankCount > 1;
 
-  res.render('leaderboard', {
-    title: 'Leaderboard',
-    rows: ranked,
-    podiumGroups,
-    showPodium,
-    badgeCap: config.LEADERBOARD_BADGE_CAP,
-  });
+  res.render(
+    'leaderboard',
+    withBadgeMoment(req, res, {
+      title: 'Leaderboard',
+      rows: ranked,
+      podiumGroups,
+      showPodium,
+      badgeCap: config.LEADERBOARD_BADGE_CAP,
+    })
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -897,12 +926,15 @@ router.get('/badge/:code', (req, res) => {
     return res.status(404).render('404', { title: 'Not found' });
   }
 
-  return res.render('badge-detail', {
-    title: result.badge.name,
-    badge: result.badge,
-    holders: result.holders,
-    isTaskMaster: result.badge.task_id != null,
-  });
+  return res.render(
+    'badge-detail',
+    withBadgeMoment(req, res, {
+      title: result.badge.name,
+      badge: result.badge,
+      holders: result.holders,
+      isTaskMaster: result.badge.task_id != null,
+    })
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -936,14 +968,17 @@ router.get('/u/:guestId', (req, res, next) => {
   // Visible photos by this guest, newest first, with the task title.
   const photos = feed.guestPhotos(guestId);
 
-  res.render('public-profile', {
-    title: profileGuest.name || 'Guest',
-    profileGuest,
-    badges,
-    socialLinks,
-    photos,
-    score,
-  });
+  res.render(
+    'public-profile',
+    withBadgeMoment(req, res, {
+      title: profileGuest.name || 'Guest',
+      profileGuest,
+      badges,
+      socialLinks,
+      photos,
+      score,
+    })
+  );
 });
 
 module.exports = router;

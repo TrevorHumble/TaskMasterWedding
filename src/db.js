@@ -206,6 +206,48 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_comments_submission
     ON comments(submission_id, taken_down);
+
+  -- "What happened to me" recap events (issue #644) — the STORED half of the
+  -- recap. Only facts a later query cannot reconstruct are written here: a
+  -- badge grant/revoke row (guest_badges' own row is either overwritten by a
+  -- later grant or deleted outright on revoke, so without this table a
+  -- revoked badge would leave no trace to notify from). Likes and comments
+  -- are NOT stored here — they are DERIVED live by src/services/notifications.js
+  -- from the likes/comments tables themselves, the same "derive over store"
+  -- rule the rest of the scoring economy follows (economy-architecture.md
+  -- Rule 4). kind is the seven-value STORED vocabulary
+  -- (badge_granted/badge_revoked/badge_removed/photo_takedown/photo_restore/
+  -- comment_hidden/comment_restored) — deliberately NOT the view-treatment
+  -- vocabulary (announce/gold/photo/badge/loss) notifications.js maps it to;
+  -- the two must never share a name (see that module's KIND_VIEW map).
+  -- badge_revoked is the engine revoking a badge the guest no longer
+  -- qualifies for; badge_removed is a host un-awarding one by hand — they
+  -- read differently to the guest, so they are separate kinds. Only the
+  -- three badge_* kinds are emitted by this issue; #783 owns the
+  -- moderation emitters and #778 owns announcements (adding its own task_id
+  -- column later). submission_id/badge_id are nullable siblings — a badge
+  -- event sets badge_id only, a moderation event (future) sets submission_id
+  -- only — both cascade on delete so an event never outlives the row it
+  -- describes turning into a dangling reference.
+  CREATE TABLE IF NOT EXISTS notification_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    guest_id      INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+    kind          TEXT    NOT NULL,
+    submission_id INTEGER REFERENCES submissions(id) ON DELETE CASCADE,
+    badge_id      INTEGER REFERENCES badges(id) ON DELETE CASCADE,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_notification_events_guest_created
+    ON notification_events(guest_id, created_at);
+
+  -- The recap service's unread-count query (src/services/notifications.js)
+  -- counts a guest's liked/commented-on photos by guest_id; this index (no
+  -- guarded migration needed — CREATE INDEX IF NOT EXISTS is always safe on a
+  -- pre-existing populated table) is what keeps that a lookup instead of a
+  -- full submissions scan on every request (issue #644 plan step 5).
+  CREATE INDEX IF NOT EXISTS idx_submissions_guest_id
+    ON submissions(guest_id);
 `);
 
 // --- Guarded migration: tasks.worth / tasks.special_mode (issue #727) ---
@@ -707,6 +749,55 @@ function ensureGuestBadgeSubmissionCascade() {
 
 ensureGuestBadgeSubmissionCascade();
 
+// --- Guarded migration: guest_badges.celebrated_at (issue #644) ---
+/**
+ * Add guest_badges.celebrated_at if it is not already present, then backfill
+ * every PRE-EXISTING row to celebrated_at = created_at.
+ *
+ * celebrated_at marks the moment a badge's #255 celebration dialog was shown
+ * to the guest — NULL means "owed": src/services/render-locals.js's shared
+ * resolveBadgeMoment() helper auto-opens the dialog for the guest's oldest
+ * owed badge on the next page render and stamps this column the instant it
+ * does, so a badge is celebrated exactly once no matter which page happens
+ * to render first (plan step 4). Going forward, every NEW grant — recompute-
+ * driven (scoring.js's recomputeBadges/recomputeTransferableBadges) or
+ * host-awarded (awardSpecialBadge) — leaves this column NULL by simply never
+ * naming it in the INSERT, so a freshly granted badge is owed by
+ * construction; nothing here writes it non-NULL at grant time.
+ *
+ * The backfill is what keeps AC8 honest: without it, EVERY badge a guest
+ * already held before this migration ran would read celebrated_at = NULL
+ * and the very next page load would auto-open a "celebration" for a badge
+ * they may have earned days ago — a flood of stale popups, not a recap.
+ * Backfilling to the row's own created_at (not to 'now') is deliberate: it
+ * keeps each pre-existing award's own timestamp for the recap list's
+ * ordering, while still marking it "already celebrated" (non-NULL) so no
+ * dialog fires for it.
+ *
+ * Same guard shape as ensurePhotoBonusColumn above: the guest_badges CREATE
+ * TABLE deliberately omits celebrated_at, so it is absent on BOTH a fresh DB
+ * and an existing pre-#644 app.db; the ALTER TABLE + backfill run together,
+ * gated on column-absence, so a repeat call (or a later boot) is a no-op —
+ * critically, the backfill does NOT re-run on every boot, which would
+ * otherwise stamp a genuinely-still-owed badge (celebrated_at NULL on a row
+ * granted after this migration already ran) back to non-NULL and silently
+ * swallow its celebration.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureGuestBadgeCelebratedAtColumn() {
+  const cols = db.prepare(`PRAGMA table_info(guest_badges)`).all();
+  if (cols.some((col) => col.name === 'celebrated_at')) {
+    // Fresh DB, or an already-migrated DB — nothing to do (see the file
+    // comment above for why the backfill must NOT re-run here).
+    return;
+  }
+  db.exec(`ALTER TABLE guest_badges ADD COLUMN celebrated_at TEXT`);
+  db.exec(`UPDATE guest_badges SET celebrated_at = created_at WHERE celebrated_at IS NULL`);
+}
+
+ensureGuestBadgeCelebratedAtColumn();
+
 // --- Guarded migration: guests.pinned (issue #251) ---
 /**
  * Add guests.pinned if it is not already present.
@@ -1120,6 +1211,63 @@ function ensureAvatarPointAwardedRetired() {
 // any other module's `require('../db')` call returns.
 ensureAvatarPointAwardedRetired();
 
+// --- Guarded migration: guests.recap_checked_at (issue #644) ---
+/**
+ * Add guests.recap_checked_at if it is not already present, then backfill
+ * every PRE-EXISTING guest to recap_checked_at = datetime('now').
+ *
+ * recap_checked_at is the guest's recap checkpoint (src/services/
+ * notifications.js): NULL means "never checked" — every read in that module
+ * guards with COALESCE(g.recap_checked_at, g.created_at) so a NULL checkpoint
+ * never reaches a comparison directly (SQLite yields NULL, not true, so an
+ * unguarded `created_at > recap_checked_at` would silently read as "nothing
+ * is new" forever for that guest). POST /recap/seen (src/routes/guest.js) is
+ * the only writer once this migration has run.
+ *
+ * MUST be added NULLABLE with NO DEFAULT, and the backfill MUST be a
+ * separate UPDATE, not `ADD COLUMN ... NOT NULL DEFAULT (datetime('now'))`:
+ * verified on this tree (better-sqlite3, SQLite 3.53.2) — that single-step
+ * form succeeds on an empty table but throws "Cannot add a column with
+ * non-constant default" the instant one guest row already exists, which
+ * would crash the deployed app on boot (src/db.js runs its migrations at
+ * module load) while CI stayed green (every test builds a fresh empty DB).
+ *
+ * The backfill is what satisfies AC8's "existing guest" half: without it, a
+ * guest who already has months of likes/comments/badges would see their
+ * ENTIRE history as "new since I last checked" the moment this migration
+ * lands — a flood, not a recap. Backfilling to 'now' (not to some earlier
+ * timestamp) makes every pre-existing guest's unread count exactly 0 right
+ * after the upgrade, deliberately erring toward under- rather than
+ * over-reporting on the one-time cutover.
+ *
+ * The backfill must NOT re-run on every boot — same reasoning as
+ * ensureGuestBadgeCelebratedAtColumn's own doc comment: a guest who joins
+ * (or whose recap_checked_at is legitimately still NULL) AFTER this
+ * migration already ran must stay NULL, so their unread count is derived
+ * from their own created_at (AC8's "never-checked guest is never treated as
+ * having no checkpoint"), not silently pinned to some later server-restart
+ * instant. Column-absence gating (this function returns before either
+ * statement runs once the column exists) is what keeps the backfill
+ * one-shot.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureRecapCheckedAtColumn() {
+  const cols = db.prepare(`PRAGMA table_info(guests)`).all();
+  if (cols.some((col) => col.name === 'recap_checked_at')) {
+    // Fresh DB, or an already-migrated DB — nothing to do (see the file
+    // comment above for why the backfill must NOT re-run here).
+    return;
+  }
+  db.exec(`ALTER TABLE guests ADD COLUMN recap_checked_at TEXT`);
+  db.exec(`UPDATE guests SET recap_checked_at = datetime('now') WHERE recap_checked_at IS NULL`);
+}
+
+// Run once at module load, before notifications.js prepares any statement
+// against guests.recap_checked_at — db.js fully evaluates this module-load
+// code before any other module's `require('../db')` call returns.
+ensureRecapCheckedAtColumn();
+
 // --- Guarded migration: settings table (issue #283) ---
 /**
  * Create the `settings` key/value table if it does not already exist.
@@ -1318,6 +1466,8 @@ module.exports = {
   ensureAutoMetricBadgePointsBackfilled,
   ensureResubmittedColumn,
   ensureAvatarPointAwardedRetired,
+  ensureGuestBadgeCelebratedAtColumn,
+  ensureRecapCheckedAtColumn,
   ensureSettingsTable,
   getEventConfig,
   setEventConfig,

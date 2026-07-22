@@ -66,6 +66,18 @@ const GROUP_PREVIEW_SIZE = 6;
 // bare visibility check may safely consume ${VISIBLE_WHERE} (see scoring.js's
 // award-points-sum and leaderboard queries).
 const VISIBLE_WHERE = 's.taken_down = 0';
+// The ONE statement of "a comment is visible" (issue #644) — a separate flag
+// from the submission-level taken_down VISIBLE_WHERE owns above, since a
+// comment can be hidden independently of its photo. `c.` is the alias every
+// consumer (community.js's attachComments/visibleCommentCount,
+// notifications.js's derived comment source) already joins the comments
+// table under, so this composes directly into each of their WHERE clauses
+// with no re-aliasing. Owned here, beside VISIBLE_WHERE, rather than in
+// community.js — a route module cannot be the single owner of a rule a
+// service module (notifications.js) also needs, or the service would have to
+// import a route file, inverting the app's route -> service dependency
+// direction the file comment above already establishes.
+const COMMENT_VISIBLE_WHERE = 'c.taken_down = 0';
 const ORDER_NEWEST_TERMS = 's.created_at DESC, s.id DESC';
 const ORDER_NEWEST_FIRST = `ORDER BY ${ORDER_NEWEST_TERMS}`;
 // The reversed ordering, used only by the newer-side keyset lookups: they
@@ -669,6 +681,10 @@ module.exports = {
   // `s.`-aliased sites in scoring.js, while the other-shape sites intentionally
   // retain their own literal (see the declaration-site comment for why).
   VISIBLE_WHERE,
+  // The one comment-visibility predicate (aliased `c`), exported for the same
+  // reason as VISIBLE_WHERE above (issue #644) — community.js and
+  // notifications.js both compose it rather than each typing their own copy.
+  COMMENT_VISIBLE_WHERE,
   recentPage,
   feedWindow,
   grouped,

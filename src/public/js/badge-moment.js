@@ -5,10 +5,17 @@
 // dismiss natively, no code needed for either. No polling: the dialog is
 // either present in the initial render (a badge was just earned) or absent.
 //
-// This script is included by src/views/task.ejs ONLY when a badgeMoment is
-// present, so `.badge-dialog` always exists when this file runs — the
-// existence guard below is belt-and-suspenders, matching the defensive style
-// of the rest of this app's page scripts.
+// The shared #badge-dialog markup moved from src/views/task.ejs into
+// src/views/partials/header.ejs (issue #644 plan step 4), so this script is
+// now included by header.ejs — every guest page, not just the task page —
+// but ONLY when a badgeMoment is owed, so `.badge-dialog` always exists
+// (already populated server-side) when this file runs; the existence guard
+// below is belt-and-suspenders, matching the defensive style of the rest of
+// this app's page scripts. src/public/js/recap.js is the OTHER trigger on
+// the same dialog: a tap on a badge-kind recap row re-opens and repopulates
+// it for on-demand replay, generalizing this script's own selector (it
+// already queried by class, `.badge-dialog`, never by a page-specific id) to
+// serve both triggers with no change needed here.
 //
 // The 'playing' class gates the bloom animation in theme.css (itself gated
 // under prefers-reduced-motion: no-preference); adding it under reduced
@@ -41,7 +48,7 @@
   void dialog.offsetWidth;
   dialog.classList.add('playing');
 
-  var doneButton = dialog.querySelector('.badge-done');
+  var doneButton = dialog.querySelector('.badge-continue');
   if (doneButton) {
     doneButton.addEventListener('click', function () {
       dialog.close();

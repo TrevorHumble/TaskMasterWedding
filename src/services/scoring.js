@@ -36,6 +36,18 @@ const { TASK_BADGE_CODE_PREFIX } = require('./task-badges');
 // query below consumes it rather than re-deriving the visibility literal (#488).
 // feed.js requires only '../db', so this import introduces no cycle.
 const { VISIBLE_WHERE } = require('./feed');
+// The recap's single write path (issue #644 plan step 2/3) — notifications.js
+// requires '../db', './feed', and './relative-time' (relative-time.js
+// requires nothing further). This DOES put a cycle-shaped edge in the graph:
+// scoring -> notifications -> feed -> scoring, since feed.js requires this
+// very file back (for slideshowSequence's badge-points ranking). That
+// back-edge is safe for the identical reason the direct scoring -> feed ->
+// scoring edge already was before this issue: feed.js's own require of
+// './scoring' is DEFERRED (called inside slideshowSequence's function body,
+// not at this file's top level — see feed.js's comment on that require), so
+// it only resolves after both modules have finished their initial load, no
+// matter how many hops of top-level requires lead into feed.js in between.
+const notifications = require('./notifications');
 
 // ---------------------------------------------------------------------------
 // Canonical auto-badge thresholds. These MUST match the seeded `badges` rows
@@ -324,6 +336,11 @@ const recomputeBadges = db.transaction((guestId) => {
       // row, so the point leaves with no separate scoring step.
       if (!has) {
         stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS);
+        // Issue #644: emit right beside the grant, where the badge identity
+        // is already in scope — celebrated_at starts NULL by construction
+        // (never named in the INSERT above), so this badge is "owed" the
+        // instant this row exists.
+        notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
       }
     } else {
       // Threshold no longer met: revoke ONLY if it was a system grant.
@@ -331,6 +348,10 @@ const recomputeBadges = db.transaction((guestId) => {
       // never want to delete an admin-awarded badge by accident.)
       if (has && has.awarded_by === 'system') {
         stmtRevokeBadge.run(guestId, badge.id);
+        // Issue #644 AC4: the guest_badges row this DELETE just removed is
+        // the only record of the badge ever having been held — the event
+        // row is what lets the recap outlive it.
+        notifications.recordEvent(guestId, 'badge_revoked', { badgeId: badge.id });
       }
     }
   }
@@ -351,9 +372,13 @@ const recomputeBadges = db.transaction((guestId) => {
       // guest holds it (issue #709).
       if (!has) {
         stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS);
+        notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
       }
     } else if (has && has.awarded_by === 'system') {
       stmtRevokeBadge.run(guestId, badge.id);
+      // Issue #644 AC4 — same "row-in-hand" reasoning as the auto branch
+      // above (e.g. Completionist revoked when the active task set changes).
+      notifications.recordEvent(guestId, 'badge_revoked', { badgeId: badge.id });
     }
   }
 });
@@ -391,6 +416,11 @@ const recomputeTransferableBadges = db.transaction(() => {
     for (const guestId of existingSystemHolders) {
       if (!currentHolders.has(guestId)) {
         stmtRevokeBadge.run(guestId, badge.id);
+        // Issue #644 AC4 — same reasoning as recomputeBadges' revoke
+        // branches: the guest_badges row this DELETE removes is the only
+        // record the badge was ever held, so the event is emitted right
+        // here, where the badge identity is in scope.
+        notifications.recordEvent(guestId, 'badge_revoked', { badgeId: badge.id });
       }
     }
     for (const guestId of currentHolders) {
@@ -399,6 +429,7 @@ const recomputeTransferableBadges = db.transaction(() => {
         // display-only, so this grant carries points = 0, unchanged from
         // before #709.
         stmtGrantBadge.run(guestId, badge.id, 'system', 0);
+        notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
       }
     }
   }
@@ -492,7 +523,14 @@ function awardSpecialBadge(guestId, code) {
   // ADMIN_AWARDABLE_TYPES is 'special'/'custom' only — never auto/metric
   // (issue #709) — so this grant carries points = 0, unchanged from before
   // #709.
-  stmtGrantBadge.run(guestId, badge.id, 'admin', 0);
+  const info = stmtGrantBadge.run(guestId, badge.id, 'admin', 0);
+  // Issue #644 AC5: stmtGrantBadge is INSERT OR IGNORE, so a host re-awarding
+  // a badge the guest already holds (or a double-submitted award form) is a
+  // real possibility — info.changes is 0 for that no-op INSERT, and only a
+  // REAL state change (a new row actually written) gets an event.
+  if (info.changes > 0) {
+    notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
+  }
   return true;
 }
 
@@ -510,7 +548,21 @@ function removeSpecialBadge(guestId, code) {
   if (!badge || !ADMIN_AWARDABLE_TYPES.has(badge.type)) {
     return false;
   }
-  stmtRevokeBadge.run(guestId, badge.id);
+  const info = stmtRevokeBadge.run(guestId, badge.id);
+  // Issue #644 AC5: the DELETE is unguarded (no held-check first), so a
+  // remove request for a badge the guest doesn't hold is a real possibility
+  // — info.changes is 0 for that no-op DELETE, and only a real state change
+  // gets an event. 'badge_removed', not 'badge_revoked' (issue #644 review,
+  // PR finding): this is a HOST-INITIATED removal (a mistakenly-given
+  // special/custom badge taken back), a different event from a threshold
+  // recompute revoking an auto/metric/transferable badge — the two need
+  // different recap copy (notifications.js's KIND_VIEW.badge_removed says
+  // so plainly, badge_revoked's "the hosts added a task" reason would be
+  // false here), so they are different stored kinds rather than one kind
+  // pretending to cover both reasons.
+  if (info.changes > 0) {
+    notifications.recordEvent(guestId, 'badge_removed', { badgeId: badge.id });
+  }
   return true;
 }
 

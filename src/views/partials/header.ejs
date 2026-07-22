@@ -65,6 +65,133 @@
   </div>
 </header>
 
+<%
+  // The recap strip + panel (issue #644) render only for a SIGNED-IN guest
+  // (issue #644 review): gating on `!_isAdmin` alone also shipped the panel
+  // shell, /js/recap.js and an empty dialog to a signed-out visitor, since
+  // join.ejs/login.ejs include this same header and `!_isAdmin` is true for
+  // them too. `guest` is res.locals.guest, merged into every template's
+  // locals the same way `isAdmin`/`flash`/`currentPath` already are.
+  var _guest = (typeof guest !== 'undefined' && guest) ? guest : null;
+%>
+<% if (!_isAdmin && _guest && typeof recapRows !== 'undefined') { %>
+  <%
+    // recapUnreadCount comes from res.locals (src/middleware/session.js's
+    // attachGuest, computed on every request — it is three cheap indexed
+    // COUNT(*) queries). recapRows/recapHasMore and badgeMoment come from the
+    // render-time-only withBadgeMoment() helper (src/services/render-locals.js)
+    // instead — NOT every guest-facing render passes through it (issue #644
+    // review, FAIL finding: GET /admin/login renders admin-login.ejs, which
+    // includes this same header with _isAdmin false, without ever calling
+    // withBadgeMoment — a signed-in guest hitting that route got the strip's
+    // real unread count with an empty panel underneath it, "1 new
+    // notification" over "Nothing yet"). The `typeof recapRows !==
+    // 'undefined'` guard above is therefore load-bearing, not defensive
+    // decoration: a render that never assembled the recap page ships neither
+    // the strip nor the panel, rather than showing a count with nothing
+    // behind it. withBadgeMoment is still the render-time-only helper it always
+    // was (issue #644 review: the recap union is comparatively expensive, so
+    // it must only ever run for a request that is actually about to render a
+    // guest page, never for every request in the app) — this guard is what
+    // makes "did that happen on THIS render" an explicit check instead of an
+    // assumption.
+    var _unreadCount = (typeof recapUnreadCount !== 'undefined' && recapUnreadCount) || 0;
+    var _rows = (typeof recapRows !== 'undefined' && recapRows) || [];
+    var _hasMore = typeof recapHasMore !== 'undefined' && !!recapHasMore;
+    var _moment = (typeof badgeMoment !== 'undefined' && badgeMoment) || null;
+  %>
+  <% if (_unreadCount > 0) { %>
+  <div class="recap-strip" id="recap-strip">
+    <button type="button" class="recap-strip-open" id="recap-open">
+      <span class="recap-strip-glyph" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="M12 3a5.5 5.5 0 0 0-5.5 5.5c0 3.2-.7 5-1.6 6.1a.8.8 0 0 0 .6 1.3h13a.8.8 0 0 0 .6-1.3c-.9-1.1-1.6-2.9-1.6-6.1A5.5 5.5 0 0 0 12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 18.4a2.1 2.1 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </span>
+      <span class="recap-strip-text"><strong><%= _unreadCount %> new notification<%= _unreadCount === 1 ? '' : 's' %></strong></span>
+      <span class="recap-strip-chevron" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+    </button>
+    <button type="button" class="recap-strip-dismiss" id="recap-dismiss" aria-label="Dismiss">&#215;</button>
+  </div>
+  <% } %>
+  <dialog class="recap-panel" id="recap-panel" aria-label="What you missed">
+    <div class="recap-panel-head">
+      <h2 class="recap-panel-title">What you missed</h2>
+      <button type="button" class="recap-close" id="recap-close" aria-label="Close">&#215;</button>
+    </div>
+    <% if (_rows.length === 0) { %>
+    <p class="recap-empty">Nothing yet &mdash; go take some photos.</p>
+    <% } else { %>
+    <ul class="recap-list" id="recap-list">
+<% _rows.forEach(function (r) { %>
+      <li class="recap-row recap-row-<%= r.kind %><%= r.unread ? ' recap-row-unread' : '' %>">
+<% if (r.dead) { %>
+        <span class="recap-row-link recap-row-inert">
+        <% } else if (r.href) { %>
+        <a class="recap-row-link" href="<%= r.href %>">
+        <% } else { %>
+        <button type="button" class="recap-row-link"<% if (r.badge) { %> data-badge-code="<%= r.badge.code %>" data-badge-name="<%= r.badge.name %>" data-badge-art="<%= r.badge.art_path %>" data-badge-description="<%= r.badge.description %>" data-badge-art-html="<%= r.badgeArtHtml %>"<% } %>>
+        <% } %>
+          <% if (r.thumb) { %>
+            <img class="recap-thumb" src="/thumbs/<%= r.thumb %>" alt="" />
+          <% } else { %>
+            <span class="recap-icon recap-icon-<%= r.kind %>"><%- r.glyph %></span>
+          <% } %>
+          <span class="recap-row-body">
+            <span class="recap-row-text"><% r.parts.forEach(function (part) { %><% if (part.emphasis) { %><strong><%= part.text %></strong><% } else if (part.quote) { %>&ldquo;<%= part.text %>&rdquo;<% } else { %><%= part.text %><% } %><% }); %></span>
+            <span class="recap-row-when"><%= r.whenLabel %></span>
+          </span>
+          <% if (!r.dead) { %>
+          <span class="recap-row-chevron" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <% } %>
+        <% if (r.dead) { %></span><% } else if (r.href) { %></a><% } else { %></button><% } %>
+      </li>
+<% }); %>
+      <li class="recap-foot" id="recap-foot" data-cursor="<%= _rows[_rows.length - 1].when %>" data-cursor-key="<%= _rows[_rows.length - 1].key %>" data-has-more="<%= _hasMore ? '1' : '0' %>"><span id="recap-foot-text"><%- _hasMore ? '&nbsp;' : 'That&rsquo;s everything.' %></span></li>
+    </ul>
+    <% } %>
+  </dialog>
+  <%# The shared #255 celebration dialog (issue #644 plan step 4) — ONE
+      dialog per page, rendered whenever a signed-in guest could ever need it
+      (issue #644 review: gating this on whether page one happens to contain
+      a badge-kind row made every OTHER badge row's replay tap a dead click,
+      since a tap only ever works on a row that scrolled in AFTER the panel
+      opened — the dialog element recap.js needs by then must already exist).
+      Populated server-side from badgeMoment when a celebration is owed
+      (auto-open, via badge-moment.js below), or left empty for
+      src/public/js/recap.js to populate on demand when the guest taps a
+      badge-kind recap row (replay, no navigation, works whether or not the
+      badge is still owed). %>
+  <dialog class="badge-dialog" id="badge-dialog" tabindex="-1">
+    <div class="badge-card">
+      <p class="eyebrow badge-eyebrow">You earned a badge</p>
+      <h2 class="badge-title"><%= _moment ? _moment.name + '!' : '' %></h2>
+      <div class="badge-stage">
+        <span class="badge-ring"></span>
+        <span class="spark gold" style="--dx:-58px; --dy:-46px; --rot:120deg;  --sd:120ms">&#10047;</span>
+        <span class="spark sage" style="--dx:56px;  --dy:-50px; --rot:-90deg;  --sd:200ms">&#10048;</span>
+        <span class="spark mint" style="--dx:72px;  --dy:6px;   --rot:60deg;   --sd:160ms">&#8226;</span>
+        <span class="spark gold" style="--dx:52px;  --dy:58px;  --rot:150deg;  --sd:280ms">&#10057;</span>
+        <span class="spark sage" style="--dx:-8px;  --dy:74px;  --rot:-70deg;  --sd:320ms">&#8226;</span>
+        <span class="spark mint" style="--dx:-64px; --dy:50px;  --rot:100deg;  --sd:220ms">&#10047;</span>
+        <span class="spark gold" style="--dx:-74px; --dy:-4px;  --rot:-120deg; --sd:360ms">&#8226;</span>
+        <span class="spark sage" style="--dx:12px;  --dy:-70px; --rot:80deg;   --sd:180ms">&#10048;</span>
+        <span class="badge-sway">
+          <% if (_moment) { %>
+            <%- include('badge-art', { badge: _moment, alt: _moment.name + ' badge' }) %>
+          <% } %>
+        </span>
+      </div>
+      <p class="badge-sub"><%= _moment ? _moment.description : '' %></p>
+      <button type="button" class="btn badge-continue">Continue</button>
+    </div>
+  </dialog>
+  <% if (_moment) { %><script src="/js/badge-moment.js" defer></script><% } %>
+  <script src="/js/recap.js" defer></script>
+<% } %>
+
 <% if (_flash && _flash.msg) { %>
   <div class="flash <%= _flashType %>" role="status">
     <%= _flash.msg %>
