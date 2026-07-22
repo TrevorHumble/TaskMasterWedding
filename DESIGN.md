@@ -1010,3 +1010,74 @@ session-cookie-only protection every other admin POST route already uses (`POST 
 `POST /admin/guests/:id/badge`, etc.), which is consistent with existing prior art but is not actually
 CSRF protection. The gap is real and app-wide, not specific to this issue's one new route; it is tracked
 separately as #769 rather than being invented ad hoc inside this issue's narrow Touches.
+
+## Memory-day bonus: event-local day math in JS, leaderboard's JS re-sort (#656)
+
+**Date:** 2026-07-21. **Status:** accepted.
+
+**What changed.** A guest's first visible memory (`submissions.task_id IS NULL AND taken_down = 0`)
+each event-local day now earns +1 point, capped at one per day. The bonus is DERIVED, not banked: a
+memory row's `created_at` never changes after insert (`src/services/submissions.js`'s memory-batch path
+never replaces an existing row — there is no `(guest_id, task_id)` collision to replace, since every
+memory's `task_id` is `NULL` and SQLite treats every `NULL` as distinct under `UNIQUE(guest_id,
+task_id)`), so recomputing the count on every read is always correct: a takedown of a day's only memory
+drops that day's point automatically, and a restore brings it back, with no separate bookkeeping step.
+
+**Why the event-local day conversion happens in JS, not SQL.** SQLite has no IANA timezone support —
+`datetime(created_at, '-6 hours')` is a fixed offset, which is wrong across a DST transition (the exact
+failure mode `src/services/event-days.js`'s own header comment already documents for `dayOpensAt`). The
+conversion instead runs through the two single owners this codebase already has for exactly this
+problem: `src/services/relative-time.js`'s `parseSqliteDatetime` (the ONE place a SQLite
+`datetime('now')`-shaped string becomes a UTC `Date`) and `src/services/event-days.js`'s
+`eventLocalDateString(timezone, instant)` (the ONE place a UTC instant becomes an event-local
+`YYYY-MM-DD`). `src/services/scoring.js`'s new `memoryDayCount(guestId, timezone)` and
+`memoryDayCountsByGuest(timezone)` both read a guest's (or every guest's) visible memory `created_at`
+values as raw strings from SQL, then fold them into a `Set` of event-local day strings per guest entirely
+in JS. Both `getPoints()` and `leaderboard()` consume these same two functions, so the two scoring
+surfaces cannot independently drift on which day a given memory counts toward — the stale-count defect
+class this issue's own body calls out by name.
+
+**Why `leaderboard()`'s SQL query carries no `ORDER BY`, and the JS comparator is the single owner of
+standings order.** `leaderboard()`'s per-guest points total is a SQL expression, but the memory-day term
+cannot be computed in SQL (no IANA timezone support, as above) — it is added to each row's `points` AFTER
+the SQL query has already run. An `ORDER BY` inside that query would therefore be deciding an order based
+on totals that are not yet final: whenever the memory-day term changes a guest's rank relative to a
+neighbor (issue #656's AC5: guest A trails B before the term, leads after it), the SQL-decided order would
+already be wrong by the time the term lands, and the JS re-sort that has to run afterward anyway would
+just discard it — a second, dead ordering rule that still read as authoritative to anyone skimming the
+query. The fix removes the `ORDER BY` from the SQL (the query keeps only its `GROUP BY`) and makes a
+single JS `Array.sort`, run once the memory-day term is folded in, the ONE place standings order is
+decided: points DESC, then `(last_submission_at IS NULL)` ASC (NULLs last — a guest with no visible
+submissions must not rank ahead of a guest who scored), then `last_submission_at` ASC, then name ASC, then
+id ASC. A caller reading `row.points` and a caller reading row POSITION can never disagree about a guest's
+standing, and there is exactly one place — the comparator itself — where that key sequence is written.
+This is the first term in this file's history to be folded into `leaderboard()` in JS after the query runs
+rather than as a SQL expression inside it; every future JS-computed leaderboard term needs the same
+JS-only-ordering discipline, not a SQL `ORDER BY` that a JS pass will only end up overriding.
+
+**Why the "Share a memory" row is a second instance of the starter-row pattern, with two departures from
+it.** Issue #409/#716 established the shape for a synthetic to-do row backed by no `tasks` table row:
+`scoring.js` derives its done/points facts from live guest state (`starterTaskContribution`, keyed on
+`guests.avatar_path`), and the route/view render it as an ordinary `task-row` alongside real tasks rather
+than inventing a separate markup or counting path. The memory row (issue #656) reuses the identical
+shape — no `tasks` row backs it, its state (`memoryBonusAvailable`) is derived live by the route from the
+guest's visible memories (via `scoring.memoryDaysFor`) and `todayIso` (`todayIso` was already computed for
+the one-day-only mystery-box surface, issue #753/#754; the visible-memories query is new in this issue) —
+but departs from the starter in two respects, not one:
+
+1. The starter completes once and then moves to the done list, while the memory row never leaves the
+   to-do list at all, because "done for today" resets every event-local day rather than being a one-time
+   transition. `src/views/tasks.ejs`'s own comment at the row records this difference.
+2. The starter is counted into `todoCount`/`doneCount`/`totalCount` (issue #409's original counting
+   contract: no visible list ever disagrees with the chip counts next to it); the memory row is
+   deliberately NOT counted into any of the three. Counting it would break `allDone`
+   (`totalCount > 0 && todoCount === 0`, `src/views/tasks.ejs`): the memory row can never be "done" the
+   way the starter can, so if it counted toward `todoCount`, `todoCount === 0` could never be reached and
+   the finished-all-tasks card could never fire. `src/views/tasks.ejs`'s header comment records this
+   second departure explicitly, next to the original counting contract, so a future reader does not
+   conclude the omission is an oversight.
+
+This ADR is the second data point that the synthetic-row pattern generalizes to "a row with no backing
+table row," not narrowly to "a one-time starter task" — and the second departure above is the first
+instance of that pattern where a synthetic row is deliberately excluded from the counts a sibling
+synthetic row is included in.

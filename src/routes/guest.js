@@ -434,6 +434,17 @@ router.get('/tasks', function (req, res) {
   // — this route re-derives neither the avatar rule nor the point value.
   const starter = scoring.starterTaskContribution(guest);
 
+  // Issue #656: the "Share a memory" row's price tag tracks whether today's
+  // +1 is still available — true when the guest has NO visible memory whose
+  // event-local day equals `todayIso` (already derived above via
+  // eventDays.eventLocalDateString, reused rather than a second derivation),
+  // false once they have one. scoring.memoryDaysFor is the single owner of
+  // "what counts as a visible memory, and which event-local day it lands
+  // on" — this route reads its returned Set rather than re-running the
+  // task_id IS NULL / taken_down = 0 query and the parseSqliteDatetime ->
+  // eventLocalDateString fold a second time.
+  const memoryBonusAvailable = !scoring.memoryDaysFor(guest.id, timezone).has(todayIso);
+
   res.render('tasks', {
     title: 'Tasks',
     view: req.query.view === 'done' ? 'done' : 'todo',
@@ -444,6 +455,7 @@ router.get('/tasks', function (req, res) {
     totalCount: visibleTaskRows.length + starter.total,
     starterDone: starter.done,
     starterPoints: starter.points,
+    memoryBonusAvailable: memoryBonusAvailable,
   });
 });
 
