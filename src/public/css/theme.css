@@ -462,6 +462,24 @@ p {
   color: var(--color-text-muted);
 }
 
+/* The memory payoff line (issue #656, src/views/partials/memory-payoff.ejs).
+   One rule for every CTA that includes the partial, so the line reads the
+   same on /tasks, /task/:id, /how-to-play and /memories/new. Matches
+   .success-memory-prompt's muted-small treatment above rather than
+   introducing a second note style. */
+.memory-payoff {
+  margin: var(--space-2) 0 var(--space-1);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+
+/* The payoff line captions the button it sits above (the finished-all card),
+   so the gap between the pair collapses to nothing and the two read as one
+   thing rather than two stacked blocks. */
+.memory-payoff + .btn {
+  margin-top: 0;
+}
+
 /* -------------------- Badge-earned modal (#255) -------------------- */
 /* A native <dialog> matching the #248 comments dialog (.comments-dialog
    above): same width/radius/shadow/::backdrop tokens, centered by the UA,
@@ -1408,14 +1426,9 @@ a.stat:hover {
   line-height: 1;
 }
 
-/* Spacing between the last task row and the standalone "Share a memory"
-   button below it (issue #471) — .task-share-memory previously had no rule
-   at all, so the button sat flush against the list with no visible gap.
-   Mirrors the .section { margin-bottom: var(--space-6) } precedent used
-   elsewhere on this page for this same kind of section separation. */
-.task-share-memory {
-  margin-top: var(--space-6);
-}
+/* .task-share-memory (issue #471) is gone with its button: issue #656 made
+   "Share a memory" the last row of the to-do list itself, so there is no
+   standalone button below the list left to space away from it. */
 
 /* ---- Task filter chips + section furniture ---- */
 .task-filters {

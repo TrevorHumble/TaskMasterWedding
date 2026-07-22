@@ -155,13 +155,14 @@ function resolveBadgeIcon(iconId, rawName, { required }) {
 // Redirect back to GET /admin/photos after a favorite/badge/moderation
 // mutation, preserving the admin's current view/q (issue #259 AC7: "a
 // restore/takedown POST returns to the same view") instead of resetting to
-// Recent. Every mutating admin-photos form carries hidden `view`/`q`/`panel`
-// fields (src/views/admin-photos.ejs) so a POST from a filtered/grouped view,
-// or from inside the inline feed, lands back exactly there. `panel=feed`
-// additionally anchors the redirect at the acted-on photo's feed card
-// (#feed-photo-<id>) so the give-a-badge/favorite dialog's own JS can detect
-// the fragment on load and re-open the feed scrolled to it (see the
-// bottom-of-page <script> in admin-photos.ejs).
+// Recent. Every mutating admin-photos form carries hidden `view`/`q`/`panel`/
+// `task` fields (src/views/admin-photos.ejs) so a POST from a filtered/grouped
+// view, from inside the inline feed, or from a scoped view=task&task=<id>
+// request (issue #748), lands back exactly there. `panel=feed` additionally
+// anchors the redirect at the acted-on photo's feed card (#feed-photo-<id>)
+// so the give-a-badge/favorite dialog's own JS can detect the fragment on
+// load and re-open the feed scrolled to it (see the bottom-of-page <script>
+// in admin-photos.ejs).
 //
 // Reuses redirectWithMsg's own encodeURIComponent scheme for `msg` (query
 // string is built manually here, not via URLSearchParams, specifically so the
@@ -176,10 +177,17 @@ function redirectToPhotos(req, res, msg, submissionId) {
   const view = typeof req.body.view === 'string' ? req.body.view.trim() : '';
   const q = typeof req.body.q === 'string' ? req.body.q.trim() : '';
   const panel = typeof req.body.panel === 'string' ? req.body.panel.trim() : '';
+  // Task scope (issue #748) — read the same way view/q/panel are read, and
+  // carried through only when posted and non-empty, so a pre-#748 POST (no
+  // `task` field at all — e.g. the not-found-guard fixtures in
+  // tests/admin-photos-ui.test.js and tests/admin-moderation-guards.test.js)
+  // produces the exact same URL it produced before this issue.
+  const task = typeof req.body.task === 'string' ? req.body.task.trim() : '';
 
   const parts = [];
   if (view) parts.push('view=' + encodeURIComponent(view));
   if (q) parts.push('q=' + encodeURIComponent(q));
+  if (task) parts.push('task=' + encodeURIComponent(task));
   const path = '/admin/photos' + (parts.length ? '?' + parts.join('&') : '');
 
   const anchor = panel === 'feed' && submissionId ? 'feed-photo-' + submissionId : undefined;
@@ -1417,16 +1425,27 @@ router.post('/tasks/reorder-all', (req, res) => {
 //              marked taken-down, rather than silently vanishing). No search
 //              box (AC3).
 // view=task:   LIVE (taken-down excluded) submissions grouped by task,
-//              q-filtered by heading. Search box shown (AC3).
+//              q-filtered by heading. Search box shown (AC3). EXCEPTION
+//              (issue #748): when `task=<id>` also names a real task row,
+//              the request is SCOPED to that one task instead of the whole
+//              wall — the single resulting group includes taken-down
+//              submissions too (a host scoping to one task is moderating
+//              it, and a taken-down photo they can't see is one they can't
+//              restore — DESIGN.md), and `q` is ignored entirely rather than
+//              filtering the (single) group's heading. An absent,
+//              non-numeric, or unknown `task` leaves the request unscoped,
+//              rendering the ordinary by-task wall exactly as before.
 // view=user:   LIVE submissions grouped by guest, q-filtered by heading.
 //              Search box shown (AC3).
 // Anything else falls back to recent (HTTP 200, no error) — same contract as
 // GET /gallery (src/routes/community.js).
 //
 // The inline feed panel (src/views/admin-photos.ejs; no separate route per
-// the issue's Touches list) always renders the FULL submission set
-// (including taken-down, matching Recent) so tapping any tile from any view
-// can land on that photo's card.
+// the issue's Touches list) renders whatever `photos` holds below: the FULL
+// submission set (including taken-down, matching Recent) on every unscoped
+// request, or — on a scoped view=task&task=<id> request (issue #748) — that
+// one task's submissions only, so tapping any tile still lands on that same
+// photo's card.
 // ---------------------------------------------------------------------------
 const VALID_PHOTO_VIEWS = new Set(['recent', 'task', 'user', 'fav']);
 
@@ -1498,12 +1517,31 @@ router.get('/photos', (req, res) => {
   const view = VALID_PHOTO_VIEWS.has(req.query.view) ? req.query.view : 'recent';
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
 
+  // Optional task scope (issue #748) — only on view=task, and only when
+  // `req.query.task` is a string of digits only. The regex test runs BEFORE
+  // any parseInt: a repeated `?task=1&task=2` hands Express back an ARRAY
+  // (fails the `typeof ... === 'string'` check below), and a value like
+  // '12abc' fails `/^\d+$/` outright — neither is silently coerced to a
+  // number. The id must also name a real row (the row supplies the group
+  // heading below); anything else leaves the request unscoped (AC3).
+  let taskScope = null;
+  if (view === 'task' && typeof req.query.task === 'string' && /^\d+$/.test(req.query.task)) {
+    const scopeRow = db
+      .prepare('SELECT id, title FROM tasks WHERE id = ?')
+      .get(parseInt(req.query.task, 10));
+    if (scopeRow) taskScope = scopeRow;
+  }
+
   // LEFT JOIN tasks (not JOIN): a memory (issue #247, s.task_id IS NULL) has
   // no task row to join — it must still appear here, with task_title coming
   // back NULL; the view falls back to "a shared memory" / "Memories".
-  const photoRows = db
-    .prepare(
-      `SELECT s.id          AS id,
+  //
+  // Scoped (issue #748): narrow this SAME query with `WHERE s.task_id = ?`
+  // rather than running a second query — `photoRows` (and everything derived
+  // from it below: the H1 count, the group, the inline feed panel) is then
+  // already the scoped set, with no extra bookkeeping needed to keep them
+  // in sync.
+  const photosSelect = `SELECT s.id          AS id,
               s.task_id      AS task_id,
               s.photo_path   AS photo_path,
               s.thumb_path   AS thumb_path,
@@ -1517,10 +1555,14 @@ router.get('/photos', (req, res) => {
               t.title        AS task_title
          FROM submissions s
          JOIN guests g ON g.id = s.guest_id
-         LEFT JOIN tasks  t ON t.id = s.task_id
-        ORDER BY s.created_at DESC, s.id DESC`
-    )
-    .all();
+         LEFT JOIN tasks  t ON t.id = s.task_id`;
+  // Written once, appended to both branches — the scoped view and the
+  // unscoped wall must never disagree on photo order, and two copies of the
+  // clause is how that drift starts.
+  const photosOrder = ` ORDER BY s.created_at DESC, s.id DESC`;
+  const photoRows = taskScope
+    ? db.prepare(photosSelect + ` WHERE s.task_id = ?` + photosOrder).all(taskScope.id)
+    : db.prepare(photosSelect + photosOrder).all();
 
   // Real favorite + badge-winner state, attached once so every derived view
   // below (and the inline feed) shares the same row objects — no view can
@@ -1539,7 +1581,19 @@ router.get('/photos', (req, res) => {
   const favorites = photoRows.filter((p) => p._fav);
 
   let groups = [];
-  if (view === 'task' || view === 'user') {
+  if (taskScope) {
+    // Scoped (issue #748): one group only, built directly from the already-
+    // scoped `photoRows` — NOT the taken_down filter the unscoped view=task
+    // branch below applies (a host scoping to one task is moderating it, and
+    // a taken-down photo they can't see is one they can't restore —
+    // DESIGN.md), and no `q` heading filter at all (AC6: the scope wins, `q`
+    // is ignored outright). Zero submissions emits NO group (`groups` stays
+    // `[]`) rather than an empty-photo group — a zero-photo group heading
+    // would render in place of the empty-state message below and fail AC2.
+    if (photoRows.length > 0) {
+      groups = [{ heading: taskScope.title, photos: photoRows }];
+    }
+  } else if (view === 'task' || view === 'user') {
     const livePhotos = photoRows.filter((p) => !p.taken_down);
     groups =
       view === 'task'
@@ -1566,6 +1620,17 @@ router.get('/photos', (req, res) => {
     groups,
     view,
     q,
+    // The scoped task's { id, title } row, or null when unscoped (issue
+    // #748) — the view picks the empty-state branch when it is set but
+    // `groups` came back empty (AC2).
+    taskScope,
+    // The same scope, already reduced to what a hidden input needs: the bare
+    // id, or '' when unscoped. Resolving the null here rather than in the
+    // template is what lets every mutating form write `task` as flatly as it
+    // writes `view`/`q` (so the scope survives a POST, AC4) — a template that
+    // had to re-derive it at each of a dozen sites is one `taskScope.id` away
+    // from a TypeError on the default, unscoped page.
+    taskScopeId: taskScope ? taskScope.id : '',
     badgeCatalog: photoBadges.catalogWithCounts(),
     msg: req.query.msg || '',
     isAdmin: true,

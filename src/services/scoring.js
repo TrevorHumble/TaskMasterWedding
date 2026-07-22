@@ -26,7 +26,7 @@
 // own one-time backfill needs the same value and db.js cannot import this
 // file back (require-cycle — db.js is the lower module, this file already
 // imports it), so db.js is the single owner and this file just reads it.
-const { db, AUTO_METRIC_BADGE_POINTS } = require('../db');
+const { db, AUTO_METRIC_BADGE_POINTS, getEventConfig } = require('../db');
 const { METRIC_BADGES, TRANSFERABLE_BADGES } = require('./badges');
 // TASK_BADGE_CODE_PREFIX is defined once in task-badges.js (the single owner
 // of the 'TASK-' literal — see that module's doc comment); createCustomBadge
@@ -48,6 +48,14 @@ const { VISIBLE_WHERE } = require('./feed');
 // it only resolves after both modules have finished their initial load, no
 // matter how many hops of top-level requires lead into feed.js in between.
 const notifications = require('./notifications');
+// parseSqliteDatetime (issue #656) is the ONE place a SQLite `datetime('now')`
+// string becomes a UTC Date — reused here rather than re-deriving the space
+// -> 'T' / append-'Z' rule.
+const { parseSqliteDatetime } = require('./relative-time');
+// eventLocalDateString (issue #656) is the ONE place a UTC instant becomes an
+// event-local YYYY-MM-DD. event-days.js is dependency-free (no `db` require),
+// so this import introduces no cycle.
+const eventDays = require('./event-days');
 
 // ---------------------------------------------------------------------------
 // Canonical auto-badge thresholds. These MUST match the seeded `badges` rows
@@ -83,9 +91,15 @@ const AUTO_THRESHOLDS = BADGE_THRESHOLDS.map((b) => b.n);
  * one-day-only challenge bonus (bonusAmount, submissions.bonus_amount, issue
  * #753) — the same three terms getPoints()/leaderboard() sum in aggregate
  * (issue #756 closed the gap between this function and that aggregate rule).
- * A MEMORY (issue #247, task_id IS NULL) earns NO automatic base — only its
- * admin bonus — matching the aggregate rule, which excludes a memory's base
- * while still counting its photo_bonus; bonusAmount is always 0 for a memory
+ * A MEMORY (issue #247, task_id IS NULL) earns NO automatic per-photo base —
+ * only its admin bonus — matching the aggregate rule, which excludes a
+ * memory's base while still counting its photo_bonus. Since issue #656 the
+ * aggregate rule ALSO includes a memory-DAY term (+1 for the guest's first
+ * visible memory each event-local day, derived in getPoints/leaderboard, not
+ * here) — this per-photo function has no notion of "day" or "first", so it
+ * still returns 0 for an un-bonused memory; the day bonus is a separate,
+ * once-per-day addition the aggregate makes on top of whatever this function
+ * returns for each individual photo. bonusAmount is always 0 for a memory
  * too, since nothing ever banks a one-day-only bonus on one. `worth` and
  * `bonusAmount` both default to 0 (issues #727, #756): a one-arg call yields
  * just `photoBonus`, never NaN, and a memory caller passes worth=0 explicitly
@@ -165,6 +179,98 @@ const stmtWorthSum = db.prepare(
 const stmtBonusAmountSum = db.prepare(
   `SELECT COALESCE(SUM(bonus_amount), 0) AS ba FROM submissions WHERE guest_id = ? AND taken_down = 0`
 );
+
+// Every visible MEMORY's created_at for one guest (issue #656): task_id IS
+// NULL AND taken_down = 0, the same "visible memory" set the memory-day bonus
+// is derived from. Read as raw strings — the JS conversion to an event-local
+// calendar day happens in memoryDayCount below, via parseSqliteDatetime +
+// eventDays.eventLocalDateString, never in SQL (SQLite has no IANA timezone
+// support, so a fixed-offset `datetime()` shift would be wrong across a DST
+// transition).
+const stmtGuestMemoryCreatedAts = db.prepare(
+  'SELECT created_at FROM submissions WHERE guest_id = ? AND task_id IS NULL AND taken_down = 0'
+);
+
+// Every visible MEMORY's (guest_id, created_at) across ALL guests (issue
+// #656), read in ONE query so leaderboard() can fold every guest's
+// memory-day count in a single pass rather than issuing a per-guest query
+// inside its loop (the stale-count defect class this issue calls out by name).
+const stmtAllVisibleMemoryCreatedAts = db.prepare(
+  'SELECT guest_id, created_at FROM submissions WHERE task_id IS NULL AND taken_down = 0'
+);
+
+/**
+ * The DISTINCT event-local days on which `guestId` has at least one visible
+ * memory (issue #656), as a `Set` of `YYYY-MM-DD` strings — the memory-day
+ * bonus term, worth +1 per day it counts. This is the single owner of "what
+ * counts as a visible memory, and which event-local day it lands on": every
+ * caller that needs the day COUNT (memoryDayCount, below) or the day
+ * MEMBERSHIP test (a route deciding whether TODAY specifically has already
+ * been claimed) reads this one function rather than re-deriving the
+ * `task_id IS NULL AND taken_down = 0` predicate or the parseSqliteDatetime
+ * -> eventLocalDateString fold a second time (see GET /tasks in
+ * src/routes/guest.js, which calls `.has(todayIso)` on the returned Set
+ * instead of running its own query).
+ * Derived, not banked: a memory row's `created_at` never changes
+ * (submissions.js never replaces a memory row), so this is safe to
+ * recompute on every read, and a takedown/restore of a day's only memory
+ * automatically drops/re-adds that day's point with no separate bookkeeping.
+ * Day boundary is the EVENT-local date in `timezone` (via
+ * eventDays.eventLocalDateString), never server UTC.
+ * @param {number} guestId
+ * @param {string} timezone - an IANA zone name (db.getEventConfig().timezone).
+ * @returns {Set<string>} event-local YYYY-MM-DD day strings
+ */
+function memoryDaysFor(guestId, timezone) {
+  const rows = stmtGuestMemoryCreatedAts.all(guestId);
+  const days = new Set();
+  for (const row of rows) {
+    const instant = parseSqliteDatetime(row.created_at);
+    if (!instant) continue;
+    days.add(eventDays.eventLocalDateString(timezone, instant));
+  }
+  return days;
+}
+
+/**
+ * The count of DISTINCT event-local days on which `guestId` has at least one
+ * visible memory (issue #656) — a thin wrapper over memoryDaysFor for callers
+ * that only need the count (getPoints, below), not the day set itself.
+ * @param {number} guestId
+ * @param {string} timezone - an IANA zone name (db.getEventConfig().timezone).
+ * @returns {number}
+ */
+function memoryDayCount(guestId, timezone) {
+  return memoryDaysFor(guestId, timezone).size;
+}
+
+/**
+ * The all-guests generalization memoryDayCount needs for leaderboard(): every
+ * guest's memory-day count, computed from ONE query (stmtAllVisibleMemoryCreatedAts)
+ * rather than one query per guest, folded into a Map so leaderboard's per-row
+ * loop is a plain lookup.
+ * @param {string} timezone
+ * @returns {Map<number, number>} guestId -> distinct event-local memory-day count
+ */
+function memoryDayCountsByGuest(timezone) {
+  const daysByGuest = new Map();
+  for (const row of stmtAllVisibleMemoryCreatedAts.all()) {
+    const instant = parseSqliteDatetime(row.created_at);
+    if (!instant) continue;
+    const dayIso = eventDays.eventLocalDateString(timezone, instant);
+    let days = daysByGuest.get(row.guest_id);
+    if (!days) {
+      days = new Set();
+      daysByGuest.set(row.guest_id, days);
+    }
+    days.add(dayIso);
+  }
+  const counts = new Map();
+  for (const [guestId, days] of daysByGuest) {
+    counts.set(guestId, days.size);
+  }
+  return counts;
+}
 
 // Sum a guest's badge AWARD points (guest_badges.points) over awards whose
 // earning photo is currently VISIBLE. Every row written by stmtGrantBadge
@@ -269,6 +375,14 @@ function getCompletedCount(guestId) {
  *     one-time banked award): +STARTER_PHOTO_POINT while guests.avatar_path
  *     is set, 0 while it is not — read through starterTaskContribution, the
  *     single owner of the `!!avatar_path` rule, so this never re-derives it.
+ *   + the DERIVED memory-day term (issue #656): +1 for each DISTINCT
+ *     event-local day on which the guest has >= 1 visible memory
+ *     (memoryDayCount, above) — capped at one point per day by construction
+ *     (a Set of day strings, not a count of memories), NOT banked (a
+ *     memory's created_at is stable — submissions.js never replaces a memory
+ *     row — so this is safe to recompute on every read; a takedown/restore
+ *     of a day's only memory moves this term automatically, no separate
+ *     bookkeeping).
  *   + badge AWARD points (SUM of guest_badges.points), counted only while
  *     the award's earning photo is visible where one exists (AC6). This
  *     term now covers three shapes: a task-badge judgment amount (issue
@@ -293,7 +407,9 @@ function getPoints(guestId) {
   const starter = starterTaskContribution(guestRow);
   const starterPoints = starter.done ? starter.points : 0;
   const awardPoints = stmtAwardPointsSum.get(guestId).ap;
-  return worthSum + photoBonus + bonusAmountSum + bonus + starterPoints + awardPoints;
+  const timezone = getEventConfig().timezone;
+  const memoryDays = memoryDayCount(guestId, timezone);
+  return worthSum + photoBonus + bonusAmountSum + bonus + starterPoints + awardPoints + memoryDays;
 }
 
 // ---------------------------------------------------------------------------
@@ -681,6 +797,17 @@ function starterTaskContribution(guest) {
  * starterTaskContribution's `!!avatar_path` rule that getPoints reads
  * in-process; the two can't drift because both consume the same
  * STARTER_PHOTO_POINT constant, one via SQL interpolation, one via JS.
+ * + the DERIVED memory-day term (issue #656): the SAME memoryDayCount rule
+ * getPoints reads, but folded in AFTER the main SQL query runs rather than
+ * inside it — SQLite has no IANA timezone support, so the event-local day
+ * conversion cannot happen in SQL at all (see memoryDayCountsByGuest, above,
+ * built from ONE all-guests query, never a per-guest query inside this
+ * function's loop). Because this term lands in JS after the SQL query
+ * returns, the SQL query itself carries NO ORDER BY (a SQL-decided order
+ * would already be stale by the time this term is added, and would only be
+ * discarded) — the JS comparator below the query, applied once the term is
+ * folded in, is the single, named owner of standings order; see its own
+ * comment for the full key sequence and the NULL-last rule (AC5).
  * + badge AWARD points (SUM of guest_badges.points), counted only while the
  * award's earning photo is visible where one exists (AC6) — see the
  * awardPoints subquery note below. This covers a task-badge judgment amount
@@ -764,22 +891,47 @@ function leaderboard() {
          ON s.guest_id = g.id AND ${VISIBLE_WHERE}
        LEFT JOIN tasks t
          ON t.id = s.task_id
-       GROUP BY g.id
-       -- Tiebreak within an equal-points group by "earliest to reach the
-       -- score" (oldest latest-submission first). A guest with no visible
-       -- submissions has last_submission_at = NULL; SQLite sorts NULL first
-       -- under plain ASC, which would wrongly place them ahead of guests who
-       -- actually scored, so the (last_submission_at IS NULL) ASC key pushes
-       -- NULLs LAST within the tie. name/id remain the final stable keys. This
-       -- never changes a guest's DISPLAYED rank (rank is derived from points
-       -- alone downstream); it only orders rows inside a tie.
-       ORDER BY points DESC,
-                (last_submission_at IS NULL) ASC,
-                last_submission_at ASC,
-                g.name ASC,
-                g.id ASC`
+       GROUP BY g.id`
     )
     .all();
+
+  // Fold in the memory-day term (issue #656) — computed in JS from ONE
+  // all-guests query (memoryDayCountsByGuest), not per-row here, so this
+  // stays a single extra query regardless of guest count.
+  const timezone = getEventConfig().timezone;
+  const memoryDaysByGuest = memoryDayCountsByGuest(timezone);
+  for (const row of rows) {
+    row.points += memoryDaysByGuest.get(row.id) || 0;
+  }
+
+  // SORT — the SINGLE, NAMED owner of standings order (issue #656). The SQL
+  // query above intentionally carries no ORDER BY: the memory-day term is
+  // folded into `points` in JS, above, AFTER the query runs, so any sort
+  // decided in SQL would already be stale by the time this comparator runs
+  // and would just be discarded — a second, dead ordering that still looked
+  // authoritative. This comparator is therefore the only place standings
+  // order is decided, for every guest, every time.
+  //
+  // Key sequence: points DESC, then "earliest to reach the score" (oldest
+  // last_submission_at first) as the tiebreak within an equal-points group,
+  // then name ASC, then id ASC as the final stable keys.
+  //
+  // A guest with no visible submissions has last_submission_at = NULL. NULL
+  // must sort LAST within a tie (a guest who never scored must not rank
+  // ahead of a guest who did), so the `aNull !== bNull` branch below pushes
+  // it there explicitly rather than relying on SQLite's own NULL-ordering
+  // rules, which do not apply here since this comparator runs entirely in JS.
+  rows.sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    const aNull = a.last_submission_at === null;
+    const bNull = b.last_submission_at === null;
+    if (aNull !== bNull) return aNull ? 1 : -1;
+    if (a.last_submission_at !== b.last_submission_at) {
+      return a.last_submission_at < b.last_submission_at ? -1 : 1;
+    }
+    if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+    return a.id - b.id;
+  });
 
   // Attach each guest's badge codes. Done as a second small query per guest;
   // at ~100 guests this is trivially fast.
@@ -817,7 +969,7 @@ function leaderboard() {
 // second SQL statement (issue #487 design-philosophy review) — this
 // function stays the ONE place the guest_badges/badges join is written.
 const stmtGuestBadgesFull = db.prepare(
-  `SELECT b.id AS badge_id, b.code, b.name, b.art_path, b.type, b.description,
+  `SELECT b.id AS badge_id, b.code, b.name, b.art_path, b.type, b.threshold, b.description,
           gb.awarded_by, gb.points, gb.created_at
      FROM guest_badges gb
      JOIN badges b ON b.id = gb.badge_id
@@ -829,10 +981,12 @@ const stmtGuestBadgesFull = db.prepare(
 
 /**
  * All badges a guest currently holds, each with { badge_id, code, name,
- * art_path, type, description, awarded_by, points, created_at, pointsLabel }.
- * Used by the section 04 home page, the section 07 public profile (via
- * community.js's re-sorting wrapper), the leaderboard, and the section 08
- * admin guest view.
+ * art_path, type, threshold, description, awarded_by, points, created_at,
+ * pointsLabel }. Used by the section 04 home page, the section 07 public
+ * profile (via community.js's re-sorting wrapper), the leaderboard, the
+ * section 08 admin guest view, and (issue #714) primaryNewBadge below, which
+ * is the reason `threshold` rides along on every row rather than being a
+ * second query only that caller runs.
  *
  * pointsLabel (issue #487) is the ONE place "show a points suffix only when
  * the award is worth something" is decided: "+<points> pts" when points > 0,
@@ -848,6 +1002,126 @@ function getGuestBadges(guestId) {
     ...b,
     pointsLabel: b.points > 0 ? `+${b.points} pts` : '',
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Celebration priority (issue #714): which of several newly-earned badges the
+// guest.js task-complete modal features, when a single submit crosses more
+// than one badge at once.
+// ---------------------------------------------------------------------------
+
+// Ranks a badge's `type`, never its `code` — the whole point of this issue is
+// that no badge code appears anywhere in the ordering rule (see the issue's
+// "derived rule" section). auto outranks metric so an auto badge (BLOOM/
+// BOUQUET/GARDEN) still wins over COMPLETIONIST, reproducing #255's shipped
+// choice. The map covers every value badges.type's CHECK constraint permits
+// today (src/db.js) — auto/special/metric/transferable/custom — so the
+// UNRANKED_BADGE_TYPE_RANK fallback below is unreachable through the database;
+// it exists only so that widening that CHECK later without touching this map
+// degrades to "sorts last" instead of an undefined rank poisoning the
+// comparison with NaN.
+const BADGE_TYPE_RANK = {
+  auto: 0,
+  metric: 1,
+  transferable: 2,
+  custom: 3,
+  special: 4,
+};
+
+// The rank an unlisted type takes. Deliberately NOT "one past the current
+// last entry": a literal like 5 stops meaning "last" the moment someone adds
+// a sixth type to the map above and gives it that number, at which point a
+// still-unlisted type would tie with a listed one instead of sorting behind
+// it — and no test would notice.
+const UNRANKED_BADGE_TYPE_RANK = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Pure comparator ordering two badge-shaped objects ({ type, threshold, code })
+ * by celebration priority: type rank ascending, then threshold descending (a
+ * higher completed-task threshold is the more impressive badge — 15 beats 10
+ * beats 5), then code ascending as a deterministic tiebreak so two badges
+ * identical on the first two keys never fall back to array order. Exported
+ * (AC3) because badges.type's CHECK constraint makes the unlisted-type branch
+ * unreachable through the database — a synthetic row passed straight to this
+ * function is the only way to exercise it.
+ *
+ * Always returns a finite number, never NaN or undefined: an unlisted `type`
+ * takes UNRANKED_BADGE_TYPE_RANK (sorts last), and a `null` or non-numeric
+ * `threshold` sorts last within its own type rank rather than comparing as
+ * NaN against a real number. The threshold step returns a sign rather than a
+ * difference so its -Infinity sentinel can never leak out as the result.
+ *
+ * @param {{type: string, threshold: ?number, code: string}} a
+ * @param {{type: string, threshold: ?number, code: string}} b
+ * @returns {number} negative if a precedes b, positive if b precedes a, 0 if tied
+ */
+function compareBadgeMoment(a, b) {
+  const rankA = BADGE_TYPE_RANK[a.type] ?? UNRANKED_BADGE_TYPE_RANK;
+  const rankB = BADGE_TYPE_RANK[b.type] ?? UNRANKED_BADGE_TYPE_RANK;
+  if (rankA !== rankB) {
+    return rankA - rankB;
+  }
+
+  // typeof-guard rather than `?? -Infinity`: `??` only substitutes for
+  // null/undefined, so a non-numeric threshold (defensive; the column is
+  // INTEGER but a synthetic AC3 row could hand this any shape) would still
+  // reach a numeric subtraction and produce NaN without this check.
+  const thresholdA = typeof a.threshold === 'number' ? a.threshold : -Infinity;
+  const thresholdB = typeof b.threshold === 'number' ? b.threshold : -Infinity;
+  if (thresholdA !== thresholdB) {
+    // A sign, not `thresholdB - thresholdA`: subtracting the -Infinity
+    // sentinel would return ±Infinity as this comparator's own result. Sorting
+    // reads only the sign either way, but a caller inspecting the number (a
+    // test, a future re-use) should never see the sentinel leak out.
+    return thresholdA > thresholdB ? -1 : 1; // descending: higher threshold first
+  }
+
+  // Deterministic tiebreak — never the order the caller's array arrived in.
+  if (a.code < b.code) return -1;
+  if (a.code > b.code) return 1;
+  return 0;
+}
+
+/**
+ * Resolve which of a submit's newly-earned badge codes the task-complete
+ * modal celebrates (issue #714, replacing the retired BADGE_MOMENT_PRIORITY
+ * hard-coded list in src/routes/guest.js). Reproduces #255's shipped choice
+ * exactly for today's catalog, but reads each candidate's own `type` and
+ * `threshold` off the badges table via getGuestBadges/compareBadgeMoment
+ * rather than a maintained code list — a new catalog badge is ranked on its
+ * own fields the moment it becomes earnable, with no second place to update.
+ *
+ * Returns null immediately for an empty or non-array `newBadgeCodes`, before
+ * calling getGuestBadges — a no-badge submit is the common case (every
+ * ordinary task completion) and must not gain a query the deleted route guard
+ * used to skip via its own `if (reward.newBadgeIds.length > 0)` check.
+ *
+ * `newBadgeCodes` is resolved against the guest's CURRENT held badges, and any
+ * code the guest does not hold is silently dropped — the same defensive
+ * behaviour the retired route code had (a badge id that no longer resolves is
+ * not expected to happen within the same redirect, but degrades to "skip it"
+ * rather than throwing).
+ *
+ * @param {number} guestId
+ * @param {Array<string>} newBadgeCodes - codes this submit newly earned
+ *   (reward.newBadgeIds, src/middleware/session.js's one-shot taskComplete
+ *   cookie payload)
+ * @returns {object|null} the celebrated badge row (getGuestBadges shape), or
+ *   null when there is nothing to celebrate
+ */
+function primaryNewBadge(guestId, newBadgeCodes) {
+  if (!Array.isArray(newBadgeCodes) || newBadgeCodes.length === 0) {
+    return null;
+  }
+
+  const heldBadges = getGuestBadges(guestId);
+  const earnedBadges = heldBadges.filter((b) => newBadgeCodes.includes(b.code));
+  if (earnedBadges.length === 0) {
+    return null;
+  }
+
+  earnedBadges.sort(compareBadgeMoment);
+  return earnedBadges[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -919,7 +1193,11 @@ module.exports = {
   photoPoints,
   getCompletedCount,
   getPoints,
+  memoryDayCount,
+  memoryDaysFor,
   getGuestBadges,
+  compareBadgeMoment,
+  primaryNewBadge,
   badgeWithHolders,
   recomputeBadges,
   recomputeTransferableBadges,

@@ -1016,6 +1016,77 @@ session-cookie-only protection every other admin POST route already uses (`POST 
 CSRF protection. The gap is real and app-wide, not specific to this issue's one new route; it is tracked
 separately as #769 rather than being invented ad hoc inside this issue's narrow Touches.
 
+## Memory-day bonus: event-local day math in JS, leaderboard's JS re-sort (#656)
+
+**Date:** 2026-07-21. **Status:** accepted.
+
+**What changed.** A guest's first visible memory (`submissions.task_id IS NULL AND taken_down = 0`)
+each event-local day now earns +1 point, capped at one per day. The bonus is DERIVED, not banked: a
+memory row's `created_at` never changes after insert (`src/services/submissions.js`'s memory-batch path
+never replaces an existing row — there is no `(guest_id, task_id)` collision to replace, since every
+memory's `task_id` is `NULL` and SQLite treats every `NULL` as distinct under `UNIQUE(guest_id,
+task_id)`), so recomputing the count on every read is always correct: a takedown of a day's only memory
+drops that day's point automatically, and a restore brings it back, with no separate bookkeeping step.
+
+**Why the event-local day conversion happens in JS, not SQL.** SQLite has no IANA timezone support —
+`datetime(created_at, '-6 hours')` is a fixed offset, which is wrong across a DST transition (the exact
+failure mode `src/services/event-days.js`'s own header comment already documents for `dayOpensAt`). The
+conversion instead runs through the two single owners this codebase already has for exactly this
+problem: `src/services/relative-time.js`'s `parseSqliteDatetime` (the ONE place a SQLite
+`datetime('now')`-shaped string becomes a UTC `Date`) and `src/services/event-days.js`'s
+`eventLocalDateString(timezone, instant)` (the ONE place a UTC instant becomes an event-local
+`YYYY-MM-DD`). `src/services/scoring.js`'s new `memoryDayCount(guestId, timezone)` and
+`memoryDayCountsByGuest(timezone)` both read a guest's (or every guest's) visible memory `created_at`
+values as raw strings from SQL, then fold them into a `Set` of event-local day strings per guest entirely
+in JS. Both `getPoints()` and `leaderboard()` consume these same two functions, so the two scoring
+surfaces cannot independently drift on which day a given memory counts toward — the stale-count defect
+class this issue's own body calls out by name.
+
+**Why `leaderboard()`'s SQL query carries no `ORDER BY`, and the JS comparator is the single owner of
+standings order.** `leaderboard()`'s per-guest points total is a SQL expression, but the memory-day term
+cannot be computed in SQL (no IANA timezone support, as above) — it is added to each row's `points` AFTER
+the SQL query has already run. An `ORDER BY` inside that query would therefore be deciding an order based
+on totals that are not yet final: whenever the memory-day term changes a guest's rank relative to a
+neighbor (issue #656's AC5: guest A trails B before the term, leads after it), the SQL-decided order would
+already be wrong by the time the term lands, and the JS re-sort that has to run afterward anyway would
+just discard it — a second, dead ordering rule that still read as authoritative to anyone skimming the
+query. The fix removes the `ORDER BY` from the SQL (the query keeps only its `GROUP BY`) and makes a
+single JS `Array.sort`, run once the memory-day term is folded in, the ONE place standings order is
+decided: points DESC, then `(last_submission_at IS NULL)` ASC (NULLs last — a guest with no visible
+submissions must not rank ahead of a guest who scored), then `last_submission_at` ASC, then name ASC, then
+id ASC. A caller reading `row.points` and a caller reading row POSITION can never disagree about a guest's
+standing, and there is exactly one place — the comparator itself — where that key sequence is written.
+This is the first term in this file's history to be folded into `leaderboard()` in JS after the query runs
+rather than as a SQL expression inside it; every future JS-computed leaderboard term needs the same
+JS-only-ordering discipline, not a SQL `ORDER BY` that a JS pass will only end up overriding.
+
+**Why the "Share a memory" row is a second instance of the starter-row pattern, with two departures from
+it.** Issue #409/#716 established the shape for a synthetic to-do row backed by no `tasks` table row:
+`scoring.js` derives its done/points facts from live guest state (`starterTaskContribution`, keyed on
+`guests.avatar_path`), and the route/view render it as an ordinary `task-row` alongside real tasks rather
+than inventing a separate markup or counting path. The memory row (issue #656) reuses the identical
+shape — no `tasks` row backs it, its state (`memoryBonusAvailable`) is derived live by the route from the
+guest's visible memories (via `scoring.memoryDaysFor`) and `todayIso` (`todayIso` was already computed for
+the one-day-only mystery-box surface, issue #753/#754; the visible-memories query is new in this issue) —
+but departs from the starter in two respects, not one:
+
+1. The starter completes once and then moves to the done list, while the memory row never leaves the
+   to-do list at all, because "done for today" resets every event-local day rather than being a one-time
+   transition. `src/views/tasks.ejs`'s own comment at the row records this difference.
+2. The starter is counted into `todoCount`/`doneCount`/`totalCount` (issue #409's original counting
+   contract: no visible list ever disagrees with the chip counts next to it); the memory row is
+   deliberately NOT counted into any of the three. Counting it would break `allDone`
+   (`totalCount > 0 && todoCount === 0`, `src/views/tasks.ejs`): the memory row can never be "done" the
+   way the starter can, so if it counted toward `todoCount`, `todoCount === 0` could never be reached and
+   the finished-all-tasks card could never fire. `src/views/tasks.ejs`'s header comment records this
+   second departure explicitly, next to the original counting contract, so a future reader does not
+   conclude the omission is an oversight.
+
+This ADR is the second data point that the synthetic-row pattern generalizes to "a row with no backing
+table row," not narrowly to "a one-time starter task" — and the second departure above is the first
+instance of that pattern where a synthetic row is deliberately excluded from the counts a sibling
+synthetic row is included in.
+
 ## Flash guest marker: shared shape, separate hue, no floor, no neutral fallback (#762)
 
 **Date:** 2026-07-21. **Status:** accepted, owner-approved live on a seeded preview.
@@ -1191,3 +1262,117 @@ cleanly would mean moving every timestamp this module compares (checkpoints, `no
 module into every other `datetime('now')` comparison in the app-wide "read fresh" pattern — which is
 out of proportion to the size of the gap it closes. Recorded as an accepted, narrow limitation rather
 than fixed.
+
+## Admin Photos, task-scoped: taken-down included, feed narrowed, H1 reads the scope (#748)
+
+**Date:** 2026-07-22. **Status:** accepted, no visual-approval loop needed (no new pixel — see the
+issue's own Non-goals).
+
+`GET /admin/photos?view=task&task=<id>` (`src/routes/admin.js`) now scopes the existing by-task wall to a
+single task instead of ignoring `task` entirely. Three divergences from the unscoped `view=task` wall this
+scope deliberately introduces, and why:
+
+**Taken-down submissions are included, not filtered.** The unscoped `view=task`/`view=user` wall shows
+LIVE submissions only (`taken_down = 0`) — moderation state is judged elsewhere, in Recent or the inline
+feed. The scoped view drops that filter for its one group. The reason a host taps a task's photo count in
+the first place is to review and moderate that task's entries; a taken-down photo they can no longer see
+is a photo they can no longer restore. Hiding it from the one screen built for judging that task would
+defeat the screen's own purpose.
+
+**The inline feed panel is scoped too, not held at every submission.** Before this issue, `photos` (and
+therefore the feed panel `src/views/admin-photos.ejs` renders from it) always carried the FULL submission
+set regardless of `?view=`/`?q=`, so tapping any tile from any view could land on that photo's feed card.
+A scoped request narrows the SAME query (`WHERE s.task_id = ?`) instead of running a second one, so
+`photos` becomes that one task's submissions — the feed panel is scoped along with everything else derived
+from it. This was the plan's own design, not an oversight: narrowing one query keeps the H1 count, the
+group, and the feed permanently in sync with no separate bookkeeping, and a scoped session has no reason
+to tap into another task's photo anyway (its own tiles are the only ones on screen).
+
+**The H1 count becomes the scoped task's count, not the wall total.** `<%= photos.length %> photo(s)` in
+the page header reads the scoped `photos` array directly — this is a consequence of the point above, not a
+separate special case, but it is worth stating plainly: the Tasks admin page's own "N photos" count next
+to each task card (`src/views/admin-tasks.ejs`) counts LIVE submissions only (`taken_down = 0`,
+`src/routes/admin.js`'s `GET /admin/tasks`), while this scoped heading counts live AND taken-down together.
+A task with 3 live photos and 1 taken down reads "3 photos" on the Tasks board and "4 photos" once the host
+taps through to the scoped Photos view — expected, not a bug, given the first divergence above; the two
+counts are deliberately answering different questions ("how many can a guest see" vs. "how many exist for
+me to judge").
+
+## Badge celebration priority derived from the catalog, not a code list (#714)
+
+`src/routes/guest.js` used to pick which badge a multi-badge submit celebrates from a literal array,
+`BADGE_MOMENT_PRIORITY = ['GARDEN', 'BOUQUET', 'BLOOM', 'COMPLETIONIST']` (#255) — a second, hand-maintained
+copy of facts the badge catalog (`scripts/badge-catalog.js`) already states as each row's own `type` and
+`threshold`. A code left off that list didn't error; it silently fell through to `earnedBadges[0]`, whose
+result depended on `getGuestBadges`'s SQL `ORDER BY` rather than any stated design — a new catalog badge
+could end up celebrated or not celebrated by accident of insertion order, with no test able to tell the
+difference from "working as designed."
+
+`scoring.compareBadgeMoment(a, b)` replaces the list with a pure three-key comparator over each badge's own
+`type` and `threshold`: type rank ascending (`auto` = 0 outranks `metric` = 1, reproducing #255's shipped
+"an auto badge beats COMPLETIONIST" choice), then threshold descending (a higher completed-task threshold
+is the more impressive badge), then `code` ascending as a deterministic tiebreak.
+`scoring.primaryNewBadge(guestId, newBadgeCodes)` resolves a submit's newly-earned codes against the
+guest's current holdings and returns the winner by this comparator, or `null` for an empty/no-match set —
+the single function `src/routes/guest.js`'s `GET /tasks/:id` now calls instead of carrying its own loop. No
+badge code appears anywhere in either function; a catalog addition is ranked on its own fields the moment
+it becomes earnable, with no second place a reviewer or a future author needs to remember to update.
+
+The type-rank map (`auto`/`metric`/`transferable`/`custom`/`special`) covers every value `badges.type`'s
+CHECK constraint (`src/db.js`) permits today, so an unlisted type is unreachable through the database — it
+exists only so a future widened CHECK degrades to "sorts last" rather than an `undefined` rank poisoning the
+comparison with `NaN`. `compareBadgeMoment` is exported specifically so a test can assert that fallback on a
+synthetic object, since the CHECK constraint makes it otherwise impossible to construct a real row that
+exercises it.
+
+Deliberately out of scope: `BADGE_THRESHOLDS` (`src/services/scoring.js`), which still drives which auto
+badges are _granted_ — `recomputeBadges` iterates that array, not the catalog. Deriving grant thresholds
+from the catalog would make `src/services/scoring.js` depend on `scripts/`, inverting today's layering, and
+touches guest-critical granting rather than celebration ordering; it is separate work, recorded as a
+deferred finding on parking issue #588.
+
+**Amended at merge with #644 (2026-07-22): the call site named above moved.** This section's claim that
+`GET /tasks/:id` calls `primaryNewBadge` "instead of carrying its own loop" describes what #714 shipped
+onto pre-#644 `main`; #644's badge-moment stamp (previous section) replaced that whole per-route
+resolution with `src/services/render-locals.js`'s `resolveBadgeMoment()`, which calls
+`scoring.primaryNewBadge(guestId, owedBadgeCodes)` from the ONE shared `withBadgeMoment()` seam instead —
+`GET /tasks/:id` no longer resolves a badge moment itself at all. `compareBadgeMoment`/`primaryNewBadge`
+themselves are unchanged by this move; only their caller is. `BADGE_MOMENT_PRIORITY`, the hard-coded list
+this section's opening paragraph describes retiring from `guest.js`, had a second, independent copy in
+`render-locals.js` (added while #644 and #714 were building in parallel, on separate branches, each
+unaware of the other's retirement) — that copy is deleted by the same merge for the identical reason.
+
+## Community guard completeness: stack-derived, not hand-maintained (#574)
+
+**Date:** 2026-07-22. **Status:** accepted.
+
+`src/routes/community.js`'s `requireGuest` gate is path-scoped (`router.use(['/gallery', '/feed',
+'/leaderboard', '/p', '/badge', '/u', '/slideshow'], requireGuest)`, issue #466) rather than filterless,
+because the community router is mounted at `/` and is the last router before the 404 handler — a
+filterless `router.use(requireGuest)` there would swallow every unknown path, itself a regression (a
+404 would become a redirect). Path-scoping is therefore required, not a shortcut; the gap it leaves is
+that the guard list and the router's actual route registrations are two hand-maintained copies of one
+fact, with nothing keeping them in sync when a route is added.
+
+`tests/community-guard-coverage.test.js` closes that gap by deriving the check from the router's own
+`stack` at test time — walking every registered `layer.route` rather than restating the seven prefixes
+as a second (or, if the test itself hand-listed paths, third) copy. The suite's actual guarantee is that
+every REGISTERED route is gated for an anonymous request, however it is gated (the shared prefix list, or
+a route's own inline `requireGuest` — several POST routes already use the latter) — not merely that the
+prefix list happens to be complete, which a route gated by other means would satisfy trivially while a
+route gated by neither would not. The suite also asserts (AC5) that the router's stack carries exactly one
+non-route layer — the `requireGuest` guard itself — so a future `router.use('/hall-of-fame', subRouter)`,
+whose nested routes a stack walk at this level never descends into, fails the check instead of silently
+passing under AC2's route-count floor.
+
+The suite's AC4 case proves the check catches the issue's own failure scenario without re-typing the real
+guard list — doing so would recreate, inside the test that exists to close it, the exact two-copies drift
+this issue is about. AC4's throwaway router (never mutating the real one) is instead gated by a single
+arbitrary prefix that is not any of community.js's seven, carrying one route registered under a different,
+unlisted prefix. The route is discovered by running the SAME `walkRoutes()` the real suite uses against
+this throwaway router, not hand-passed as a literal method/path — so a future narrowing of `walkRoutes()`
+that silently stopped discovering a class of route would fail AC4's `.find()` first, rather than the
+whole suite quietly losing coverage while AC1 and AC2 kept passing on what little `walkRoutes()` still
+found. The derived check is then asserted to fail specifically on the assertion it makes (received status
+200 where 302 was expected), not merely to reject for any reason — proving the check fires, not just that
+something throws.

@@ -53,7 +53,15 @@ const socialRateLimiter = createRateLimiter({
 // is reached. Neither is redundant: pruning res.locals.guest 500s /feed.
 // The guard list below is this router's complete set of route prefixes: any
 // NEW route prefix added to this file must be added to it too, or that route
-// ships ungated.
+// ships ungated — tests/community-guard-coverage.test.js (#574) enforces the
+// real guarantee mechanically: it walks this router's own stack and asserts
+// every REGISTERED route is gated for an anonymous request, whichever
+// middleware is doing the gating (this list, or a route's own inline
+// requireGuest, the shape several POST routes below already use). A route
+// this list omits still fails that suite unless it is gated some other way;
+// it does not merely check the list against itself. The one exception is a
+// route deliberately made public, which is named in that suite's
+// PUBLIC_ALLOWLIST — an explicit, reviewable line, never a silent omission.
 router.use(['/gallery', '/feed', '/leaderboard', '/p', '/badge', '/u', '/slideshow'], requireGuest);
 
 /**

@@ -38,17 +38,6 @@ function ruleBlock(source, selector) {
   return source.slice(start, end + 1);
 }
 
-// Resolve a `var(--space-N)` reference to its pixel value using the actual
-// :root scale declared in theme.css, rather than hard-coding the mapping —
-// so this test would fail if either the rule OR the scale changed in a way
-// that broke the >= 16px requirement.
-function spaceVarPx(themeSrc, varName) {
-  const rootBlock = ruleBlock(themeSrc, ':root');
-  const re = new RegExp('--' + varName + ':\\s*(\\d+)px');
-  const match = re.exec(rootBlock);
-  return match ? parseInt(match[1], 10) : null;
-}
-
 function seedOneTodoTask() {
   db.prepare('DELETE FROM submissions').run();
   db.prepare('DELETE FROM tasks').run();
@@ -67,34 +56,37 @@ async function signedInAgent(token) {
   return agent;
 }
 
-describe('AC471(1): .task-share-memory declares top spacing', () => {
-  test('the rule exists and its margin-top resolves to >= 16px (var(--space-4))', () => {
+// AC471(1)/(2) (the standalone `.task-share-memory` button and its top-
+// spacing rule) are RETIRED by issue #656 (approved screen §2): the button
+// is gone, replaced by "Share a memory" as the last row of the to-do list
+// itself, so the page has one way to share a memory, not two. These two
+// describe blocks now assert the row's equivalent: the CSS rule and its
+// button are both fully gone, and the memory row is the LAST row of the
+// to-do list.
+describe('AC471(1) retired by #656: .task-share-memory CSS rule is gone', () => {
+  test('no .task-share-memory rule remains in theme.css', () => {
     const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
-    const block = ruleBlock(themeSrc, '.task-share-memory');
-    expect(block).not.toBeNull();
-
-    const marginMatch = /margin-top:\s*var\(--(space-\d)\)/.exec(block);
-    expect(marginMatch).not.toBeNull();
-
-    const px = spaceVarPx(themeSrc, marginMatch[1]);
-    expect(px).not.toBeNull();
-    expect(px).toBeGreaterThanOrEqual(16);
+    expect(ruleBlock(themeSrc, '.task-share-memory')).toBeNull();
   });
 });
 
-describe('AC471(2): the class still renders on the live button', () => {
-  test('/tasks with a to-do task renders exactly one .task-share-memory button', async () => {
+describe('AC471(2) retired by #656: no standalone .task-share-memory button; the row is last', () => {
+  test('/tasks with a to-do task renders no .task-share-memory button, and "Share a memory" is the last to-do row', async () => {
     seedOneTodoTask();
     const agent = await signedInAgent('ac471-token');
 
     const res = await agent.get('/tasks');
     expect(res.status).toBe(200);
 
-    const matches = res.text.match(/class="btn btn-secondary btn-block task-share-memory"/g) || [];
-    expect(matches.length).toBe(1);
-    expect(res.text).toMatch(
-      /<a class="btn btn-secondary btn-block task-share-memory" href="\/memories\/new">Share a memory<\/a>/
-    );
+    expect(res.text).not.toContain('task-share-memory');
+
+    const listStart = res.text.indexOf('<ul class="task-list">');
+    const listEnd = res.text.indexOf('</ul>', listStart);
+    const list = res.text.slice(listStart, listEnd);
+    const rows = list.split('<li class="task-row task-todo">').slice(1);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[rows.length - 1]).toContain('Share a memory');
+    expect(rows[rows.length - 1]).toContain('href="/memories/new"');
   });
 });
 

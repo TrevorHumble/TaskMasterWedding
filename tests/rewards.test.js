@@ -466,5 +466,14 @@ it('AC-E (#682): a worth-3 task\'s success line reads "+3 points", not a hardcod
   const page = await agent.get(res.headers.location);
   expect(page.text).toContain('Task complete!');
   expect(page.text).toContain('+3 points');
-  expect(page.text).not.toContain('+1 point');
+  // Scope to the success-points paragraph itself (not the whole page): issue
+  // #656 added the memory-payoff line to this same success card, and that
+  // line legitimately contains the literal string "+1 point" ("+1 point for
+  // your first memory each day..."), which would make a whole-page
+  // `not.toContain('+1 point')` assertion fail for a reason unrelated to
+  // this AC's real intent — that the success line reports THIS task's own
+  // worth (+3), not some other per-task figure.
+  const successPointsMatch = /<p class="success-points">[\s\S]*?<\/p>/.exec(page.text);
+  expect(successPointsMatch).not.toBeNull();
+  expect(successPointsMatch[0]).not.toContain('+1 point');
 });

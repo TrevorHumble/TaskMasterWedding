@@ -24,6 +24,7 @@
         +<%= taskComplete.earned %> point<%= taskComplete.earned === 1 ? '' : 's' %> &mdash; you're at <%= taskComplete.points %> point<%= taskComplete.points === 1 ? '' : 's' %>
       </p>
       <p class="success-memory-prompt">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
+      <%- include('partials/memory-payoff') %>
     </section>
   <% } %>
 
@@ -79,6 +80,7 @@
             'created' completion (issue #255) — only repeat it here for a
             return visit / replace, so it never prints twice on one page. %>
         <p class="muted">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
+        <%- include('partials/memory-payoff') %>
       <% } %>
     </section>
   <% } %>

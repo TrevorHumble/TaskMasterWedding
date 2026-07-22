@@ -32,15 +32,19 @@
 
 const { db } = require('../db');
 const notifications = require('./notifications');
-
-// Given more than one badge newly owed at once (e.g. the fifth submission
-// crosses both a task-count threshold badge plus COMPLETIONIST crossed by
-// the same submission, or a second badge granted elsewhere before the first
-// was ever celebrated), the modal celebrates a single PRIMARY badge by this
-// fixed priority (design, #255). The rest stay owed — genuinely owed, not
-// just displayed-and-forgotten — and get paid one at a time on a later page
+// primaryNewBadge/compareBadgeMoment (issue #714) are the single, catalog-
+// derived owner of "which of several newly-owed badges wins the celebration
+// slot" — no badge code is hard-coded anywhere in that ordering rule. Given
+// more than one badge newly owed at once (e.g. the fifth submission crosses
+// both a task-count threshold badge plus COMPLETIONIST crossed by the same
+// submission, or a second badge granted elsewhere before the first was ever
+// celebrated), resolveBadgeMoment below passes primaryNewBadge the guest's
+// own OWED codes (stmtOwedBadges, not reward.newBadgeIds — #644 replaced the
+// one-shot-cookie source with the celebrated_at-driven one) to pick the
+// single PRIMARY badge. The rest stay owed — genuinely owed, not just
+// displayed-and-forgotten — and get paid one at a time on a later page
 // render (issue #644 plan step 4).
-const BADGE_MOMENT_PRIORITY = ['GARDEN', 'BOUQUET', 'BLOOM', 'COMPLETIONIST'];
+const scoring = require('./scoring');
 
 // Every guest_badges row this guest holds that has never been shown its #255
 // celebration (celebrated_at IS NULL) — "owed" by construction, since no
@@ -104,15 +108,23 @@ function resolveBadgeMoment(guestId) {
   if (owed.length === 0) {
     return null;
   }
-  let primary = null;
-  for (const code of BADGE_MOMENT_PRIORITY) {
-    primary = owed.find((b) => b.code === code);
-    if (primary) {
-      break;
-    }
-  }
+  // scoring.primaryNewBadge(guestId, codes) looks up the guest's currently
+  // HELD badges (getGuestBadges), filters to the codes given, and returns the
+  // top one by compareBadgeMoment's catalog-derived type/threshold/code
+  // ordering (issue #714) — no badge code hard-coded anywhere in the rule.
+  // Every owed badge is, by construction, a guest_badges row this guest
+  // currently holds (stmtOwedBadges above selects FROM guest_badges), so
+  // passing it the owed codes finds exactly those rows within the held set.
+  const primary = scoring.primaryNewBadge(
+    guestId,
+    owed.map((b) => b.code)
+  );
   if (!primary) {
-    primary = owed[0];
+    // Unreachable in practice (every owed code is a held code by
+    // construction, above), but resolveBadgeMoment's own contract is "return
+    // null when there's nothing to celebrate" — degrade to that rather than
+    // stamping a celebration for a badge this guest doesn't actually hold.
+    return null;
   }
   stmtStampCelebrated.run(guestId, primary.badge_id);
   return {
