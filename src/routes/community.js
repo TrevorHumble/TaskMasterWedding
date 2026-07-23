@@ -9,6 +9,12 @@ const scoring = require('../services/scoring');
 const feed = require('../services/feed');
 const photos = require('../services/photos');
 const submissions = require('../services/submissions');
+// denseRank (issue #625) is the leaderboard's own dense ("1223") ranking
+// rule, moved out of this file's GET /leaderboard handler into
+// src/services/rank.js so it lives beside crowd favorites' DIFFERENT
+// standard-competition rank as two named, independently tested functions —
+// see rank.js's own file comment for why the two schemes must stay separate.
+const rank = require('../services/rank');
 // Route-level rate limiting (issue #283). DISTINCT from
 // src/services/rate-limit.js (owns POST /memories and the HEIC-decode
 // throttle elsewhere) — see src/middleware/rate-limit.js's file comment for
@@ -515,6 +521,13 @@ router.post('/p/:submissionId/like', requireGuest, socialRateLimiter, (req, res)
     return res.redirect(feedAnchor);
   }
 
+  // Snapshot the crowd-favorite placing set BEFORE the toggle mutation
+  // (issue #625 AC7): the diff below (scoring.recordCrowdFavoriteChanges)
+  // needs the "before" picture to know exactly which photos THIS one
+  // like/unlike moved — inherently bounded to those photos, never every
+  // photo currently placing.
+  const beforeCrowd = scoring.crowdFavorites();
+
   let liked;
   if (hasLiked(submissionId, req.guest.id)) {
     db.prepare(`DELETE FROM likes WHERE submission_id = ? AND guest_id = ?`).run(
@@ -537,6 +550,9 @@ router.post('/p/:submissionId/like', requireGuest, socialRateLimiter, (req, res)
   // after the data that feeds it changes" rule submissions.js/photos.js
   // follow via recomputeAfterSubmissionChange.
   scoring.recomputeTransferableBadges();
+  // Emit the crowd-favorite recap diff (issue #625 AC7) — after the toggle
+  // so it sees the CURRENT (post-mutation) placing set.
+  scoring.recordCrowdFavoriteChanges(beforeCrowd);
 
   if (req.accepts(['html', 'json']) === 'json') {
     const likeCount = db
@@ -833,38 +849,33 @@ router.get('/leaderboard', (req, res) => {
   const rows = scoring.leaderboard();
 
   // Compute rank ONCE here (rows arrive ordered best-first from scoring), so
-  // the podium and the list agree. Dense ("1223") ranking (issue #626): rank
+  // the podium and the list agree. Dense ("1223") ranking (issue #626), now
+  // owned by rank.denseRank (issue #625 moved it out of this inline block so
+  // the leaderboard's scheme and crowd favorites' DIFFERENT
+  // standard-competition scheme are two named functions in one place rather
+  // than one inline copy and one hand-rolled fork — see rank.js): rank
   // increments only when the points value changes from the row above, so a
   // tie never leaves the rank below it empty (points [24,20x8,18x2] -> ranks
   // 1, 2x8, 3x2 — never skipping to 10 for the value below an 8-way tie).
   // rankLabel is the plain dense number, no "T" prefix — a tie simply repeats
   // the same number on consecutive rows (AC2).
-  let rank = 0;
-  let lastPoints = null;
-  const ranked = rows.map((row) => {
-    if (lastPoints === null || row.points !== lastPoints) {
-      rank += 1;
-      lastPoints = row.points;
-    }
-    return {
-      rank,
-      id: row.id,
-      name: row.name,
-      avatar_path: row.avatar_path,
-      points: row.points,
-      completed_count: row.completed,
-      rankLabel: `${rank}`,
-      badges: loadGuestBadges(row.id),
-    };
-  });
+  const { ranks, distinctRankCount } = rank.denseRank(rows, (row) => row.points);
+  const ranked = rows.map((row, i) => ({
+    rank: ranks[i],
+    id: row.id,
+    name: row.name,
+    avatar_path: row.avatar_path,
+    points: row.points,
+    completed_count: row.completed,
+    rankLabel: `${ranks[i]}`,
+    badges: loadGuestBadges(row.id),
+  }));
 
   // Low-spread guard (authoritative comment). distinctRankCount is how many
-  // distinct dense ranks exist across the whole field — since dense rank only
-  // ever increments, the final `rank` value IS that count. When it is 1,
-  // every guest is tied on points, so the podium conveys nothing — showPodium
-  // (below) is false and the view renders a friendly "everyone's tied" banner
-  // instead (AC6).
-  const distinctRankCount = rank;
+  // distinct dense ranks exist across the whole field (rank.denseRank's own
+  // return). When it is 1, every guest is tied on points, so the podium
+  // conveys nothing — showPodium (below) is false and the view renders a
+  // friendly "everyone's tied" banner instead (AC6).
 
   // Build the podium's group structure HERE so "what is a tie" lives in exactly
   // one layer (this route), not re-derived in the view. Group the ranked rows

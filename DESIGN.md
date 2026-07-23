@@ -1595,3 +1595,107 @@ server-computed `data-flash-state`/`data-flash-strip-label` attributes the board
 `flashStripLabel` is non-empty exactly when the state is `active` or `scheduled`), and the client keys
 its own visibility toggle off that same label being non-empty rather than re-deriving the active/
 scheduled test a second time.
+
+## Crowd favorites: derived not materialized, standard-competition rank, one absorbed ranker (#625)
+
+**Date:** 2026-07-23. **Status:** accepted.
+
+**Why crowd-favorite placements are fully DERIVED — no `guest_badges` row is ever written for one.**
+`guest_badges` carries `CONSTRAINT uq_gb UNIQUE (guest_id, badge_id)` (`src/db.js`). Every other badge
+this app grants is a single per-guest fact — a guest either holds BLOOM or does not — so one row per
+(guest, badge) is the right shape. A crowd-favorite placement is not that shape: issue #625's own no-cap
+sweep rule (AC3) lets one guest hold three placing photos at once and collect 5+4+3=12 points, which is
+three DISTINCT placements for the SAME guest against the SAME hypothetical badge. Materializing that as
+`guest_badges` rows would either violate the UNIQUE constraint (one row per guest per badge, no room for
+a second placing photo) or force a schema change (a `submission_id` column added to a table three other
+badge kinds already write without one). `src/services/scoring.js`'s `crowdFavorites()` sidesteps the
+question entirely: it is the ONE function that decides "who is a crowd favorite, at what rank, worth how
+much," computed fresh from `submissions`/`likes` on every call, and every reader — `getPoints`,
+`leaderboard()`, `feed.slideshowSequence()`'s Most Liked opener, and the two new recap kinds below — reads
+that same live answer. Nothing about a crowd-favorite placement can ever go stale, because nothing about
+it is ever stored.
+
+**Why crowd favorites uses STANDARD-COMPETITION ranking while the leaderboard (#626) uses DENSE ranking —
+two schemes, one module.** Both share the same underlying shape ("walk a sorted list, assign ranks"), so
+`src/services/rank.js` (new) is the single home for both as two named, independently tested pure functions
+— `denseRank` and `standardRank` — rather than the inline dense-rank block `GET /leaderboard`
+(`src/routes/community.js`) used to carry with no second consumer. The two schemes are not
+interchangeable: the leaderboard NEVER wants a tie to leave the rank below it empty (dense: `[24,20,20,18]
+-> 1,2,2,3`), while crowd favorites specifically WANTS a tie to consume the ranks beneath it (standard-
+competition: `[24,20,20,18] -> 1,2,2,4`) — that consumption is what bounds the crowd-favorite paying set
+near 5 regardless of party scale. An earlier revision of #625 specified dense ranking for crowd favorites
+too; the owner caught the defect live (issue comment, 2026-07-23): dense rank 5 is only the fifth-highest
+DISTINCT like count, so at party scale a 60-photo tail all sitting at 1 like would all place — no bound at
+all. Standard-competition ranking is the fix: a single tier holding 5+ photos (a big top tie) can still
+place more than five, and that is correct — they genuinely tied for most-liked — but nothing below a
+placing tier ever pays.
+
+**Why memories compete.** An earlier body of this issue claimed the owner had settled memories OUT of
+crowd-favorite eligibility, quoting no artifact that actually recorded it. Re-derived from
+`docs/north-star.md` instead (recorded on the issue so it can be overturned by a real decision later): the
+anti-flooding worry that motivates excluding memories elsewhere in the economy does not reach this
+mechanic — uploading a memory earns nothing on its own, only OTHER guests' hearts place a photo, and
+self-likes are already blocked at the route (#712). Excluding memories would mean the best candid of the
+weekend — the one nobody was assigned to take — could never be crowned, working against Goals B and D; and
+#656 already pays memories a memory-day point, so memories are already inside the points economy. Every
+visible photo competes, task-linked or not — `scoring.crowdFavorites()`'s query carries no `task_id`
+filter at all.
+
+**Why the crowd term is folded into `getPoints`/`leaderboard()` in JS, after the query runs — the same
+shape as the #656 memory-day term.** Standard-competition rank over a live, event-wide like count cannot be
+expressed as a per-guest SQL expression without fanning out the query (ranking is inherently a whole-field
+computation, not a per-row one). `crowdPointsByGuest()` runs `crowdFavorites()` exactly ONCE — a single
+query ranks every liked photo in the whole event — and folds the result into a `Map`; `leaderboard()`
+consumes that Map in its existing post-query JS pass (AC8: the leaderboard's crowd term costs exactly one
+extra SQL statement, never one per guest row, exactly the guarantee #656's `memoryDayCountsByGuest` already
+established for the memory-day term and this issue reuses the pattern for).
+
+**Why the crowd bonus is NOT folded into `scoring.photoPoints()`.** That function's number is what a photo
+earned by being SUBMITTED — a stable, banked-feeling value a feed card prints without explanation. A crowd
+rank is volatile by design (a later like or takedown can move it on the very next read), so folding it into
+the per-photo figure would make a card's number flicker for reasons the card cannot explain. This is a
+deliberate exception to #756's "one photo, one number" rule, recorded in `photoPoints`'s own doc comment:
+what a crowd-favorite photo earns is stated separately, by #788's crown marker on the photo and by the
+guest's grand total (`getPoints`/`leaderboard`), never by this function.
+
+**Why the slideshow's "Most Liked" opener needed a dedicated section builder
+(`feed.buildCrowdFavoriteSection`), not a reuse of `buildSlideshowSection`.** Before this issue,
+`slideshowSequence()`'s opener was a SECOND, independent ranker — sorted by `like_count` with a points
+tiebreak, cut to a positional top 5 via `buildSlideshowSection`, which assigns each photo's rank from its
+ARRAY POSITION (`i + 1`). That is correct for a task section (no cap on ties there, since a task's winners
+are host-picked, not vote-tied) but wrong for the crowd-favorite opener once ties can share a rank: two
+photos tied for a spot must render the IDENTICAL rank label, which a position-based rank can never express.
+The venue screen must not crown a photo the standings did not pay — the exact bug the old second ranker
+risked, since its likes-first/points-tiebreak sort could disagree with `crowdFavorites()`'s
+standard-competition rank the moment two photos' like counts tied. `buildCrowdFavoriteSection` instead reads
+each photo's rank straight off `scoring.crowdFavorites()`'s own output (`placing[i].rank`), so the opener,
+the standings, and the recap always agree. It is also no longer size-capped: it renders exactly the placing
+set (usually ~5 photos, more only under a big top tie) and is omitted entirely when the set is empty,
+rather than always showing exactly 5 regardless of how many photos actually have any likes at all.
+
+**Why `notifications.js` requires `./scoring` LAZILY, inside `KIND_VIEW.crowd_favorite.parts()`, not at
+module top level.** `scoring.js` already requires `./notifications` at its own top level (the recap's
+single write path, `recordEvent`, is how `recomputeBadges` et al. emit badge events). A top-level
+`require('./scoring')` added to `notifications.js` would complete the cycle at LOAD time: whichever of the
+two modules happened to finish loading first would see the other's `module.exports` still mid-assembly
+(missing keys) the moment it destructured from it, and every recap render would throw. Deferring the
+require to call time — inside the `parts()` callback, mirroring `feed.js`'s existing deferred
+`require('./scoring')` inside `slideshowSequence()` — sidesteps the cycle entirely: by the time any request
+renders a `crowd_favorite` recap row, both modules have long since finished loading, and Node's `require()`
+cache makes the deferred call free after the first one.
+
+**Why the recap stores only `guest_id` + `submission_id`, never a rank.** `notification_events` needed no
+schema change for this issue. A stored rank would be the one fact here that could go stale — a like arriving
+after the event was recorded could move the photo's rank again before the guest ever opens their recap.
+`KIND_VIEW.crowd_favorite.parts()` reads the CURRENT placing set live from `crowdFavorites()` every time the
+row renders, falling back to a rank-free "crowd favorite" line if the photo has since left the placing set
+again (a second `crowd_favorite_lost` event, recorded separately at the moment it actually left, is what
+tells that part of the story). `crowd_favorite` reuses the existing `gold` recap view; `crowd_favorite_lost`
+reuses the existing `loss` view with `dead: true` — no new view-kind glyph or CSS was needed, both were
+already wired ahead of their first emitter by issue #644's review.
+
+**Duplicated-ownership note.** The rank-to-points mapping (`CROWD_FAVORITE_POINTS = [5, 4, 3, 2, 1]`) has
+exactly one owner, `src/services/scoring.js`; every reader (`getPoints`, `leaderboard`,
+`feed.slideshowSequence`, `notifications.js`'s recap copy) reads points off `crowdFavorites()`'s own output
+rather than re-deriving the mapping. The standard-competition ranking ALGORITHM itself has exactly one
+owner, `src/services/rank.js`'s `standardRank` — `scoring.crowdFavorites()` is its only caller today.
