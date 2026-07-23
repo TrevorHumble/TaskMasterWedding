@@ -8,15 +8,47 @@
     <p class="flash"><%= msg %></p>
   <% } %>
 
-  <p><a class="btn" href="/admin">&larr; Dashboard</a></p>
-
   <%
-    var unresolved = reports.filter(function (r) { return !r.resolved; });
-    var resolved = reports.filter(function (r) { return !!r.resolved; });
+    // Real data only (issue #686 — the phase-1 demo-row fallback is retired):
+    // `reports` and `githubRepoUrl` are always supplied by GET /admin/bugs
+    // (src/routes/admin.js), each row already carrying the real `status`
+    // column (open/tracked/closed).
+    var openRows = reports.filter(function (r) { return r.status === 'open'; });
+    var handledRows = reports.filter(function (r) { return r.status !== 'open'; });
+
+    function githubNewIssueHref(r) {
+      var title = 'Guest bug report: ' + String(r.body || '').slice(0, 60);
+      var bodyLines = [
+        'Reported by **' + (r.guest_name || ('Guest #' + r.guest_id)) + '** on ' + (r.page || 'unknown page'),
+        'At: ' + r.created_at,
+        '',
+        String(r.body || ''),
+        '',
+        '_Filed from the wedding app bug queue._',
+      ];
+      return githubRepoUrl + '/issues/new'
+        + '?title=' + encodeURIComponent(title)
+        + '&body=' + encodeURIComponent(bodyLines.join('\n'));
+    }
+
+    // "Open issue" stays a plain <a> whose href is literally the GitHub
+    // new-issue URL (AC1 requires the href itself, so the target-blank
+    // navigation can never be intercepted by a same-origin redirect). Using
+    // it must ALSO mark the report tracked (AC1) with no way for a link
+    // click to submit a same-origin form without leaving this page — so the
+    // anchor's onclick fires a fire-and-forget POST to /admin/bugs/:id/track
+    // alongside the browser's normal navigation to the href. sendBeacon is
+    // built for exactly this (a background POST that survives the page
+    // losing focus to the new tab); the fetch(..., {keepalive:true}) branch
+    // is the fallback for a browser without sendBeacon.
+    function trackOnClick(id) {
+      return "if (navigator.sendBeacon) { navigator.sendBeacon('/admin/bugs/" + id + "/track'); } "
+        + "else { fetch('/admin/bugs/" + id + "/track', { method: 'POST', keepalive: true }); }";
+    }
   %>
 
   <div class="bug-admin-list">
-    <% unresolved.forEach(function (r) { %>
+    <% openRows.forEach(function (r) { %>
       <div class="bug-admin-row">
         <p class="comment-meta">
           <strong><a href="/admin/guests"><%= r.guest_name || ('Guest #' + r.guest_id) %></a></strong>
@@ -24,25 +56,47 @@
           &middot; <%= r.created_at %>
         </p>
         <p class="comment-body"><%= r.body %></p>
-        <form action="/admin/bugs/<%= r.id %>/resolve" method="post">
-          <button type="submit" class="btn btn-sm">Resolved</button>
-        </form>
+        <div class="bug-admin-actions">
+          <a class="btn btn-sm" href="<%= githubNewIssueHref(r) %>" target="_blank" rel="noopener noreferrer"
+             onclick="<%= trackOnClick(r.id) %>">
+            Open issue
+          </a>
+          <form action="/admin/bugs/<%= r.id %>/close" method="post">
+            <button type="submit" class="btn btn-sm btn-ghost">Close</button>
+          </form>
+        </div>
       </div>
     <% }); %>
-    <% if (unresolved.length === 0) { %>
+    <% if (openRows.length === 0) { %>
       <p class="muted">No open bug reports.</p>
     <% } %>
   </div>
 
-  <% if (resolved.length > 0) { %>
-    <h2 class="section-title">Resolved</h2>
-    <div class="bug-admin-resolved-list">
-      <% resolved.forEach(function (r) { %>
-        <p class="muted">
-          <strong><%= r.guest_name || ('Guest #' + r.guest_id) %></strong>
-          &middot; <%= r.page || 'unknown page' %>
-          &middot; <%= r.body %>
-        </p>
+  <% if (handledRows.length > 0) { %>
+    <h2 class="section-title">Handled</h2>
+    <div class="bug-admin-handled-list">
+      <% handledRows.forEach(function (r) { %>
+        <% if (r.status === 'tracked') { %>
+          <div class="bug-admin-row">
+            <p class="comment-meta">
+              <strong><%= r.guest_name || ('Guest #' + r.guest_id) %></strong>
+              &middot; <%= r.page || 'unknown page' %>
+              <span class="pill-chip bug-tracked-tag">On GitHub</span>
+            </p>
+            <p class="comment-body muted"><%= r.body %></p>
+            <div class="bug-admin-actions">
+              <form action="/admin/bugs/<%= r.id %>/close" method="post">
+                <button type="submit" class="btn btn-sm btn-ghost">Close</button>
+              </form>
+            </div>
+          </div>
+        <% } else { %>
+          <p class="muted bug-closed">
+            <strong><%= r.guest_name || ('Guest #' + r.guest_id) %></strong>
+            &middot; <%= r.page || 'unknown page' %>
+            &middot; <%= r.body %>
+          </p>
+        <% } %>
       <% }); %>
     </div>
   <% } %>

@@ -48,12 +48,16 @@ function insertGuest(token, name) {
     .run(token, name || 'Guest ' + token).lastInsertRowid;
 }
 
+// `resolved` here means "not open" (issue #686 retired the resolved boolean
+// in favor of the open/tracked/closed status column) — a resolved=true call
+// writes status='closed' so this helper's callers, which only ever care
+// about open-vs-not, need no changes of their own.
 function insertBugReport(guestId, resolved) {
-  db.prepare('INSERT INTO bug_reports (guest_id, body, page, resolved) VALUES (?, ?, ?, ?)').run(
+  db.prepare('INSERT INTO bug_reports (guest_id, body, page, status) VALUES (?, ?, ?, ?)').run(
     guestId,
     'It broke.',
     '/tasks/1',
-    resolved ? 1 : 0
+    resolved ? 'closed' : 'open'
   );
 }
 
@@ -277,7 +281,7 @@ describe('AC6: tips render only when nothing open or manual remains', () => {
 
     // Resolve the bug, but leave configuration/manual items untouched — tips
     // still gated by the still-open config row and manual rows.
-    db.prepare('UPDATE bug_reports SET resolved = 1').run();
+    db.prepare(`UPDATE bug_reports SET status = 'closed'`).run();
     res = await adminAgent.get('/admin');
     expect(res.status).toBe(200);
     expect(res.text).not.toContain('Mix trivial tasks with hard ones');

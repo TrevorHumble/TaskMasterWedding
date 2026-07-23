@@ -57,12 +57,16 @@ function insertGuest(token, name) {
     .run(token, name || 'Guest ' + token).lastInsertRowid;
 }
 
+// `resolved` here means "not open" (issue #686 retired the resolved boolean
+// in favor of the open/tracked/closed status column) — a resolved=true call
+// writes status='closed' so this helper's callers, which only ever care
+// about open-vs-not, need no changes of their own.
 function insertBugReport(guestId, resolved) {
-  db.prepare('INSERT INTO bug_reports (guest_id, body, page, resolved) VALUES (?, ?, ?, ?)').run(
+  db.prepare('INSERT INTO bug_reports (guest_id, body, page, status) VALUES (?, ?, ?, ?)').run(
     guestId,
     'It broke.',
     '/tasks/1',
-    resolved ? 1 : 0
+    resolved ? 'closed' : 'open'
   );
 }
 

@@ -978,6 +978,43 @@ a.stat:hover {
   color: var(--err-ink);
 }
 
+/* ---- Admin bug queue (issue #686) ----
+   Each open report carries two side-by-side actions: a link out to a
+   prefilled GitHub new-issue form and a "close — not an issue" button. */
+.bug-admin-row {
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-5);
+  border-bottom: var(--border-hairline);
+}
+.bug-admin-row:last-child {
+  border-bottom: none;
+}
+.bug-admin-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.bug-admin-actions .btn {
+  white-space: nowrap;
+}
+/* The Handled group sits below the open queue with a clear gap. */
+.bug-admin-handled-list {
+  margin-top: var(--space-4);
+}
+.bug-admin-handled-list > * {
+  margin-bottom: var(--space-4);
+}
+/* Handled reports stay visible. A closed one is struck through (kept as a
+   record, not deleted); a tracked one is tagged as handed to GitHub. */
+.bug-closed {
+  text-decoration: line-through;
+}
+.bug-tracked-tag {
+  margin-left: var(--space-2);
+}
+
 /* Activity pulse line under the stat grid. */
 .pulse-line {
   margin: var(--space-3) 0 var(--space-5);

@@ -172,7 +172,14 @@ db.exec(`
     body        TEXT    NOT NULL,
     page        TEXT,
     user_agent  TEXT,
+    -- resolved is retired (issue #686) but kept in place rather than dropped:
+    -- nothing reads it any more (status below is the single lifecycle fact),
+    -- and dropping it would be a table rebuild for no behavioural gain. status
+    -- is the three-state lifecycle (open -> tracked -> closed) that replaces
+    -- it; see ensureBugReportStatusColumn() below for the backfill on an
+    -- existing pre-#686 database.
     resolved    INTEGER NOT NULL DEFAULT 0,
+    status      TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open','tracked','closed')),
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -210,8 +217,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_badge_winners_code
     ON badge_winners(badge_code);
 
-  CREATE INDEX IF NOT EXISTS idx_bug_reports_resolved
-    ON bug_reports(resolved, created_at DESC);
+  -- idx_bug_reports_resolved was retired by issue #686 (superseded by
+  -- idx_bug_reports_status, created by ensureBugReportStatusColumn() below,
+  -- which also drops this index by name on an existing database that already
+  -- has it). Deliberately not recreated here: a fresh DB already has the
+  -- status column from the CREATE TABLE above, so it goes straight to the
+  -- new index and never has this old one at all.
 
   CREATE INDEX IF NOT EXISTS idx_submissions_photo_path
     ON submissions(photo_path COLLATE NOCASE);
@@ -1333,6 +1344,80 @@ function ensureRecapCheckedAtColumn() {
 // code before any other module's `require('../db')` call returns.
 ensureRecapCheckedAtColumn();
 
+// --- Guarded migration: bug_reports.status (issue #686) ---
+/**
+ * Add bug_reports.status if it is not already present, backfill it from the
+ * retired `resolved` boolean, then (re)point the lifecycle index at `status`
+ * instead of `resolved`.
+ *
+ * status replaces the old two-state resolved boolean with the three-state
+ * open/tracked/closed lifecycle the admin Bugs page needs (issue #686): a
+ * report handed to GitHub ("tracked") must stay distinguishable from one
+ * dismissed outright ("closed"), which a single boolean cannot encode.
+ *
+ * Same guard shape as ensurePhotoBonusColumn/ensureResubmittedColumn above:
+ * the bug_reports CREATE TABLE above already declares `status` (with its
+ * CHECK), so this is a no-op there; on an existing pre-#686 app.db the column
+ * is absent, so PRAGMA table_info detects that and the ALTER TABLE + backfill
+ * run once. A literal string DEFAULT ('open') is a constant default, not the
+ * datetime('now')-style non-constant default that forces a separate backfill
+ * UPDATE elsewhere in this file (see ensureRecapCheckedAtColumn's comment) —
+ * SQLite accepts `ADD COLUMN ... DEFAULT 'open' CHECK (...)` in one
+ * statement, verified against this tree's better-sqlite3/SQLite build, and
+ * the CHECK is enforced on every write from that point on (including this
+ * migration's own backfill UPDATE, which only ever writes 'closed').
+ *
+ * Backfill: every pre-existing resolved=1 row becomes 'closed' (matching the
+ * old "resolved" meaning); every resolved=0 row is already 'open' from the
+ * column's own DEFAULT, so no separate UPDATE is needed for that half.
+ * `resolved` itself is left in place, unread from this point on — a purely
+ * additive column is lower-risk than a table rebuild here, and nothing in
+ * this codebase still queries it (see the column's own comment above).
+ *
+ * The index swap (drop idx_bug_reports_resolved, create
+ * idx_bug_reports_status) runs UNCONDITIONALLY, every boot, outside the
+ * column-presence guard above: a fresh DB never had the old index to drop
+ * (DROP INDEX IF EXISTS is a no-op there) and needs the new one created since
+ * the top CREATE TABLE/INDEX block above deliberately does NOT create it
+ * (that block runs before this migration on an existing pre-#686 database,
+ * where `status` does not exist yet — an unconditional `CREATE INDEX ... ON
+ * bug_reports(status, ...)` there would throw "no such column: status" on
+ * that exact database, the same hazard ensureTaskSpecialDayColumns' own
+ * comment warns about for a column-referencing index created too early).
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureBugReportStatusColumn() {
+  const cols = db.prepare(`PRAGMA table_info(bug_reports)`).all();
+  if (!cols.some((col) => col.name === 'status')) {
+    db.exec(`ALTER TABLE bug_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'open'
+                CHECK (status IN ('open','tracked','closed'))`);
+    db.exec(`UPDATE bug_reports SET status = 'closed' WHERE resolved = 1`);
+  }
+  db.exec(`DROP INDEX IF EXISTS idx_bug_reports_resolved`);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_bug_reports_status ON bug_reports(status, created_at DESC)`
+  );
+}
+
+// Run once at module load, before src/routes/admin.js or host-checklist.js
+// prepares any statement that reads bug_reports.status — db.js fully
+// evaluates this module-load code before any other module's
+// `require('../db')` call returns.
+ensureBugReportStatusColumn();
+
+/**
+ * The single owner of "how many bug reports are currently open" (issue #686
+ * AC4) — the admin dashboard's stat grid and the "Today" checklist's bug pin
+ * (both src/services/host-checklist.js) read this instead of each running
+ * its own `WHERE status = 'open'` COUNT, so the two can never silently drift
+ * apart on what "open" means.
+ * @returns {number}
+ */
+function openBugCount() {
+  return db.prepare(`SELECT COUNT(*) AS n FROM bug_reports WHERE status = 'open'`).get().n;
+}
+
 // --- Guarded migration: settings table (issue #283) ---
 /**
  * Create the `settings` key/value table if it does not already exist.
@@ -1534,6 +1619,8 @@ module.exports = {
   ensureAvatarPointAwardedRetired,
   ensureGuestBadgeCelebratedAtColumn,
   ensureRecapCheckedAtColumn,
+  ensureBugReportStatusColumn,
+  openBugCount,
   ensureSettingsTable,
   getEventConfig,
   setEventConfig,
