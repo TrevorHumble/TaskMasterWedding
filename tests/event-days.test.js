@@ -20,6 +20,7 @@ const {
   eventDays,
   eventLocalDateString,
   dayOpensAt,
+  eventLocalInstant,
   singleDayLabel,
 } = require('../src/services/event-days');
 
@@ -197,6 +198,233 @@ describe('dayOpensAt (issue #753)', () => {
     const opens = dayOpensAt('2026-09-06', 'America/Santiago');
     expect(opens.toISOString()).toBe('2026-09-06T04:00:00.000Z');
     expect(eventLocalDateString('America/Santiago', opens)).toBe('2026-09-06');
+  });
+});
+
+// Issue #763 plan step 1 (renamed to eventLocalInstant() at PR review, M5 --
+// dayOpensAt() now names ONLY the 2-argument local-midnight question; this is
+// the general 4-argument form it wraps): the candidate-selection rule
+// described in that issue's "The date math" section -- NOT a widened
+// round-trip guard, which the issue's own probe showed returns an instant an
+// hour EARLY for a DST-gap wall time in every zone east of UTC (Correction
+// B). Every expected value below is copied verbatim from that issue's own
+// table, independently re-derived by a same-file probe script before being
+// written here (not transcribed on faith) -- see the two-argument-parity
+// describe block further down for the regression half of that same
+// correction.
+describe('eventLocalInstant with hour/minute (issue #763 criterion 7)', () => {
+  it('an ordinary wall time (no nearby DST transition): 2026-08-07 19:00 America/Boise reads back exactly', () => {
+    const opens = eventLocalInstant('2026-08-07', 'America/Boise', 19, 0);
+    expect(opens.toISOString()).toBe('2026-08-08T01:00:00.000Z');
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Boise',
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).formatToParts(opens);
+    const get = (t) => parts.find((p) => p.type === t).value;
+    expect(`${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`).toBe(
+      '2026-08-07 19:00'
+    );
+  });
+
+  it('a DST-gap wall time WEST of UTC (America/Boise 2027-03-14 02:30, spring-forward jumps 02:00->03:00): resolves to the first real moment at or after it, 03:30 -- never the previous day, never an hour early', () => {
+    const opens = eventLocalInstant('2027-03-14', 'America/Boise', 2, 30);
+    expect(opens.toISOString()).toBe('2027-03-14T09:30:00.000Z');
+  });
+
+  it('a DST-gap wall time EAST of UTC (Europe/Paris 2027-03-28 02:30): the class the naive widened-guard rule gets wrong -- must read back 03:30, not an hour early at 01:30', () => {
+    const opens = eventLocalInstant('2027-03-28', 'Europe/Paris', 2, 30);
+    expect(opens.toISOString()).toBe('2027-03-28T01:30:00.000Z');
+    const hourMin = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Paris',
+      hourCycle: 'h23',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(opens);
+    expect(hourMin).toBe('03:30');
+  });
+
+  it('a DST-gap wall time EAST of UTC, southern hemisphere (Australia/Sydney 2026-10-04 02:30): also reads back 03:30, not 01:30', () => {
+    const opens = eventLocalInstant('2026-10-04', 'Australia/Sydney', 2, 30);
+    expect(opens.toISOString()).toBe('2026-10-03T16:30:00.000Z');
+    const hourMin = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Australia/Sydney',
+      hourCycle: 'h23',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(opens);
+    expect(hourMin).toBe('03:30');
+  });
+
+  it('an AMBIGUOUS wall time (America/Boise 2027-11-07 01:30, fall-back repeats 01:00-02:00 twice): resolves to its FIRST occurrence', () => {
+    const opens = eventLocalInstant('2027-11-07', 'America/Boise', 1, 30);
+    expect(opens.toISOString()).toBe('2027-11-07T07:30:00.000Z');
+    const hourMin = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Boise',
+      hourCycle: 'h23',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(opens);
+    expect(hourMin).toBe('01:30');
+  });
+});
+
+// Issue #763's Correction A/B: the existing TWO-argument callers (#753's
+// seal predicate, #754's daily-challenge rows) must see byte-identical
+// behavior now that eventLocalInstant() (dayOpensAt()'s general form) exists
+// -- asserted directly for the skipped-local-midnight-EAST-of-UTC class the
+// pre-#763 test suite never covered (only Boise/Auckland/Santiago, none of
+// that class), which is exactly the class the widened-round-trip-guard
+// alternative regressed. See the exhaustive sweep further down for the same
+// claim made across every zone, not just these three hand-picked ones.
+describe('dayOpensAt two-argument parity after gaining hour/minute (issue #763 Correction B)', () => {
+  it('Africa/Cairo 2026-04-24 (skips local midnight, east of UTC): unchanged from the pre-#763 behavior, 2026-04-23T22:00:00.000Z (reads 01:00, not the previous day)', () => {
+    const opens = dayOpensAt('2026-04-24', 'Africa/Cairo');
+    expect(opens.toISOString()).toBe('2026-04-23T22:00:00.000Z');
+    expect(eventLocalDateString('Africa/Cairo', opens)).toBe('2026-04-24');
+  });
+
+  it('Asia/Beirut 2027-03-28 (skips local midnight, east of UTC): still reads back as 2027-03-28, never the previous day', () => {
+    const opens = dayOpensAt('2027-03-28', 'Asia/Beirut');
+    expect(eventLocalDateString('Asia/Beirut', opens)).toBe('2027-03-28');
+  });
+
+  it('every previously-tested two-argument case is still byte-identical: America/Boise, Pacific/Auckland, America/Santiago', () => {
+    expect(dayOpensAt('2026-08-07', 'America/Boise').toISOString()).toBe(
+      '2026-08-07T06:00:00.000Z'
+    );
+    expect(dayOpensAt('2026-08-08', 'Pacific/Auckland').toISOString()).toBe(
+      '2026-08-07T12:00:00.000Z'
+    );
+    expect(dayOpensAt('2026-09-06', 'America/Santiago').toISOString()).toBe(
+      '2026-09-06T04:00:00.000Z'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #763 PR review, M2: this file's own doc comments (and DESIGN.md's
+// matching ADR paragraph) used to CLAIM a sweep across every
+// Intl.supportedValuesOf('timeZone') zone and a year of transition-adjacent
+// dates with zero differences -- but no such sweep existed anywhere in the
+// repo (`grep -rn "supportedValuesOf" tests/ src/` matched only the doc
+// comment itself). These two describe blocks ARE that sweep, committed and
+// runnable, so every sentence the doc comments make about it is checkable by
+// running this suite. The date set below is 9 dates, not a "full year" --
+// picked to land on or near a real DST transition somewhere in the world
+// (the classes issue #763's own table already names: Boise/Paris/Sydney
+// gaps, the Boise ambiguous hour, the Cairo/Santiago skipped-midnight cases)
+// plus two ordinary control dates, rather than walking all 365 days of a
+// year for a marginal gain in coverage at 40x the runtime.
+// ---------------------------------------------------------------------------
+const DST_SWEEP_ZONES = Intl.supportedValuesOf('timeZone');
+const DST_SWEEP_DATES = [
+  '2027-01-01', // ordinary control, no transition anywhere near it
+  '2027-03-14', // America/Boise spring-forward gap (issue #763's own case)
+  '2027-03-28', // Europe/Paris + Asia/Beirut spring-forward gap
+  '2027-04-04', // ordinary control, a different season
+  '2027-04-24', // Africa/Cairo-class skipped-local-midnight date
+  '2027-09-06', // America/Santiago-class spring-forward (S. hemisphere)
+  '2027-10-04', // Australia/Sydney-class spring-forward (S. hemisphere)
+  '2027-10-31', // common Northern-Hemisphere fall-back (last Sunday Oct)
+  '2027-11-07', // America/Boise fall-back, ambiguous hour
+];
+
+// A locally-defined copy of the algorithm dayOpensAt() shipped BEFORE issue
+// #763 (transcribed from the pre-#763 git diff, not re-derived from memory),
+// so this sweep compares the SHIPPED two-argument dayOpensAt() against an
+// independent implementation of what it used to do -- not against itself.
+function tzOffsetMsPreIssue763(timezone, utcMs) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(utcMs));
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  const asIfUtc = Date.UTC(
+    get('year'),
+    get('month') - 1,
+    get('day'),
+    get('hour'),
+    get('minute'),
+    get('second')
+  );
+  return asIfUtc - utcMs;
+}
+function dayOpensAtPreIssue763(dateIso, timezone) {
+  const [y, m, d] = dateIso.split('-').map(Number);
+  const naiveUtc = Date.UTC(y, m - 1, d, 0, 0, 0);
+  const offset1 = tzOffsetMsPreIssue763(timezone, naiveUtc);
+  const uncorrectedMs = naiveUtc - offset1;
+  let instantMs = uncorrectedMs;
+  const offset2 = tzOffsetMsPreIssue763(timezone, instantMs);
+  if (offset2 !== offset1) {
+    const correctedMs = naiveUtc - offset2;
+    instantMs =
+      eventLocalDateString(timezone, new Date(correctedMs)) === dateIso
+        ? correctedMs
+        : uncorrectedMs;
+  }
+  return new Date(instantMs);
+}
+
+describe('dayOpensAt exhaustive two-argument regression sweep (issue #763 M2 fix)', () => {
+  it(`matches the pre-#763 algorithm across every zone Intl.supportedValuesOf('timeZone') reports (${DST_SWEEP_ZONES.length} zones) and ${DST_SWEEP_DATES.length} transition-adjacent dates (${DST_SWEEP_ZONES.length * DST_SWEEP_DATES.length} pairs): zero differences`, () => {
+    const differences = [];
+    for (const tz of DST_SWEEP_ZONES) {
+      for (const dateIso of DST_SWEEP_DATES) {
+        const shipped = dayOpensAt(dateIso, tz).toISOString();
+        const pre763 = dayOpensAtPreIssue763(dateIso, tz).toISOString();
+        if (shipped !== pre763) {
+          differences.push(`${tz} ${dateIso}: shipped=${shipped} pre-#763=${pre763}`);
+        }
+      }
+    }
+    expect(differences).toEqual([]);
+  });
+});
+
+describe('eventLocalInstant never reads back before the requested wall time (issue #763 M2 fix)', () => {
+  it(`holds across every zone (${DST_SWEEP_ZONES.length}) and the same ${DST_SWEEP_DATES.length} transition-adjacent dates at a non-midnight wall time, 02:30 local (${DST_SWEEP_ZONES.length * DST_SWEEP_DATES.length} pairs)`, () => {
+    const hour = 2;
+    const minute = 30;
+    const violations = [];
+    for (const tz of DST_SWEEP_ZONES) {
+      for (const dateIso of DST_SWEEP_DATES) {
+        const [y, m, d] = dateIso.split('-').map(Number);
+        const requestedKey = ((y * 100 + m) * 100 + d) * 10000 + hour * 100 + minute;
+        const instant = eventLocalInstant(dateIso, tz, hour, minute);
+        const parts = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz,
+          hourCycle: 'h23',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        }).formatToParts(instant);
+        const get = (type) => Number(parts.find((p) => p.type === type).value);
+        const readingKey =
+          ((get('year') * 100 + get('month')) * 100 + get('day')) * 10000 +
+          get('hour') * 100 +
+          get('minute');
+        if (readingKey < requestedKey) {
+          violations.push(
+            `${tz} ${dateIso} ${hour}:${minute} -> reads back key ${readingKey}, requested ${requestedKey}`
+          );
+        }
+      }
+    }
+    expect(violations).toEqual([]);
   });
 });
 

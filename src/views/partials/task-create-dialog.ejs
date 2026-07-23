@@ -70,6 +70,10 @@
             </span>
           </label>
           <%- include('special-oneday-option', { idPrefix: 'task-create', eventDays: eventDays }) %>
+          <%# Flash sits directly under One day only — the position the owner
+              approved on 2026-07-22, before #650's Lucky option landed as a
+              sibling. Lucky follows it rather than displacing it. %>
+          <%- include('special-flash-option', { idPrefix: 'task-create', eventDays: eventDays }) %>
           <%- include('special-lucky-option', { idPrefix: 'task-create', eventDays: eventDays }) %>
         </div>
       </fieldset>

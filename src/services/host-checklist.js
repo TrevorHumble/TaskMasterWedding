@@ -176,13 +176,43 @@ function hasChallengeOn(dateIso) {
 /**
  * Format a flash_start_at instant (see src/services/tasks.js's
  * FLASH_INSTANT_RE doc comment for its exact stored shape) as a short,
- * host-readable "Aug 8, 7:30 pm" string in the event's configured timezone.
+ * host-readable string in the event's configured timezone. Two
+ * presentations (issue #763 plan step 4 — exported so a second caller reuses
+ * this one function instead of writing its own formatting logic for the
+ * same instant, which is what would let the two silently drift apart, e.g.
+ * on casing), named for what they PRODUCE rather than which screen asks for
+ * them (issue #763 PR review, minor 2 — a service naming its options after
+ * caller screens is backwards):
+ *
+ *   'dated' (default) — "Aug 8, 7:30pm": dated, lowercase, unspaced. This is
+ *     the ORIGINAL, UNCHANGED call this module's own buildRows() already
+ *     makes below (without an `options` argument) — the dashboard's
+ *     checklist row keeps the exact string it rendered before this issue.
+ *   'timeOnly' — "7:00 PM": undated (the admin board card the chip sits on
+ *     already carries no other date context, so a scheduled flash on ANY
+ *     configured day reads as just a time), title-case AM/PM, spaced — the
+ *     approved screen's own literal quote (issue #763, "Flash at 7:00 PM").
+ *     Consumed by src/routes/admin.js's GET /admin/tasks projection for the
+ *     board chip and the edit popup's status strip.
+ *
  * @param {string} isoInstant
  * @param {string} timezone
+ * @param {{style?: 'dated'|'timeOnly'}} [options]
  * @returns {string}
  */
-function formatFlashWhen(isoInstant, timezone) {
+function formatFlashWhen(isoInstant, timezone, options) {
+  const style = (options && options.style) || 'dated';
   const when = new Date(isoInstant);
+
+  if (style === 'timeOnly') {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(when);
+  }
+
   const datePart = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     month: 'short',
@@ -461,4 +491,5 @@ module.exports = {
   isManualChecked,
   setManualChecked,
   MANUAL_ITEMS,
+  formatFlashWhen,
 };

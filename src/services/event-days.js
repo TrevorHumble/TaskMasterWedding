@@ -24,6 +24,14 @@
 //      singleDayLabel(dateIso) -- the "Aug 7" label for ONE date, unlike
 //      eventDays() above which can only label a date inside an enumerated
 //      start/end range.
+//
+// A fourth, added by issue #763 for the flash-task scheduler (src/routes/
+// admin.js's resolveFlashWrite): "when does a given event day open at a
+// SPECIFIC time of day", not just at local midnight.
+//   4. eventLocalInstant(dateIso, timezone, hour, minute) -- the general
+//      form of #3's dayOpensAt(), which is now a thin wrapper over this
+//      function with hour/minute fixed at 0/0 rather than a second copy of
+//      the same candidate-selection algorithm.
 // Timezone comes from db.getEventConfig().timezone -- callers pass it in
 // rather than this module reading db itself, keeping this file dependency-
 // free (no `db` require, matching src/services/tasks.js's own reasoning) so
@@ -166,18 +174,18 @@ function eventLocalDateString(timezone, instant) {
 }
 
 /**
- * The UTC offset (in milliseconds, east-of-UTC positive) `timezone` is
- * observing at `utcMs`. Internal helper for dayOpensAt() below: read what a
- * wall clock in `timezone` shows at that instant, then re-interpret that
- * wall-clock reading AS IF it were itself a UTC instant -- the difference
- * between the two is exactly the zone's current offset. Standard technique
- * for deriving a specific-instant zone offset from Intl alone (no fixed
- * offset table, so it is correct across a DST transition).
+ * `timezone`'s wall-clock reading (calendar + time-of-day, as plain numbers)
+ * at `utcMs`. Internal helper shared by tzOffsetMs() and eventLocalInstant()
+ * below (issue #763 plan step 1) — both need the SAME full-precision reading (not
+ * just the date eventLocalDateString() returns), so this is the one place
+ * formatToParts is called with the h23/second-precision option set, rather
+ * than each caller building its own formatter that could silently drift out
+ * of step (e.g. one using hour12).
  * @param {string} timezone
  * @param {number} utcMs
- * @returns {number}
+ * @returns {{year:number, month:number, day:number, hour:number, minute:number, second:number}}
  */
-function tzOffsetMs(timezone, utcMs) {
+function wallClockParts(timezone, utcMs) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     // hourCycle: 'h23' (issue #753 review fix, replacing hour12: false) makes
@@ -194,55 +202,147 @@ function tzOffsetMs(timezone, utcMs) {
     second: '2-digit',
   }).formatToParts(new Date(utcMs));
   const get = (type) => Number(parts.find((p) => p.type === type).value);
-  const asIfUtc = Date.UTC(
-    get('year'),
-    get('month') - 1,
-    get('day'),
-    get('hour'),
-    get('minute'),
-    get('second')
-  );
+  return {
+    year: get('year'),
+    month: get('month'),
+    day: get('day'),
+    hour: get('hour'),
+    minute: get('minute'),
+    second: get('second'),
+  };
+}
+
+/**
+ * The UTC offset (in milliseconds, east-of-UTC positive) `timezone` is
+ * observing at `utcMs`. Internal helper for eventLocalInstant() below: read what a
+ * wall clock in `timezone` shows at that instant, then re-interpret that
+ * wall-clock reading AS IF it were itself a UTC instant -- the difference
+ * between the two is exactly the zone's current offset. Standard technique
+ * for deriving a specific-instant zone offset from Intl alone (no fixed
+ * offset table, so it is correct across a DST transition).
+ * @param {string} timezone
+ * @param {number} utcMs
+ * @returns {number}
+ */
+function tzOffsetMs(timezone, utcMs) {
+  const w = wallClockParts(timezone, utcMs);
+  const asIfUtc = Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute, w.second);
   return asIfUtc - utcMs;
 }
 
 /**
- * The absolute instant local midnight of `dateIso` (YYYY-MM-DD) occurs in
- * `timezone`, as a UTC Date. Two-pass offset resolution (compute the offset
- * at a naive UTC-midnight guess, re-derive the instant, then re-check the
- * offset at THAT instant and correct once more if it moved) so a date that
- * falls exactly on a DST transition still resolves to the real local
- * midnight rather than the wrong side of the transition by an hour.
+ * The absolute instant `dateIso` (YYYY-MM-DD) at wall-clock `hour:minute`
+ * occurs in `timezone`, as a UTC Date. `hour`/`minute` default to `0`/`0` --
+ * local midnight -- so dayOpensAt() below can be a thin 2-argument wrapper
+ * over this function (issue #763 PR review, M5): the two questions this
+ * module answers -- "when is local midnight" and "when is this specific
+ * event-local wall-clock moment" -- are different enough to need different
+ * names even though one is a special case of the other, and #753's seal
+ * predicate / #754's daily-challenge callers keep asking exactly the
+ * question they always asked, byte-identical (see the regression note
+ * below).
  *
- * Some zones skip local midnight entirely on a DST-forward transition (issue
- * #753 review fix) -- e.g. America/Santiago on 2026-09-06, which jumps
- * 00:00 straight to 01:00. There the naive first pass already lands on the
- * correct instant (the first real moment of that calendar day), but the
- * second pass's offset re-check sees the POST-transition offset and
- * "corrects" past it onto the tail end of the PREVIOUS day instead. The
- * round-trip check below catches exactly this: a corrected candidate that
- * no longer reads back as `dateIso` in `timezone` is discarded in favor of
- * the uncorrected one, which — having no real local midnight to land on
- * either side of the correction — is the right answer for that case.
+ * Candidate-selection rule (issue #763 Corrections A and B — NOT a widened
+ * round-trip guard; that rule silently returns an instant an HOUR EARLY for
+ * a gap time in a zone east of UTC, and regresses the two-argument
+ * skipped-local-midnight-east-of-UTC case — both demonstrated in the issue's
+ * "The date math" section with failing zones):
+ *
+ *   1. Compute two candidate instants for the naive UTC reading of
+ *      `dateIso T hour:minute` -- the offset observed AT that naive instant
+ *      (candidate A), and the offset observed AT candidate A itself
+ *      (candidate B). These two bracket a DST transition landing on the
+ *      requested wall time; on an ordinary day (no nearby transition) they
+ *      are the same instant.
+ *   2. If either candidate's OWN local reading equals the request EXACTLY
+ *      (calendar date AND time-of-day), return it. This is the ordinary case
+ *      (no transition nearby) and the AMBIGUOUS case (a fall-back transition,
+ *      where both candidates read back correctly but at different UTC
+ *      instants) -- candidate A is checked first, so an ambiguous wall time
+ *      resolves to its FIRST occurrence, never its second.
+ *   3. Otherwise the requested wall time does not exist (a spring-forward
+ *      transition jumped over it -- a "gap"): return the EARLIEST candidate
+ *      whose local reading is AT OR AFTER the request. This is what makes a
+ *      gap resolve to the first real moment at or after the request, in
+ *      EITHER direction from UTC -- the naive "always take the corrected
+ *      candidate" rule the widened-guard proposal used gets this backwards
+ *      for a zone east of UTC (issue #763 Correction B's Paris/Sydney probe).
+ *   4. If somehow neither candidate is at-or-after (not reachable by any
+ *      case this file's own regression probe or issue #763's table
+ *      exercises, but defensive rather than silently wrong): the later of
+ *      the two candidates, which is the first real moment of the requested
+ *      day in every skipped-local-midnight case actually observed.
+ *
+ * Verified (issue #763): the DST-gap table in "The date math" (Boise west,
+ * Paris/Sydney east), the Boise ambiguous-hour case (first occurrence), and
+ * two regression sweeps committed in tests/event-days.test.js, both run
+ * across every zone `Intl.supportedValuesOf('timeZone')` reports (418 zones
+ * on the Node version this was verified against) and 9 transition-adjacent
+ * dates (3,762 zone/date pairs): dayOpensAt()'s hour=0/minute=0 output
+ * against a locally-defined copy of the PRE-#763 two-argument algorithm
+ * (zero differences), and this function's output at a non-midnight wall time
+ * against the "never reads back before the request" invariant (zero
+ * violations). Both sweeps are real committed tests, not a claim recorded
+ * only here.
+ *
+ * @param {string} dateIso - YYYY-MM-DD
+ * @param {string} timezone - an IANA zone name.
+ * @param {number} [hour] - 0-23, defaults to 0.
+ * @param {number} [minute] - 0-59, defaults to 0.
+ * @returns {Date}
+ */
+function eventLocalInstant(dateIso, timezone, hour, minute) {
+  const h = hour == null ? 0 : hour;
+  const mi = minute == null ? 0 : minute;
+  const [y, m, d] = dateIso.split('-').map(Number);
+  const naiveUtc = Date.UTC(y, m - 1, d, h, mi, 0);
+
+  const offsetA = tzOffsetMs(timezone, naiveUtc);
+  const candidateA = naiveUtc - offsetA;
+  const offsetB = tzOffsetMs(timezone, candidateA);
+  const candidateB = naiveUtc - offsetB;
+  const candidates = candidateA === candidateB ? [candidateA] : [candidateA, candidateB];
+
+  const readsAsRequested = (ms) => {
+    const w = wallClockParts(timezone, ms);
+    return w.year === y && w.month === m && w.day === d && w.hour === h && w.minute === mi;
+  };
+  const exact = candidates.find(readsAsRequested);
+  if (exact !== undefined) {
+    return new Date(exact);
+  }
+
+  // No candidate reads back exactly -- a DST gap swallowed the requested
+  // wall time. A single sortable integer key per reading (year/month/day/
+  // hour/minute, most-significant first) lets "at or after" compare across
+  // a month/year boundary the same as within one day.
+  const requestedKey = ((y * 100 + m) * 100 + d) * 10000 + h * 100 + mi;
+  const readingKey = (ms) => {
+    const w = wallClockParts(timezone, ms);
+    return ((w.year * 100 + w.month) * 100 + w.day) * 10000 + w.hour * 100 + w.minute;
+  };
+  const atOrAfter = candidates.filter((ms) => readingKey(ms) >= requestedKey).sort((a, b) => a - b);
+  if (atOrAfter.length > 0) {
+    return new Date(atOrAfter[0]);
+  }
+  return new Date(Math.max(...candidates));
+}
+
+/**
+ * The absolute instant local midnight of `dateIso` (YYYY-MM-DD) occurs in
+ * `timezone`, as a UTC Date -- the two-argument question #753's seal
+ * predicate and #754's daily-challenge callers have always asked. A thin
+ * wrapper over eventLocalInstant() above (hour/minute fixed at 0/0), not a
+ * second copy of the algorithm, so the two can never drift apart (issue
+ * #763 PR review, M5 -- this function's name must keep meaning exactly this
+ * one question now that eventLocalInstant() answers the general one).
  *
  * @param {string} dateIso - YYYY-MM-DD
  * @param {string} timezone - an IANA zone name.
  * @returns {Date}
  */
 function dayOpensAt(dateIso, timezone) {
-  const [y, m, d] = dateIso.split('-').map(Number);
-  const naiveUtc = Date.UTC(y, m - 1, d, 0, 0, 0);
-  const offset1 = tzOffsetMs(timezone, naiveUtc);
-  const uncorrectedMs = naiveUtc - offset1;
-  let instantMs = uncorrectedMs;
-  const offset2 = tzOffsetMs(timezone, instantMs);
-  if (offset2 !== offset1) {
-    const correctedMs = naiveUtc - offset2;
-    instantMs =
-      eventLocalDateString(timezone, new Date(correctedMs)) === dateIso
-        ? correctedMs
-        : uncorrectedMs;
-  }
-  return new Date(instantMs);
+  return eventLocalInstant(dateIso, timezone, 0, 0);
 }
 
 /**
@@ -271,5 +371,6 @@ module.exports = {
   eventDays,
   eventLocalDateString,
   dayOpensAt,
+  eventLocalInstant,
   singleDayLabel,
 };

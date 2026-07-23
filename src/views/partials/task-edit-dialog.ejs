@@ -87,6 +87,16 @@
           </span>
         </label>
         <%- include('special-oneday-option', { idPrefix: 'task-edit', eventDays: eventDays }) %>
+        <%# Flash sits directly under One day only — the position the owner
+            approved on 2026-07-22, before #650's Lucky option landed as a
+            sibling. Lucky follows it rather than displacing it.
+            Rendered with the safe "nothing armed" default (this dialog is
+            ONE shared <dialog> reused for every card, so no single render
+            can know which task will be tapped next) — admin-tasks.js's
+            openEdit() fills the real per-task state client-side off the
+            tapped card's own data-flash-* attributes (issue #763 criterion
+            6), the same pattern the day/bonus and lucky chips already use. %>
+        <%- include('special-flash-option', { idPrefix: 'task-edit', eventDays: eventDays }) %>
         <%- include('special-lucky-option', { idPrefix: 'task-edit', eventDays: eventDays }) %>
       </div>
       <%# Carries a stored special_date that matches no rendered day chip
