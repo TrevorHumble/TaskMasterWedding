@@ -1915,3 +1915,21 @@ exactly one owner, `src/services/scoring.js`; every reader (`getPoints`, `leader
 `feed.slideshowSequence`, `notifications.js`'s recap copy) reads points off `crowdFavorites()`'s own output
 rather than re-deriving the mapping. The standard-competition ranking ALGORITHM itself has exactly one
 owner, `src/services/rank.js`'s `standardRank` — `scoring.crowdFavorites()` is its only caller today.
+
+## Crowd-favorite crown: a render-time marker, never a stored badge (#788)
+
+**Date:** 2026-07-23. **Status:** accepted.
+
+The crown a top-5 photo wears on its tile (`partials/crowd-favorite-mark.ejs`, composing the shared
+`partials/crown.ejs`) is read straight off the SAME live `scoring.crowdFavorites()` call the points economy
+already reads (see "Crowd favorites: derived not materialized" above) — it is never a `guest_badges` row and
+never a `badges` catalog row. `crowdFavorites()` remains the one function that decides "who is a crowd
+favorite, at what rank" (its own doc comment); this issue adds no second decider, only three call sites
+(`src/routes/community.js`'s GET /gallery, GET /feed, and GET /u/:guestId handlers) that each call it exactly
+once per request and hand their view a plain `submission_id -> rank` lookup object built from that one call.
+The gallery, feed, and public-profile views render the crown purely from that lookup — none of them re-sorts
+or re-counts likes on its own — so a like/unlike/takedown/restore moves the crown on the very next render with
+no separate write, the same "nothing is ever stored, so nothing can go stale" property the points term
+already has. One partial renders the mark on all three surfaces (gold for rank 1, plain white for ranks 2–5,
+`--place-1` the same token the leaderboard podium and slideshow use for "only the winner is gold"), so the
+mark cannot drift per page.

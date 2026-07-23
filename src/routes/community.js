@@ -336,6 +336,27 @@ function attachPhotoPoints(photos) {
   return photos;
 }
 
+/**
+ * The event-wide crowd-favorite rank lookup (issue #788 phase 2): a plain
+ * `submission_id -> rank` object built from ONE `scoring.crowdFavorites()`
+ * call, the single derived set that decides who places and at what rank
+ * (scoring.js's own doc comment). This is a thin re-key from that array to a
+ * lookup object — nothing here re-derives a like ranking of its own. Every
+ * crowd-favorite surface (GET /gallery, GET /feed, GET /u/:guestId) calls
+ * this exactly once per request and hands the result straight to its view,
+ * which renders the shared partials/crowd-favorite-mark from it and nothing
+ * else (AC1). Rank 1 is gold; the crown mark itself owns that distinction
+ * (partials/crowd-favorite-mark.ejs), not this lookup.
+ * @returns {Object<number, number>} submission_id -> rank (1 is best)
+ */
+function crownRankLookup() {
+  const lookup = {};
+  for (const placing of scoring.crowdFavorites()) {
+    lookup[placing.submission_id] = placing.rank;
+  }
+  return lookup;
+}
+
 // ---------------------------------------------------------------------------
 // GET /gallery  — the shared photo wall.
 //
@@ -371,6 +392,11 @@ function renderGallery(
       total,
       taskFilter,
       q,
+      // One crowdFavorites() call per request (issue #788 AC1) — every
+      // branch above calls renderGallery exactly once and returns, so this
+      // single call point covers the whole handler regardless of which
+      // branch ran.
+      crownRank: crownRankLookup(),
     })
   );
 }
@@ -456,6 +482,8 @@ router.get('/feed', (req, res) => {
       captionMaxLength: submissions.CAPTION_MAX_LENGTH,
       olderHref,
       newerHref,
+      // One crowdFavorites() call per request (issue #788 AC1).
+      crownRank: crownRankLookup(),
     })
   );
 });
@@ -996,6 +1024,8 @@ router.get('/u/:guestId', (req, res, next) => {
       socialLinks,
       photos,
       score,
+      // One crowdFavorites() call per request (issue #788 AC1).
+      crownRank: crownRankLookup(),
     })
   );
 });

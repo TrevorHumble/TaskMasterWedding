@@ -82,12 +82,22 @@
       headers: { Accept: 'application/json' },
     })
       .then(function (res) {
+        // A blocked self-like (#712) comes back 403 — you can't vote for your
+        // own photo. Play a small "nope" fail animation and record nothing
+        // (#788), rather than falling through to a full-page form POST.
+        if (res.status === 403) {
+          nopeLike(form);
+          return null;
+        }
         if (!res.ok) {
           throw new Error('like toggle failed: ' + res.status);
         }
         return res.json();
       })
       .then(function (data) {
+        if (data === null) {
+          return;
+        }
         var article = form.closest('.feed-item');
         if (!article) {
           return;
@@ -116,6 +126,19 @@
         // do its redirect-based round trip instead.
         form.submit();
       });
+  }
+
+  // Play the "nope" shake on a blocked self-like (#788). Re-adding the class
+  // after a reflow restarts the animation on repeat taps, the same trick the
+  // like-button-pop animation above uses.
+  function nopeLike(form) {
+    var button = form.querySelector('.like-button');
+    if (!button) {
+      return;
+    }
+    button.classList.remove('like-button-nope');
+    void button.offsetWidth;
+    button.classList.add('like-button-nope');
   }
 
   // ------------------------------------------------------------------

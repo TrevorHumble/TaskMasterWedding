@@ -2006,6 +2006,33 @@ textarea {
   font-size: var(--fs-h3);
   font-weight: 600;
 }
+/* Crowd-favorite crown on a top-5 photo (#788). One mark, shared across the
+   gallery / feed / profile tiles. Rank 1 wears it gold; 2–5 read plain white —
+   the same "only the winner is gold" rule the slideshow uses (--slideshow-gold
+   / --place-1). The dark disc keeps the crown legible on any photo. */
+.cf-crown {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(20, 30, 24, 0.55);
+  color: #fff;
+  pointer-events: none;
+}
+.cf-crown svg {
+  display: block;
+}
+.cf-crown-gold {
+  color: var(--place-1);
+  background: rgba(20, 30, 24, 0.62);
+  box-shadow: 0 0 0 1.5px var(--place-1);
+}
 .gallery-thumb-btn {
   display: block;
   width: 100%;
@@ -2346,6 +2373,16 @@ textarea {
 }
 .feed-photo-link {
   display: block;
+  /* Anchor the crowd-favorite crown (#788) to the photo's corner. */
+  position: relative;
+}
+/* The feed photo is large, so its crown sits a little further in and larger
+   than the dense-grid gallery/profile tiles. */
+.feed-photo-link .cf-crown {
+  top: 12px;
+  left: 12px;
+  transform: scale(1.3);
+  transform-origin: top left;
 }
 /* No grey placeholder box (owner directive, #248) — the thumbnail's own
    pixels are the only fill; a background here would show through as a flash
@@ -2451,6 +2488,30 @@ textarea {
     }
     100% {
       transform: scale(1);
+    }
+  }
+  /* Blocked self-like (#788): the server refuses a like on your own photo
+     (#712, 403). /js/feed.js adds .like-button-nope so the heart shakes "no"
+     and records nothing, instead of the ordinary pop. */
+  .like-button-nope .like-heart {
+    animation: like-nope 400ms ease;
+  }
+  @keyframes like-nope {
+    0%,
+    100% {
+      transform: translateX(0) rotate(0);
+    }
+    20% {
+      transform: translateX(-3px) rotate(-7deg);
+    }
+    40% {
+      transform: translateX(3px) rotate(7deg);
+    }
+    60% {
+      transform: translateX(-2px) rotate(-4deg);
+    }
+    80% {
+      transform: translateX(2px) rotate(4deg);
     }
   }
 }

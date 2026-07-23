@@ -42,9 +42,16 @@
     <p class="muted">No photos yet. Be the first to share one!</p>
   <% } %>
 
+  <%# Crowd-favorite rank lookup (issue #788): submission_id -> rank (1 is
+      gold), supplied by the route from ONE scoring.crowdFavorites() call.
+      Defaults to an empty lookup when a caller renders this view without it,
+      so the crown mark below simply matches nothing rather than throwing. %>
+  <% var crownRank = (typeof crownRank !== 'undefined' && crownRank) ? crownRank : {}; %>
+
   <%
     /* One photo tile: thumbnail linking into the feed at that photo, with a
-       like-count badge only when likes exist (no badge at 0). overlayCount
+       like-count badge only when likes exist (no badge at 0). A top-5
+       crowd-favorite photo also wears its crown (issue #788). overlayCount
        and overlayHref, when given, render the "+N" scrim on this tile
        (grouped previews, issue #251) and repoint the tile at the full list. */
     function renderTile(p, overlayCount, overlayHref) {
@@ -63,6 +70,9 @@
           width="400"
           height="400"
         />
+        <% if (!overlayCount && crownRank[p.submission_id]) { %>
+          <%- include('partials/crowd-favorite-mark', { rank: crownRank[p.submission_id] }) %>
+        <% } %>
         <% if (overlayCount) { %>
           <span class="tile-more">+<%= overlayCount %></span>
         <% } else if (p.like_count > 0) { %>

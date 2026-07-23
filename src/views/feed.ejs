@@ -4,6 +4,12 @@
 
   <h1 class="page-title">Feed</h1>
 
+  <%# Crowd-favorite rank lookup (issue #788): submission_id -> rank (1 is
+      gold), supplied by the route from ONE scoring.crowdFavorites() call.
+      Defaults to an empty lookup when a caller renders this view without it,
+      so the crown mark below simply matches nothing rather than throwing. %>
+  <% var crownRank = (typeof crownRank !== 'undefined' && crownRank) ? crownRank : {}; %>
+
   <% if (photos.length === 0) { %>
     <p class="muted">No photos yet. Be the first to share one!</p>
   <% } %>
@@ -50,6 +56,9 @@
             alt="<%= p.task_title || 'a shared memory' %>"
             loading="lazy"
           />
+          <% if (crownRank[p.submission_id]) { %>
+            <%- include('partials/crowd-favorite-mark', { rank: crownRank[p.submission_id] }) %>
+          <% } %>
         </a>
 
         <% if (p.caption) { %>
