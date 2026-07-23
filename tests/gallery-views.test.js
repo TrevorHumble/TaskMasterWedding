@@ -413,6 +413,36 @@ describe('#251 AC4: pinned guest leads By person despite an older photo', () => 
 });
 
 // ---------------------------------------------------------------------------
+// #527 AC3 — the By-task view actually loads the live-filter wiring
+// ---------------------------------------------------------------------------
+describe('#527 AC3: By-task view loads the live-filter wiring; recent view does not', () => {
+  it('view=task carries #task-search, a matching data-task-section, and both scripts', async () => {
+    const res = await agent.get('/gallery?view=task');
+    expect(res.status).toBe(200);
+
+    expect(res.text).toContain('id="task-search"');
+
+    // The data-task-section value must equal the rendered h2 heading text for
+    // that same group — read the heading straight out of the markup rather
+    // than hard-coding it, so this assertion can't drift from what's above.
+    const headingMatch = res.text.match(/<h2 class="gallery-group-heading">([^<]*)<\/h2>/);
+    expect(headingMatch).not.toBeNull();
+    const heading = headingMatch[1];
+    expect(res.text).toContain(`data-task-section="${heading}"`);
+
+    expect(res.text).toContain('<script src="/js/filter.js"');
+    expect(res.text).toContain('<script src="/js/gallery.js"');
+  });
+
+  it('view=recent loads neither /js/gallery.js nor /js/filter.js', async () => {
+    const res = await agent.get('/gallery?view=recent');
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('/js/gallery.js');
+    expect(res.text).not.toContain('/js/filter.js');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // #251 AC6 — "Show more" replaces "Older →" on a multi-page recent wall
 // ---------------------------------------------------------------------------
 describe('#251 AC6: Show more pagination', () => {

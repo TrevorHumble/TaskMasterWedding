@@ -1478,6 +1478,39 @@ form, and `tests/lucky-task.test.js`'s board-contract cases go red if `GET /admi
 `data-special-kind` or the lucky pair. Before those existed, deleting the server field left the entire
 suite green.
 
+## Gallery live search: one parameterized wiring serves both grouped views (#527)
+
+**Date:** 2026-07-22. **Status:** accepted, owner-approved live on a seeded preview.
+
+**What changed.** The By-task view's search input now live-filters as the guest types, the same as
+By-person already did (issue #251). `src/public/js/gallery.js`'s person-only `applyPersonFilter` /
+`wireUpPersonSearch` (issue #251) are generalized into one `applySectionFilter(sections, query, matches,
+attribute)` and one `wireUpSectionSearch(inputId, attribute)`, each taking the section attribute (and
+input id) as an argument instead of assuming `data-person-section`. A `SEARCHABLE_VIEWS` table plus a
+`wireUpGallerySearch()` bootstrap call the one wiring function once per grouped view
+(`person-search`/`data-person-section` and `task-search`/`data-task-section`). Adding a third grouped view
+needs a row in that table plus three edits in `src/views/gallery.ejs` — the input id, the section's
+`data-*` attribute, and the script-include condition; what the table guarantees is that none of them is a
+second filter implementation, not that the view is a one-line addition. `wireUpSectionSearch` is a no-op when its
+input isn't on the current page, so both calls run unconditionally on every load — the By-person and
+By-task views are never rendered together, so this never wires two live filters against one page. This is
+the single owner of "does this section's heading match what the guest typed": both call sites reach the
+same function, which itself reaches the one injected match rule (`HuntFilter.nameMatchesQuery`, from
+`src/public/js/filter.js`) — there is no second, copy-pasted matching implementation anywhere in the
+gallery.
+
+**Why the live rule and the no-JS `?q=` fallback deliberately stay two different match rules.** Each grouped
+view's search input still submits to a plain GET `?q=` for guests with JS disabled; that path is a
+server-side substring match, unrelated in shape to the live filter's any-word-prefix rule. This divergence
+predates this issue — `feed.grouped()` in `src/services/feed.js` already owned the substring fallback for
+both grouped views before #527 (the route never touches it; `src/routes/community.js` delegates visibility
+and filtering to the service) — and is intentionally preserved, not reconciled. Note the two rules are
+**incomparable, not ordered**: neither is strictly broader. `av fe` matches live but not server-side;
+`ess` matches server-side but not live. So a guest who live-filters to a result and then presses Enter can
+land on the empty state, and vice versa — a known, accepted consequence of leaving both rules as they are. Issue
+#527's ask was parity between By-person's and By-task's _live_ behavior, not a rule change on either side —
+folding the two rules together was explicitly out of scope (see the issue's "Explicitly out of scope").
+
 ## Flash task: HOST surface — sentinel radio, one no-op rule, candidate-selection date math (#763)
 
 **Date:** 2026-07-22. **Status:** accepted; write path + host UI shipped, owner-approved screen
