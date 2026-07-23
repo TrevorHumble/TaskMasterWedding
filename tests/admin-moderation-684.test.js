@@ -66,15 +66,6 @@ function feedCardChunk(html, submissionId) {
   return html.slice(start, end);
 }
 
-/** Slice out the give-a-badge dialog markup, which is shared (one per page). */
-function badgeDialogChunk(html) {
-  const start = html.indexOf('id="adminBadgeDialog"');
-  expect(start).toBeGreaterThan(-1);
-  const openTagStart = html.lastIndexOf('<dialog', start);
-  const end = html.indexOf('</dialog>', start);
-  return html.slice(openTagStart, end);
-}
-
 // ---------------------------------------------------------------------------
 // AC1: kebab takedown/restore
 // ---------------------------------------------------------------------------
@@ -138,22 +129,14 @@ describe('AC1: kebab takedown/restore', () => {
 // ---------------------------------------------------------------------------
 // AC2: the give-a-badge dialog is award-only
 // ---------------------------------------------------------------------------
-describe('AC2: badge dialog is award-only', () => {
-  it('the give-a-badge dialog contains no Take down/Restore control', async () => {
-    const taskId = insertTask('AC2 Task');
-    const guestId = insertGuest('AC2 Guest', 'ac2-684-guest');
-    insertSubmission({ guestId, taskId, photoPath: 'ac2-684.jpg', thumbPath: 'ac2-684-t.jpg' });
-
-    const res = await adminAgent.get('/admin/photos');
-    const dialog = badgeDialogChunk(res.text);
-    expect(dialog).not.toContain('Take down');
-    expect(dialog).not.toContain('Restore photo');
-    expect(dialog).not.toContain('/takedown"');
-    expect(dialog).not.toContain('/restore"');
-    // It still awards.
-    expect(dialog).toContain('Award badge');
-  });
-});
+// AC2 (issue #684: "badge dialog is award-only, no Take down/Restore
+// control") is now moot — issue #661 deleted the give-a-badge dialog
+// (id="adminBadgeDialog") outright, along with the picker it drove
+// (src/services/photo-badges.js, badge_winners). There is no dialog left to
+// assert "award-only" about; see tests/admin-photos-ui.test.js's
+// "AC6/AC8 (retired by #661)" block for the coverage of that retirement, and
+// tests/task-badge-rank-release.test.js for the ranking screen that replaced
+// it.
 
 // ---------------------------------------------------------------------------
 // AC3: a taken-down photo grays out in the feed viewer

@@ -660,8 +660,22 @@ function seedEvent(db, options = {}) {
   }
   scoring.recomputeTransferableBadges();
 
-  // Hand-award a handful of special badges (admin-style), spread deterministically.
-  const SPECIAL_CODES = ['EARLYBIRD', 'SHUTTERBUG', 'CROWDFAV', 'CHOICE'];
+  // Hand-award a handful of special badges (admin-style), spread
+  // deterministically. EARLYBIRD is the only pre-seeded 'special' catalog
+  // code left (issue #661 retired SHUTTERBUG/CROWDFAV/CHOICE — those three
+  // collided in NAME ONLY with the now-deleted give-a-badge photo-winner
+  // picker's own codes, per that issue's "one-badge-system" consolidation).
+  // Three fixture-local 'custom' rows (admin-awardable, same as 'special' —
+  // scoring.js's ADMIN_AWARDABLE_TYPES) fill the rest of the spread this
+  // fixture always intended, rather than silently no-op'ing three of every
+  // four awardSpecialBadge calls against codes that no longer exist.
+  db.prepare(
+    `INSERT OR IGNORE INTO badges (code, name, type, threshold, art_path, description)
+     VALUES ('EVENT-FIXTURE-A', 'Fixture Badge A', 'custom', NULL, '/badges/default-ribbon.svg', ''),
+            ('EVENT-FIXTURE-B', 'Fixture Badge B', 'custom', NULL, '/badges/default-ribbon.svg', ''),
+            ('EVENT-FIXTURE-C', 'Fixture Badge C', 'custom', NULL, '/badges/default-ribbon.svg', '')`
+  ).run();
+  const SPECIAL_CODES = ['EARLYBIRD', 'EVENT-FIXTURE-A', 'EVENT-FIXTURE-B', 'EVENT-FIXTURE-C'];
   const specialRecipients = shuffledIndices(rng, guestCount).slice(
     0,
     Math.min(guestCount, SPECIAL_CODES.length * 2)

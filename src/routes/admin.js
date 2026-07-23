@@ -38,8 +38,11 @@
 //   POST /admin/photos/:id/restore       unhide a photo + recompute auto-badges
 //   POST /admin/photos/:id/points        RETIRED (issue #684) -> 404 (renderNotFound)
 //   POST /admin/photos/:id/favorite      toggle the host-scoped favorite flag (issue #259)
-//   POST /admin/photos/:id/badge         award/remove a photo as a give-a-badge winner
-//                                         (issue #259; award-only, no moderation — #684)
+//   POST /admin/photos/:id/badge         RETIRED (issue #661) -> 404 (renderNotFound); the
+//                                         give-a-badge photo-winner picker is replaced by the
+//                                         per-task rank-and-award page below
+//   GET/POST /admin/tasks/:id/rank       rank a task's 1-5 best photos and release its badge +
+//                                         5/4/3/2/1 points in one confirm (issue #661)
 //   GET  /admin/comments                 RETIRED (issue #684) -> 404 (renderNotFound)
 //   POST /admin/comments/:id/hide        hide a comment (redirects to its photo's feed card, #684)
 //   POST /admin/comments/:id/restore     unhide a comment (redirects to its photo's feed card, #684)
@@ -65,7 +68,6 @@ const taskBadges = require('../services/task-badges');
 const tasks = require('../services/tasks');
 const badgeIcons = require('../services/badge-icons');
 const favoritesSvc = require('../services/favorites');
-const photoBadges = require('../services/photo-badges');
 const feed = require('../services/feed');
 const { streamExportZip } = require('../services/export');
 const { normalizeContact, isValidPin } = require('../services/identity');
@@ -2213,6 +2215,102 @@ router.post('/tasks/reorder-all', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET/POST /admin/tasks/:id/rank  — rank & award (issue #661).
+//
+// The host picks task T's 1-5 best photos, drags them into placing order,
+// and releases T's own badge + 5/4/3/2/1 points in one confirm. Superseds the
+// five-code give-a-badge photo-winner picker (photo-badges.js, deleted) —
+// this is the ONLY place a task's photos win a badge now.
+//
+// GET renders the page: T's title/description/badge, every one of T's
+// CURRENTLY VISIBLE photos as pick-grid candidates, and the badge's current
+// ranked winners (empty before the first release). `released` (the settings
+// marker, task-badges.isTaskBadgeAwarded) tells the client whether to open in
+// the read-only Awarded state or the live editor — see
+// src/public/js/admin-badge-rank.js for how a tap on any photo exits Awarded
+// and re-enters editing (AC6's "re-ranking a released task").
+//
+// POST releases: body `winners` is a comma-separated, ORDERED list of
+// submission ids (1st place first), built client-side from the picked/
+// dragged DOM order — there is no separate persistence endpoint per drop
+// (see admin-badge-rank.js), only this one confirm. task-badges.releaseRanking
+// does the real validation (every id must be a currently-visible submission
+// of THIS task, 1-5 entries, no duplicates) and the atomic whole-set write;
+// this route only parses the posted string and redirects with the outcome.
+// ---------------------------------------------------------------------------
+const stmtTaskForRank = db.prepare('SELECT id, title, description FROM tasks WHERE id = ?');
+const stmtVisibleTaskPhotosForRank = db.prepare(`
+  SELECT s.id AS id, s.thumb_path AS thumb_path, g.id AS guest_id, g.name AS guest_name
+    FROM submissions s
+    JOIN guests g ON g.id = s.guest_id
+   WHERE s.task_id = ? AND s.taken_down = 0
+   ORDER BY s.created_at DESC, s.id DESC
+`);
+
+router.get('/tasks/:id/rank', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const task = stmtTaskForRank.get(id);
+  if (!task) {
+    return renderNotFound(req, res);
+  }
+
+  const badge = taskBadges.resolveTaskBadge(id);
+
+  res.render('admin-badge-rank', {
+    title: 'Rank & award',
+    task,
+    badge: taskBadges.toTaskBadgeView(badge),
+    photos: stmtVisibleTaskPhotosForRank.all(id),
+    winners: taskBadges.currentRanking(id),
+    released: taskBadges.isTaskBadgeAwarded(id),
+    maxWinners: taskBadges.MAX_RANKED_WINNERS,
+    // Serialized down to the client the same way maxWinners is (issue #661
+    // PR review, major): task-badges.js's POINTS_BY_RANK stays the ONE
+    // place this mapping is declared — admin-badge-rank.js reads it off
+    // this local instead of keeping its own hand-synced copy.
+    pointsByRank: taskBadges.POINTS_BY_RANK,
+    msg: req.query.msg || '',
+    isAdmin: true,
+  });
+});
+
+router.post('/tasks/:id/rank', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const task = stmtTaskForRank.get(id);
+  if (!task) {
+    return renderNotFound(req, res);
+  }
+
+  // A comma-separated ORDERED id list (position = placement) — see this
+  // route's own file comment above for why a plain form field, not JSON,
+  // carries it. A non-digit entry (stale/tampered post) is dropped rather
+  // than crashing parseInt; releaseRanking's own validation is what actually
+  // decides whether the resulting list is acceptable.
+  const raw = typeof req.body.winners === 'string' ? req.body.winners.trim() : '';
+  const submissionIds = raw
+    ? raw
+        .split(',')
+        .map((v) => parseInt(v, 10))
+        .filter((n) => Number.isInteger(n))
+    : [];
+
+  const result = submissionIds.length ? taskBadges.releaseRanking(id, submissionIds) : null;
+  if (!result) {
+    return redirectWithMsg(
+      res,
+      '/admin/tasks/' + id + '/rank',
+      'Could not release — the picks changed. Pick winners again and retry.'
+    );
+  }
+
+  redirectWithMsg(
+    res,
+    '/admin/tasks/' + id + '/rank',
+    'Badge released to ' + result.winners + (result.winners === 1 ? ' winner.' : ' winners.')
+  );
+});
+
+// ---------------------------------------------------------------------------
 // GET /admin/photos  — the full guest-gallery-parity screen (issue #259).
 //
 // view=recent (default): every submission (including taken-down — an admin
@@ -2363,14 +2461,15 @@ router.get('/photos', (req, res) => {
     ? db.prepare(photosSelect + ` WHERE s.task_id = ?` + photosOrder).all(taskScope.id)
     : db.prepare(photosSelect + photosOrder).all();
 
-  // Real favorite + badge-winner state, attached once so every derived view
-  // below (and the inline feed) shares the same row objects — no view can
-  // disagree with another about a given photo's state within one request.
+  // Real favorite state, attached once so every derived view below (and the
+  // inline feed) shares the same row objects — no view can disagree with
+  // another about a given photo's state within one request. The give-a-badge
+  // winner state this loop used to attach alongside it (_winnerCodes/_badged)
+  // is retired with the rest of photo-badges.js (issue #661) — task-photo
+  // ranking/award state now lives on GET /admin/tasks/:id/rank instead.
   const favIds = favoritesSvc.favoriteIdSet();
   for (const p of photoRows) {
     p._fav = favIds.has(p.id);
-    p._winnerCodes = photoBadges.winnerCodesFor(p.id);
-    p._badged = p._winnerCodes.length > 0;
   }
 
   // Attach every comment (hidden ones included) to each photo — the admin
@@ -2430,7 +2529,6 @@ router.get('/photos', (req, res) => {
     // had to re-derive it at each of a dozen sites is one `taskScope.id` away
     // from a TypeError on the default, unscoped page.
     taskScopeId: taskScope ? taskScope.id : '',
-    badgeCatalog: photoBadges.catalogWithCounts(),
     msg: req.query.msg || '',
     isAdmin: true,
   });
@@ -2477,43 +2575,14 @@ router.post('/photos/:id/favorite', (req, res) => {
   redirectToPhotos(req, res, nowFavorited ? 'Added to favorites.' : 'Removed from favorites.', id);
 });
 
-// POST /admin/photos/:id/badge  — award OR remove a photo as one of a
-// give-a-badge category's winners (issue #259 AC6/AC8).
-// Body: code = one of the five photo-badges.js catalog codes,
-//       action = "award", "remove", or "toggle" ("toggle" resolves against
-//       the photo's current winner state server-side, mirroring POST
-//       /admin/guests/:id/badge's own toggle action — the dialog's Award/
-//       Remove label is a client-side hint, not the source of truth, so a
-//       stale label can never award/remove the wrong direction).
-// Writes NO points (points/ranking are issue #661 — this table only records
-// "who's a candidate winner").
-router.post('/photos/:id/badge', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const code = (req.body.code || '').trim().toUpperCase();
-  const action = (req.body.action || 'toggle').trim();
-
-  const submission = db.prepare('SELECT id FROM submissions WHERE id = ?').get(id);
-  if (!submission) {
-    return redirectToPhotos(req, res, 'Submission not found.', id);
-  }
-  if (!photoBadges.isValidCode(code)) {
-    return redirectToPhotos(req, res, 'Unknown badge.', id);
-  }
-
-  let effective = action;
-  if (effective !== 'award' && effective !== 'remove') {
-    effective = photoBadges.isWinner(code, id) ? 'remove' : 'award';
-  }
-
-  const name = photoBadges.badgeName(code);
-  if (effective === 'remove') {
-    photoBadges.remove(code, id);
-    redirectToPhotos(req, res, 'Removed "' + name + '" badge.', id);
-  } else {
-    photoBadges.award(code, id);
-    redirectToPhotos(req, res, 'Awarded "' + name + '".', id);
-  }
-});
+// POST /admin/photos/:id/badge  — RETIRED (issue #661). The five-code
+// give-a-badge photo-winner picker (src/services/photo-badges.js,
+// badge_winners) is deleted outright by the one-badge-system consolidation —
+// registered to renderNotFound (not merely unregistered) so a stale
+// form/bookmark gets a real 404, same idiom as the other retired routes in
+// this file (see renderNotFound's own doc comment above). Ranking and
+// awarding a task's photos now happens on GET/POST /admin/tasks/:id/rank.
+router.post('/photos/:id/badge', renderNotFound);
 
 // POST /admin/photos/:id/points  — RETIRED (issue #684). The owner called the
 // freeform per-photo points override "unfair" — this write path is gone, not

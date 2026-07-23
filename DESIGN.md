@@ -148,7 +148,7 @@ The award — points, an optional note, and which submission earned it — lives
 
 This issue is the **foundation** slice only: the schema, the resolver, the admin task-board upload slot, and the minimal award-write path needed to make the model testable. It deliberately does not build the gallery award interface, the guest-facing earnable-badge view, or leaderboard badge display — those are separate, later issues that build on this model.
 
-**Amended (issue #706): the award model above is superseded by ranked five-photo awards, owner-settled 2026-07-19/20.** This section's `awardTaskBadge(taskId, submissionId, { points, note })` awards one task's badge to one photo. The settled model instead has the host rank each task's 5 best photos: rank 1 pays 5 points and wears the badge gold, rank 2 pays 4, down to rank 5 paying 1 — all five winners wear the badge, gold sorts first on every display surface. #661's rewrite replaces the single-award call with a five-winner ranked award, consolidating onto the badge substrate this section already established (`badges` + `guest_badges`, points and submission carried on the award row) rather than the disconnected `badge_winners` picker table that also exists in the codebase. Full model: `docs/game-design-points-badges.md`.
+**Amended (issue #706): the award model above is superseded by ranked award, owner-settled 2026-07-19/20, further amended 2026-07-23.** This section's `awardTaskBadge(taskId, submissionId, { points, note })` awards one task's badge to one photo — it is left in place for its own existing callers/tests, but is no longer the route-facing write path. **Corrected 2026-07-23 (owner, superseding the "five-photo" framing immediately above): the host ranks 1 to 5 of a task's best photos, their choice, not a forced five** — rank 1 pays 5 points and wears the badge gold, rank 2 pays 4, down to whichever rank is last paying 1; a single-winner release is valid (one badge, 5 points). `task-badges.releaseRanking(taskId, submissionIds)` is the new, SEPARATE write path (see "Rank & award" ADR below) consolidating onto the badge substrate this section already established (`badges` + `guest_badges`, points and submission carried on the award row) rather than the disconnected `badge_winners` picker table — which #661 deletes outright, along with its sole reader/writer `photo-badges.js`, rather than repointing it (see that ADR for why). Full model: `docs/game-design-points-badges.md` — that doc still describes a forced-five/worksheet-survives shape as of this writing and has not yet been reconciled with this correction; flagged for a follow-up doc-sync pass, not fixed in this change (out of #661's own `Touches`).
 
 ### Two UNIQUE constraints enforce the core rules in the schema
 
@@ -1595,3 +1595,137 @@ server-computed `data-flash-state`/`data-flash-strip-label` attributes the board
 `flashStripLabel` is non-empty exactly when the state is `active` or `scheduled`), and the client keys
 its own visibility toggle off that same label being non-empty rather than re-deriving the active/
 scheduled test a second time.
+
+## Rank & award: a separate page, one-badge-system consolidation, client-side-only draft state (#661)
+
+**Decision (owner, 2026-07-23, superseding the 2026-07-21 embedded-panel plan).** Ranking a task's photos
+and releasing its badge gets its own focused page — `GET/POST /admin/tasks/:id/rank`
+(`src/views/admin-badge-rank.ejs`, `src/public/js/admin-badge-rank.js`) — not a panel embedded in the
+task-scoped photos gallery (#748). The owner settled the screen and flow live in a phase-1 visual-approval
+loop the same day; `src/public/mock-rank.html` was the approved artifact, transcribed here and deleted.
+The host taps a task's visible photos to pick 1-to-5 winners in placing order (never a forced five — a
+single-winner release is valid), drags them into a ranked list using the SAME technique as the admin
+task-card reorder (`src/public/js/admin-tasks.js`: pointer events, `setPointerCapture`, the grabbed row
+lifts and follows via `transform`, displaced rows glide via a First-Last-Invert-Play transform), and
+releases the badge + 5/4/3/2/1 points in one confirm.
+
+**New component, not a new architectural pattern.** This is a genuinely new page + route + client script,
+which is why the architecture lens gates this change per the review dispatch table — but it reuses every
+existing seam it can: `task-badges.resolveTaskBadge`/`toTaskBadgeView` for the badge row, the
+`.rank-award-*`/`.rank-winner*`/`.rank-medal`/`.rank-handle`/`.rank-controls` CSS already landed in
+`theme.css` during the visual loop, and the drag-to-reorder technique verbatim from `admin-tasks.js`
+rather than a second implementation of the same gesture.
+
+**No per-drop persistence — the picking/ranking draft lives in the browser until Release.** Unlike the
+admin task-card reorder, this page has no endpoint to POST to on every drag drop or every tap. The whole
+pick-then-rank sequence is client-side state (`src/public/js/admin-badge-rank.js`) until the host hits
+"Release badge & points", which is the one real form submit this screen makes
+(`POST /admin/tasks/:id/rank`, body `winners` = a comma-separated, ordered list of submission ids). This
+is why `badge_winners` (the give-a-badge picker's own worksheet table, see below) has no replacement
+"per-task worksheet" successor: there is nothing left that needs one.
+
+**One-badge-system consolidation: the give-a-badge photo-winner picker is deleted, not repointed.**
+`src/services/photo-badges.js` (issue #259's fixed 5-code catalog — SHUTTERBUG/CHOICE/BESTDANCE/GOLDEN/
+CROWDFAV — marking a PHOTO as a category winner in `badge_winners`, with no points and no relation to a
+guest's `guest_badges`) is removed outright: the file, its `admin-photos.ejs` dialog and trigger buttons,
+its CSS (`.admin-badge-dialog`/`-body`/`-picker`/`-choices`/`-ribbon`/`-name`/`-count`/`-buttons`,
+`.admin-badge-tilebtn`, `.admin-feed-badge.is-badged`, and the orphaned `.admin-points`/`.admin-point-pill`
+group left over from an abandoned earlier #661 attempt), and the `badge_winners` table itself
+(`ensureBadgeWinnersTableDropped`, a guarded `DROP TABLE IF EXISTS` for a pre-#661 database; the CREATE
+TABLE block no longer declares it at all for a fresh one). The issue's own plan named two options for that
+table — "repoint it at task badges, or replace it with a per-task worksheet" — and left the choice to the
+implementer: neither. Its one reader/writer is deleted in the same change, and the real ranking screen
+needs no worksheet of its own (see above), so keeping or repointing the table would only be a second,
+unread source of "who's a candidate winner" behind the one, real award table (`guest_badges`) this
+consolidation makes canonical.
+
+**Three `badges` catalog rows die with it, and only three.** `scripts/badge-catalog.js`'s `BADGES` array
+drops `SHUTTERBUG`/`CROWDFAV`/`CHOICE` — NOT because they are the give-a-badge codes above (that catalog
+was a code constant, never a `badges` table row, per `photo-badges.js`'s own original doc comment), but
+because these three happened to ALSO exist as unrelated, independently hand-awardable `type = 'special'`
+catalog rows (`POST /admin/guests/:id/badge`) sharing the same display name — a naming collision the
+original #259 doc comment flagged as "a different concept" but never resolved. Retiring the give-a-badge
+picker is the moment to resolve it: a special badge named "Shutterbug" that no longer describes any real
+picker is confusing, not a feature worth keeping. `BESTDANCE`/`GOLDEN`, the OTHER two give-a-badge codes,
+were never `badges` catalog rows and need no migration. `db.js`'s guarded
+`ensureSpecialBadgeCollisionsRemoved()` (same shape as the pre-existing `ensureRetiredBadgesRemoved` for
+MOSTPHOTOS/MOSTLIKED, #711) deletes the three catalog rows and any `guest_badges` rows held on them from an
+existing database; `EARLYBIRD` is the one pre-seeded `special` code left. **EARLYBIRD's survival here is
+deliberate, not an oversight**: it named no give-a-badge collision (only SHUTTERBUG/CROWDFAV/CHOICE
+happened to share a name with that picker's codes), so this issue's own kill scope never touched it —
+`POST /admin/guests/:id/badge` still hand-awards it exactly as before (see `tests/admin-badges.test.js`).
+The earlier #706 amendment above ("the fixed `special` four ... die with them") describes a broader,
+later retirement of hand-awarded special badges entirely that has NOT shipped — #661 is scoped to the
+give-a-badge/task-ranking consolidation only, and EARLYBIRD's own eventual retirement (if the #706 plan is
+ever carried out) is tracked separately, not silently completed by this change. The drop in
+`tests/helpers/event-fixture.js`'s special-badge spread is backfilled with three fixture-local `custom`
+rows so that shared fixture keeps awarding a realistic variety of badges without resurrecting a retired
+collision code.
+
+**The write path: `guest_badges.rank`, explicit upsert, atomic whole-set replace, same-guest collapse.**
+`guest_badges` gains a nullable `rank` column (`ensureGuestBadgeRankColumn`, same guarded-`ALTER TABLE`
+shape as every other column this table has grown) — NULL for every award path except a ranked release, so
+"does this row carry a rank" is a complete, structural test for "was this a ranked-release award," not a
+convention a caller could forget to honor. `task-badges.releaseRanking(taskId, submissionIds)` is the new,
+whole-set-atomic write path (`awardTaskBadge`/`removeTaskAward`, #483's original single-photo award/remove
+pair, are untouched — kept for their own existing callers/tests, superseded only as the route-facing path):
+validates 1-5 entries, no duplicates, and every id a CURRENTLY VISIBLE submission of THIS task (refusing
+the WHOLE release otherwise, never silently dropping one bad entry — a partial write would shift every
+following rank/points value out from under the host's on-screen order without telling them); folds
+placements onto their guest (`foldRankedPlacements`, pulled out as its own pure function so the same-guest
+collapse rule is unit-testable directly); `DELETE`s the badge's whole PRIOR ranked-row set
+(`rank IS NOT NULL`) before an explicit `INSERT ... ON CONFLICT DO UPDATE` for the new one — replacing
+`awardTaskBadge`'s pre-existing `INSERT OR IGNORE`, which the issue itself called out as unsafe here: it
+would silently drop a second guest's award, or a re-rank's changed points/rank/submission, on the same
+`(guest_id, badge_id)` pair.
+
+**Same-guest multi-win is real code with no real fixture.** `foldRankedPlacements` sums a same-guest
+duplicate's points and pins rank/submission_id to their first-seen placement — which is provably always
+their BEST placement, since rank is derived from array position (a strictly increasing function of index)
+and the input array's order IS rank order. This can never actually happen through the shipped picking
+grid, though: `submissions` carries `UNIQUE(guest_id, task_id)`, so one guest holds at most one visible
+submission per task, ever (a resubmit `UPDATE`s that row rather than inserting a second one), and
+`releaseRanking` validates every id belongs to the one task being ranked — so two placements can never
+resolve to the same guest in production today. The fold rule is implemented and tested anyway
+(`tests/task-badge-rank-release.test.js`, against a synthetic input, since no real DB fixture can produce
+this state): it is the single place the rule is defined, so a future caller resolving placements from a
+wider set inherits it with nothing to keep in sync, rather than a rule that only happens to hold because of
+a constraint this function does not itself enforce.
+
+**"Awarded" is a settings-table marker, not a re-derived query.** `task-badges.isTaskBadgeAwarded(taskId)`/
+`markTaskBadgeAwarded(taskId)` read/write a `settings` key (`task_badge_awarded.<taskId>`, same
+prefixed-key idiom as `host-checklist.js`'s `checklist.<id>` and `lockout.js`), written inside the SAME
+transaction that writes the ranked rows — so the marker and the rows it describes can never observably
+disagree. This is a duplicated fact by construction (the same "has this badge ever been released" question
+is also answerable by `EXISTS (guest_badges WHERE badge_id = ? AND rank IS NOT NULL)`), accepted rather than
+collapsed to one query: the issue's own design named the settings marker explicitly as what #662's
+checklist item reads, and a flat key read is cheaper there than a join for a row #662 doesn't otherwise
+need. `isTaskBadgeAwarded` is the ONE function both this page and #662 call — neither re-derives the
+existence check independently.
+
+**Takedown-revert needed no new code.** `scoring.js`'s existing award-points visibility rule already counts
+a task-badge award's points only while its earning submission is visible (`taken_down = 0`); AC4 is a
+restated guarantee of that pre-existing rule against a ranked award specifically, not a new mechanism —
+the award row itself is untouched by a takedown, only its contribution to `getPoints`/`leaderboard` moves.
+
+**The recap event reads rank live, never snapshots it.** `releaseRanking` emits one `badge_granted`
+`notifications.recordEvent` per WINNING GUEST (not per placement — a same-guest collapse still notifies
+once), carrying that guest's pinned `submission_id`. `notifications.js`'s `stmtStoredEvents` gained a `gb`
+`LEFT JOIN guest_badges` (keyed on the stored event's own `(guest_id, badge_id)` pair — `UNIQUE(guest_id,
+badge_id)` means this can never fan a stored event out into more than one row) so `KIND_VIEW.badge_granted`
+can read the guest's CURRENT rank at render time, the same "read live, never duplicate at write time"
+discipline `badge_name`/`badge_art_path` already followed on this exact row. A re-rank that changes a
+guest's placement therefore also changes what an OLD recap row about that same badge reads on next
+render — an accepted consequence of reading live, not a bug: the alternative (a `rank` column on
+`notification_events`) would duplicate a fact `guest_badges.rank` already owns for the sole purpose of a
+recap snapshot nothing else needs.
+
+**Deferred, not fixed here: two adjacent inconsistencies this change's own retirement work surfaces.**
+(1) `src/views/partials/memory-payoff.ejs`'s guest-facing promise — "any photo can win a badge" — was true
+under the deleted give-a-badge picker (any photo OR memory, hand-picked by the host) and is no longer true
+under ranking (task photos only, one task's own badge, never a memory). Fixing guest-facing copy is a
+visual/product-copy decision gated by the live owner-approval loop (`CLAUDE.md`'s pipeline section), not
+something this change's `Touches` list authorizes an implementer to silently redecide — flagged for the
+owner/orchestrator, not fixed inline. (2) `docs/game-design-points-badges.md` still describes the
+pre-2026-07-23 "forced five"/"`badge_winners` survives as a worksheet" shape this ADR's corrections
+supersede; a doc-sync pass is a follow-up, not part of this issue's own `Touches`.

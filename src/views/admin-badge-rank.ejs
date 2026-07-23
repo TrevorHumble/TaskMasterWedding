@@ -1,0 +1,103 @@
+<!-- src/views/admin-badge-rank.ejs
+     Issue #661 — "Rank & award" page for one task. Transcribed from the
+     owner-approved phase-1 mock (src/public/mock-rank.html, deleted by this
+     change) — same markup/classes/behavior, wired to real data:
+     GET/POST /admin/tasks/:id/rank (src/routes/admin.js).
+
+     Locals from the route:
+       task        - { id, title, description }
+       badge       - { name, art_path } (task-badges.toTaskBadgeView's shape)
+       photos      - task's CURRENTLY VISIBLE submissions, the pick-grid
+                     candidates: [{ id, thumb_path, guest_id, guest_name }]
+       winners     - the badge's CURRENT ranked award rows, ordered 1st..Kth
+                     (empty before the first release):
+                     [{ rank, points, submission_id, guest_id, guest_name,
+                        thumb_path }]
+       released    - has this badge ever been released (the settings marker,
+                     task-badges.isTaskBadgeAwarded) — the initial state the
+                     client opens in (read-only Awarded vs. live editor).
+       maxWinners  - task-badges.MAX_RANKED_WINNERS (5), passed through so
+                     the client's cap can never drift from the server's.
+       pointsByRank - task-badges.POINTS_BY_RANK ([5,4,3,2,1]), passed down
+                     the SAME way — the one server-owned mapping, serialized
+                     here rather than kept as a second, hand-synced literal
+                     in admin-badge-rank.js (issue #661 PR review, major).
+
+     All picking/dragging/ranking state lives in the browser
+     (src/public/js/admin-badge-rank.js) until the host hits Release — there
+     is no per-drop persistence endpoint (mirrors the mock's own prior-art
+     note), only the one POST below. -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+<div
+  class="rankpage"
+  id="rank-app"
+  data-task-id="<%= task.id %>"
+  data-photos="<%= JSON.stringify(photos) %>"
+  data-winners="<%= JSON.stringify(winners) %>"
+  data-released="<%= released ? '1' : '0' %>"
+  data-max-winners="<%= maxWinners %>"
+  data-points-by-rank="<%= JSON.stringify(pointsByRank) %>"
+>
+  <a class="rankpage-back" href="/admin/photos?view=task&amp;task=<%= task.id %>">&larr; Back to photos</a>
+
+  <% if (msg) { %>
+    <p class="flash"><%= msg %></p>
+  <% } %>
+
+  <div class="rankpage-taskhead">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="9" r="6" /><path d="M9 14l-2 7 5-3 5 3-2-7" />
+    </svg>
+    <div>
+      <h1 class="rankpage-title"><%= task.title %></h1>
+      <% if (task.description) { %>
+        <p class="rankpage-badgeline"><%= task.description %></p>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- STEP 1 — pick winners -->
+  <h2 class="rankpage-section-title">Choose winners</h2>
+  <p class="rankpage-section-sub">
+    Tap up to 5 photos, in the order they placed. Award as many or as few as
+    you like.
+  </p>
+  <div class="pick-grid" id="pickGrid"></div>
+  <p class="pick-limit" id="pickLimit"></p>
+
+  <!-- STEP 2 — rank & release -->
+  <section class="rank-award-card" id="rankCard" style="margin-top: var(--space-6)">
+    <div class="rank-award-head">
+      <div class="rank-award-headtext">
+        <h2 class="rank-award-title">Ranking</h2>
+        <p class="rank-award-sub">
+          1st place wins the badge and 5 points, down to 1 point for 5th.
+        </p>
+      </div>
+      <span class="rank-award-status" id="awardedPill" hidden>Awarded</span>
+    </div>
+
+    <ol class="rank-winner-list" id="rankList"></ol>
+    <p class="rank-empty" id="rankEmpty">Pick a photo above to start ranking.</p>
+
+    <div class="rank-award-foot">
+      <p class="rank-award-total" id="rankTotal"></p>
+      <button type="button" class="btn rank-award-release" id="releaseBtn">
+        Release badge &amp; points
+      </button>
+    </div>
+  </section>
+
+  <!-- The one real POST (issue #661: "release in one confirm") — the client
+       fills rankWinnersInput with the current picked order right before
+       requestSubmit(). No fetch/JSON reorder-as-you-go endpoint: reordering
+       only mutates in-page state until this form actually submits. -->
+  <form method="post" action="/admin/tasks/<%= task.id %>/rank" id="rankReleaseForm">
+    <input type="hidden" name="winners" id="rankWinnersInput" value="" />
+  </form>
+</div>
+
+<script src="/js/admin-badge-rank.js" defer></script>
+<%- include('partials/footer') %>

@@ -264,10 +264,11 @@ describe('AC4: favorite persists and shows red on tile + feed card', () => {
 
 // ---------------------------------------------------------------------------
 // AC5 — tapping a tile lands on the SAME photo's card in the inline feed,
-// which carries its own favorite + give-a-badge controls.
+// which carries its own favorite control (the give-a-badge control this AC
+// originally also asserted is retired — see the AC6/AC8 replacement below).
 // ---------------------------------------------------------------------------
 describe('AC5: tap-into-feed — tile and feed card share one submission id', () => {
-  it('the tile trigger and the feed card share the id; the card carries favorite + badge controls', async () => {
+  it('the tile trigger and the feed card share the id; the card carries the favorite control', async () => {
     const taskId = insertTask('AC5 Task');
     const guestId = insertGuest('AC5 Guest', 'ac5-guest');
     const submissionId = insertSubmission({
@@ -283,95 +284,52 @@ describe('AC5: tap-into-feed — tile and feed card share one submission id', ()
 
     const chunk = feedCardChunk(res.text, submissionId);
     expect(chunk).toContain('action="/admin/photos/' + submissionId + '/favorite"');
-    expect(chunk).toContain('data-badge-open');
-    expect(chunk).toContain('data-id="' + submissionId + '"');
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC6 — awarding a badge records the photo as a winner, increments N/5,
-// keeps the badge control gold, leaves points untouched (no #661 write here).
+// AC6/AC8 (issue #259) — RETIRED (issue #661's one-badge-system
+// consolidation). The five-code give-a-badge photo-winner picker these two
+// ACs originally covered (photo-badges.js, badge_winners, POST
+// /admin/photos/:id/badge, the admin-badge-* dialog markup) is deleted
+// outright — ranking and awarding a task's photos now happens on
+// GET/POST /admin/tasks/:id/rank (see tests/task-badge-rank-release.test.js).
+// Same "blanket retirement, not a not-found guard" shape as
+// tests/admin-moderation-684.test.js's own AC7 (POST /admin/photos/:id/points).
 // ---------------------------------------------------------------------------
-describe('AC6: awarding a badge records a winner, increments N/5, no points written', () => {
-  let submissionId;
-
-  beforeAll(() => {
-    const taskId = insertTask('AC6 Task');
-    const guestId = insertGuest('AC6 Guest', 'ac6-guest');
-    submissionId = insertSubmission({
+describe('AC6/AC8 (retired by #661): POST /admin/photos/:id/badge is gone', () => {
+  it('returns a real 404 for an existing submission id, and writes nothing', async () => {
+    const taskId = insertTask('AC6 Retired Task');
+    const guestId = insertGuest('AC6 Retired Guest', 'ac6-retired-guest');
+    const submissionId = insertSubmission({
       guestId,
       taskId,
-      photoPath: 'ac6.jpg',
-      thumbPath: 'ac6-t.jpg',
+      photoPath: 'ac6-retired.jpg',
+      thumbPath: 'ac6-retired-t.jpg',
       photoBonus: 3,
     });
-  });
 
-  it('SHUTTERBUG starts at 0/5', async () => {
-    const res = await adminAgent.get('/admin/photos');
-    expect(res.text).toMatch(
-      /<span class="admin-badge-count">0\/5<\/span>\s*<span class="admin-badge-name">Shutterbug<\/span>/
-    );
-  });
-
-  it('POST .../badge action=award code=SHUTTERBUG records the winner row', async () => {
     const res = await adminAgent
       .post('/admin/photos/' + submissionId + '/badge')
       .type('form')
       .send({ code: 'SHUTTERBUG', action: 'award', view: 'recent' });
-    expect(res.status).toBe(303);
-    expect(res.headers.location).toContain('view=recent');
+    expect(res.status).toBe(404);
+    expect(res.headers.location).toBeUndefined();
 
-    const row = db
-      .prepare('SELECT 1 AS x FROM badge_winners WHERE badge_code = ? AND submission_id = ?')
-      .get('SHUTTERBUG', submissionId);
-    expect(row).toBeDefined();
-  });
-
-  it('the picker now reads 1/5 for Shutterbug', async () => {
-    const res = await adminAgent.get('/admin/photos');
-    expect(res.text).toMatch(
-      /<span class="admin-badge-count">1\/5<\/span>\s*<span class="admin-badge-name">Shutterbug<\/span>/
-    );
-  });
-
-  it('the tile badge control stays gold and photo_bonus is unchanged (no points written here)', async () => {
-    const res = await adminAgent.get('/admin/photos');
-    const chunk = tileChunk(res.text, 'ac6-t.jpg');
-    expect(chunk).toContain('admin-badge-tilebtn admin-badge-on');
-    expect(chunk).toContain('aria-pressed="true"');
-
+    // No give-a-badge markup or table survives to check against — the
+    // module (photo-badges.js) and its badge_winners table are both gone.
+    // The only remaining fact worth asserting is that the retired POST left
+    // the photo's own row untouched.
     const row = db.prepare('SELECT photo_bonus FROM submissions WHERE id = ?').get(submissionId);
     expect(row.photo_bonus).toBe(3);
   });
 
-  it('a repeat award is idempotent — the count stays at 1, not 2', async () => {
-    await adminAgent
-      .post('/admin/photos/' + submissionId + '/badge')
-      .type('form')
-      .send({ code: 'SHUTTERBUG', action: 'award' });
-    const count = db
-      .prepare('SELECT COUNT(*) AS n FROM badge_winners WHERE badge_code = ?')
-      .get('SHUTTERBUG').n;
-    expect(count).toBe(1);
-  });
-
-  it('an unknown badge code is refused with "Unknown badge." and writes nothing', async () => {
-    const res = await adminAgent
-      .post('/admin/photos/' + submissionId + '/badge')
-      .type('form')
-      .send({ code: 'NOPE', action: 'award' });
-    expect(decodeURIComponent(res.headers.location)).toMatch(/Unknown badge\./);
-    const row = db.prepare('SELECT 1 AS x FROM badge_winners WHERE badge_code = ?').get('NOPE');
-    expect(row).toBeUndefined();
-  });
-
-  it('an unknown submission id is refused with "Submission not found."', async () => {
+  it('returns 404 for an unknown submission id too (blanket retirement, not a not-found guard)', async () => {
     const res = await adminAgent
       .post('/admin/photos/999999/badge')
       .type('form')
       .send({ code: 'SHUTTERBUG', action: 'award' });
-    expect(decodeURIComponent(res.headers.location)).toMatch(/Submission not found\./);
+    expect(res.status).toBe(404);
   });
 });
 
@@ -443,13 +401,13 @@ describe('AC7: moderation preserved — Taken down state, and takedown/restore r
 
   // Issue #684 moved takedown/restore OUT of the give-a-badge dialog (which
   // is now award-only) and into a per-photo kebab (⋯) menu on the feed card
-  // — see tests/admin-moderation-684.test.js for the dedicated coverage.
-  // This still asserts the tile-level state this AC actually owns.
-  it('the tile reflects live state (not taken down) via data-down', async () => {
-    const res = await adminAgent.get('/admin/photos');
-    const chunk = tileChunk(res.text, 'ac7-t.jpg');
-    expect(chunk).toContain('data-down="0"');
-  });
+  // — see tests/admin-moderation-684.test.js for the dedicated coverage. The
+  // tile-level "not taken down" assertion this AC actually owns is the
+  // `not.toContain('is-down')` check in the preceding test — this file used
+  // to duplicate it via a `data-down` attribute that lived exclusively on
+  // the give-a-badge trigger button; issue #661 deleted that button along
+  // with the rest of the give-a-badge dialog, taking `data-down` with it, so
+  // there is no second mechanism left to assert this same fact through.
 
   it('takedown on an unknown submission id redirects with "Submission not found."', async () => {
     const res = await adminAgent
@@ -499,90 +457,6 @@ describe('AC7: moderation preserved — Taken down state, and takedown/restore r
     const chunk = tileChunk(res.text, 'ac7-noresub-t.jpg');
     expect(chunk).toContain('admin-tile-down">Taken down<');
     expect(chunk).not.toContain('admin-tile-resub');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC8 — removing a badge deletes the winner record, decrements N/5, and
-// clears the gold highlight.
-// ---------------------------------------------------------------------------
-describe('AC8: removing a badge decrements N/5 and clears the highlight', () => {
-  let submissionId;
-
-  beforeAll(() => {
-    const taskId = insertTask('AC8 Task');
-    const guestId = insertGuest('AC8 Guest', 'ac8-guest');
-    submissionId = insertSubmission({
-      guestId,
-      taskId,
-      photoPath: 'ac8.jpg',
-      thumbPath: 'ac8-t.jpg',
-    });
-  });
-
-  it('award then remove GOLDEN — the count returns to 0/5 and the tile highlight clears', async () => {
-    await adminAgent
-      .post('/admin/photos/' + submissionId + '/badge')
-      .type('form')
-      .send({ code: 'GOLDEN', action: 'award' });
-
-    let res = await adminAgent.get('/admin/photos');
-    expect(res.text).toMatch(
-      /<span class="admin-badge-count">1\/5<\/span>\s*<span class="admin-badge-name">Golden Hour<\/span>/
-    );
-    let chunk = tileChunk(res.text, 'ac8-t.jpg');
-    expect(chunk).toContain('admin-badge-tilebtn admin-badge-on');
-
-    const removeRes = await adminAgent
-      .post('/admin/photos/' + submissionId + '/badge')
-      .type('form')
-      .send({ code: 'GOLDEN', action: 'remove' });
-    expect(removeRes.status).toBe(303);
-
-    const row = db
-      .prepare('SELECT 1 AS x FROM badge_winners WHERE badge_code = ? AND submission_id = ?')
-      .get('GOLDEN', submissionId);
-    expect(row).toBeUndefined();
-
-    res = await adminAgent.get('/admin/photos');
-    expect(res.text).toMatch(
-      /<span class="admin-badge-count">0\/5<\/span>\s*<span class="admin-badge-name">Golden Hour<\/span>/
-    );
-    chunk = tileChunk(res.text, 'ac8-t.jpg');
-    expect(chunk).not.toContain('admin-badge-on');
-    expect(chunk).toContain('aria-pressed="false"');
-  });
-
-  it('action=toggle flips the OTHER direction once a badge is already held', async () => {
-    await adminAgent
-      .post('/admin/photos/' + submissionId + '/badge')
-      .type('form')
-      .send({ code: 'BESTDANCE', action: 'toggle' });
-    let held = db
-      .prepare('SELECT 1 AS x FROM badge_winners WHERE badge_code = ? AND submission_id = ?')
-      .get('BESTDANCE', submissionId);
-    expect(held).toBeDefined();
-
-    await adminAgent
-      .post('/admin/photos/' + submissionId + '/badge')
-      .type('form')
-      .send({ code: 'BESTDANCE', action: 'toggle' });
-    held = db
-      .prepare('SELECT 1 AS x FROM badge_winners WHERE badge_code = ? AND submission_id = ?')
-      .get('BESTDANCE', submissionId);
-    expect(held).toBeUndefined();
-  });
-
-  it('removing a badge the photo never held is a harmless no-op', async () => {
-    const res = await adminAgent
-      .post('/admin/photos/' + submissionId + '/badge')
-      .type('form')
-      .send({ code: 'CROWDFAV', action: 'remove' });
-    expect(res.status).toBe(303);
-    const row = db
-      .prepare('SELECT 1 AS x FROM badge_winners WHERE badge_code = ? AND submission_id = ?')
-      .get('CROWDFAV', submissionId);
-    expect(row).toBeUndefined();
   });
 });
 
@@ -792,15 +666,10 @@ describe('#748: task-scoped view=task&task=<id>', () => {
       expect(res.headers.location).toContain('task=' + scopedTaskId);
     });
 
-    it('a badge award redirects to a Location containing view=task and task=<id>', async () => {
-      const res = await adminAgent
-        .post('/admin/photos/' + submissionId + '/badge')
-        .type('form')
-        .send({ code: 'SHUTTERBUG', action: 'award', view: 'task', task: String(scopedTaskId) });
-      expect(res.status).toBe(303);
-      expect(res.headers.location).toContain('view=task');
-      expect(res.headers.location).toContain('task=' + scopedTaskId);
-    });
+    // The badge-award redirect case this block originally covered is gone
+    // along with the route itself (issue #661 retires POST
+    // /admin/photos/:id/badge outright — see the AC6/AC8 replacement
+    // describe block above) — a 404 carries no Location to assert against.
 
     it('an absent task field produces no task= in the redirect (pre-#748 behavior unaffected)', async () => {
       const res = await adminAgent

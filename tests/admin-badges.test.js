@@ -25,9 +25,14 @@ beforeAll(async () => {
     .prepare('INSERT INTO guests (token, name) VALUES (?, ?)')
     .run('badgetoken000000000000000000000', 'Badge Guest').lastInsertRowid;
 
-  // CHOICE (special) and COMPLETIONIST (metric) both already exist here
+  // EARLYBIRD (special) and COMPLETIONIST (metric) both already exist here
   // (#314): src/db.js's boot-heal runs ensureBadgeCatalog() at module load,
-  // so loadApp() above already seeded the full canonical catalog.
+  // so loadApp() above already seeded the full canonical catalog. (CHOICE
+  // was also a 'special' catalog code here once, but issue #661 retired it —
+  // along with SHUTTERBUG/CROWDFAV, which collided in NAME ONLY with the
+  // now-deleted give-a-badge photo-winner picker's own codes — so this file
+  // exercises EARLYBIRD instead; the award/remove/toggle route under test is
+  // unaffected either way.)
 });
 
 function heldCount(badgeCode) {
@@ -41,38 +46,38 @@ function heldCount(badgeCode) {
 }
 
 describe('POST /admin/guests/:id/badge — special badge award/remove', () => {
-  it('awards CHOICE, then removes it', async () => {
-    expect(heldCount('CHOICE')).toBe(0);
+  it('awards EARLYBIRD, then removes it', async () => {
+    expect(heldCount('EARLYBIRD')).toBe(0);
 
     let res = await adminAgent
       .post(`/admin/guests/${guestId}/badge`)
       .type('form')
-      .send({ code: 'CHOICE', action: 'award' });
-    expect(heldCount('CHOICE')).toBe(1);
+      .send({ code: 'EARLYBIRD', action: 'award' });
+    expect(heldCount('EARLYBIRD')).toBe(1);
     expect(res.headers.location).toContain(encodeURIComponent('Awarded badge'));
 
     res = await adminAgent
       .post(`/admin/guests/${guestId}/badge`)
       .type('form')
-      .send({ code: 'CHOICE', action: 'remove' });
-    expect(heldCount('CHOICE')).toBe(0);
+      .send({ code: 'EARLYBIRD', action: 'remove' });
+    expect(heldCount('EARLYBIRD')).toBe(0);
     expect(res.headers.location).toContain(encodeURIComponent('Removed badge'));
   });
 
   it('action=toggle resolves against current held state, twice', async () => {
-    expect(heldCount('CHOICE')).toBe(0);
+    expect(heldCount('EARLYBIRD')).toBe(0);
 
     await adminAgent
       .post(`/admin/guests/${guestId}/badge`)
       .type('form')
-      .send({ code: 'CHOICE', action: 'toggle' });
-    expect(heldCount('CHOICE')).toBe(1);
+      .send({ code: 'EARLYBIRD', action: 'toggle' });
+    expect(heldCount('EARLYBIRD')).toBe(1);
 
     await adminAgent
       .post(`/admin/guests/${guestId}/badge`)
       .type('form')
-      .send({ code: 'CHOICE', action: 'toggle' });
-    expect(heldCount('CHOICE')).toBe(0);
+      .send({ code: 'EARLYBIRD', action: 'toggle' });
+    expect(heldCount('EARLYBIRD')).toBe(0);
   });
 
   it('an unknown code is refused with "Unknown special or custom badge." and creates no row', async () => {
