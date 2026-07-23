@@ -79,12 +79,46 @@ const FETCH_LIMIT = PAGE_SIZE + 1;
 // escaping-by-construction (issue #644 review), so a new copy branch can
 // never forget to call a hand-rolled escaper the way the pre-review version
 // of this module required.
+// Ordinal copy for a ranked task-badge win (issue #661), 1-indexed. Task
+// ranking pays at most MAX_RANKED_WINNERS (task-badges.js) placements, so
+// this array only ever needs to cover 1..5 — a rank outside that range
+// cannot reach KIND_VIEW.badge_granted's parts() below (releaseRanking is
+// the only writer of a non-NULL guest_badges.rank, and it refuses a release
+// longer than 5).
+const RANK_ORDINAL = ['1st', '2nd', '3rd', '4th', '5th'];
+
 const KIND_VIEW = {
   badge_granted: {
     view: 'badge',
     dead: false,
-    parts: (ev) => [{ text: 'You earned ' }, { text: ev.badge_name, emphasis: true }],
-    href: () => null,
+    // A ranked task-badge win (issue #661) carries a placement — `ev.rank`,
+    // read LIVE off the guest_badges row the stored event's (guest_id,
+    // badge_id) pair currently points at (stmtStoredEvents' own `gb` JOIN,
+    // below), never snapshotted onto the event row itself, exactly like
+    // `ev.badge_name`/`ev.badge_art_path` above are already read live off
+    // `badges` rather than duplicated at write time. An auto/metric/
+    // transferable/special grant never carries a rank (releaseRanking is the
+    // only writer of a non-NULL guest_badges.rank), so `ordinal` is undefined
+    // for every one of those and this falls through to the original,
+    // unchanged "You earned X" copy.
+    parts: (ev) => {
+      const ordinal = RANK_ORDINAL[ev.rank - 1];
+      if (ordinal) {
+        return [
+          { text: 'You placed ' },
+          { text: ordinal, emphasis: true },
+          { text: ' for ' },
+          { text: ev.badge_name, emphasis: true },
+        ];
+      }
+      return [{ text: 'You earned ' }, { text: ev.badge_name, emphasis: true }];
+    },
+    // A ranked win's stored event carries the winning submission_id
+    // (task-badges.js's releaseRanking passes it to recordEvent) — link to
+    // it (AC8's "linking to the winning photo"). Every other badge_granted
+    // source (system auto/metric grants) never sets submission_id, so this
+    // stays null for them exactly as before.
+    href: (ev) => (ev.submission_id != null ? `/p/${ev.submission_id}` : null),
   },
   badge_revoked: {
     view: 'loss',
@@ -364,10 +398,20 @@ const stmtStoredEvents = db.prepare(`
          b.name            AS badge_name,
          b.art_path        AS badge_art_path,
          b.description     AS badge_description,
-         s.thumb_path      AS thumb_path
+         s.thumb_path      AS thumb_path,
+         gb.rank           AS rank
     FROM notification_events ne
     LEFT JOIN badges b ON b.id = ne.badge_id
     LEFT JOIN submissions s ON s.id = ne.submission_id
+    -- issue #661: a ranked task-badge win's placement, read LIVE off the
+    -- guest's CURRENT guest_badges row for this exact (guest_id, badge_id)
+    -- pair — never stored on the event itself (see KIND_VIEW.badge_granted's
+    -- own comment for why). UNIQUE(guest_id, badge_id) means at most one row
+    -- can ever match, so this LEFT JOIN can never fan a stored event out into
+    -- more than one recap row. NULL for every non-badge event (ne.badge_id
+    -- IS NULL, so the ON clause matches nothing) and for a system/special
+    -- grant (that guest_badges row's own rank column is NULL).
+    LEFT JOIN guest_badges gb ON gb.guest_id = ne.guest_id AND gb.badge_id = ne.badge_id
    WHERE ${EVENT_EXISTENCE_WHERE}
      AND (
        ? IS NULL

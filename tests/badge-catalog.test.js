@@ -40,7 +40,11 @@ describe('#193 AC1: art exists for every seeded badge', () => {
 
   it('every badges.art_path seeded by scripts/seed.js resolves to a real file under src/public', () => {
     const rows = db.prepare('SELECT code, art_path FROM badges ORDER BY code').all();
-    expect(rows.length).toBeGreaterThanOrEqual(8);
+    // Five catalog codes since issue #661 retired SHUTTERBUG/CROWDFAV/CHOICE
+    // (they collided in NAME ONLY with the now-deleted give-a-badge
+    // photo-winner picker's own codes — scripts/badge-catalog.js's BADGES
+    // array no longer lists them).
+    expect(rows.length).toBeGreaterThanOrEqual(5);
     for (const row of rows) {
       const resolved = path.join(__dirname, '..', 'src', 'public', row.art_path);
       expect(fs.existsSync(resolved), `${row.code}: art file missing for ${row.art_path}`).toBe(
@@ -104,16 +108,15 @@ describe('#193 AC4: one catalog, not two', () => {
     expect(readScript('seed-event.js')).not.toMatch(/const BADGES\s*=\s*\[/);
   });
 
-  it('the shared catalog holds all eight badge codes', () => {
+  it('the shared catalog holds all five badge codes', () => {
+    // Issue #661 retired SHUTTERBUG/CROWDFAV/CHOICE from this array — see
+    // this file's own header comment on the AC1 test above.
     const { BADGES } = require('../scripts/badge-catalog');
     expect(BADGES.map((b) => b.code)).toEqual([
       'BLOOM',
       'BOUQUET',
       'GARDEN',
       'EARLYBIRD',
-      'SHUTTERBUG',
-      'CROWDFAV',
-      'CHOICE',
       'COMPLETIONIST',
     ]);
   });
@@ -144,31 +147,39 @@ describe('#655: ensureBadgeCatalog upserts a stale catalog row without touching 
     expect(result).toEqual({ inserted: BADGES.length, updated: 0, unchanged: 0 });
     const rows = db.prepare('SELECT code FROM badges ORDER BY code').all();
     expect(rows.map((r) => r.code).sort()).toEqual([...BADGES.map((b) => b.code)].sort());
-    const choice = db.prepare('SELECT name FROM badges WHERE code = ?').get('CHOICE');
-    expect(choice.name).toBe("Wedding Master's Choice");
+    const earlybird = db.prepare('SELECT name FROM badges WHERE code = ?').get('EARLYBIRD');
+    expect(earlybird.name).toBe('Early Bird');
   });
 
-  it('AC1: a stale pre-#354 CHOICE row (old name/description/art) is corrected to the current catalog values on ensure', () => {
+  // Originally exercised against a stale pre-#354 CHOICE row; retargeted to
+  // EARLYBIRD (issue #661 — CHOICE is no longer one of BADGES' own codes, so
+  // ensureBadgeCatalog's upsert no longer walks it at all, and a test
+  // asserting THIS function corrects a stale CHOICE row would now be false —
+  // the retirement of that row is a separate, one-time DELETE migration,
+  // db.js's ensureSpecialBadgeCollisionsRemoved, not this re-sync). EARLYBIRD
+  // is still a live catalog code and exercises the identical
+  // stale-row-gets-corrected behavior this test is really about.
+  it('AC1: a stale EARLYBIRD row (old name/description/art) is corrected to the current catalog values on ensure', () => {
     db.prepare(`UPDATE badges SET name = ?, description = ?, art_path = ? WHERE code = ?`).run(
-      "Task Master's Choice",
+      'Early Riser',
       'This badge is awarded by the Task Master.',
-      '/badges/old-choice.svg',
-      'CHOICE'
+      '/badges/old-earlybird.svg',
+      'EARLYBIRD'
     );
 
     const result = ensureBadgeCatalog(db);
 
-    // Only CHOICE was mutated, so the tally is exact: nothing new, one row
-    // corrected, every other catalog code already matched.
+    // Only EARLYBIRD was mutated, so the tally is exact: nothing new, one
+    // row corrected, every other catalog code already matched.
     expect(result).toEqual({ inserted: 0, updated: 1, unchanged: BADGES.length - 1 });
     const row = db
       .prepare('SELECT name, description, art_path FROM badges WHERE code = ?')
-      .get('CHOICE');
-    const catalogChoice = BADGES.find((b) => b.code === 'CHOICE');
+      .get('EARLYBIRD');
+    const catalogEarlybird = BADGES.find((b) => b.code === 'EARLYBIRD');
     expect(row).toEqual({
-      name: catalogChoice.name,
-      description: catalogChoice.description,
-      art_path: catalogChoice.art_path,
+      name: catalogEarlybird.name,
+      description: catalogEarlybird.description,
+      art_path: catalogEarlybird.art_path,
     });
   });
 

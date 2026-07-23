@@ -105,11 +105,15 @@ beforeAll(async () => {
     'INSERT INTO comments (submission_id, guest_id, body, taken_down) VALUES (?, ?, ?, 1)'
   ).run(subA, guestA, 'Removed later.');
 
-  // BLOOM (threshold 5) and CHOICE (threshold NULL) already exist here
+  // BLOOM (threshold 5) and EARLYBIRD (threshold NULL) already exist here
   // (#314): src/db.js's boot-heal runs ensureBadgeCatalog() at module load,
   // so loadApp() above already seeded the canonical catalog — including the
   // one-with-a-threshold / one-without-a-threshold pair the null-render check
-  // below needs, with no manual insert required.
+  // below needs, with no manual insert required. (CHOICE used to be this
+  // fixture's threshold-NULL example; issue #661 retired it — it collided in
+  // NAME ONLY with the now-deleted give-a-badge photo-winner picker's own
+  // code — so EARLYBIRD, the catalog's other threshold-NULL 'special' row,
+  // takes its place here.)
 
   // Extension-fallback fixture: an uppercase .PNG and a no-extension file.
   const extGuest = db
@@ -427,9 +431,9 @@ describe('buildSummaryBuffer — workbook contents', () => {
     const catalogCount = db.prepare('SELECT COUNT(*) AS n FROM badges').get().n;
     expect(rows.length).toBe(catalogCount);
     const bloom = rows.find((r) => r[0] === 'BLOOM');
-    const choice = rows.find((r) => r[0] === 'CHOICE');
+    const earlybird = rows.find((r) => r[0] === 'EARLYBIRD');
     expect(bloom[3]).toBe(5);
-    expect(choice[3]).toBe(''); // NULL threshold must render as empty string, not the literal null
+    expect(earlybird[3]).toBe(''); // NULL threshold must render as empty string, not the literal null
   });
 });
 

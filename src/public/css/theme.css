@@ -4245,8 +4245,7 @@ body:has(dialog[open]) {
 }
 .admin-tile:hover .admin-tile-actions,
 .admin-tile:focus-within .admin-tile-actions,
-.admin-tile-actions:has(.admin-fav-on),
-.admin-tile-actions:has(.admin-badge-on) {
+.admin-tile-actions:has(.admin-fav-on) {
   opacity: 1;
 }
 .admin-tile-btn {
@@ -4284,16 +4283,6 @@ body:has(dialog[open]) {
 .admin-feed-fav.like-button-liked .like-heart {
   fill: #d64545;
   stroke: #d64545;
-}
-.admin-badge-tilebtn svg {
-  fill: none;
-  stroke: #fff;
-  stroke-width: 1.8;
-  stroke-linejoin: round;
-}
-.admin-badge-tilebtn:hover,
-.admin-badge-tilebtn.admin-badge-on {
-  background: rgba(214, 158, 46, 0.95);
 }
 
 /* Taken-down tile: dim + white label. */
@@ -4342,22 +4331,6 @@ body:has(dialog[open]) {
   font-size: var(--fs-small);
   color: var(--err-ink);
 }
-/* A photo that has been given a badge stays highlighted (gold), the same way
-   a favorited photo's heart stays filled — so the state is legible at a
-   glance without any "already awarded" explanation. */
-.admin-feed-badge.is-badged {
-  color: #b9822a;
-}
-.admin-feed-badge.is-badged svg circle {
-  fill: currentColor;
-}
-/* Points post later (once a badge's 5 winners are all chosen), so a badged
-   photo reads "Points pending" until then. */
-.admin-points-pending {
-  color: #b9822a;
-  font-style: italic;
-}
-
 /* -------- Card header: name + contextual ⋯ menu (issue #684) --------
    The kebab reuses .photo-owner-menu (the guest owner-menu, #387) verbatim;
    only the header row needs a rule so the name and the ⋯ share one line, the
@@ -4436,124 +4409,351 @@ body:has(dialog[open]) {
   color: var(--color-danger, #b3261e);
 }
 
-/* -------- Give-a-badge menu (scrim/header reuse .comments-dialog) -------- */
-.admin-badge-dialog {
-  max-width: 440px;
+/* ===========================================================
+   Rank & award page (issue #661) — its own page, GET/POST
+   /admin/tasks/:id/rank, not embedded in the per-task gallery
+   (#748) — the 2026-07-23 owner call superseded the earlier
+   embedded-panel plan; see src/views/admin-badge-rank.ejs. The
+   host picks and ranks that task's 1-5 best photos and releases
+   the task badge + 5..1 points in one confirm. 1st place is
+   rendered gold (the gold rule). Built from the shared card +
+   .btn components; no new one-off primitives.
+
+   The give-a-badge photo-winner picker this page replaces (its
+   dialog CSS — .admin-badge-dialog/-body/-picker/-choices/-ribbon
+   /-name/-count/-buttons — and the "N/5" point-pill CSS,
+   .admin-points/.admin-point-pill and siblings) is deleted along
+   with it: photo-badges.js and its admin-photos.ejs dialog are
+   gone, so nothing renders those classes anymore.
+   =========================================================== */
+
+/* -------- Page shell + winner-picking grid (transcribed from the
+   owner-approved phase-1 mock, src/public/mock-rank.html, deleted) -------- */
+.rankpage {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--gutter, 16px) var(--space-8);
 }
-.admin-badge-body {
-  padding: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+.rankpage-back {
+  display: inline-block;
+  margin-bottom: var(--space-4);
+  font-size: var(--fs-small);
 }
-.admin-badge-sub {
-  margin: 0;
-}
-.admin-badge-picker {
-  border: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.admin-badge-picker legend {
-  font-family: var(--font-display);
-  font-size: var(--fs-h3);
-  color: var(--color-heading);
-  padding: 0;
-  margin-bottom: var(--space-2);
-}
-.admin-badge-choices {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.admin-badge-choice {
+.rankpage-taskhead {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-input, 8px);
-  cursor: pointer;
+  margin-bottom: var(--space-2);
 }
-.admin-badge-choice.is-selected {
-  border-color: var(--color-primary);
-  background: var(--green-50);
-}
-.admin-badge-choice input {
-  margin: 0;
-}
-.admin-badge-ribbon {
-  width: 22px;
-  height: 22px;
+.rankpage-taskhead svg {
+  width: 40px;
+  height: 40px;
+  flex: none;
   fill: none;
   stroke: var(--color-primary);
   stroke-width: 1.6;
   stroke-linejoin: round;
-  flex: none;
 }
-.admin-badge-name {
-  color: var(--color-text);
+.rankpage-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  color: var(--color-heading);
+  margin: 0;
+  line-height: var(--lh-tight);
 }
-/* "N/5" ranks-awarded tally before the badge name. */
-.admin-badge-count {
-  flex: none;
-  min-width: 34px;
-  text-align: center;
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--green-50);
+.rankpage-badgeline {
+  font-size: var(--fs-small);
   color: var(--color-text-muted);
+  margin: 0;
+}
+.rankpage-section-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  color: var(--color-heading);
+  margin: var(--space-6) 0 var(--space-1);
+}
+.rankpage-section-sub {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-3);
+}
+.pick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-2);
+}
+.pick-tile {
+  position: relative;
+  aspect-ratio: 1;
+  border: 2px solid transparent;
+  border-radius: var(--radius-input);
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  background: var(--green-50);
+}
+.pick-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pick-tile.is-picked {
+  border-color: var(--color-primary);
+}
+.pick-tile.is-picked.is-first {
+  border-color: #d8b26a;
+}
+.pick-check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--white);
   font-size: var(--fs-eyebrow);
-  font-weight: 600;
+  font-weight: 700;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.pick-tile.is-picked .pick-check {
+  display: flex;
+}
+.pick-tile.is-first .pick-check {
+  background: #d8b26a;
+}
+.pick-limit {
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+  margin: var(--space-2) 0 0;
+}
+.rank-empty {
+  color: var(--color-text-muted);
+  font-size: var(--fs-small);
+  padding: var(--space-4) 0;
+  text-align: center;
 }
 
-/* -------- Point pills (1..5) -------- */
-.admin-points {
+.rank-award-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  margin: 0 0 var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-4);
 }
-.admin-points-label {
+.rank-award-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.rank-award-badge {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.rank-award-headtext {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rank-award-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  color: var(--color-heading);
+  margin: 0;
+  line-height: var(--lh-tight);
+}
+.rank-award-sub {
+  margin: var(--space-1) 0 0;
   font-size: var(--fs-small);
   color: var(--color-text-muted);
 }
-.admin-points-pills {
-  display: flex;
-  gap: 6px;
-}
-.admin-point-pill {
-  width: 40px;
-  height: 40px;
+.rank-award-status {
+  flex: none;
+  align-self: center;
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-pill);
-  border: 1px solid var(--color-primary);
-  background: var(--white);
-  color: var(--color-primary);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.admin-point-pill.is-selected {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-}
-.admin-point-pill.is-used {
-  border-color: var(--color-hairline);
-  background: var(--green-50);
-  color: var(--color-hairline);
-  cursor: not-allowed;
-  text-decoration: line-through;
-}
-.admin-points-note {
-  margin: 0;
+  background: var(--ok-bg);
+  color: var(--ok-ink);
   font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
-.admin-badge-buttons {
+
+.rank-winner-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+}
+/* Mobile-first: name + points drop to their own line UNDER the medal/thumb/
+   controls so a long name is never squeezed to an ellipsis on a phone. At
+   ≥480px there is room for one clean row. Grid areas keep the two layouts in
+   sync from one source. */
+.rank-winner {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  grid-template-areas:
+    'medal thumb controls'
+    'meta  meta   meta';
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+  align-items: center;
+  padding: var(--space-2) var(--space-2);
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--white);
+  /* The glide: a displaced row animates its FLIP transform back to zero.
+     Matches the admin task-card reorder (src/public/js/admin-tasks.js). */
+  transition: transform var(--dur-base) var(--ease-soft);
+}
+.rank-winner:last-child {
+  border-bottom: none;
+}
+/* Circular rank medal: muted ring for 2nd–5th, filled gold for 1st. */
+.rank-medal {
+  grid-area: medal;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--color-hairline);
+  color: var(--color-text-muted);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rank-winner.is-gold .rank-medal {
+  border-color: #d8b26a;
+  background: #d8b26a;
+  color: var(--white);
+}
+.rank-winner-thumb {
+  grid-area: thumb;
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: var(--radius-input);
+  background: var(--green-50);
+}
+.rank-winner-meta {
+  grid-area: meta;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.rank-winner-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rank-winner-pts {
+  flex: none;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.rank-winner.is-gold .rank-winner-pts {
+  color: #b8892f;
+  font-weight: 600;
+}
+.rank-controls {
+  grid-area: controls;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+@media (min-width: 480px) {
+  .rank-winner {
+    grid-template-columns: auto auto 1fr auto;
+    grid-template-areas: 'medal thumb meta controls';
+  }
+}
+/* Drag handle: grab the grip to reorder. touch-action:none so a touch-drag
+   reorders the list instead of scrolling the page. Only present un-released. */
+.rank-handle {
+  flex: none;
+  width: 32px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-hairline);
+  cursor: grab;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rank-handle:hover {
+  color: var(--color-text-muted);
+}
+.rank-handle svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+/* Lifted while dragging: raised out of the list on its own layer, following the
+   pointer via an inline transform, with the reorder glide switched off on
+   itself. Mirrors .admin-task-card.is-dragging. */
+.rank-winner.is-dragging {
+  transition: none;
+  position: relative;
+  z-index: 5;
+  border-bottom-color: transparent;
+  border-radius: var(--radius-input);
+  box-shadow: var(--shadow-raise);
+  cursor: grabbing;
+}
+.rank-winner.is-dragging .rank-handle {
+  color: var(--color-primary);
+  cursor: grabbing;
+}
+
+/* Mobile-first: total stacked above a full-width release button so the button
+   can never overflow the card. At ≥480px they sit on one row. */
+.rank-award-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--space-3);
+}
+.rank-award-total {
+  margin: 0;
+  font-size: var(--fs-small);
+}
+.rank-award-release {
+  align-self: stretch;
+}
+@media (min-width: 480px) {
+  .rank-award-foot {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .rank-award-total {
+    flex: 1 1 220px;
+  }
+  .rank-award-release {
+    flex: none;
+    align-self: auto;
+  }
 }
 
 /* ===========================================================

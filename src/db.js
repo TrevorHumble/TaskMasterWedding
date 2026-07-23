@@ -211,26 +211,15 @@ db.exec(`
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
-  -- "Photo is a winner of badge X" records for the give-a-badge screen (issue
-  -- #259). Distinct from the guest-award badges/guest_badges tables (a
-  -- DIFFERENT concept: those hand a badge to a GUEST via POST
-  -- /admin/guests/:id/badge; these mark a PHOTO as a category winner). badge_code
-  -- is one of the five fixed codes in src/services/photo-badges.js — not a
-  -- foreign key, since that catalog is a code constant, not a DB table (no
-  -- host-facing CRUD for it in this issue). UNIQUE(badge_code, submission_id)
-  -- makes a repeat award idempotent (INSERT OR IGNORE, src/services/photo-badges.js)
-  -- and is what a badge's "N/5" count derives from (COUNT of rows per code).
-  -- No points column: points/ranking are issue #661, which reads this table.
-  CREATE TABLE IF NOT EXISTS badge_winners (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    badge_code    TEXT    NOT NULL,
-    submission_id INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
-    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-    CONSTRAINT uq_badge_winner UNIQUE (badge_code, submission_id)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_badge_winners_code
-    ON badge_winners(badge_code);
+  -- "Photo is a winner of badge X" — the give-a-badge screen's own worksheet
+  -- table (issue #259) — RETIRED by issue #661's one-badge-system
+  -- consolidation. It never gained a fresh-DB CREATE TABLE past that issue:
+  -- the real ranking model lives entirely on badges/guest_badges (this
+  -- table's own doc comment always said so: "points/ranking are issue #661,
+  -- which reads this table" — #661 reads the real award rows instead, and a
+  -- pre-#661 database's leftover rows/table are dropped by the guarded
+  -- ensureBadgeWinnersTableDropped() migration below). See that function's
+  -- doc comment for why this was retired outright rather than repointed.
 
   -- idx_bug_reports_resolved was retired by issue #686 (superseded by
   -- idx_bug_reports_status, created by ensureBugReportStatusColumn() below,
@@ -931,6 +920,37 @@ function ensureGuestBadgeCelebratedAtColumn() {
 
 ensureGuestBadgeCelebratedAtColumn();
 
+// --- Guarded migration: guest_badges.rank (issue #661) ---
+/**
+ * Add guest_badges.rank if it is not already present. NULL by default and
+ * for every row this column's guard adds retroactively — "not part of a
+ * ranked award". Only `src/services/task-badges.js`'s `releaseRanking`
+ * (issue #661) ever writes a non-NULL value here: 1..5, the placement a
+ * ranked task-badge award holds within its badge's current winner set. Every
+ * other award path (system auto/metric/transferable grants via
+ * `scoring.js`'s `stmtGrantBadge`, an admin special/custom award via
+ * `awardSpecialBadge`, a single-photo task-badge award via this file's own
+ * pre-existing `awardTaskBadge`) never names this column in its INSERT, so
+ * it stays NULL for all of them — "does this guest_badges row carry a rank"
+ * is therefore a complete, structural test for "was this a ranked release
+ * award," not a convention a caller could forget to honor.
+ *
+ * Same guard shape as ensureGuestBadgeCelebratedAtColumn immediately above:
+ * the guest_badges CREATE TABLE deliberately omits `rank`, so it is absent on
+ * both a fresh DB and an existing pre-#661 app.db; a repeat call (or a later
+ * boot) is a no-op. Exported so tests bind to this real guard rather than an
+ * inline copy.
+ */
+function ensureGuestBadgeRankColumn() {
+  const cols = db.prepare(`PRAGMA table_info(guest_badges)`).all();
+  if (cols.some((col) => col.name === 'rank')) {
+    return;
+  }
+  db.exec(`ALTER TABLE guest_badges ADD COLUMN rank INTEGER`);
+}
+
+ensureGuestBadgeRankColumn();
+
 // --- Guarded migration: guests.pinned (issue #251) ---
 /**
  * Add guests.pinned if it is not already present.
@@ -1180,6 +1200,84 @@ function ensureRetiredBadgesRemoved() {
 }
 
 ensureRetiredBadgesRemoved();
+
+// --- Guarded migration: retire the give-a-badge photo-winner catalog collision (issue #661) ---
+/**
+ * Delete the three `badges` catalog rows that collided in NAME ONLY with
+ * `src/services/photo-badges.js`'s (now-deleted) five-code give-a-badge
+ * catalog — SHUTTERBUG, CROWDFAV, CHOICE — plus any `guest_badges` rows held
+ * on them, exactly the same shape as `ensureRetiredBadgesRemoved` immediately
+ * above (issue #711). BESTDANCE and GOLDEN, the OTHER two give-a-badge codes,
+ * were never `badges` catalog rows in the first place (see
+ * `scripts/badge-catalog.js`'s `BADGES` array, which never listed them), so
+ * there is nothing here for those two to delete.
+ *
+ * These three codes were a genuine, if confusing, collision: `photo-badges.js`
+ * used them to mark a PHOTO as a category winner (`badge_winners`, a
+ * different table with no relation to `guest_badges`), while these `badges`
+ * catalog rows independently let an admin hand-award a same-named badge to a
+ * GUEST via `POST /admin/guests/:id/badge` (`scoring.awardSpecialBadge`) — two
+ * unrelated concepts sharing a display name. Issue #661's one-badge-system
+ * consolidation retires the give-a-badge picker entirely (its whole module,
+ * `badge_winners`, and its admin-photos.ejs dialog), and takes these three
+ * catalog rows with it rather than leaving them as a hand-awardable special
+ * badge whose name now describes a picker that no longer exists.
+ *
+ * Runs after `ensureBadgeCatalog()`/`ensureRetiredBadgesRemoved()` immediately
+ * above, same reasoning as that function: `ensureBadgeCatalog()` only upserts
+ * codes still present in `scripts/badge-catalog.js`'s `BADGES` array, never
+ * deletes a row for a code that has been removed from it, so an existing
+ * database needs this explicit DELETE to catch up. Exported so tests bind to
+ * this real guard rather than an inline copy.
+ */
+function ensureSpecialBadgeCollisionsRemoved() {
+  const retiredCodes = ['SHUTTERBUG', 'CROWDFAV', 'CHOICE'];
+  const deleteHeld = db.prepare(
+    `DELETE FROM guest_badges WHERE badge_id IN (SELECT id FROM badges WHERE code = ?)`
+  );
+  const deleteCatalogRow = db.prepare(`DELETE FROM badges WHERE code = ?`);
+  for (const code of retiredCodes) {
+    deleteHeld.run(code);
+    deleteCatalogRow.run(code);
+  }
+}
+
+ensureSpecialBadgeCollisionsRemoved();
+
+// --- Guarded migration: drop the retired badge_winners table (issue #661) ---
+/**
+ * Drop `badge_winners` (and, implicitly, its `idx_badge_winners_code` index —
+ * SQLite drops a table's own indexes automatically when the table itself is
+ * dropped) on an existing pre-#661 database. The CREATE TABLE block above no
+ * longer declares this table at all, so a fresh database never has it.
+ *
+ * Implementer's call, recorded here rather than left to drift (issue #661's
+ * own plan named two options — "repoint `badge_winners` at task badges, or
+ * replace it with a per-task worksheet" — and left the choice to whoever
+ * built it): neither. `badge_winners` had exactly one reader/writer,
+ * `src/services/photo-badges.js`, and that whole module is deleted by this
+ * same change (the give-a-badge picker it drove is retired outright, not
+ * repointed at a new concept). The real ranking screen this issue ships
+ * needs no "worksheet" table of its own either: a host's in-progress pick/
+ * drag-reorder is held entirely in the browser (see
+ * `src/public/js/admin-badge-rank.js`) until Release writes the real
+ * `guest_badges` award rows in one transaction — there is deliberately no
+ * per-drop persistence endpoint (matching the mock's own prior-art note) and
+ * therefore nothing left for a worksheet table to hold. Keeping
+ * `badge_winners` around unread, or repointing it at a concept nothing
+ * queries, would just be a second, silently-driftable source of "who won"
+ * behind the real one — `guest_badges` — this issue makes canonical.
+ *
+ * `DROP TABLE IF EXISTS` is naturally idempotent (same reasoning
+ * `ensureRetiredBadgesRemoved` gives for its own unconditional DELETEs), so
+ * this needs no PRAGMA table_info guard. Exported so tests bind to this real
+ * guard rather than an inline copy.
+ */
+function ensureBadgeWinnersTableDropped() {
+  db.exec(`DROP TABLE IF EXISTS badge_winners`);
+}
+
+ensureBadgeWinnersTableDropped();
 
 // --- Points value + guarded one-time backfill: auto/metric badges (issue #709) ---
 
@@ -1671,6 +1769,9 @@ module.exports = {
   ensureSubmissionsBonusColumns,
   ensureBadgeCatalog,
   ensureRetiredBadgesRemoved,
+  ensureSpecialBadgeCollisionsRemoved,
+  ensureBadgeWinnersTableDropped,
+  ensureGuestBadgeRankColumn,
   AUTO_METRIC_BADGE_POINTS,
   ensureAutoMetricBadgePointsBackfilled,
   ensureResubmittedColumn,

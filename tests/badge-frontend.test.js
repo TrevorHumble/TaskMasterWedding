@@ -215,9 +215,14 @@ describe('AC6: home renders a full 12-badge collection without truncation', () =
   it('a guest holding 12 distinct badges sees all 12 names on GET /', async () => {
     const guest = makeGuest('AC6 Guest');
 
-    // 4 seeded 'special' codes (admin-awardable) plus 8 freshly created
+    // 1 seeded 'special' code (admin-awardable) plus 11 freshly created
     // 'custom' codes (also admin-awardable) = 12 distinct held badges.
-    const specialCodes = ['EARLYBIRD', 'SHUTTERBUG', 'CROWDFAV', 'CHOICE'];
+    // EARLYBIRD is the only pre-seeded 'special' catalog code left — issue
+    // #661 retired SHUTTERBUG/CROWDFAV/CHOICE (they collided in NAME ONLY
+    // with the now-deleted give-a-badge photo-winner picker's own codes), so
+    // the custom-code loop below picks up the other 3 this test used to get
+    // from those retired codes.
+    const specialCodes = ['EARLYBIRD'];
     for (const code of specialCodes) {
       expect(scoring.awardSpecialBadge(guest.id, code)).toBe(true);
     }
@@ -228,7 +233,7 @@ describe('AC6: home renders a full 12-badge collection without truncation', () =
     guestSeq += 1;
     const runId = guestSeq;
     const customNames = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 11; i++) {
       const code = `AC6CUSTOM${runId}${i}`;
       const name = `AC6 Custom Badge ${i}`;
       const badge = scoring.createCustomBadge({
@@ -246,7 +251,7 @@ describe('AC6: home renders a full 12-badge collection without truncation', () =
     const heldCount = db
       .prepare('SELECT COUNT(*) AS n FROM guest_badges WHERE guest_id = ?')
       .get(guest.id).n;
-    expect(heldCount).toBe(12); // 4 special + 8 custom = 12 distinct badges
+    expect(heldCount).toBe(12); // 1 special + 11 custom = 12 distinct badges
 
     const agent = await signIn(guest.token);
     const res = await agent.get('/');
@@ -268,7 +273,7 @@ describe('AC6: home renders a full 12-badge collection without truncation', () =
       .prepare(`SELECT name FROM badges WHERE code IN (${specialCodes.map(() => '?').join(',')})`)
       .all(...specialCodes)
       .map((r) => r.name);
-    expect(actualSpecialNames.length).toBe(4);
+    expect(actualSpecialNames.length).toBe(1);
 
     for (const name of actualSpecialNames) {
       expect(res.text).toContain(escapeHtml(name));

@@ -7,10 +7,14 @@
   // Issue #259 — full guest-gallery parity, wired to real data. This
   // transcribes the owner-approved phase-1 prototype (visual loop,
   // 2026-07-19): same classes/markup shape, real server-side view/search
-  // (GET /admin/photos ?view=/?q=, src/routes/admin.js), real favorite +
-  // give-a-badge state (src/services/favorites.js, src/services/photo-badges.js),
-  // real moderation. Locals from the route: photos (EVERY submission,
-  // incl. taken-down — an admin wall shows everything; the guest gallery's
+  // (GET /admin/photos ?view=/?q=, src/routes/admin.js), real favorite state
+  // (src/services/favorites.js), real moderation. The five-code give-a-badge
+  // picker this view used to drive (src/services/photo-badges.js,
+  // badge_winners) is RETIRED (issue #661's one-badge-system consolidation) —
+  // ranking and awarding a task's photos now lives on its own page,
+  // GET/POST /admin/tasks/:id/rank (linked from this page's task-scoped view,
+  // below). Locals from the route: photos (EVERY submission, incl.
+  // taken-down — an admin wall shows everything; the guest gallery's
   // taken-down exclusion does not apply here — EXCEPT on a scoped
   // view=task&task=<id> request, issue #748, where photos is already
   // narrowed to that one task's submissions only), favorites (favorited
@@ -19,11 +23,10 @@
   // which yields at most one group holding ALL of that task's submissions,
   // taken-down included, with q ignored entirely), view, q, taskScope
   // (issue #748 — the scoped task's { id, title } row, or null when
-  // unscoped; picks the empty-state branch below), taskScopeId (the same
-  // scope already rendered down to a bare id or '', so every mutating form
-  // writes it as flatly as it writes view/q — the route resolves the null,
-  // not the template), badgeCatalog (the 5 give-a-badge choices with their
-  // current N/5 counts).
+  // unscoped; picks the empty-state branch below, and the rank-page entry
+  // point below), taskScopeId (the same scope already rendered down to a
+  // bare id or '', so every mutating form writes it as flatly as it writes
+  // view/q — the route resolves the null, not the template).
   //
   // View switching and search are real navigation (mirrors src/views/gallery.ejs
   // exactly) — only the grid<->feed toggle is client-side, because the inline
@@ -72,7 +75,8 @@
 
 <%
   // ---- Gallery tile: square thumbnail (opens the feed at that photo) with a
-  //      hover-reveal quick favorite heart + give-a-badge button. ----
+  //      hover-reveal quick favorite heart. (The give-a-badge button this
+  //      comment used to also describe is retired — issue #661.) ----
   function adminTile(p, panel) {
 %>
   <figure class="gallery-item admin-tile<%= p.taken_down ? ' is-down' : '' %>">
@@ -116,24 +120,6 @@
           </svg>
         </button>
       </form>
-      <button
-        type="button"
-        class="admin-tile-btn admin-badge-tilebtn<%= p._badged ? ' admin-badge-on' : '' %>"
-        aria-pressed="<%= p._badged ? 'true' : 'false' %>"
-        aria-label="Give this photo a badge"
-        data-badge-open
-        data-id="<%= p.id %>"
-        data-guest-name="<%= p.guest_name || ('Guest #' + p.guest_id) %>"
-        data-task-title="<%= p.task_title || 'Memory' %>"
-        data-thumb="<%= p.thumb_path %>"
-        data-down="<%= p.taken_down ? '1' : '0' %>"
-        data-winner-codes="<%= p._winnerCodes.join(',') %>"
-        data-panel="<%= panel %>"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="9" r="6"/><path d="M9 14l-2 7 5-3 5 3-2-7"/>
-        </svg>
-      </button>
     </div>
   </figure>
 <% } %>
@@ -144,6 +130,16 @@
   <div class="gallery-grid">
     <% list.forEach(function (p) { %><%- adminTile(p, panel) %><% }); %>
   </div>
+<% } %>
+
+<% if (taskScope) { %>
+  <%# Entry point into the rank-and-award page (issue #661 design: "entry
+      points link to it: ... the admin photos / task surface") — only
+      rendered on a task-scoped view (?view=task&task=<id>), the one place
+      this admin surface already knows which single task it is looking at. %>
+  <p class="page-actions" data-gallery-chrome>
+    <a href="/admin/tasks/<%= taskScope.id %>/rank">Rank &amp; award this task&rsquo;s photos</a>
+  </p>
 <% } %>
 
 <div data-gallery-chrome>
@@ -216,7 +212,9 @@
 <!-- ===================== FEED (parity with guest feed) ===================== -->
 <!-- Client-side only (no separate route, issue #259): tapping any tile above
      shows this same server-rendered section, scrolled to that photo. Same
-     card shape as src/views/feed.ejs; like -> favorite, comment -> give-a-badge. -->
+     card shape as src/views/feed.ejs; like -> favorite. (comment ->
+     give-a-badge used to be the second swap here too, before issue #661
+     retired that control.) -->
 <section data-view-panel="feed" hidden>
   <p class="back-link"><a href="?view=<%= view %><%= q ? '&q=' + encodeURIComponent(q) : '' %>" data-feed-back>&larr; Back to photos</a></p>
   <div class="feed">
@@ -312,27 +310,6 @@
                 <span class="like-count">Favorite</span>
               </button>
             </form>
-
-            <button
-              type="button"
-              class="comment-button admin-feed-badge<%= p._badged ? ' is-badged' : '' %>"
-              aria-pressed="<%= p._badged ? 'true' : 'false' %>"
-              aria-label="Give this photo a badge"
-              data-badge-open
-              data-id="<%= p.id %>"
-              data-guest-name="<%= p.guest_name || ('Guest #' + p.guest_id) %>"
-              data-task-title="<%= p.task_title || 'Memory' %>"
-              data-thumb="<%= p.thumb_path %>"
-              data-down="<%= p.taken_down ? '1' : '0' %>"
-              data-winner-codes="<%= p._winnerCodes.join(',') %>"
-              data-panel="feed"
-            >
-              <svg class="comment-bubble" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                <path d="M9 14l-2 7 5-3 5 3-2-7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-              </svg>
-              <span>Badge</span>
-            </button>
           </div>
 
           <span class="points-count"><%= p.photo_bonus %> <%= p.photo_bonus === 1 ? 'point' : 'points' %></span>
@@ -405,51 +382,6 @@
   <p class="back-link"><a href="?view=<%= view %><%= q ? '&q=' + encodeURIComponent(q) : '' %>" data-feed-back>&larr; Back to photos</a></p>
 </section>
 
-<!-- ===================== Give-a-badge menu (the dialog you liked) ===================== -->
-<dialog class="comments-dialog admin-badge-dialog" id="adminBadgeDialog" aria-labelledby="adminBadgeTitle">
-  <div class="comments-dialog-header">
-    <img class="comments-dialog-thumb" id="adminBadgeThumb" src="" alt="" />
-    <h2 class="comments-dialog-title" id="adminBadgeTitle">Give a badge</h2>
-    <button type="button" class="comments-dialog-close" data-badge-close aria-label="Close">&times;</button>
-  </div>
-
-  <div class="admin-badge-body">
-    <p class="admin-badge-sub muted" id="adminBadgeMeta"></p>
-
-    <fieldset class="admin-badge-picker">
-      <legend>Which badge?</legend>
-      <div class="admin-badge-choices" id="adminBadgeChoices">
-        <% badgeCatalog.forEach(function (b, i) { %>
-          <label class="admin-badge-choice<%= i === 0 ? ' is-selected' : '' %>">
-            <input type="radio" name="code" value="<%= b.code %>"<%= i === 0 ? ' checked' : '' %> />
-            <svg class="admin-badge-ribbon" viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="9" r="6"/><path d="M9 14l-2 7 5-3 5 3-2-7"/>
-            </svg>
-            <span class="admin-badge-count"><%= b.chosen %>/5</span>
-            <span class="admin-badge-name"><%= b.name %></span>
-          </label>
-        <% }); %>
-      </div>
-    </fieldset>
-
-    <p class="admin-badge-hint muted">Award points once all badges are awarded.</p>
-
-    <%# Award-only (issue #684): Take down / Restore moved to the card's ⋯
-        menu, so this dialog no longer moderates — it only awards a badge. %>
-    <div class="admin-badge-buttons">
-      <form method="post" id="adminBadgeAwardForm">
-        <input type="hidden" name="view" value="<%= view %>">
-        <input type="hidden" name="q" value="<%= q %>">
-        <input type="hidden" name="panel" id="adminBadgeAwardPanel" value="">
-        <input type="hidden" name="action" value="toggle">
-        <input type="hidden" name="code" id="adminBadgeSelectedCode" value="<%= badgeCatalog[0] ? badgeCatalog[0].code : '' %>">
-        <input type="hidden" name="task" value="<%= taskScopeId %>">
-        <button type="submit" class="btn" id="adminBadgeAward">Award badge</button>
-      </form>
-    </div>
-  </div>
-</dialog>
-
 <script src="/js/admin.js" defer></script>
 <script src="/js/lightbox.js" defer></script>
 <script>
@@ -496,69 +428,6 @@
       var m = /^#feed-photo-(\d+)$/.exec(window.location.hash);
       if (m) openFeedAt(m[1]);
     })();
-
-    // ------- Give-a-badge menu -------
-    var dlg = document.getElementById('adminBadgeDialog');
-    var meta = document.getElementById('adminBadgeMeta');
-    var thumb = document.getElementById('adminBadgeThumb');
-    var choicesEl = document.getElementById('adminBadgeChoices');
-    var selectedCodeInput = document.getElementById('adminBadgeSelectedCode');
-    var awardBtn = document.getElementById('adminBadgeAward');
-    var awardForm = document.getElementById('adminBadgeAwardForm');
-    var awardPanelInput = document.getElementById('adminBadgeAwardPanel');
-    var currentWinnerCodes = [];
-
-    // The Award/Remove label (and the picker's is-selected highlight) is a
-    // client-side hint from the tapped photo's data-winner-codes — the
-    // server always resolves the real award-vs-remove direction itself
-    // (action=toggle, src/routes/admin.js), so a stale label here can never
-    // cause the wrong write.
-    function syncAwardLabel() {
-      var code = selectedCodeInput.value;
-      var held = currentWinnerCodes.indexOf(code) !== -1;
-      awardBtn.textContent = held ? 'Remove badge' : 'Award badge';
-      awardBtn.classList.toggle('btn-danger', held);
-      choicesEl.querySelectorAll('.admin-badge-choice').forEach(function (lab) {
-        var input = lab.querySelector('input');
-        lab.classList.toggle('is-selected', input.value === code);
-      });
-    }
-
-    choicesEl.addEventListener('change', function (e) {
-      if (e.target.name === 'code') {
-        selectedCodeInput.value = e.target.value;
-        syncAwardLabel();
-      }
-    });
-
-    document.addEventListener('click', function (e) {
-      var open = e.target.closest('[data-badge-open]');
-      if (open) {
-        var id = open.getAttribute('data-id');
-        meta.textContent = open.getAttribute('data-guest-name') + ' — ' + open.getAttribute('data-task-title');
-        thumb.src = '/thumbs/' + open.getAttribute('data-thumb');
-
-        awardForm.action = '/admin/photos/' + id + '/badge';
-
-        var panelVal = open.getAttribute('data-panel') || '';
-        awardPanelInput.value = panelVal;
-
-        currentWinnerCodes = (open.getAttribute('data-winner-codes') || '').split(',').filter(Boolean);
-        var firstRadio = choicesEl.querySelector('input[name="code"]');
-        var defaultCode = currentWinnerCodes[0] || (firstRadio ? firstRadio.value : '');
-        choicesEl.querySelectorAll('input[name="code"]').forEach(function (input) {
-          input.checked = input.value === defaultCode;
-        });
-        selectedCodeInput.value = defaultCode;
-        syncAwardLabel();
-
-        if (typeof dlg.showModal === 'function') dlg.showModal();
-        return;
-      }
-      if (e.target.closest('[data-badge-close]')) {
-        dlg.close();
-      }
-    });
 
     // ------- Comments thread dialog (issue #684) -------
     // "See all N" opens the per-photo <dialog> full thread; the ✕, a backdrop

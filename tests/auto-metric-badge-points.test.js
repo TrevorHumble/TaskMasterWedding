@@ -176,9 +176,13 @@ describe('AC4: the db.js backfill fixes a pre-#709 database and nothing else', (
 
     // A same-guest admin-special row at points = 0 — must NOT be touched by
     // the type-joined backfill (the issue's core AC4 requirement: filtering
-    // must be by badges.type, not by awarded_by = 'system').
-    scoring.awardSpecialBadge(guest, 'SHUTTERBUG');
-    const shutterbug = db.prepare(`SELECT id FROM badges WHERE code = 'SHUTTERBUG'`).get();
+    // must be by badges.type, not by awarded_by = 'system'). EARLYBIRD, not
+    // SHUTTERBUG: issue #661 retired SHUTTERBUG (it collided in NAME ONLY
+    // with the now-deleted give-a-badge photo-winner picker's own code) —
+    // EARLYBIRD is the catalog's other pre-seeded 'special' code and serves
+    // this test's purpose identically.
+    scoring.awardSpecialBadge(guest, 'EARLYBIRD');
+    const earlybird = db.prepare(`SELECT id FROM badges WHERE code = 'EARLYBIRD'`).get();
 
     const changed = ensureAutoMetricBadgePointsBackfilled();
 
@@ -187,7 +191,7 @@ describe('AC4: the db.js backfill fixes a pre-#709 database and nothing else', (
       .get(guest, bloom.id);
     const specialRow = db
       .prepare(`SELECT points FROM guest_badges WHERE guest_id = ? AND badge_id = ?`)
-      .get(guest, shutterbug.id);
+      .get(guest, earlybird.id);
 
     expect(bloomRow.points).toBe(1);
     expect(specialRow.points).toBe(0);
