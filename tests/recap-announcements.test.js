@@ -189,9 +189,9 @@ describe('AC2: only real liveness transitions announce', () => {
     // shared database. So the "no announcement" assertions here are scoped
     // to THIS task by title, never a bare total unread count.
     backdateGuest(guest.id, '2025-01-01 00:00:00'); // AFTER live_since -- already "seen"
-    expect(announceRowFor(notifications.getRecap(guest.id).rows, 'AC2 No Liveness Change')).toHaveLength(
-      0
-    );
+    expect(
+      announceRowFor(notifications.getRecap(guest.id).rows, 'AC2 No Liveness Change')
+    ).toHaveLength(0);
 
     await adminAgent
       .post(`/admin/tasks/${taskId}/edit`)
@@ -251,17 +251,17 @@ describe('AC2: only real liveness transitions announce', () => {
     // and the task genuinely live, force a bump so the "would have shown"
     // half of this test is meaningful.
     db.prepare(`UPDATE tasks SET live_since = '2020-06-01 00:00:00' WHERE id = ?`).run(taskId);
-    expect(announceRowFor(notifications.getRecap(guest.id).rows, 'AC2 Hide Live Task')).toHaveLength(
-      1
-    );
+    expect(
+      announceRowFor(notifications.getRecap(guest.id).rows, 'AC2 Hide Live Task')
+    ).toHaveLength(1);
 
     await adminAgent
       .post(`/admin/tasks/${taskId}/edit`)
       .type('form')
       .send({ title: 'AC2 Hide Live Task', special_mode: 'hidden' });
-    expect(announceRowFor(notifications.getRecap(guest.id).rows, 'AC2 Hide Live Task')).toHaveLength(
-      0
-    );
+    expect(
+      announceRowFor(notifications.getRecap(guest.id).rows, 'AC2 Hide Live Task')
+    ).toHaveLength(0);
   });
 
   it('deleting a task renders no announcement row', async () => {
@@ -302,14 +302,16 @@ describe('AC3: creating hidden does not announce', () => {
     }
 
     const nullCount = db
-      .prepare(`SELECT COUNT(*) AS n FROM tasks WHERE title LIKE 'AC3 Hidden Setup%' AND live_since IS NULL`)
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks WHERE title LIKE 'AC3 Hidden Setup%' AND live_since IS NULL`
+      )
       .get().n;
     expect(nullCount).toBe(20);
 
     const rows = notifications.getRecap(guest.id).rows;
-    expect(rows.some((r) => r.kind === 'announce' && partsText(r.parts).includes('AC3 Hidden Setup'))).toBe(
-      false
-    );
+    expect(
+      rows.some((r) => r.kind === 'announce' && partsText(r.parts).includes('AC3 Hidden Setup'))
+    ).toBe(false);
   });
 });
 
@@ -507,7 +509,10 @@ describe('Edge case: no checkpoint (nonexistent guest id)', () => {
 // ---------------------------------------------------------------------------
 describe('Migration: tasks.live_since', () => {
   it('the column exists, defaults NULL, and the guard is idempotent on a second call', () => {
-    const cols = db.prepare('PRAGMA table_info(tasks)').all().map((c) => c.name);
+    const cols = db
+      .prepare('PRAGMA table_info(tasks)')
+      .all()
+      .map((c) => c.name);
     expect(cols).toContain('live_since');
 
     const dbModule = require('../src/db');
@@ -517,8 +522,9 @@ describe('Migration: tasks.live_since', () => {
     // shape most of this codebase's OTHER test files' insertTask helpers
     // already use) keeps it NULL -- exactly the "never spuriously announce a
     // pre-existing live task" contract issue #778's plan step 1 states.
-    const id = db.prepare(`INSERT INTO tasks (title) VALUES (?)`).run('Migration Bare Insert')
-      .lastInsertRowid;
+    const id = db
+      .prepare(`INSERT INTO tasks (title) VALUES (?)`)
+      .run('Migration Bare Insert').lastInsertRowid;
     expect(getTask(id).live_since).toBeNull();
   });
 });

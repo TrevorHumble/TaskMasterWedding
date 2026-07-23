@@ -694,7 +694,9 @@ function qualifyingAnnounceFacts(checkpoint, clock) {
     }
 
     if (tasks.isOnDay(t, clock.todayIso)) {
-      const dayStart = toSqliteDatetime(eventDays.dayOpensAt(clock.todayIso, clock.timezone).getTime());
+      const dayStart = toSqliteDatetime(
+        eventDays.dayOpensAt(clock.todayIso, clock.timezone).getTime()
+      );
       if (checkpoint < dayStart) {
         facts.push({
           key: `announce-unseal-${t.id}`,

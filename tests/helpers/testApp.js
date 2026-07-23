@@ -89,7 +89,9 @@ function seed(db) {
  * @param {number} guestId
  */
 function suppressAnnouncementsForGuest(db, guestId) {
-  db.prepare(`UPDATE guests SET recap_checked_at = '2026-08-08 00:00:00' WHERE id = ?`).run(guestId);
+  db.prepare(`UPDATE guests SET recap_checked_at = '2026-08-08 00:00:00' WHERE id = ?`).run(
+    guestId
+  );
 }
 
 /**

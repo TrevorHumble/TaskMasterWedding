@@ -1263,7 +1263,7 @@ their own render state without a stored row of their own.
 
 So all three announcement sources are DERIVED, added as a fourth source alongside the recap's two
 existing derived sources (likes, comments) — this file's own header comment anticipated exactly this
-before #778 landed. The one piece of state that had no home on the task row before #778 was *when* a
+before #778 landed. The one piece of state that had no home on the task row before #778 was _when_ a
 task last became live — nothing recorded that instant. `tasks.live_since` (a guarded `ADD COLUMN`,
 `NULL` = never live) supplies it, bumped only at a genuine not-live → live transition (compared via
 `tasks.isTaskLive`, the single liveness owner) by the three write seams that can flip liveness — create,
