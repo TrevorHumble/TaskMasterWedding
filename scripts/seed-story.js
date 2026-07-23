@@ -14,10 +14,11 @@
 //
 // 'normal'  — a representative mid-size wedding: moderate likes/comments on
 //             every photo, the fixture's existing mid-pack tie, no bonus-point
-//             or engagement extremes.
+//             or engagement extremes, a handful of seeded bug reports
+//             (bugReports: true, issue #686) spanning open/tracked/closed.
 // 'extreme' — a stress case: a top-of-leaderboard tie (topTie: true), one
 //             submission liked by nearly every guest, one submission with a
-//             50-comment thread (social: 'extreme').
+//             50-comment thread (social: 'extreme'), same seeded bug reports.
 //
 // Requiring this module has NO side effects — it only exports parseArgs()
 // and STORIES. Side effects (installing files, checking the safety guard,
@@ -34,8 +35,8 @@ const { checkClobberGuard, installSamplePhotos } = require('./seed-event');
 // filenames never collide (buildManifest folds `seed` into every filename)
 // if both were ever seeded against the same DATA_DIR by mistake.
 const STORIES = {
-  normal: { guests: 40, seed: 1, social: 'normal', topTie: false },
-  extreme: { guests: 60, seed: 2, social: 'extreme', topTie: true },
+  normal: { guests: 40, seed: 1, social: 'normal', topTie: false, bugReports: true },
+  extreme: { guests: 60, seed: 2, social: 'extreme', topTie: true, bugReports: true },
 };
 
 /**
@@ -117,12 +118,14 @@ function main() {
       const taskCount = db
         .prepare('SELECT COUNT(*) AS n FROM tasks WHERE title LIKE ?')
         .get(`${EVENT_TASK_PREFIX}%`).n;
+      const bugReportCount = db.prepare('SELECT COUNT(*) AS n FROM bug_reports').get().n;
 
       console.log(`Story: ${story}`);
       console.log(`  Guests:   ${guestIds.length}`);
       console.log(`  Tasks:    ${taskCount}`);
       console.log(`  Likes:    ${likeCount} (max on one photo: ${maxLikes})`);
       console.log(`  Comments: ${commentCount} (max on one photo: ${maxComments})`);
+      console.log(`  Bugs:     ${bugReportCount}`);
       console.log(`  Photos installed into ${config.UPLOADS_DIR}`);
     })
     .catch((err) => {

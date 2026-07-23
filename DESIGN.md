@@ -1234,17 +1234,49 @@ it never earned through this app's own doors. This also keeps two questions — 
 auto-open" and "does this badge appear in the recap, replayable" — answering from the same underlying
 fact, since the recap list is itself built only from `notification_events` rows.
 
-**Known gap: the `day`/`flash`/`task` announcement glyphs are not in the tree — found in PR review.**
-#644's own implementation plan (step 8) said to KEEP three `.recap-icon-<kind>`-style glyph branches
-for #778's future announcement rows (`day`, `flash`, `task`) even though nothing in #644's own scope
-emits them yet, the same way `gold` (#647) and `announce` (#778) were kept and wired into
-`src/services/notifications.js`'s `KIND_GLYPH` map. That phase-1 art was never actually committed to
-this branch, so there is nothing to restore — `git log --all -S` over both `KIND_GLYPH` and
-`theme.css`'s `.recap-icon-*` rules turns up no prior commit defining them. Inventing new SVG glyphs
-here, unreviewed, would ship un-approved art under a "restored" label. #778's own implementation plan
-already accounts for exactly this possibility: its plan step 4 says to verify these branches survived
-and, "if they were dropped, restoring them is this issue's work, not a new issue." Left undone here on
-purpose; #778 owns closing this gap when it lands the emitters that need the art.
+**Retired: the `day`/`flash`/`task` announcement glyphs — settled by #778, not a gap it needed to close.**
+#644's own implementation plan (step 8) originally said to KEEP three `.recap-icon-<kind>`-style glyph
+branches for #778's future announcement rows (`day`, `flash`, `task`), the same way `gold` (#647) and
+`announce` (#778) were kept and wired into `src/services/notifications.js`'s `KIND_GLYPH` map. That
+phase-1 art was never actually committed to this branch — `git log --all -S` over both `KIND_GLYPH` and
+`theme.css`'s `.recap-icon-*` rules turns up no prior commit defining them — so #778 had nothing to
+restore. Rather than invent three new SVG glyphs unreviewed, the owner's #778 Design section reversed
+the plan (2026-07-21): differentiating the three announcement kinds by glyph is unapproved new art, a
+separable future nicety, not something any of #778's acceptance criteria needs. #778 shipped every
+announcement row — live-transition, challenge-unseal, and flash-open alike — through the single
+`announce` glyph already wired above. This is now the settled shape, not an open gap a later issue owns
+closing.
+
+**Announcements (#778): derived from task state at read time, never a stored broadcast row.** The
+host-driven half of the recap — "a task went live," "a one-day-only challenge unsealed," "a flash window
+opened" — differs from every source above it in one structural way: it is a BROADCAST, not a per-guest
+fact. `notification_events` (the recap's one STORED source) is `guest_id`-keyed `NOT NULL` and read
+`WHERE ne.guest_id = ?` (`src/db.js`, `src/services/notifications.js`'s `EVENT_EXISTENCE_WHERE`) —
+every stored row belongs to exactly one guest by construction. A host action belongs to no single guest
+and must reach every guest whose recap checkpoint predates it, including one who has not yet joined.
+Making that fit the stored shape means either an O(guests) fan-out write per host action (one
+`notification_events` row per current guest, missing any later joiner entirely) or widening `guest_id`
+to nullable on the hottest read path in the app (`getUnreadCount` runs on every authenticated request) —
+neither justified, because every fact an announcement asserts is already sitting on the task row itself
+at read time, the same way `flashState()` and the seal predicate (`src/services/tasks.js`) already derive
+their own render state without a stored row of their own.
+
+So all three announcement sources are DERIVED, added as a fourth source alongside the recap's two
+existing derived sources (likes, comments) — this file's own header comment anticipated exactly this
+before #778 landed. The one piece of state that had no home on the task row before #778 was _when_ a
+task last became live — nothing recorded that instant. `tasks.live_since` (a guarded `ADD COLUMN`,
+`NULL` = never live) supplies it, bumped only at a genuine not-live → live transition (compared via
+`tasks.isTaskLive`, the single liveness owner) by the three write seams that can flip liveness — create,
+edit, and the `/active` toggle (`src/routes/admin.js`). A pre-existing live task on a migrated database
+keeps `live_since` `NULL` rather than being backfilled, so it can never spuriously announce: the read
+rule is `live_since > checkpoint`, and `NULL > x` is never true. The other two sources need no new
+column at all — a challenge's unseal reads `tasks.isOnDay`/`special_date` against the event-local day
+start (`event-days.js`'s `dayOpensAt`), and a flash's open window reads `tasks.flashState`/`flashWindow`
+— both already-owned derivations #762/#753 built for their own guest-facing surfaces, consumed here
+rather than re-derived. Every announcement is EPHEMERAL by construction (it exists only while its
+trigger instant is newer than the checkpoint AND the task is still `liveTaskWhere`-live), so a hidden
+task can never announce under any of the three rules, and every announcement is unread the moment it
+exists — there is no separate "unread" bookkeeping to keep in sync.
 
 **Known limitation: a like landing in the same whole second as a `markSeen` checkpoint is lost —
 found in PR review.** `notifications.js`'s unread-count and row-existence checks
@@ -1729,3 +1761,157 @@ something this change's `Touches` list authorizes an implementer to silently red
 owner/orchestrator, not fixed inline. (2) `docs/game-design-points-badges.md` still describes the
 pre-2026-07-23 "forced five"/"`badge_winners` survives as a worksheet" shape this ADR's corrections
 supersede; a doc-sync pass is a follow-up, not part of this issue's own `Touches`.
+
+## Bug-report lifecycle: additive `status` over a `resolved` rebuild, one count owner (#686)
+
+**Date:** 2026-07-23. **Status:** accepted; shipped.
+
+**(a) `bug_reports.resolved` is retired but not dropped — `status` is a purely additive column plus
+a one-time backfill, not a table rebuild.** Every other CHECK-widening migration in `src/db.js`
+(`ensureTaskSpecialDayColumns`, `ensureBadgeTypeCheckWidened`, …) rebuilds its table because SQLite
+cannot widen a CHECK in place. `bug_reports` has no inbound foreign key from any other table, so none
+of the FK-cascade hazard those rebuilds exist to survive applies here — `ensureBugReportStatusColumn()`
+instead runs a single `ALTER TABLE … ADD COLUMN status TEXT NOT NULL DEFAULT 'open' CHECK (status IN
+(…))`, confirmed against this tree's better-sqlite3/SQLite build to accept a CHECK on an added column in
+one statement (enforced on every write from that point on, including the migration's own backfill). The
+backfill only needs to move the `resolved = 1` half forward (`UPDATE … SET status = 'closed' WHERE
+resolved = 1`) — a `resolved = 0` row is already `'open'` from the column's own DEFAULT, so no second
+UPDATE is needed for that half. `resolved` itself is left in the table, unread from this point on:
+dropping it would cost a rebuild for a column that costs nothing to leave alone once nothing queries it.
+
+**(b) The lifecycle index swap runs unconditionally, outside the column-presence guard, because the
+column doesn't exist yet when it would need to.** The top-of-file `CREATE TABLE IF NOT EXISTS` block
+runs before any guarded migration, so it cannot unconditionally `CREATE INDEX … ON bug_reports(status,
+…)` — that statement would throw `no such column: status` on every pre-#686 database, which by
+definition doesn't have the column until the guarded migration below runs. `idx_bug_reports_status`
+is instead created (and the retired `idx_bug_reports_resolved` dropped) inside
+`ensureBugReportStatusColumn()` itself, every boot, unconditionally (both statements are naturally
+idempotent — `DROP INDEX IF EXISTS` / `CREATE INDEX IF NOT EXISTS`) rather than only inside the
+column-add branch: a fresh database already has `status` from the `CREATE TABLE` and would otherwise
+never get the new index at all, since it never takes the add-column branch.
+
+**(c) One `openBugCount()` owner in `src/db.js`, not two independent `WHERE status = 'open'` counts.**
+Before this issue, `src/services/host-checklist.js`'s `buildRows()` ran its own `COUNT(*) … WHERE
+resolved = 0` query and reused the local result for both the dashboard stat-grid cell and the "Today"
+checklist's bug pin — already one query shared within that function, but the fact itself (what counts as
+open) lived nowhere reusable outside it. `openBugCount()` now lives in `src/db.js` next to the schema
+that defines `status`, and `host-checklist.js` calls it instead of hand-writing the predicate — so a
+future third surface (or a test) asking "how many bugs are open" reads the same answer by construction,
+not by two call sites happening to agree today.
+
+**(d) The "Open issue" link stays a plain anchor whose `href` is literally the GitHub prefill URL;
+using it also marks the report tracked via a same-origin `sendBeacon` POST, not a route-level
+redirect.** The owner-approved screen (settled live 2026-07-23) renders "Open issue" as `<a
+target="_blank">` — a link, not a form — because the admin authenticates to GitHub in their own browser
+tab and submits there; no token, no server-side GitHub API call. A same-origin GET route that marked the
+report tracked and then 302-redirected to GitHub was considered and rejected: it would have made the
+rendered `href` an internal path instead of the literal `GITHUB_REPO_URL + /issues/new?...` URL, breaking
+AC1's literal requirement and the approved markup's own shape. Instead the anchor keeps its real `href`
+and carries an `onclick` that fires `navigator.sendBeacon('/admin/bugs/:id/track')` (falling back to
+`fetch(..., {keepalive: true})` on a browser without `sendBeacon`) — a background POST that survives the
+click's normal navigation to the new tab, changing no visible markup, class, or structure the owner
+approved.
+
+## Crowd favorites: derived not materialized, standard-competition rank, one absorbed ranker (#625)
+
+**Date:** 2026-07-23. **Status:** accepted.
+
+**Why crowd-favorite placements are fully DERIVED — no `guest_badges` row is ever written for one.**
+`guest_badges` carries `CONSTRAINT uq_gb UNIQUE (guest_id, badge_id)` (`src/db.js`). Every other badge
+this app grants is a single per-guest fact — a guest either holds BLOOM or does not — so one row per
+(guest, badge) is the right shape. A crowd-favorite placement is not that shape: issue #625's own no-cap
+sweep rule (AC3) lets one guest hold three placing photos at once and collect 5+4+3=12 points, which is
+three DISTINCT placements for the SAME guest against the SAME hypothetical badge. Materializing that as
+`guest_badges` rows would either violate the UNIQUE constraint (one row per guest per badge, no room for
+a second placing photo) or force a schema change (a `submission_id` column added to a table three other
+badge kinds already write without one). `src/services/scoring.js`'s `crowdFavorites()` sidesteps the
+question entirely: it is the ONE function that decides "who is a crowd favorite, at what rank, worth how
+much," computed fresh from `submissions`/`likes` on every call, and every reader — `getPoints`,
+`leaderboard()`, `feed.slideshowSequence()`'s Most Liked opener, and the two new recap kinds below — reads
+that same live answer. Nothing about a crowd-favorite placement can ever go stale, because nothing about
+it is ever stored.
+
+**Why crowd favorites uses STANDARD-COMPETITION ranking while the leaderboard (#626) uses DENSE ranking —
+two schemes, one module.** Both share the same underlying shape ("walk a sorted list, assign ranks"), so
+`src/services/rank.js` (new) is the single home for both as two named, independently tested pure functions
+— `denseRank` and `standardRank` — rather than the inline dense-rank block `GET /leaderboard`
+(`src/routes/community.js`) used to carry with no second consumer. The two schemes are not
+interchangeable: the leaderboard NEVER wants a tie to leave the rank below it empty (dense: `[24,20,20,18]
+-> 1,2,2,3`), while crowd favorites specifically WANTS a tie to consume the ranks beneath it (standard-
+competition: `[24,20,20,18] -> 1,2,2,4`) — that consumption is what bounds the crowd-favorite paying set
+near 5 regardless of party scale. An earlier revision of #625 specified dense ranking for crowd favorites
+too; the owner caught the defect live (issue comment, 2026-07-23): dense rank 5 is only the fifth-highest
+DISTINCT like count, so at party scale a 60-photo tail all sitting at 1 like would all place — no bound at
+all. Standard-competition ranking is the fix: a single tier holding 5+ photos (a big top tie) can still
+place more than five, and that is correct — they genuinely tied for most-liked — but nothing below a
+placing tier ever pays.
+
+**Why memories compete.** An earlier body of this issue claimed the owner had settled memories OUT of
+crowd-favorite eligibility, quoting no artifact that actually recorded it. Re-derived from
+`docs/north-star.md` instead (recorded on the issue so it can be overturned by a real decision later): the
+anti-flooding worry that motivates excluding memories elsewhere in the economy does not reach this
+mechanic — uploading a memory earns nothing on its own, only OTHER guests' hearts place a photo, and
+self-likes are already blocked at the route (#712). Excluding memories would mean the best candid of the
+weekend — the one nobody was assigned to take — could never be crowned, working against Goals B and D; and
+#656 already pays memories a memory-day point, so memories are already inside the points economy. Every
+visible photo competes, task-linked or not — `scoring.crowdFavorites()`'s query carries no `task_id`
+filter at all.
+
+**Why the crowd term is folded into `getPoints`/`leaderboard()` in JS, after the query runs — the same
+shape as the #656 memory-day term.** Standard-competition rank over a live, event-wide like count cannot be
+expressed as a per-guest SQL expression without fanning out the query (ranking is inherently a whole-field
+computation, not a per-row one). `crowdPointsByGuest()` runs `crowdFavorites()` exactly ONCE — a single
+query ranks every liked photo in the whole event — and folds the result into a `Map`; `leaderboard()`
+consumes that Map in its existing post-query JS pass (AC8: the leaderboard's crowd term costs exactly one
+extra SQL statement, never one per guest row, exactly the guarantee #656's `memoryDayCountsByGuest` already
+established for the memory-day term and this issue reuses the pattern for).
+
+**Why the crowd bonus is NOT folded into `scoring.photoPoints()`.** That function's number is what a photo
+earned by being SUBMITTED — a stable, banked-feeling value a feed card prints without explanation. A crowd
+rank is volatile by design (a later like or takedown can move it on the very next read), so folding it into
+the per-photo figure would make a card's number flicker for reasons the card cannot explain. This is a
+deliberate exception to #756's "one photo, one number" rule, recorded in `photoPoints`'s own doc comment:
+what a crowd-favorite photo earns is stated separately, by #788's crown marker on the photo and by the
+guest's grand total (`getPoints`/`leaderboard`), never by this function.
+
+**Why the slideshow's "Most Liked" opener needed a dedicated section builder
+(`feed.buildCrowdFavoriteSection`), not a reuse of `buildSlideshowSection`.** Before this issue,
+`slideshowSequence()`'s opener was a SECOND, independent ranker — sorted by `like_count` with a points
+tiebreak, cut to a positional top 5 via `buildSlideshowSection`, which assigns each photo's rank from its
+ARRAY POSITION (`i + 1`). That is correct for a task section (no cap on ties there, since a task's winners
+are host-picked, not vote-tied) but wrong for the crowd-favorite opener once ties can share a rank: two
+photos tied for a spot must render the IDENTICAL rank label, which a position-based rank can never express.
+The venue screen must not crown a photo the standings did not pay — the exact bug the old second ranker
+risked, since its likes-first/points-tiebreak sort could disagree with `crowdFavorites()`'s
+standard-competition rank the moment two photos' like counts tied. `buildCrowdFavoriteSection` instead reads
+each photo's rank straight off `scoring.crowdFavorites()`'s own output (`placing[i].rank`), so the opener,
+the standings, and the recap always agree. It is also no longer size-capped: it renders exactly the placing
+set (usually ~5 photos, more only under a big top tie) and is omitted entirely when the set is empty,
+rather than always showing exactly 5 regardless of how many photos actually have any likes at all.
+
+**Why `notifications.js` requires `./scoring` LAZILY, inside `KIND_VIEW.crowd_favorite.parts()`, not at
+module top level.** `scoring.js` already requires `./notifications` at its own top level (the recap's
+single write path, `recordEvent`, is how `recomputeBadges` et al. emit badge events). A top-level
+`require('./scoring')` added to `notifications.js` would complete the cycle at LOAD time: whichever of the
+two modules happened to finish loading first would see the other's `module.exports` still mid-assembly
+(missing keys) the moment it destructured from it, and every recap render would throw. Deferring the
+require to call time — inside the `parts()` callback, mirroring `feed.js`'s existing deferred
+`require('./scoring')` inside `slideshowSequence()` — sidesteps the cycle entirely: by the time any request
+renders a `crowd_favorite` recap row, both modules have long since finished loading, and Node's `require()`
+cache makes the deferred call free after the first one.
+
+**Why the recap stores only `guest_id` + `submission_id`, never a rank.** `notification_events` needed no
+schema change for this issue. A stored rank would be the one fact here that could go stale — a like arriving
+after the event was recorded could move the photo's rank again before the guest ever opens their recap.
+`KIND_VIEW.crowd_favorite.parts()` reads the CURRENT placing set live from `crowdFavorites()` every time the
+row renders, falling back to a rank-free "crowd favorite" line if the photo has since left the placing set
+again (a second `crowd_favorite_lost` event, recorded separately at the moment it actually left, is what
+tells that part of the story). `crowd_favorite` reuses the existing `gold` recap view; `crowd_favorite_lost`
+reuses the existing `loss` view with `dead: true` — no new view-kind glyph or CSS was needed, both were
+already wired ahead of their first emitter by issue #644's review.
+
+**Duplicated-ownership note.** The rank-to-points mapping (`CROWD_FAVORITE_POINTS = [5, 4, 3, 2, 1]`) has
+exactly one owner, `src/services/scoring.js`; every reader (`getPoints`, `leaderboard`,
+`feed.slideshowSequence`, `notifications.js`'s recap copy) reads points off `crowdFavorites()`'s own output
+rather than re-deriving the mapping. The standard-competition ranking ALGORITHM itself has exactly one
+owner, `src/services/rank.js`'s `standardRank` — `scoring.crowdFavorites()` is its only caller today.

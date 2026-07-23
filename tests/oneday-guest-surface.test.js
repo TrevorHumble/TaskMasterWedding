@@ -23,7 +23,7 @@ const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { loadApp, signInGuest } = require('./helpers/testApp');
+const { loadApp, signInGuest, suppressAnnouncementsForGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -83,6 +83,24 @@ function insertGuest({ avatarSet = true } = {}) {
     .run(token, 'Oneday Guest', avatarPath).lastInsertRowid;
   return { id, token };
 }
+
+// Issue #778: a challenge dated FIXED_TODAY is exactly what the recap's
+// unseal announcement source (src/services/notifications.js) fires on for
+// any guest whose checkpoint predates that day's event-local start — which a
+// freshly-inserted guest's checkpoint (their own created_at, at real-clock
+// test-run time, itself well before the FIXED_TODAY fixture per this file's
+// own header comment) always does. That is CORRECT #778 behavior, but it
+// means the task's own title also appears once in the recap strip/panel,
+// ahead of the real `<li class="task-row...` list this file's raw
+// `indexOf`/`lastIndexOf` scoping assumes is the ONLY place a title can
+// appear. The two tests below whose fixture task is dated FIXED_TODAY call
+// tests/helpers/testApp.js's suppressAnnouncementsForGuest right after
+// insertGuest() to advance the checkpoint safely past both FIXED_TODAY's
+// event-local day-start AND real Date.now(), so the recap has nothing new to
+// announce and this file's row-isolation stays scoped to the task list
+// alone, unrelated to what those two tests actually assert. (Shared with
+// tests/flash-guest-surface.test.js, which hits the identical interaction —
+// moved off a per-file copy in PR review.)
 
 function insertTask({
   title,
@@ -369,6 +387,7 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
   test('worth 2 / bonus 3 today: gold flag, struck-through +2, total +5, sorts above a sealed challenge', async () => {
     resetTables();
     const guest = insertGuest();
+    suppressAnnouncementsForGuest(db, guest.id);
     insertTask({ title: 'Sealed Tomorrow', specialDate: TOMORROW, specialBonus: 1, sortOrder: 1 });
     insertTask({
       title: 'Today Challenge',
@@ -442,6 +461,7 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
   test('a challenge dated today with a NULL special_bonus (legacy row) renders as an ordinary row, never "+null"/"+NaN"', async () => {
     resetTables();
     const guest = insertGuest();
+    suppressAnnouncementsForGuest(db, guest.id);
     // chk_special_pairing blocks a normal INSERT of this shape; simulate the
     // documented legacy row the same way tests/oneday-challenge-engine.test.js
     // does (issue #753 review fix background).

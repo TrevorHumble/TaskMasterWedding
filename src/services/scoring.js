@@ -56,6 +56,12 @@ const { parseSqliteDatetime } = require('./relative-time');
 // event-local YYYY-MM-DD. event-days.js is dependency-free (no `db` require),
 // so this import introduces no cycle.
 const eventDays = require('./event-days');
+// rank.js (issue #625) owns both ranking algorithms this app uses — the
+// leaderboard's dense rank (src/routes/community.js's GET /leaderboard,
+// migrated to consume it by this issue) and crowd favorites' own
+// standard-competition rank below. Pure and db-free, so importing it
+// introduces no cycle.
+const rank = require('./rank');
 
 // ---------------------------------------------------------------------------
 // Canonical auto-badge thresholds. These MUST match the seeded `badges` rows
@@ -104,6 +110,16 @@ const AUTO_THRESHOLDS = BADGE_THRESHOLDS.map((b) => b.n);
  * `bonusAmount` both default to 0 (issues #727, #756): a one-arg call yields
  * just `photoBonus`, never NaN, and a memory caller passes worth=0 explicitly
  * for the same reason a task caller passes its task's real worth (>= 1).
+ *
+ * Deliberate exception (issue #625): a crowd-favorite photo's rank points are
+ * NEVER folded in here. This function's number is what a photo earned by
+ * being SUBMITTED — a stable, banked-feeling value a feed card can print
+ * without explanation. A crowd rank is volatile by design (a later like or
+ * takedown can move it on the very next read), so folding it into this
+ * per-photo figure would make a card's number flicker for reasons the card
+ * cannot explain. What a crowd-favorite photo earns is stated separately: by
+ * #788's crown marker on the photo itself, and in the owner's grand total via
+ * crowdPointsByGuest() (see getPoints/leaderboard below) — never here.
  *
  * @param {number} photoBonus - the photo's submissions.photo_bonus value
  * @param {number} [worth=0] - the task's worth (1-3), or 0 for a memory
@@ -272,6 +288,142 @@ function memoryDayCountsByGuest(timezone) {
   return counts;
 }
 
+// ---------------------------------------------------------------------------
+// Crowd favorites (issue #625): the crowd's likes vote on the weekend's best
+// photos, fully derived — no `guest_badges` row is ever written for a
+// crowd-favorite placement. Binding rationale: `guest_badges` carries
+// `CONSTRAINT uq_gb UNIQUE (guest_id, badge_id)` (src/db.js), so a guest
+// sweeping two paying photo slots could never hold two rows for the same
+// badge — materializing would break the no-cap sweep rule (AC3) or force a
+// schema change. crowdFavorites() below is the ONLY place "who is a crowd
+// favorite, at what rank, worth how much" is decided; every reader
+// (getPoints, leaderboard, feed.slideshowSequence's Most Liked opener,
+// notifications.js's crowd_favorite/crowd_favorite_lost recap rows) reads
+// this same live answer rather than a stored copy that could go stale the
+// moment a like/takedown/restore moves it.
+// ---------------------------------------------------------------------------
+
+// Rank -> points, index by (rank - 1). Ranks 1-5 place; a photo at rank 6 or
+// below, or with 0 likes, never appears in crowdFavorites()'s output at all.
+const CROWD_FAVORITE_POINTS = [5, 4, 3, 2, 1];
+
+// Every VISIBLE submission with at least one like, its owner, and its like
+// count — the ranking input crowdFavorites() below sorts and ranks in JS.
+// Composes VISIBLE_WHERE (feed.js's single owner of "a submission is
+// visible") rather than hand-typing a second `taken_down = 0` predicate.
+// like_count is filtered to > 0 in the OUTER query (a derived-table column
+// alias cannot be referenced from the WHERE clause of the query that
+// computes it — SQLite evaluates WHERE before the SELECT list), and NO
+// task_id filter appears anywhere here: a memory competes exactly like a
+// task photo (issue #625's settled "memories compete" rule). Ordered
+// like_count DESC with submission_id ASC as a deterministic tiebreak (SQL
+// gives no ordering guarantee among equal like_count rows on its own), so
+// rank.standardRank below always sees the same order for the same data.
+const stmtVisibleLikeCounts = db.prepare(`
+  SELECT submission_id, guest_id, like_count FROM (
+    SELECT s.id       AS submission_id,
+           s.guest_id AS guest_id,
+           (SELECT COUNT(*) FROM likes l WHERE l.submission_id = s.id) AS like_count
+      FROM submissions s
+     WHERE ${VISIBLE_WHERE}
+  )
+ WHERE like_count > 0
+ ORDER BY like_count DESC, submission_id ASC
+`);
+
+/**
+ * The crowd-favorite placing set, live, from ONE query (issue #625 AC8: the
+ * leaderboard's caller must be able to call this exactly once regardless of
+ * guest count). Standard-competition ranking (rank.standardRank, deliberately
+ * NOT the leaderboard's dense rank, #626): a tie shares a rank and the next
+ * distinct like count skips to `1 + <count of photos ranked above it>`, so a
+ * big tie for a spot CONSUMES the ranks beneath it — the rule that keeps the
+ * paying set bounded near 5 regardless of party scale (a 60-photo tail all
+ * sitting at 1 like never all place, unlike dense ranking, which has no such
+ * bound). Ranks 1-5 place, paying CROWD_FAVORITE_POINTS[rank - 1]; a photo
+ * ranked 6th or worse, or sitting at 0 likes (excluded by
+ * stmtVisibleLikeCounts before ranking even runs), never appears in the
+ * returned array. A single tier that itself holds 5+ photos (a big top tie)
+ * can still place more than 5 photos — that is correct: they genuinely tied
+ * for most-liked (issue #625's own wording).
+ * @returns {Array<{submission_id: number, guest_id: number, like_count:
+ *   number, rank: number, points: number}>} best rank first.
+ */
+function crowdFavorites() {
+  const rows = stmtVisibleLikeCounts.all();
+  const { ranks } = rank.standardRank(rows, (row) => row.like_count);
+  const placing = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (ranks[i] > CROWD_FAVORITE_POINTS.length) {
+      // Ranks only ever increase as i advances (rows are sorted DESC by
+      // like_count), so once one row's rank exceeds the paying cutoff every
+      // row after it does too — safe to stop scanning early.
+      break;
+    }
+    placing.push({
+      submission_id: rows[i].submission_id,
+      guest_id: rows[i].guest_id,
+      like_count: rows[i].like_count,
+      rank: ranks[i],
+      points: CROWD_FAVORITE_POINTS[ranks[i] - 1],
+    });
+  }
+  return placing;
+}
+
+/**
+ * Each guest's total crowd-favorite points, folded from ONE crowdFavorites()
+ * call into a Map — the all-guests generalization getPoints/leaderboard both
+ * need, built the same way memoryDayCountsByGuest generalizes
+ * memoryDayCount for the same two callers (issue #656's pattern). A guest
+ * who owns more than one placing photo sweeps every one of them (issue #625
+ * AC3's no-cap rule: three placing photos at ranks 1/2/3 sum 5+4+3=12) — this
+ * is a plain per-guest sum, no cap applied anywhere.
+ * @returns {Map<number, number>} guestId -> total crowd-favorite points.
+ */
+function crowdPointsByGuest() {
+  const totals = new Map();
+  for (const placing of crowdFavorites()) {
+    totals.set(placing.guest_id, (totals.get(placing.guest_id) || 0) + placing.points);
+  }
+  return totals;
+}
+
+/**
+ * Diff the crowd-favorite placing set BEFORE a mutation (a like toggle, a
+ * takedown, or a restore — every caller captures `before` via
+ * crowdFavorites() immediately before its own write) against the CURRENT
+ * set, and emit exactly one recap event per photo that actually moved (issue
+ * #625 AC7): entered or moved rank -> 'crowd_favorite' to the photo's owner;
+ * left the placing set entirely -> 'crowd_favorite_lost'. A photo whose rank
+ * (and therefore points, since points derive purely from rank) is UNCHANGED
+ * emits nothing — the diff is what keeps this bounded to the photos one
+ * like/takedown/restore actually touched, not every photo in the placing set
+ * on every call (this issue's plan: "inherently bounded to the photos that
+ * actually moved"). No stale rank is ever stored: the recap row itself
+ * carries only guest_id + submission_id (notifications.recordEvent), and
+ * reads the CURRENT rank/points from crowdFavorites() again at render time.
+ * @param {Array<{submission_id: number, guest_id: number, rank: number}>} before
+ *   - the return of crowdFavorites(), captured before the caller's mutation.
+ */
+function recordCrowdFavoriteChanges(before) {
+  const after = crowdFavorites();
+  const beforeBySubmission = new Map(before.map((p) => [p.submission_id, p]));
+  const afterBySubmission = new Map(after.map((p) => [p.submission_id, p]));
+
+  for (const [submissionId, afterPlacing] of afterBySubmission) {
+    const beforePlacing = beforeBySubmission.get(submissionId);
+    if (!beforePlacing || beforePlacing.rank !== afterPlacing.rank) {
+      notifications.recordEvent(afterPlacing.guest_id, 'crowd_favorite', { submissionId });
+    }
+  }
+  for (const [submissionId, beforePlacing] of beforeBySubmission) {
+    if (!afterBySubmission.has(submissionId)) {
+      notifications.recordEvent(beforePlacing.guest_id, 'crowd_favorite_lost', { submissionId });
+    }
+  }
+}
+
 // Sum a guest's badge AWARD points (guest_badges.points) over awards whose
 // earning photo is currently VISIBLE. Every row written by stmtGrantBadge
 // (system/admin grants: auto, metric, transferable, special) carries
@@ -390,6 +542,13 @@ function getCompletedCount(guestId) {
  *     currently holds (issue #709 — the point derives on read from holding
  *     the badge row, and leaves automatically when recomputeBadges revokes
  *     it), and 0 for a transferable/admin-special grant.
+ *   + the DERIVED crowd-favorite term (issue #625): crowdPointsByGuest()'s
+ *     total over every VISIBLE photo currently in this guest's placing set
+ *     (standard-competition rank 1-5 among all liked photos, memories
+ *     included). Read fresh on every call, like the memory-day term above —
+ *     a guest sweeping several placing photos collects every one (no cap,
+ *     AC3), and a photo that drops out of the placing set loses its points
+ *     on the very next read, with no separate bookkeeping (AC4).
  * bonus_points is stored clamped at >= 0, photo_bonus is a non-negative
  * admin-set absolute value, worth is clamped 1-3 by the tasks table's own
  * CHECK constraint, and award points are coerced non-negative at write time
@@ -409,7 +568,17 @@ function getPoints(guestId) {
   const awardPoints = stmtAwardPointsSum.get(guestId).ap;
   const timezone = getEventConfig().timezone;
   const memoryDays = memoryDayCount(guestId, timezone);
-  return worthSum + photoBonus + bonusAmountSum + bonus + starterPoints + awardPoints + memoryDays;
+  const crowdPoints = crowdPointsByGuest().get(guestId) || 0;
+  return (
+    worthSum +
+    photoBonus +
+    bonusAmountSum +
+    bonus +
+    starterPoints +
+    awardPoints +
+    memoryDays +
+    crowdPoints
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -815,6 +984,14 @@ function starterTaskContribution(guest) {
  * guest currently holds (issue #709 — derived on read, no separate scoring
  * term), and 0 for a transferable/admin-special grant. Each row carries the
  * guest's earned badge codes (auto + special).
+ * + the DERIVED crowd-favorite term (issue #625): the SAME crowdPointsByGuest()
+ * rule getPoints reads, folded in AFTER the main SQL query runs — exactly
+ * like the memory-day term below, and for the identical reason (standard-
+ * competition ranking over a live like count cannot be expressed as a SQL
+ * expression scoped to one guest row without fanning out). crowdPointsByGuest()
+ * itself issues exactly ONE query regardless of guest count (AC8) — a single
+ * crowdFavorites() call ranks every liked photo in the whole event once, then
+ * this loop is a plain per-guest Map lookup.
  *
  * The completed-count here uses the SAME canonical rule as getCompletedCount
  * (section 1a, Decision A; amended by #247): visible TASK submissions only
@@ -902,6 +1079,16 @@ function leaderboard() {
   const memoryDaysByGuest = memoryDayCountsByGuest(timezone);
   for (const row of rows) {
     row.points += memoryDaysByGuest.get(row.id) || 0;
+  }
+
+  // Fold in the crowd-favorite term (issue #625) — ONE crowdPointsByGuest()
+  // call (which itself makes exactly ONE crowdFavorites() query, AC8),
+  // folded in JS the same way and for the same reason as the memory-day term
+  // just above: standard-competition rank over a live like count cannot be
+  // expressed as a per-guest SQL expression without fanning out the query.
+  const crowdPointsByGuestMap = crowdPointsByGuest();
+  for (const row of rows) {
+    row.points += crowdPointsByGuestMap.get(row.id) || 0;
   }
 
   // SORT — the SINGLE, NAMED owner of standings order (issue #656). The SQL
@@ -1195,6 +1382,10 @@ module.exports = {
   getPoints,
   memoryDayCount,
   memoryDaysFor,
+  CROWD_FAVORITE_POINTS,
+  crowdFavorites,
+  crowdPointsByGuest,
+  recordCrowdFavoriteChanges,
   getGuestBadges,
   compareBadgeMoment,
   primaryNewBadge,

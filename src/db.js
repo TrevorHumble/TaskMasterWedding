@@ -95,6 +95,21 @@ db.exec(`
     -- row whose bonus is not an integer in [1, 3].
     lucky_date     TEXT,
     lucky_bonus    INTEGER,
+    -- The instant this task last flipped not-live -> live (issue #778),
+    -- bumped ONLY at that transition by src/routes/admin.js's create/edit
+    -- /active seams (via tasks.isTaskLive, the single liveness owner) -- an
+    -- edit that leaves liveness unchanged (a title/worth/date tweak, a
+    -- special_date moved to today) never touches it. NULL means "never live"
+    -- -- a pre-existing live task on a migrated app.db keeps it NULL rather
+    -- than being backfilled, so it can never spuriously announce: the
+    -- read-time rule src/services/notifications.js applies is live_since >
+    -- checkpoint, and NULL > x is never true in SQL or in JS. UTC
+    -- datetime('now') form, matching every other timestamp column in this
+    -- file -- deliberately NOT "event-local" despite some of this codebase's
+    -- own commentary elsewhere using that phrase loosely, because it must
+    -- stay directly string-comparable to guests.recap_checked_at/created_at,
+    -- which are the same UTC datetime('now') form.
+    live_since     TEXT,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     -- Pairing constraint (issue #753 review fix): special_date and
     -- special_bonus are either BOTH NULL (an ordinary task) or BOTH set (a
@@ -172,7 +187,14 @@ db.exec(`
     body        TEXT    NOT NULL,
     page        TEXT,
     user_agent  TEXT,
+    -- resolved is retired (issue #686) but kept in place rather than dropped:
+    -- nothing reads it any more (status below is the single lifecycle fact),
+    -- and dropping it would be a table rebuild for no behavioural gain. status
+    -- is the three-state lifecycle (open -> tracked -> closed) that replaces
+    -- it; see ensureBugReportStatusColumn() below for the backfill on an
+    -- existing pre-#686 database.
     resolved    INTEGER NOT NULL DEFAULT 0,
+    status      TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open','tracked','closed')),
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -199,8 +221,12 @@ db.exec(`
   -- ensureBadgeWinnersTableDropped() migration below). See that function's
   -- doc comment for why this was retired outright rather than repointed.
 
-  CREATE INDEX IF NOT EXISTS idx_bug_reports_resolved
-    ON bug_reports(resolved, created_at DESC);
+  -- idx_bug_reports_resolved was retired by issue #686 (superseded by
+  -- idx_bug_reports_status, created by ensureBugReportStatusColumn() below,
+  -- which also drops this index by name on an existing database that already
+  -- has it). Deliberately not recreated here: a fresh DB already has the
+  -- status column from the CREATE TABLE above, so it goes straight to the
+  -- new index and never has this old one at all.
 
   CREATE INDEX IF NOT EXISTS idx_submissions_photo_path
     ON submissions(photo_path COLLATE NOCASE);
@@ -231,11 +257,20 @@ db.exec(`
   -- qualifies for; badge_removed is a host un-awarding one by hand — they
   -- read differently to the guest, so they are separate kinds. Only the
   -- three badge_* kinds are emitted by this issue; #783 owns the
-  -- moderation emitters and #778 owns announcements (adding its own task_id
-  -- column later). submission_id/badge_id are nullable siblings — a badge
-  -- event sets badge_id only, a moderation event (future) sets submission_id
-  -- only — both cascade on delete so an event never outlives the row it
-  -- describes turning into a dangling reference.
+  -- moderation emitters, which DO belong here (a moderation action, like a
+  -- badge grant/revoke, is a fact about one specific guest with no other
+  -- place to reconstruct it from). #778 (host announcements — a task going
+  -- live, a challenge unsealing, a flash window opening) does NOT add a row
+  -- or a column here at all: an announcement is a BROADCAST, not a
+  -- per-guest fact, so it is read-time DERIVED from tasks.live_since/
+  -- special_date/flash_start_at instead — see
+  -- src/services/notifications.js's "Announcements" section and DESIGN.md's
+  -- "Recap" ADR for why this table's guest_id-keyed NOT NULL shape is
+  -- exactly why a broadcast was never stored here. submission_id/badge_id
+  -- are nullable siblings — a badge event sets badge_id only, a moderation
+  -- event (future) sets submission_id only — both cascade on delete so an
+  -- event never outlives the row it describes turning into a dangling
+  -- reference.
   CREATE TABLE IF NOT EXISTS notification_events (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     guest_id      INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
@@ -533,6 +568,39 @@ function ensureTaskLuckyColumns() {
 }
 
 ensureTaskLuckyColumns();
+
+// --- Guarded migration: tasks.live_since (issue #778) ---
+/**
+ * Add tasks.live_since if it is not already present.
+ *
+ * Same guard shape as ensureTaskFlashColumns()/ensureTaskLuckyColumns()
+ * immediately above: the tasks CREATE TABLE above already declares it (a
+ * fresh DB gets it directly, so this is a no-op there); on an existing
+ * pre-#778 app.db it does not exist yet, so PRAGMA table_info detects its
+ * absence and the ALTER TABLE runs once, gated so a repeat call (or a later
+ * boot) is a no-op and never throws "duplicate column".
+ *
+ * No DEFAULT is given -- NULL for every pre-existing row is exactly right
+ * (issue #778 plan step 1): a pre-existing live task keeps live_since NULL
+ * rather than being backfilled to "now", so it never spuriously announces --
+ * the read-time rule (src/services/notifications.js) is `live_since >
+ * checkpoint`, and `NULL > x` is never true, in SQL or in JS.
+ *
+ * MUST run after ensureTaskSpecialDayColumns()/ensureTaskWorthAndMode() (the
+ * two places `tasks` is rebuilt in this file), for the same reason
+ * ensureTaskFlashColumns() documents above: a rebuild, if any, finishes
+ * first, so this ALTER always lands on the settled table.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureTaskLiveSinceColumn() {
+  const cols = db.prepare(`PRAGMA table_info(tasks)`).all();
+  if (!cols.some((col) => col.name === 'live_since')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN live_since TEXT`);
+  }
+}
+
+ensureTaskLiveSinceColumn();
 
 // --- Guarded migration: submissions.photo_bonus (issue #89) ---
 /**
@@ -1431,6 +1499,80 @@ function ensureRecapCheckedAtColumn() {
 // code before any other module's `require('../db')` call returns.
 ensureRecapCheckedAtColumn();
 
+// --- Guarded migration: bug_reports.status (issue #686) ---
+/**
+ * Add bug_reports.status if it is not already present, backfill it from the
+ * retired `resolved` boolean, then (re)point the lifecycle index at `status`
+ * instead of `resolved`.
+ *
+ * status replaces the old two-state resolved boolean with the three-state
+ * open/tracked/closed lifecycle the admin Bugs page needs (issue #686): a
+ * report handed to GitHub ("tracked") must stay distinguishable from one
+ * dismissed outright ("closed"), which a single boolean cannot encode.
+ *
+ * Same guard shape as ensurePhotoBonusColumn/ensureResubmittedColumn above:
+ * the bug_reports CREATE TABLE above already declares `status` (with its
+ * CHECK), so this is a no-op there; on an existing pre-#686 app.db the column
+ * is absent, so PRAGMA table_info detects that and the ALTER TABLE + backfill
+ * run once. A literal string DEFAULT ('open') is a constant default, not the
+ * datetime('now')-style non-constant default that forces a separate backfill
+ * UPDATE elsewhere in this file (see ensureRecapCheckedAtColumn's comment) —
+ * SQLite accepts `ADD COLUMN ... DEFAULT 'open' CHECK (...)` in one
+ * statement, verified against this tree's better-sqlite3/SQLite build, and
+ * the CHECK is enforced on every write from that point on (including this
+ * migration's own backfill UPDATE, which only ever writes 'closed').
+ *
+ * Backfill: every pre-existing resolved=1 row becomes 'closed' (matching the
+ * old "resolved" meaning); every resolved=0 row is already 'open' from the
+ * column's own DEFAULT, so no separate UPDATE is needed for that half.
+ * `resolved` itself is left in place, unread from this point on — a purely
+ * additive column is lower-risk than a table rebuild here, and nothing in
+ * this codebase still queries it (see the column's own comment above).
+ *
+ * The index swap (drop idx_bug_reports_resolved, create
+ * idx_bug_reports_status) runs UNCONDITIONALLY, every boot, outside the
+ * column-presence guard above: a fresh DB never had the old index to drop
+ * (DROP INDEX IF EXISTS is a no-op there) and needs the new one created since
+ * the top CREATE TABLE/INDEX block above deliberately does NOT create it
+ * (that block runs before this migration on an existing pre-#686 database,
+ * where `status` does not exist yet — an unconditional `CREATE INDEX ... ON
+ * bug_reports(status, ...)` there would throw "no such column: status" on
+ * that exact database, the same hazard ensureTaskSpecialDayColumns' own
+ * comment warns about for a column-referencing index created too early).
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureBugReportStatusColumn() {
+  const cols = db.prepare(`PRAGMA table_info(bug_reports)`).all();
+  if (!cols.some((col) => col.name === 'status')) {
+    db.exec(`ALTER TABLE bug_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'open'
+                CHECK (status IN ('open','tracked','closed'))`);
+    db.exec(`UPDATE bug_reports SET status = 'closed' WHERE resolved = 1`);
+  }
+  db.exec(`DROP INDEX IF EXISTS idx_bug_reports_resolved`);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_bug_reports_status ON bug_reports(status, created_at DESC)`
+  );
+}
+
+// Run once at module load, before src/routes/admin.js or host-checklist.js
+// prepares any statement that reads bug_reports.status — db.js fully
+// evaluates this module-load code before any other module's
+// `require('../db')` call returns.
+ensureBugReportStatusColumn();
+
+/**
+ * The single owner of "how many bug reports are currently open" (issue #686
+ * AC4) — the admin dashboard's stat grid and the "Today" checklist's bug pin
+ * (both src/services/host-checklist.js) read this instead of each running
+ * its own `WHERE status = 'open'` COUNT, so the two can never silently drift
+ * apart on what "open" means.
+ * @returns {number}
+ */
+function openBugCount() {
+  return db.prepare(`SELECT COUNT(*) AS n FROM bug_reports WHERE status = 'open'`).get().n;
+}
+
 // --- Guarded migration: settings table (issue #283) ---
 /**
  * Create the `settings` key/value table if it does not already exist.
@@ -1615,6 +1757,7 @@ module.exports = {
   ensureTaskSpecialDayColumns,
   ensureTaskFlashColumns,
   ensureTaskLuckyColumns,
+  ensureTaskLiveSinceColumn,
   ensurePhotoBonusColumn,
   ensureBadgeTypeCheckWidened,
   ensureBadgeTaskIdColumn,
@@ -1635,6 +1778,8 @@ module.exports = {
   ensureAvatarPointAwardedRetired,
   ensureGuestBadgeCelebratedAtColumn,
   ensureRecapCheckedAtColumn,
+  ensureBugReportStatusColumn,
+  openBugCount,
   ensureSettingsTable,
   getEventConfig,
   setEventConfig,

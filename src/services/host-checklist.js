@@ -35,7 +35,7 @@
 
 'use strict';
 
-const { db, getEventConfig } = require('../db');
+const { db, getEventConfig, openBugCount } = require('../db');
 const tasks = require('./tasks');
 const { eventLocalDateString, singleDayLabel } = require('./event-days');
 
@@ -248,10 +248,11 @@ function buildRows(now = new Date()) {
   let pinnedRow = null;
 
   // --- Bugs, pinned (AC3). Also the "Open bugs" stat-grid count (issue
-  // #646 review fix) — this module already runs this exact query for the
-  // checklist row, so src/routes/admin.js reads it from `stats` below
-  // instead of re-querying bug_reports a second time. ---
-  const openBugs = db.prepare('SELECT COUNT(*) AS n FROM bug_reports WHERE resolved = 0').get().n;
+  // #646 review fix) — this module reads db.js's single openBugCount() owner
+  // (issue #686 AC4) once here, and src/routes/admin.js reads it back out of
+  // `stats` below instead of calling openBugCount() a second time — one
+  // count, computed once, shared by both surfaces. ---
+  const openBugs = openBugCount();
   if (openBugs > 0) {
     pinnedRow = {
       id: 'bugs',

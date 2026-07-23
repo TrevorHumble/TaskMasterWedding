@@ -28,7 +28,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { loadApp, signInGuest } = require('./helpers/testApp');
+const { loadApp, signInGuest, suppressAnnouncementsForGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -76,6 +76,24 @@ function insertGuest({ avatarSet = true } = {}) {
     .run(token, 'Flash Surface Guest', avatarPath).lastInsertRowid;
   return { id, token };
 }
+
+// Issue #778: a task dated FIXED_TODAY, or carrying a flash window active
+// right now, is exactly what the recap's unseal/flash announcement sources
+// (src/services/notifications.js) fire on for any guest whose checkpoint
+// predates that day's event-local start / the flash's own start instant —
+// which a freshly-inserted guest's checkpoint always does here (their own
+// created_at, at real-clock test-run time; FIXED_TODAY is itself in the real
+// future relative to test-run time — see this file's header comment). That
+// is CORRECT #778 behavior, but it means the task's own title also appears
+// once in the recap strip/panel, ahead of the real `<li class="task-row...`
+// list this file's isolateRow() assumes is the ONLY place a title can
+// appear. Tests below whose fixture is dated FIXED_TODAY or carries an
+// active flash call tests/helpers/testApp.js's suppressAnnouncementsForGuest
+// right after insertGuest() to advance the checkpoint safely past both, so
+// the recap has nothing new to announce and row isolation stays scoped to
+// the task list alone, unrelated to what those tests actually assert.
+// (Shared with tests/oneday-guest-surface.test.js, which hits the identical
+// interaction — moved off a per-file copy in PR review.)
 
 function insertTask({
   title,
@@ -177,6 +195,7 @@ describe('criterion 2: a task both dated today and flash-active renders exactly 
   test('the Today Only flag wins the tie, the flash pill is suppressed, and the price tag pays the daily bonus only', async () => {
     resetTables();
     const guest = insertGuest();
+    suppressAnnouncementsForGuest(db, guest.id);
     const activeStart = new Date(Date.now() - 60000).toISOString(); // active right now
     insertTask({
       title: 'Both Special Task',
@@ -379,6 +398,7 @@ describe('criterion 7: stack order -- flash, then today, then locked, then the s
   test('a rank function, not a boolean chain, places every special row in the approved order', async () => {
     resetTables();
     const guest = insertGuest({ avatarSet: false }); // starter row still to-do
+    suppressAnnouncementsForGuest(db, guest.id);
     insertTask({ title: 'Ordinary Task', sortOrder: 10 });
     insertTask({ title: 'Locked Challenge', specialDate: TOMORROW, specialBonus: 1, sortOrder: 1 });
     insertTask({

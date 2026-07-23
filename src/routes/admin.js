@@ -46,8 +46,9 @@
 //   GET  /admin/comments                 RETIRED (issue #684) -> 404 (renderNotFound)
 //   POST /admin/comments/:id/hide        hide a comment (redirects to its photo's feed card, #684)
 //   POST /admin/comments/:id/restore     unhide a comment (redirects to its photo's feed card, #684)
-//   GET  /admin/bugs                     bug report queue (unresolved, then resolved)
-//   POST /admin/bugs/:id/resolve         mark a bug report resolved
+//   GET  /admin/bugs                     bug report queue (open, then tracked/closed under Handled — issue #686)
+//   POST /admin/bugs/:id/track           mark a bug report tracked (handed to GitHub, issue #686)
+//   POST /admin/bugs/:id/close           mark a bug report closed (issue #686)
 //   GET  /admin/export                   defined in 09-export (see ADD-THIS there)
 //
 // NOTE: GET/POST /admin/login and POST /admin/logout live in 03-auth (routes/auth.js).
@@ -1667,11 +1668,24 @@ router.post('/tasks', (req, res) => {
   // supposedly required. better-sqlite3 nests transaction functions via
   // SAVEPOINTs, so calling setTaskBadge (itself a db.transaction) from inside
   // this one is safe.
+  // live_since (issue #778) — set at INSERT time exactly when the row this
+  // save is about to write is live (tasks.isTaskLive, the single liveness
+  // owner), never NULL-then-backfilled: a task created live has no PRIOR
+  // not-live state to transition FROM, so its "went live" instant is its own
+  // creation instant. Written as a raw SQL literal (CASE WHEN ... THEN
+  // datetime('now') ELSE NULL END), not a bound JS Date, so it lands in the
+  // exact same UTC datetime('now') form every other timestamp in this app
+  // uses (including guests.recap_checked_at, the value it is compared
+  // against) — matching liveTaskWhere's own "trusted internal constant,
+  // never user input" interpolation style, since the only two possible
+  // values are the two literals below, chosen from an already-validated JS
+  // boolean.
+  const createIsLive = tasks.isTaskLive({ special_mode: specialMode });
   const createTask = db.transaction(() => {
     const info = db
       .prepare(
-        `INSERT INTO tasks (title, description, sort_order, worth, special_mode, special_date, special_bonus, lucky_date, lucky_bonus, flash_bonus, flash_minutes, flash_start_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tasks (title, description, sort_order, worth, special_mode, special_date, special_bonus, lucky_date, lucky_bonus, flash_bonus, flash_minutes, flash_start_at, live_since)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${createIsLive ? "datetime('now')" : 'NULL'})`
       )
       .run(
         title,
@@ -1713,12 +1727,10 @@ router.post('/tasks', (req, res) => {
   // A newly created LIVE task can make an existing COMPLETIONIST holder
   // stale (issue #701 AC1) by growing the active set; a task created Hidden
   // does not change the active set at all, so this stays conditional
-  // (review fix) instead of firing unconditionally on every create. Goes
-  // through tasks.isTaskLive — the SAME liveness predicate every other reader
-  // uses — rather than a second hand-written `!== MODE_HIDDEN` check (review
-  // fix: a hand-written comparison here would be a second liveness predicate,
-  // the exact drift class this module exists to prevent).
-  if (tasks.isTaskLive({ special_mode: specialMode })) {
+  // (review fix) instead of firing unconditionally on every create. Reuses
+  // createIsLive (computed above for live_since) rather than calling
+  // tasks.isTaskLive a second time against the same specialMode value.
+  if (createIsLive) {
     scoring.recomputeAfterTaskChange();
   }
   redirectWithMsg(res, '/admin/tasks', 'Task added.');
@@ -1880,6 +1892,17 @@ router.post('/tasks/:id/edit', (req, res) => {
   const nextFlashMinutes = flashResolved.writeMinutes;
   const nextFlashStartAt = flashResolved.writeStartAt;
 
+  // live_since (issue #778) — bump ONLY on a genuine not-live -> live
+  // transition, decided by comparing tasks.isTaskLive against `task` (the
+  // row's state BEFORE this save, already loaded above) and `specialMode`
+  // (the value THIS save is about to write) — the same before/after
+  // liveness comparison the toggle route below already makes as `wasLive`.
+  // A title/worth/badge-only edit, a special_date move to a non-today day
+  // (AC2), or any edit that leaves liveness unchanged never bumps it — only
+  // this one boolean gates the write, so a host correcting a typo can never
+  // accidentally re-announce an already-live task.
+  const bumpLiveSince = !tasks.isTaskLive(task) && tasks.isTaskLive({ special_mode: specialMode });
+
   // Exclusivity (issue #650 plan step 3) — only when the posted mode itself
   // names a special kind; SKIPPED for 'none'/'hidden' (the host's own
   // cancel/hide paths must never be refused by this guard). `task` (the
@@ -1919,11 +1942,18 @@ router.post('/tasks/:id/edit', (req, res) => {
   // SAVEPOINTs, so calling setTaskBadge (itself a db.transaction) from inside
   // this one is safe.
   const saveEdit = db.transaction(() => {
+    // live_since (issue #778): CASE WHEN bumpLiveSince THEN datetime('now')
+    // ELSE live_since END — bound as an ordinary `?` (0/1) rather than
+    // interpolated like the create route's literal, since here the ELSE arm
+    // must read back the column's OWN current value (preserve, not clear) —
+    // a raw-literal SET clause has no way to express "leave unchanged"
+    // without a second query to read the prior value back first.
     db.prepare(
       `UPDATE tasks
           SET title = ?, description = ?, worth = ?, special_mode = ?,
               special_date = ?, special_bonus = ?, lucky_date = ?, lucky_bonus = ?,
-              flash_bonus = ?, flash_minutes = ?, flash_start_at = ?
+              flash_bonus = ?, flash_minutes = ?, flash_start_at = ?,
+              live_since = CASE WHEN ? THEN datetime('now') ELSE live_since END
         WHERE id = ?`
     ).run(
       title,
@@ -1937,6 +1967,7 @@ router.post('/tasks/:id/edit', (req, res) => {
       nextFlashBonus,
       nextFlashMinutes,
       nextFlashStartAt,
+      bumpLiveSince ? 1 : 0,
       id
     );
 
@@ -2128,7 +2159,18 @@ router.post('/tasks/:id/active', (req, res) => {
   } else {
     nextMode = tasks.isRealDateString(task.special_date) ? tasks.MODE_ONEDAY : tasks.MODE_NONE;
   }
-  db.prepare('UPDATE tasks SET special_mode = ? WHERE id = ?').run(nextMode, id);
+  // live_since (issue #778): this route's two branches are exhaustive over
+  // liveness (hide when wasLive, un-hide to a live mode otherwise — never
+  // hidden-to-hidden), so "bump" reduces to the single boolean !wasLive —
+  // the un-hide branch always resolves nextMode to a live mode (oneday or
+  // none), and the hide branch always resolves to MODE_HIDDEN, so there is
+  // no third case to weigh against tasks.isTaskLive({special_mode: nextMode})
+  // separately.
+  db.prepare(
+    `UPDATE tasks SET special_mode = ?,
+       live_since = CASE WHEN ? THEN datetime('now') ELSE live_since END
+     WHERE id = ?`
+  ).run(nextMode, wasLive ? 0 : 1, id);
   // Un-hiding grows the active set (can strip a now-stale COMPLETIONIST,
   // issue #701 AC2); hiding shrinks it (can award a newly-earned one, AC3).
   // Either direction needs the same all-guests recompute.
@@ -2642,10 +2684,13 @@ router.post('/comments/:id/restore', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /admin/bugs  — bug report queue (issue #245). Unresolved reports first
-// (newest first within that group), then resolved reports collapsed at the
-// bottom (also newest first) — one ORDER BY does both: resolved=0 sorts
-// before resolved=1, and created_at DESC breaks ties inside each group.
+// GET /admin/bugs  — bug report queue (issue #245; three-state lifecycle
+// issue #686). Open reports first (newest first within that group), then
+// tracked/closed reports collapsed under "Handled" at the bottom (also
+// newest first within each) — one ORDER BY does the whole ordering: a CASE
+// over status ranks open (0) before tracked (1) before closed (2), and
+// created_at DESC breaks ties inside each group. githubRepoUrl feeds the
+// view's "Open issue" prefill link; the view builds no repo URL of its own.
 // ---------------------------------------------------------------------------
 router.get('/bugs', (req, res) => {
   const reports = db
@@ -2653,35 +2698,56 @@ router.get('/bugs', (req, res) => {
       `SELECT r.id          AS id,
               r.body        AS body,
               r.page        AS page,
-              r.resolved    AS resolved,
+              r.status      AS status,
               r.created_at  AS created_at,
               g.id          AS guest_id,
               g.name        AS guest_name
          FROM bug_reports r
          JOIN guests g ON g.id = r.guest_id
-        ORDER BY r.resolved ASC, r.created_at DESC, r.id DESC`
+        ORDER BY CASE r.status WHEN 'open' THEN 0 WHEN 'tracked' THEN 1 ELSE 2 END ASC,
+                 r.created_at DESC, r.id DESC`
     )
     .all();
 
   res.render('admin-bugs', {
     title: 'Bugs',
     reports,
+    githubRepoUrl: config.GITHUB_REPO_URL,
     msg: req.query.msg || '',
     isAdmin: true,
   });
 });
 
-// POST /admin/bugs/:id/resolve  — mark a bug report resolved. One-way (there
-// is no "reopen" affordance per the design), so this always sets resolved to
-// 1 rather than toggling.
-router.post('/bugs/:id/resolve', (req, res) => {
+// POST /admin/bugs/:id/track  — mark a bug report tracked (issue #686 AC1):
+// the admin used the "Open issue" link, which (per the view's onclick) also
+// fires this POST so the report leaves the open queue without the admin
+// having to come back and close it separately. Idempotent to call again on
+// an already-tracked or already-closed report (it only ever advances
+// forward, never reopens) — a duplicate beacon from a flaky network retry is
+// harmless.
+router.post('/bugs/:id/track', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const report = db.prepare('SELECT id FROM bug_reports WHERE id = ?').get(id);
   if (!report) {
     return redirectWithMsg(res, '/admin/bugs', 'Bug report not found.');
   }
-  db.prepare('UPDATE bug_reports SET resolved = 1 WHERE id = ?').run(id);
-  redirectWithMsg(res, '/admin/bugs', 'Bug report resolved.');
+  db.prepare(`UPDATE bug_reports SET status = 'tracked' WHERE id = ?`).run(id);
+  redirectWithMsg(res, '/admin/bugs', 'Bug report tracked.');
+});
+
+// POST /admin/bugs/:id/close  — mark a bug report closed (issue #686 AC2/AC3).
+// Reachable from BOTH open and tracked (a report already on GitHub must be
+// closable once it's dealt with, not just a not-an-issue dismissal from
+// open) — this route does not check the report's current status, it always
+// sets closed. One-way: there is no "reopen" affordance per the design.
+router.post('/bugs/:id/close', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const report = db.prepare('SELECT id FROM bug_reports WHERE id = ?').get(id);
+  if (!report) {
+    return redirectWithMsg(res, '/admin/bugs', 'Bug report not found.');
+  }
+  db.prepare(`UPDATE bug_reports SET status = 'closed' WHERE id = ?`).run(id);
+  redirectWithMsg(res, '/admin/bugs', 'Bug report closed.');
 });
 
 // ---------------------------------------------------------------------------

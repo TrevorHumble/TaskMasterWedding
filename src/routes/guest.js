@@ -661,9 +661,13 @@ router.post('/bug-report', socialRateLimiter, function (req, res) {
   const page = refererPath(req.get('referer'));
   const userAgent = req.get('user-agent') || null;
 
+  // status defaults to 'open' (bug_reports.status, issue #686) — every new
+  // report starts open, so this INSERT relies on the column's own DEFAULT
+  // instead of naming it. The retired `resolved` column is no longer named
+  // here either; it keeps its own 0 default, unread everywhere now.
   db.prepare(
-    `INSERT INTO bug_reports (guest_id, body, page, user_agent, resolved)
-     VALUES (?, ?, ?, ?, 0)`
+    `INSERT INTO bug_reports (guest_id, body, page, user_agent)
+     VALUES (?, ?, ?, ?)`
   ).run(guest.id, body, page, userAgent);
 
   setFlash(res, 'success', BUG_REPORT_THANKS);
@@ -1271,9 +1275,17 @@ router.post('/recap/seen', socialRateLimiter, function (req, res) {
 router.get('/recap', function (req, res) {
   const before = typeof req.query.before === 'string' ? req.query.before : undefined;
   const beforeKey = typeof req.query.beforeKey === 'string' ? req.query.beforeKey : undefined;
+  // One clock for this request (issue #778) — the announcements source
+  // needs it to evaluate live-transition/unseal/flash state. This route
+  // resolves its own timezone (the same `getEventConfig().timezone` every
+  // other clock-building route in this file already reads) and hands it to
+  // notifications.buildRecapClock, the one place the clock's shape is
+  // assembled.
+  const clock = notifications.buildRecapClock(getEventConfig().timezone);
   const result = notifications.getRecap(res.locals.guest.id, {
     before: before,
     beforeKey: beforeKey,
+    clock: clock,
   });
   res.json(result);
 });

@@ -1,11 +1,17 @@
 // src/middleware/session.js
 'use strict';
 
-const { db } = require('../db');
+const { db, getEventConfig } = require('../db');
 const config = require('../../config');
 // The recap's cheap unread-count read (issue #644 plan step 6) — never the
 // full row union (src/services/notifications.js's getRecap), which the
 // strip/profile row do not need just to decide whether to show a count.
+// getUnreadCount now needs a clock too (issue #778 — a task's
+// live-transition/unseal/flash state is read AT an instant, never re-derived
+// from server UTC); notifications.buildRecapClock is the one place that
+// clock shape is assembled, so this file resolves its OWN timezone (below)
+// and hands it in, rather than building the {todayIso, nowMs, timezone}
+// literal itself.
 const notifications = require('../services/notifications');
 
 /**
@@ -162,8 +168,10 @@ function attachGuest(req, res, next) {
   // set here alongside currentPath, read directly by header.ejs (the strip)
   // and guest-home.ejs (the profile row's count chip) without every guest
   // route having to pass it explicitly. Read-only (no stamp, no write) AND
-  // genuinely cheap (notifications.getUnreadCount is three indexed COUNT(*)
-  // queries, not a row union), so — unlike the recap PAGE below — it is safe
+  // genuinely cheap — notifications.getUnreadCount is three indexed
+  // COUNT(*) queries plus one bounded, unindexed scan of the (small,
+  // wedding-sized) tasks table for the fourth, announcements source (issue
+  // #778) — never a row union, so — unlike the recap PAGE below — it is safe
   // to compute on every request, including a POST that redirects without
   // ever rendering a page.
   //
@@ -180,7 +188,13 @@ function attachGuest(req, res, next) {
   // that is actually about to render a guest page. See that module's own
   // comment for the full reasoning.
   if (guest) {
-    res.locals.recapUnreadCount = notifications.getUnreadCount(guest.id);
+    // One request-scoped clock (issue #778) — this file resolves its own
+    // timezone (cheap: a settings-table SELECT this function already runs
+    // elsewhere in the request cycle) and hands it to
+    // notifications.buildRecapClock, the one place the clock's shape is
+    // assembled.
+    const clock = notifications.buildRecapClock(getEventConfig().timezone);
+    res.locals.recapUnreadCount = notifications.getUnreadCount(guest.id, clock);
   } else {
     res.locals.recapUnreadCount = 0;
   }

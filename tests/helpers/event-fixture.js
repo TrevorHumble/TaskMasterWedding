@@ -299,6 +299,40 @@ const CANNED_COMMENTS = [
   'Iconic.',
 ];
 
+// Bug reports seeded when the caller opts in (issue #686 AC6 — the preview
+// story needs a populated Bugs page). Fixed content, not rng-drawn: unlike
+// the social layer above, this doesn't need to vary run-to-run, and a fixed
+// list is what guarantees "at least one of each state" (AC6's literal
+// requirement) regardless of guestCount. Five rows, cycling through whatever
+// real guestIds exist (guestIds[i % guestIds.length]), so this never indexes
+// past the end even when seedEvent is called with very few guests.
+const BUG_REPORT_SEEDS = [
+  { status: 'open', page: '/gallery', body: "Gallery won't load on my phone — it just spins." },
+  { status: 'open', page: '/tasks/3', body: 'The upload button does nothing on Safari.' },
+  { status: 'tracked', page: '/leaderboard', body: 'My points look wrong after the group photo.' },
+  { status: 'closed', page: '/me', body: 'Small typo on the profile page — "recieved".' },
+  { status: 'closed', page: '/how-to-play', body: 'Rules text overlaps the image on iPad.' },
+];
+
+/**
+ * Insert a fixed spread of bug_reports rows (issue #686 AC6), tied to real
+ * seeded guest ids so the admin Bugs page's guest-name links resolve.
+ * Must run inside the same transaction as the guest inserts it reads
+ * `guestIds` from (their ids only exist once inserted).
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {number[]} guestIds - real, already-inserted guest ids.
+ */
+function seedBugReports(db, guestIds) {
+  const insertBugReport = db.prepare(
+    `INSERT INTO bug_reports (guest_id, body, page, user_agent, status) VALUES (?, ?, ?, ?, ?)`
+  );
+  BUG_REPORT_SEEDS.forEach((seed, i) => {
+    const guestId = guestIds[i % guestIds.length];
+    insertBugReport.run(guestId, seed.body, seed.page, 'Mozilla/5.0 (seeded)', seed.status);
+  });
+}
+
 /**
  * Insert `likes`/`comments` rows for a seeded event, per issue #450 AC1/AC2.
  * Must run inside the same transaction as the submission inserts it reads
@@ -413,6 +447,15 @@ function seedEvent(db, options = {}) {
   const topTie = options.topTie === undefined ? false : options.topTie;
   if (typeof topTie !== 'boolean') {
     throw new Error(`seedEvent: topTie must be a boolean, got ${JSON.stringify(options.topTie)}`);
+  }
+  // #686: opt-in bug-report seeding, default false so every existing caller
+  // (tests, scripts/seed-event.js) is byte-for-byte unaffected — same idiom
+  // as social/topTie above.
+  const bugReports = options.bugReports === undefined ? false : options.bugReports;
+  if (typeof bugReports !== 'boolean') {
+    throw new Error(
+      `seedEvent: bugReports must be a boolean, got ${JSON.stringify(options.bugReports)}`
+    );
   }
   const rng = makeRng(seed);
 
@@ -639,6 +682,10 @@ function seedEvent(db, options = {}) {
 
     if (social !== 'none') {
       seedSocial(db, { guestIds, visibleSubmissions, rng, social });
+    }
+
+    if (bugReports) {
+      seedBugReports(db, guestIds);
     }
 
     return { taskIds, guestIds, manifest, guestNames };

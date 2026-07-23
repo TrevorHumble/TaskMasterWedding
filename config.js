@@ -111,6 +111,11 @@ const config = {
   // image built without the arg) — never a guess that could be mistaken for
   // a real commit.
   GIT_SHA: process.env.GIT_SHA || 'unknown',
+  // Base repo URL the admin Bugs page (issue #686) builds a prefilled GitHub
+  // new-issue link from — GITHUB_REPO_URL + '/issues/new?title=...&body=...'.
+  // Env-overridable so a fork or a renamed repo never needs a code change.
+  GITHUB_REPO_URL:
+    process.env.GITHUB_REPO_URL || 'https://github.com/TrevorHumble/TaskMasterWedding',
   // Express `trust proxy` setting. false = Express default (trust nothing);
   // a positive integer = number of proxy hops to trust. See resolveTrustProxy
   // above for the parsing rule.
