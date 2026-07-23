@@ -53,8 +53,13 @@ const FETCH_LIMIT = PAGE_SIZE + 1;
 // whether the row is inert ("dead" — no link, greyed thumb), the row copy
 // (`parts`), and where it links (`href`). #644 owns the COMPLETE map so the
 // vocabulary has one author (plan step 1, matching that step's own table);
-// it emits badge_granted/badge_revoked/badge_removed itself — the other four
-// are wired by #783 (moderation) once #644 has shipped this table/service/map.
+// it emits badge_granted/badge_revoked/badge_removed itself — the four
+// moderation kinds (photo_takedown/photo_restore/comment_hidden/
+// comment_restored) get their MAP entries here but are actually EMITTED by
+// #783, once that issue lands the moderation routes. #625 adds
+// crowd_favorite/crowd_favorite_lost as a THIRD emitter of this same map —
+// see scoring.recordCrowdFavoriteChanges, called from the like-toggle route
+// and from photos.js's hideSubmission/restoreSubmission.
 // `parts`/`href` are functions of the stored event row (`ev`) rather than
 // plain strings so the SAME entry both supplies the copy text AND decides
 // the destination — folding what used to be a separate if/else chain in
@@ -127,6 +132,54 @@ const KIND_VIEW = {
     dead: false,
     parts: () => [{ text: 'A comment on your photo is ' }, { text: 'back', emphasis: true }],
     href: (ev) => (ev.submission_id != null ? `/p/${ev.submission_id}` : null),
+  },
+  // Crowd favorites (issue #625). The stored row carries only guest_id +
+  // submission_id (scoring.recordCrowdFavoriteChanges' single write path) —
+  // rank and points are NEVER stored (a stored rank would be the one thing
+  // here that could go stale the moment a later like/takedown/restore moves
+  // it), so `parts` below reads the CURRENT placing set live from
+  // scoring.crowdFavorites() every time this row renders.
+  crowd_favorite: {
+    view: 'gold',
+    dead: false,
+    parts: (ev) => {
+      // Lazy require (call-time, not module top level): scoring.js requires
+      // this module ('./notifications') at ITS OWN top level (see this
+      // file's header comment), so a top-level require('./scoring') here
+      // would create a load-order-sensitive cycle — whichever of the two
+      // modules happens to load first would see the other's module.exports
+      // still mid-assembly at the moment it destructures from it, and every
+      // recap render would throw. Deferring to call time sidesteps the cycle
+      // entirely, mirroring feed.js's own deferred require('./scoring')
+      // inside slideshowSequence.
+      const scoring = require('./scoring');
+      const placing = scoring.crowdFavorites().find((cf) => cf.submission_id === ev.submission_id);
+      if (!placing) {
+        // The photo has since left the placing set again (a later like or
+        // takedown moved it out between the event being recorded and this
+        // render) — degrade to naming it without a stale rank/points rather
+        // than showing a number that is no longer true. The corresponding
+        // crowd_favorite_lost row (recorded at the moment it actually left)
+        // is what carries that story; this row just avoids overclaiming.
+        return [{ text: 'Your photo is a ' }, { text: 'crowd favorite', emphasis: true }];
+      }
+      return [
+        { text: "You're the " },
+        { text: `#${placing.rank} crowd favorite`, emphasis: true },
+        { text: ` — +${placing.points} pts` },
+      ];
+    },
+    href: (ev) => (ev.submission_id != null ? `/p/${ev.submission_id}` : null),
+  },
+  crowd_favorite_lost: {
+    view: 'loss',
+    dead: true,
+    parts: () => [
+      { text: 'Your photo ' },
+      { text: 'dropped out', emphasis: true },
+      { text: ' of the crowd favorites' },
+    ],
+    href: () => null,
   },
 };
 

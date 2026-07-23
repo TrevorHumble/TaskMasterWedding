@@ -538,6 +538,67 @@ function buildSlideshowSection(rows, titleItem, winnerLabel) {
 }
 
 /**
+ * The Most Liked opener's flat [title, ...photos] slice (issue #625) —
+ * absorbs scoring.crowdFavorites() rather than reusing buildSlideshowSection
+ * above. The difference is load-bearing, not stylistic: buildSlideshowSection
+ * assigns each photo's rank from its ARRAY POSITION (i + 1), which is correct
+ * for a task section (no cap on ties there) but WRONG here, where two photos
+ * tied for a spot must render the identical rank label — a position-based
+ * rank could never express that. Each entry's rank/points instead come
+ * straight from `placing[i].rank` — scoring.crowdFavorites()'s own
+ * standard-competition rank, the SAME number the standings and the recap
+ * read — so the venue screen can never crown a photo the standings did not
+ * pay (this issue's own design goal).
+ *
+ * `placing` must already be sorted BEST-FIRST (crowdFavorites()'s own
+ * contract, never empty — callers check that first) and is reversed here
+ * into worst-first / winner-last order, the same countdown-to-the-winner
+ * shape (#468 AC1/AC3) buildSlideshowSection's task sections use.
+ *
+ * The title/kicker copy is unchanged, pre-existing text (issue #625 is the
+ * engine; guest-facing wording is #788's to settle) — "five favorites" is
+ * literally true only in the ordinary case; a big top tie can place more
+ * than five, which this issue's own design notes call correct, not a bug.
+ *
+ * @param {Array<{submission_id: number, like_count: number, rank: number}>}
+ *   placing - best-first, from scoring.crowdFavorites().
+ * @param {Map<number, object>} rowsById - submission_id -> this file's own
+ *   base-query row (photo_path, guest_name, task_title, caption) —
+ *   crowdFavorites() itself carries no display fields. Every placing
+ *   submission_id is guaranteed present: both queries read the same
+ *   VISIBLE_WHERE submissions within one synchronous request, with no write
+ *   between them (better-sqlite3 has no concurrent transactions mid-request).
+ * @returns {object[]} title item followed by one photo item per placing
+ *   photo, worst-first / winner-last.
+ */
+function buildCrowdFavoriteSection(placing, rowsById) {
+  const photoItems = placing.map((p) => {
+    const row = rowsById.get(p.submission_id);
+    const winner = p.rank === 1;
+    return {
+      type: 'photo',
+      photo_path: row.photo_path,
+      guest_name: row.guest_name,
+      task_title: row.task_title,
+      caption: row.caption,
+      like_count: p.like_count,
+      rank: p.rank,
+      winner,
+      rankLabel: winner ? 'Crowd favorite' : SLIDESHOW_ORDINAL_LABELS[p.rank],
+    };
+  });
+  photoItems.reverse();
+  return [
+    {
+      type: 'title',
+      title: 'Most Liked',
+      kicker: "The crowd's five favorites",
+      count: photoItems.length,
+    },
+  ].concat(photoItems);
+}
+
+/**
  * The end-of-night slideshow's play sequence (issue #468): a "Most Liked"
  * opener (the 5 highest-liked visible photos) followed by one section per
  * task (the fullest up-to-SLIDESHOW_MAX_TASK_SECTIONS tasks among the
@@ -555,7 +616,10 @@ function buildSlideshowSection(rows, titleItem, winnerLabel) {
  * created_at/id comparator here.
  *
  * Rank metric per section:
- *   - Most Liked opener: like_count, ties broken by points.
+ *   - Most Liked opener: scoring.crowdFavorites()'s own standard-competition
+ *     rank over like_count (issue #625) — the SAME ranking the standings and
+ *     the recap read, absorbing what used to be this file's own separate
+ *     "top 5 by likes, points tiebreak" sort (see buildCrowdFavoriteSection).
  *   - Task groups: scoring.photoPoints(photo_bonus, worth, bonus_amount),
  *     ties broken by like_count.
  *
@@ -616,18 +680,17 @@ function slideshowSequence() {
   }
 
   // --- Most Liked opener --------------------------------------------------
-  // Ranked likes-first, points as the tiebreak; a full tie falls through to
-  // the base query's newest-first order (Array.prototype.sort is stable).
-  const byLikes = rows.slice().sort((a, b) => b.like_count - a.like_count || b.points - a.points);
-
-  const opener = byLikes.slice(0, SLIDESHOW_SECTION_SIZE);
-  const openerIds = new Set(opener.map((r) => r.submission_id));
-
-  const sequence = buildSlideshowSection(
-    byLikes,
-    { title: 'Most Liked', kicker: "The crowd's five favorites" },
-    'Crowd favorite'
-  );
+  // Absorbed into scoring.crowdFavorites() (issue #625) — see
+  // buildCrowdFavoriteSection's own doc comment for why this needed a
+  // dedicated builder rather than reusing buildSlideshowSection. Not
+  // size-capped (SLIDESHOW_SECTION_SIZE still bounds every TASK section
+  // below, just not this one): the opener renders exactly the placing set,
+  // usually ~5 photos, more only under a big top tie, and is omitted
+  // entirely when the set is empty (nobody has any likes yet, AC4).
+  const rowsById = new Map(rows.map((r) => [r.submission_id, r]));
+  const placing = scoring.crowdFavorites();
+  const openerIds = new Set(placing.map((p) => p.submission_id));
+  const sequence = placing.length === 0 ? [] : buildCrowdFavoriteSection(placing, rowsById);
 
   // --- Task groups ---------------------------------------------------------
   // Only task-linked rows (task_id !== null) group into a task section — a

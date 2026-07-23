@@ -39,10 +39,15 @@ Nine sources pay points. Each entry names the issue that builds it.
 8. **Task-badge award ranking.** For each task, the host picks and ranks that task's 5
    best photos. Rank 1 pays 5, rank 2 pays 4, down to rank 5 paying 1. (#661's rewrite;
    #662 is its checklist entry point.)
-9. **Crowd favorites.** Likes are votes. The 5 most-liked photos pay their owners 5/4/3/2/1
-   by dense rank, derived live all weekend — a photo that drops out of the top 5 loses the
-   points that came with the spot. (#625's rewrite; #651 feeds duel-generated likes into
-   the same count.)
+9. **Crowd favorites.** Likes are votes. Visible photos (task photos AND memories — memories
+   compete) are ranked by like count using STANDARD-COMPETITION ranking — a race rank (1st,
+   2nd, 2nd, 4th) where a tie CONSUMES the ranks beneath it, deliberately different from the
+   leaderboard's dense rank above. Ranks 1-5 pay their owners 5/4/3/2/1, derived live all
+   weekend — a photo that drops out of the top 5 loses the points that came with the spot. A
+   single tier that itself holds 5+ photos (a big tie for a spot) can still place more than
+   five; that is correct, they genuinely tied. (#625's rewrite, settled 2026-07-23 — see that
+   issue's ranking-rule and memory-eligibility decision comments; #651 feeds duel-generated
+   likes into the same count.)
 
 ### Nothing else pays
 
@@ -134,10 +139,6 @@ five die — it now picks winners for each task's real badge, not for the dead p
 These are not yet settled. Do not build against an assumed answer — check with the owner
 or leave the surface generic until one of these resolves.
 
-- **OPEN — memory eligibility for crowd favorite.** Whether memories (task-free photos)
-  are eligible for crowd-favorite ranking, or only task photos are. The owner is leaning
-  task-only, for anti-flooding consistency with the rest of the economy, but this is not
-  yet settled.
 - **OPEN — recompute triggers beyond #701.** The exact recompute triggers for badge
   staleness beyond #701's task-change seam — for example guest delete or block — are not
   fully enumerated.
@@ -214,7 +215,7 @@ flowchart LR
 
   subgraph Derived["Computed fresh per request"]
     ATS{{"active task set:<br/>not deleted, not hidden,<br/>not a future-dated challenge.<br/>One definition, five callers"}}
-    CF{{"crowd favorites:<br/>likes per visible photo,<br/>dense-ranked, top 5 pay 5..1,<br/>all five wear the badge, no.1 gold.<br/>OPEN: memories in or out (D1)"}}
+    CF{{"crowd favorites:<br/>likes per visible photo<br/>(memories compete too),<br/>standard-competition rank,<br/>ranks 1-5 pay 5..1,<br/>all placers wear the badge, no.1 gold"}}
     PTS{{"points recipe, one term list:<br/>task worth + banked bonuses<br/>+ ranked-award points + memory days<br/>+ auto-badge points + starter point<br/>+ crowd-favorite points"}}
   end
 
