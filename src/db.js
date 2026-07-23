@@ -95,6 +95,21 @@ db.exec(`
     -- row whose bonus is not an integer in [1, 3].
     lucky_date     TEXT,
     lucky_bonus    INTEGER,
+    -- The instant this task last flipped not-live -> live (issue #778),
+    -- bumped ONLY at that transition by src/routes/admin.js's create/edit
+    -- /active seams (via tasks.isTaskLive, the single liveness owner) -- an
+    -- edit that leaves liveness unchanged (a title/worth/date tweak, a
+    -- special_date moved to today) never touches it. NULL means "never live"
+    -- -- a pre-existing live task on a migrated app.db keeps it NULL rather
+    -- than being backfilled, so it can never spuriously announce: the
+    -- read-time rule src/services/notifications.js applies is live_since >
+    -- checkpoint, and NULL > x is never true in SQL or in JS. UTC
+    -- datetime('now') form, matching every other timestamp column in this
+    -- file -- deliberately NOT "event-local" despite some of this codebase's
+    -- own commentary elsewhere using that phrase loosely, because it must
+    -- stay directly string-comparable to guests.recap_checked_at/created_at,
+    -- which are the same UTC datetime('now') form.
+    live_since     TEXT,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
     -- Pairing constraint (issue #753 review fix): special_date and
     -- special_bonus are either BOTH NULL (an ordinary task) or BOTH set (a
@@ -253,11 +268,20 @@ db.exec(`
   -- qualifies for; badge_removed is a host un-awarding one by hand — they
   -- read differently to the guest, so they are separate kinds. Only the
   -- three badge_* kinds are emitted by this issue; #783 owns the
-  -- moderation emitters and #778 owns announcements (adding its own task_id
-  -- column later). submission_id/badge_id are nullable siblings — a badge
-  -- event sets badge_id only, a moderation event (future) sets submission_id
-  -- only — both cascade on delete so an event never outlives the row it
-  -- describes turning into a dangling reference.
+  -- moderation emitters, which DO belong here (a moderation action, like a
+  -- badge grant/revoke, is a fact about one specific guest with no other
+  -- place to reconstruct it from). #778 (host announcements — a task going
+  -- live, a challenge unsealing, a flash window opening) does NOT add a row
+  -- or a column here at all: an announcement is a BROADCAST, not a
+  -- per-guest fact, so it is read-time DERIVED from tasks.live_since/
+  -- special_date/flash_start_at instead — see
+  -- src/services/notifications.js's "Announcements" section and DESIGN.md's
+  -- "Recap" ADR for why this table's guest_id-keyed NOT NULL shape is
+  -- exactly why a broadcast was never stored here. submission_id/badge_id
+  -- are nullable siblings — a badge event sets badge_id only, a moderation
+  -- event (future) sets submission_id only — both cascade on delete so an
+  -- event never outlives the row it describes turning into a dangling
+  -- reference.
   CREATE TABLE IF NOT EXISTS notification_events (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     guest_id      INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
@@ -555,6 +579,39 @@ function ensureTaskLuckyColumns() {
 }
 
 ensureTaskLuckyColumns();
+
+// --- Guarded migration: tasks.live_since (issue #778) ---
+/**
+ * Add tasks.live_since if it is not already present.
+ *
+ * Same guard shape as ensureTaskFlashColumns()/ensureTaskLuckyColumns()
+ * immediately above: the tasks CREATE TABLE above already declares it (a
+ * fresh DB gets it directly, so this is a no-op there); on an existing
+ * pre-#778 app.db it does not exist yet, so PRAGMA table_info detects its
+ * absence and the ALTER TABLE runs once, gated so a repeat call (or a later
+ * boot) is a no-op and never throws "duplicate column".
+ *
+ * No DEFAULT is given -- NULL for every pre-existing row is exactly right
+ * (issue #778 plan step 1): a pre-existing live task keeps live_since NULL
+ * rather than being backfilled to "now", so it never spuriously announces --
+ * the read-time rule (src/services/notifications.js) is `live_since >
+ * checkpoint`, and `NULL > x` is never true, in SQL or in JS.
+ *
+ * MUST run after ensureTaskSpecialDayColumns()/ensureTaskWorthAndMode() (the
+ * two places `tasks` is rebuilt in this file), for the same reason
+ * ensureTaskFlashColumns() documents above: a rebuild, if any, finishes
+ * first, so this ALTER always lands on the settled table.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureTaskLiveSinceColumn() {
+  const cols = db.prepare(`PRAGMA table_info(tasks)`).all();
+  if (!cols.some((col) => col.name === 'live_since')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN live_since TEXT`);
+  }
+}
+
+ensureTaskLiveSinceColumn();
 
 // --- Guarded migration: submissions.photo_bonus (issue #89) ---
 /**
@@ -1602,6 +1659,7 @@ module.exports = {
   ensureTaskSpecialDayColumns,
   ensureTaskFlashColumns,
   ensureTaskLuckyColumns,
+  ensureTaskLiveSinceColumn,
   ensurePhotoBonusColumn,
   ensureBadgeTypeCheckWidened,
   ensureBadgeTaskIdColumn,

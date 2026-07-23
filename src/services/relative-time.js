@@ -5,14 +5,22 @@
 // correct at render time, not refreshed in the browser.
 //
 // This module is also the SINGLE OWNER of one storage-format decision: how a
-// stored `created_at` string becomes a JS Date. SQLite's `datetime('now')`
-// (src/db.js's default for every `created_at` column) writes
-// "YYYY-MM-DD HH:MM:SS" in UTC with no 'T' separator and no offset marker.
-// Handed to `new Date()` as-is, that shape is parsed as LOCAL time, not UTC —
-// silently skewing every derived value by the server's UTC offset. The fix
-// (space -> 'T', append 'Z') lives here in `parseSqliteDatetime` and nowhere
-// else; src/services/export.js's `fmtDate` routes through it rather than
-// keeping its own copy of the same rule.
+// stored `created_at` string becomes a JS Date, and back again. SQLite's
+// `datetime('now')` (src/db.js's default for every `created_at` column, and
+// the CASE-WHEN literal src/routes/admin.js's task-liveness seams use for
+// `tasks.live_since` — issue #778) writes "YYYY-MM-DD HH:MM:SS" in UTC with
+// no 'T' separator and no offset marker. Handed to `new Date()` as-is, that
+// shape is parsed as LOCAL time, not UTC — silently skewing every derived
+// value by the server's UTC offset. The parse-side fix (space -> 'T', append
+// 'Z') lives here in `parseSqliteDatetime`; the emit side (epoch
+// milliseconds -> that exact stored shape) lives here in `toSqliteDatetime`,
+// its inverse. Both live here and nowhere else: src/services/export.js's
+// `fmtDate` and src/services/notifications.js's announcements source (issue
+// #778, which needs the emit side to turn a JS-computed instant — a
+// challenge's day-start, a flash window's start — into a `when` value
+// directly comparable, by plain string comparison, to every other `when` in
+// the recap merge) both route through these two functions rather than each
+// keeping its own copy of either half of the rule.
 'use strict';
 
 /**
@@ -35,6 +43,21 @@ function parseSqliteDatetime(value) {
   }
   const parsed = new Date(value.replace(' ', 'T') + 'Z');
   return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * The inverse of parseSqliteDatetime above: epoch milliseconds -> the exact
+ * string shape every `datetime('now')` column in this app writes
+ * ("YYYY-MM-DD HH:MM:SS", UTC, whole-second resolution, no 'T'/'Z'). Built
+ * from `Date.prototype.toISOString()` (always UTC, regardless of the
+ * server's own local timezone) with the millisecond/'T'/'Z' punctuation
+ * stripped back to this app's storage shape.
+ *
+ * @param {number} ms - epoch milliseconds.
+ * @returns {string}
+ */
+function toSqliteDatetime(ms) {
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
 }
 
 /**
@@ -83,4 +106,4 @@ function relativeTime(date) {
   return pluralize(deltaDay, 'day');
 }
 
-module.exports = { relativeTime, parseSqliteDatetime };
+module.exports = { relativeTime, parseSqliteDatetime, toSqliteDatetime };

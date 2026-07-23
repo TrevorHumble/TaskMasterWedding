@@ -64,6 +64,35 @@ function seed(db) {
 }
 
 /**
+ * Advance a guest's recap checkpoint past both any FIXED_TODAY-style pinned
+ * "today" fixture AND real Date.now(), so the recap's announcements source
+ * (issue #778, src/services/notifications.js) has nothing to say about
+ * whatever task fixtures a test inserts. Needed by any test that pins
+ * "today" via the eventDays.eventLocalDateString monkeypatch (the
+ * shared-module-object technique tests/oneday-guest-surface.test.js's and
+ * tests/flash-guest-surface.test.js's own header comments describe) and then
+ * does a raw `indexOf`/`lastIndexOf('<li class="task-row'...)` scan of a
+ * rendered page: a freshly-inserted guest's checkpoint (their own
+ * created_at, at real test-run time) always predates a challenge dated
+ * "today" or a flash active right now, so its title legitimately also
+ * appears once in the recap strip/panel ahead of the real task-row list —
+ * correct #778 behavior, but it breaks a raw text search that assumes the
+ * task-row list is the only place a title can appear. '2026-08-08 00:00:00'
+ * is comfortably after every FIXED_TODAY/DAY1-DAY3 fixture date this
+ * codebase's guest-surface test files use (see
+ * tests/flash-admin-surface.test.js's header comment: those fixture dates
+ * are themselves in the real future relative to Date.now() at test-run
+ * time), so one fixed stamp suppresses both the unseal and the flash-open
+ * sources at once.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {number} guestId
+ */
+function suppressAnnouncementsForGuest(db, guestId) {
+  db.prepare(`UPDATE guests SET recap_checked_at = '2026-08-08 00:00:00' WHERE id = ?`).run(guestId);
+}
+
+/**
  * Write a known bcrypt hash to the admin.hash path used by the temp DATA_DIR,
  * then return a supertest agent that is already logged in as admin.
  *
@@ -148,4 +177,4 @@ function signInGuest(app, token, agent) {
   return theAgent;
 }
 
-module.exports = { loadApp, seed, makeAdminAgent, signInGuest };
+module.exports = { loadApp, seed, makeAdminAgent, signInGuest, suppressAnnouncementsForGuest };

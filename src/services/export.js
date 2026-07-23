@@ -9,7 +9,7 @@ const ExcelJS = require('exceljs');
 const config = require('../../config');
 const { db } = require('../db');
 const scoring = require('./scoring');
-const { parseSqliteDatetime } = require('./relative-time');
+const { parseSqliteDatetime, toSqliteDatetime } = require('./relative-time');
 
 /**
  * Prepend an apostrophe to any string value whose first character would be
@@ -55,15 +55,18 @@ function extOf(filename) {
 
 /**
  * Format an ISO-ish datetime string (stored as datetime('now')) for display.
- * If parsing fails we just return the raw stored string. The SQLite-datetime
- * -> UTC-Date conversion is owned by src/services/relative-time.js
- * (parseSqliteDatetime) so this storage-format rule lives in exactly one place.
+ * If parsing fails we just return the raw stored string. Both halves of the
+ * SQLite-datetime <-> UTC-Date conversion are owned by
+ * src/services/relative-time.js (parseSqliteDatetime / toSqliteDatetime) so
+ * this storage-format rule lives in exactly one place, in both directions —
+ * this function round-trips through both rather than keeping its own copy of
+ * either half.
  */
 function fmtDate(value) {
   if (!value) return '';
   const d = parseSqliteDatetime(value);
   if (!d) return String(value);
-  return d.toISOString().slice(0, 19).replace('T', ' ');
+  return toSqliteDatetime(d.getTime());
 }
 
 /**
