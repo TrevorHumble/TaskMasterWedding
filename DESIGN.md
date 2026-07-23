@@ -1234,17 +1234,49 @@ it never earned through this app's own doors. This also keeps two questions — 
 auto-open" and "does this badge appear in the recap, replayable" — answering from the same underlying
 fact, since the recap list is itself built only from `notification_events` rows.
 
-**Known gap: the `day`/`flash`/`task` announcement glyphs are not in the tree — found in PR review.**
-#644's own implementation plan (step 8) said to KEEP three `.recap-icon-<kind>`-style glyph branches
-for #778's future announcement rows (`day`, `flash`, `task`) even though nothing in #644's own scope
-emits them yet, the same way `gold` (#647) and `announce` (#778) were kept and wired into
-`src/services/notifications.js`'s `KIND_GLYPH` map. That phase-1 art was never actually committed to
-this branch, so there is nothing to restore — `git log --all -S` over both `KIND_GLYPH` and
-`theme.css`'s `.recap-icon-*` rules turns up no prior commit defining them. Inventing new SVG glyphs
-here, unreviewed, would ship un-approved art under a "restored" label. #778's own implementation plan
-already accounts for exactly this possibility: its plan step 4 says to verify these branches survived
-and, "if they were dropped, restoring them is this issue's work, not a new issue." Left undone here on
-purpose; #778 owns closing this gap when it lands the emitters that need the art.
+**Retired: the `day`/`flash`/`task` announcement glyphs — settled by #778, not a gap it needed to close.**
+#644's own implementation plan (step 8) originally said to KEEP three `.recap-icon-<kind>`-style glyph
+branches for #778's future announcement rows (`day`, `flash`, `task`), the same way `gold` (#647) and
+`announce` (#778) were kept and wired into `src/services/notifications.js`'s `KIND_GLYPH` map. That
+phase-1 art was never actually committed to this branch — `git log --all -S` over both `KIND_GLYPH` and
+`theme.css`'s `.recap-icon-*` rules turns up no prior commit defining them — so #778 had nothing to
+restore. Rather than invent three new SVG glyphs unreviewed, the owner's #778 Design section reversed
+the plan (2026-07-21): differentiating the three announcement kinds by glyph is unapproved new art, a
+separable future nicety, not something any of #778's acceptance criteria needs. #778 shipped every
+announcement row — live-transition, challenge-unseal, and flash-open alike — through the single
+`announce` glyph already wired above. This is now the settled shape, not an open gap a later issue owns
+closing.
+
+**Announcements (#778): derived from task state at read time, never a stored broadcast row.** The
+host-driven half of the recap — "a task went live," "a one-day-only challenge unsealed," "a flash window
+opened" — differs from every source above it in one structural way: it is a BROADCAST, not a per-guest
+fact. `notification_events` (the recap's one STORED source) is `guest_id`-keyed `NOT NULL` and read
+`WHERE ne.guest_id = ?` (`src/db.js`, `src/services/notifications.js`'s `EVENT_EXISTENCE_WHERE`) —
+every stored row belongs to exactly one guest by construction. A host action belongs to no single guest
+and must reach every guest whose recap checkpoint predates it, including one who has not yet joined.
+Making that fit the stored shape means either an O(guests) fan-out write per host action (one
+`notification_events` row per current guest, missing any later joiner entirely) or widening `guest_id`
+to nullable on the hottest read path in the app (`getUnreadCount` runs on every authenticated request) —
+neither justified, because every fact an announcement asserts is already sitting on the task row itself
+at read time, the same way `flashState()` and the seal predicate (`src/services/tasks.js`) already derive
+their own render state without a stored row of their own.
+
+So all three announcement sources are DERIVED, added as a fourth source alongside the recap's two
+existing derived sources (likes, comments) — this file's own header comment anticipated exactly this
+before #778 landed. The one piece of state that had no home on the task row before #778 was _when_ a
+task last became live — nothing recorded that instant. `tasks.live_since` (a guarded `ADD COLUMN`,
+`NULL` = never live) supplies it, bumped only at a genuine not-live → live transition (compared via
+`tasks.isTaskLive`, the single liveness owner) by the three write seams that can flip liveness — create,
+edit, and the `/active` toggle (`src/routes/admin.js`). A pre-existing live task on a migrated database
+keeps `live_since` `NULL` rather than being backfilled, so it can never spuriously announce: the read
+rule is `live_since > checkpoint`, and `NULL > x` is never true. The other two sources need no new
+column at all — a challenge's unseal reads `tasks.isOnDay`/`special_date` against the event-local day
+start (`event-days.js`'s `dayOpensAt`), and a flash's open window reads `tasks.flashState`/`flashWindow`
+— both already-owned derivations #762/#753 built for their own guest-facing surfaces, consumed here
+rather than re-derived. Every announcement is EPHEMERAL by construction (it exists only while its
+trigger instant is newer than the checkpoint AND the task is still `liveTaskWhere`-live), so a hidden
+task can never announce under any of the three rules, and every announcement is unread the moment it
+exists — there is no separate "unread" bookkeeping to keep in sync.
 
 **Known limitation: a like landing in the same whole second as a `markSeen` checkpoint is lost —
 found in PR review.** `notifications.js`'s unread-count and row-existence checks

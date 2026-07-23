@@ -30,7 +30,7 @@
 
 'use strict';
 
-const { db } = require('../db');
+const { db, getEventConfig } = require('../db');
 const notifications = require('./notifications');
 // primaryNewBadge/compareBadgeMoment (issue #714) are the single, catalog-
 // derived owner of "which of several newly-owed badges wins the celebration
@@ -182,7 +182,14 @@ function withBadgeMoment(req, res, extra) {
     return Object.assign({ badgeMoment: null, recapRows: [], recapHasMore: false }, extra);
   }
   const badgeMoment = resolveBadgeMoment(guest.id);
-  const firstPage = notifications.getRecap(guest.id);
+  // Issue #778: the announcements source reads task liveness/seal/flash
+  // state AT an instant, so getRecap needs this render's own clock — this
+  // file resolves its own timezone and hands it to
+  // notifications.buildRecapClock, the one place the clock's shape is
+  // assembled (src/middleware/session.js's getUnreadCount call and
+  // src/routes/guest.js's GET /recap route build theirs the same way).
+  const clock = notifications.buildRecapClock(getEventConfig().timezone);
+  const firstPage = notifications.getRecap(guest.id, { clock: clock });
   return Object.assign(
     { badgeMoment: badgeMoment, recapRows: firstPage.rows, recapHasMore: firstPage.hasMore },
     extra

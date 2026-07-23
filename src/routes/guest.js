@@ -1275,9 +1275,17 @@ router.post('/recap/seen', socialRateLimiter, function (req, res) {
 router.get('/recap', function (req, res) {
   const before = typeof req.query.before === 'string' ? req.query.before : undefined;
   const beforeKey = typeof req.query.beforeKey === 'string' ? req.query.beforeKey : undefined;
+  // One clock for this request (issue #778) — the announcements source
+  // needs it to evaluate live-transition/unseal/flash state. This route
+  // resolves its own timezone (the same `getEventConfig().timezone` every
+  // other clock-building route in this file already reads) and hands it to
+  // notifications.buildRecapClock, the one place the clock's shape is
+  // assembled.
+  const clock = notifications.buildRecapClock(getEventConfig().timezone);
   const result = notifications.getRecap(res.locals.guest.id, {
     before: before,
     beforeKey: beforeKey,
+    clock: clock,
   });
   res.json(result);
 });

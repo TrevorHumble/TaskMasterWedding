@@ -2,11 +2,12 @@
 //
 // The recap ("what you missed") service — issue #644. The single owner of
 // "what does this guest see": unions STORED events (notification_events —
-// badge grants/revokes, and later moderation/announcement kinds #783/#778
-// add) with two DERIVED sources (likes, comments), scoped by the same
-// visibility owners the rest of the app already uses — feed.VISIBLE_WHERE for
-// the photo, feed.COMMENT_VISIBLE_WHERE for the comment, both re-exported
-// from their single owner (src/services/feed.js) rather than re-typed here.
+// badge grants/revokes, and moderation kinds #783 will add) with THREE
+// DERIVED sources (likes, comments, and — issue #778 — host announcements),
+// scoped by the same visibility owners the rest of the app already uses —
+// feed.VISIBLE_WHERE for the photo, feed.COMMENT_VISIBLE_WHERE for the
+// comment, both re-exported from their single owner (src/services/feed.js)
+// rather than re-typed here.
 //
 // Two shapes of "existence" on purpose (recorded here since it is the one
 // judgment call this module makes that isn't spelled out row-by-row in the
@@ -20,7 +21,9 @@
 // reads 3"). Comments sit with the permanent group (one row per comment,
 // tinted like badges) since each comment already has its own natural
 // per-event identity, unlike a like batch which has to pick some window to
-// exist at all.
+// exist at all. An announcement row (issue #778) is EPHEMERAL like a
+// like-batch, for the same reason and more strongly so — see this file's
+// bottom section for the full announcements design note.
 //
 // better-sqlite3 is fully synchronous: prepare(...).get/.all/.run, no async.
 
@@ -30,10 +33,12 @@ const fs = require('fs');
 const path = require('path');
 const ejs = require('ejs');
 const config = require('../../config');
-const { db } = require('../db');
+const { db, getEventConfig } = require('../db');
 const { VISIBLE_WHERE, COMMENT_VISIBLE_WHERE } = require('./feed');
-const { relativeTime } = require('./relative-time');
+const { relativeTime, parseSqliteDatetime, toSqliteDatetime } = require('./relative-time');
 const { isIconArtPath } = require('./badge-icons');
+const tasks = require('./tasks');
+const eventDays = require('./event-days');
 
 // How many rows one recap page holds (issue #644 plan step 5). Also the
 // per-source fetch bound below (FETCH_LIMIT): the true top PAGE_SIZE rows of
@@ -193,17 +198,20 @@ const KIND_VIEW = {
 // exact divergence risk a reviewer flagged (#778's Touches lists header.ejs
 // but not recap.js, so a glyph restored only in the EJS template would look
 // right on page one and wrong on every page after). `gold` and `announce`
-// are wired here now (their approved CSS already exists — `.recap-icon-gold`,
-// `.recap-row-announce .recap-icon`) even though no emitter in THIS issue's
-// scope produces those view kinds yet (#647 and #778 respectively) — the
-// glyph table is complete for every view kind currently named in the
-// approved row-anatomy list, not just the ones #644 itself emits.
+// were both wired here ahead of their own emitters landing (their approved
+// CSS already existed — `.recap-icon-gold`, `.recap-row-announce
+// .recap-icon`) — `announce` is now used, by this file's own
+// announceCandidateRows() below (issue #778); `gold` is still ahead of its
+// emitter (#647).
 //
-// NOT wired here: three PLANNED per-announcement-detail glyphs (`day`,
-// `flash`, `task`) this issue's own plan said to keep for #778 — see
-// DESIGN.md's "Recap" ADR, "Known gap" entry. The phase-1 art for them was
-// never committed to this branch, so there is nothing here to restore; #778
-// owns adding them when it lands the emitters that need them.
+// NOT wired here, and staying that way: three PLANNED per-announcement-detail
+// glyphs (`day`, `flash`, `task`) an earlier plan floated keeping room for.
+// Issue #778's own Design section retired that plan (owner decision,
+// 2026-07-21): differentiating the three announcement kinds by glyph is
+// unapproved new art, a separable future nicety, not something this issue
+// (or any of its acceptance criteria) needs — every announcement row, of all
+// three kinds, renders through the single `announce` glyph above. See
+// DESIGN.md's "Recap" ADR for the full history of this reversal.
 const KIND_GLYPH = {
   badge:
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 15.5 7 21l5-2.2L17 21l-1.5-5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
@@ -520,23 +528,320 @@ function likeBatchRows(guestId, checkpoint, cursor) {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// Announcements (issue #778) — host broadcasts ("a task went live", "a
+// one-day-only challenge unsealed", "a flash window opened"), the fourth
+// recap source this file's header comment and the EXISTENCE-predicate
+// section above both already anticipated.
+//
+// A BROADCAST, not a per-guest fact — the one structural way this source
+// differs from the three above it. storedRows/commentRows/likeBatchRows are
+// all guest-scoped in SQL (`WHERE ... guest_id = ?` / `s.guest_id = ?`)
+// because their underlying fact — "you got a badge", "someone liked YOUR
+// photo" — only ever belongs to one guest. An announcement belongs to no
+// guest at all; it is a fact about a TASK, and it is "for" every guest whose
+// own checkpoint happens to predate it. So ANNOUNCE_EXISTENCE_WHERE below
+// carries no guest_id bind (there is nothing to bind it to), and "is this
+// announcement for THIS guest" is answered entirely in JS, by comparing the
+// fact's own instant to the checkpoint passed in — never derived a second
+// time from a stored per-guest row (see this issue's Design section, and
+// DESIGN.md's "Recap" ADR, for why a stored broadcast row was rejected:
+// notification_events is guest_id-keyed NOT NULL, so broadcasting through it
+// would mean either an O(guests) fan-out write per host action or a nullable
+// guest_id on the hottest recap read path — neither warranted when every
+// fact an announcement asserts is already sitting on the task row itself).
+//
+// ANNOUNCE_EXISTENCE_WHERE is a NECESSARY, not sufficient, pre-filter: a live
+// task with a live_since stamp, a special_date, or a flash trio MIGHT
+// announce, depending on how its columns compare to the checkpoint/clock —
+// exactly which of the three it actually does (if any) is decided in JS by
+// qualifyingAnnounceFacts() below, consuming tasks.isOnDay/flashWindow/
+// flashState (the single owners of that state) rather than re-deriving any
+// of the three from raw columns here. liveTaskWhere (also the single owner)
+// gates ALL three derivations at once — a hidden task can never announce
+// under any of the three rules, satisfying issue #778 AC6 structurally
+// rather than as a per-derivation check.
+const ANNOUNCE_EXISTENCE_WHERE = `${tasks.liveTaskWhere('t')} AND (t.live_since IS NOT NULL OR t.special_date IS NOT NULL OR t.flash_start_at IS NOT NULL)`;
+
+const stmtAnnounceCandidates = db.prepare(`
+  SELECT t.id             AS id,
+         t.title           AS title,
+         t.live_since      AS live_since,
+         t.special_date    AS special_date,
+         t.flash_start_at  AS flash_start_at,
+         t.flash_minutes   AS flash_minutes,
+         t.flash_bonus     AS flash_bonus
+    FROM tasks t
+   WHERE ${ANNOUNCE_EXISTENCE_WHERE}
+`);
+
+// toSqliteDatetime (epoch ms -> the exact "YYYY-MM-DD HH:MM:SS" shape every
+// `datetime('now')` column in this app writes) is imported from
+// relative-time.js above, the single owner of both halves of this
+// storage-format rule (parseSqliteDatetime is the other half, also imported
+// above) — see that module's header comment. Needed here because two of the
+// three announcement facts below (challenge-unseal, flash-open) start life
+// as a JS instant (event-days.js's dayOpensAt, tasks.js's flashWindow), not a
+// SQLite column, and every row's `when` this whole module produces must
+// share one comparable shape — allRows' merge-sort and getRecap's `unread`
+// flag both do a bare string comparison against the guest's checkpoint,
+// never a parsed-Date comparison (see the "Cross-format datetime
+// comparisons" note on qualifyingAnnounceFacts below for the one place that
+// shape rule is NOT enough by itself, and why).
+
+/**
+ * The composite (when, key) "is this older than the cursor" test every
+ * SQL FETCH statement above expresses as a WHERE clause (see the "Bounded,
+ * cursor-paged source queries" comment higher in this file) — reimplemented
+ * in JS here because the announcements source has no SQL query to attach a
+ * WHERE clause to (qualifyingAnnounceFacts below is JS-side by necessity, not
+ * choice — see its own doc comment). Same semantics as the SQL version
+ * exactly: `cursor` null means "first page, no filtering"; otherwise a row
+ * qualifies when strictly older, OR tied on `when` and sorting strictly
+ * before on `key`.
+ * @param {string} when
+ * @param {string} key
+ * @param {{when: string, key: string|null}|null} cursor
+ * @returns {boolean}
+ */
+function passesAnnounceCursor(when, key, cursor) {
+  if (!cursor) {
+    return true;
+  }
+  if (when < cursor.when) {
+    return true;
+  }
+  return when === cursor.when && cursor.key != null && key < cursor.key;
+}
+
+/**
+ * Every announcement CURRENTLY true for one checkpoint/clock pair — the
+ * announcements source's `_EXISTENCE_WHERE` equivalent (issue #778 plan step
+ * 3), consumed by BOTH announceRows (the FETCH path, paged/capped) and
+ * announceCount (the COUNT path, exact) below, so the two can no more
+ * disagree about which announcements exist than the SQL-backed sources'
+ * shared `_EXISTENCE_WHERE` constants can. Unbounded and uncapped on
+ * purpose — FETCH_LIMIT/paging is a presentation concern the two callers
+ * apply on top, not part of "what exists."
+ *
+ * Three independent derivations per candidate task, ALL gated live by
+ * ANNOUNCE_EXISTENCE_WHERE's SQL already having excluded a hidden task (issue
+ * #778 AC6) — a task can qualify under more than one derivation at once (an
+ * "and it's a flash today" edge is real), and each becomes its OWN row with
+ * its own key, deliberately not deduplicated to one row per task: they are
+ * two distinct pieces of news, not one repeated fact.
+ *
+ * (a) Live-transition: `live_since` is set and newer than the checkpoint —
+ *     both sides are the SAME storage shape (`datetime('now')`), so this is
+ *     a plain string comparison, identical in spirit to every other
+ *     `_EXISTENCE_WHERE` in this file.
+ * (b) Challenge unseal: `tasks.isOnDay` says `special_date` is today (the
+ *     single owner of that fact, never re-derived here), AND the checkpoint
+ *     predates today's event-local START — `eventDays.dayOpensAt` gives that
+ *     start as a UTC instant, converted via toSqliteDatetime() to the same
+ *     comparable shape as `checkpoint` before comparing (see (c) for why
+ *     this conversion is necessary, not optional).
+ * (c) Flash open: `tasks.flashState` says ACTIVE as of `clock.nowMs` (the
+ *     single owner of that fact), AND the flash's own start instant
+ *     (`tasks.flashWindow(t).startMs`, epoch milliseconds) is newer than the
+ *     checkpoint. Cross-format datetime comparisons (issue #778 edge case):
+ *     `checkpoint` is a whole-SECOND SQLite string; `flash_start_at` is a
+ *     UTC ISO instant with MILLISECOND precision
+ *     (`YYYY-MM-DDTHH:MM:SS.sssZ`). String-comparing the two directly (the
+ *     way (a)/(b) safely can, since every operand there already shares the
+ *     same whole-second shape) would be comparing different-precision,
+ *     different-punctuation representations of time and can disagree with
+ *     the true instant ordering right at a second boundary. So (c) instead
+ *     converts BOTH sides to a common basis — epoch milliseconds — via
+ *     `parseSqliteDatetime` (checkpoint) and `flashWindow().startMs`
+ *     (already milliseconds, no reparsing of `flash_start_at` needed) and
+ *     compares those, exactly the discipline this issue's edge-case list
+ *     calls for. One accepted, narrow consequence of mixing an
+ *     millisecond-precise EXISTENCE test with a whole-second-precise `when`
+ *     display value: a flash starting within the same whole SECOND as the
+ *     checkpoint can exist (this test) yet render with `unread: false` (
+ *     getRecap's own `r.when > checkpoint` re-check, at whole-second
+ *     resolution) — the same class of single-second edge DESIGN.md's "Recap"
+ *     ADR already documents as an accepted limitation for likes, not a new
+ *     gap this issue introduces.
+ *
+ * A null `checkpoint` (checkpointFor's contract: only a nonexistent guest id)
+ * short-circuits to no facts, matching getUnreadCount's own early-return for
+ * the same input — not reachable via any real authenticated request, but
+ * guarding it here avoids `parseSqliteDatetime(null)` producing a
+ * `checkpointMs` of `null` that would then coerce to `0` in a bare `<`
+ * comparison and silently over-qualify every flash as "newer than checkpoint".
+ *
+ * @param {string|null} checkpoint
+ * @param {{todayIso: string, nowMs: number, timezone: string}} clock
+ * @returns {Array<object>} unsorted, uncapped recap row objects.
+ */
+function qualifyingAnnounceFacts(checkpoint, clock) {
+  if (checkpoint === null) {
+    return [];
+  }
+  const checkpointInstant = parseSqliteDatetime(checkpoint);
+  const checkpointMs = checkpointInstant ? checkpointInstant.getTime() : null;
+
+  const facts = [];
+  for (const t of stmtAnnounceCandidates.all()) {
+    if (t.live_since != null && t.live_since > checkpoint) {
+      facts.push({
+        key: `announce-live-${t.id}`,
+        when: t.live_since,
+        parts: [{ text: 'The hosts made ' }, { text: t.title, emphasis: true }, { text: ' live' }],
+      });
+    }
+
+    if (tasks.isOnDay(t, clock.todayIso)) {
+      const dayStart = toSqliteDatetime(
+        eventDays.dayOpensAt(clock.todayIso, clock.timezone).getTime()
+      );
+      if (checkpoint < dayStart) {
+        facts.push({
+          key: `announce-unseal-${t.id}`,
+          when: dayStart,
+          parts: [{ text: t.title, emphasis: true }, { text: ' unseals today' }],
+        });
+      }
+    }
+
+    const win = tasks.flashWindow(t);
+    if (
+      win &&
+      checkpointMs !== null &&
+      checkpointMs < win.startMs &&
+      tasks.flashState(t, clock.nowMs) === tasks.FLASH_ACTIVE
+    ) {
+      // Bonus amount AND window length, present tense — the issue's own
+      // approved copy ("Flash on now — +3 for 20 minutes",
+      // data/wip-issues/778-recap-announcements.md) names both, since both
+      // are the actionable "is it worth dropping what I'm doing" facts a
+      // guest steered toward this task needs; a bare "a flash bonus is open"
+      // (this row's pre-review copy) dropped the two numbers that make it
+      // worth acting on.
+      const minuteWord = t.flash_minutes === 1 ? 'minute' : 'minutes';
+      facts.push({
+        key: `announce-flash-${t.id}`,
+        when: toSqliteDatetime(win.startMs),
+        parts: [
+          { text: t.title, emphasis: true },
+          { text: ` — flash bonus on now, +${t.flash_bonus} for ${t.flash_minutes} ${minuteWord}` },
+        ],
+      });
+    }
+  }
+
+  return facts.map((f) => ({
+    key: f.key,
+    kind: 'announce',
+    dead: false,
+    parts: f.parts,
+    href: '/tasks',
+    thumb: null,
+    badge: null,
+    badgeArtHtml: null,
+    glyph: KIND_GLYPH.announce,
+    when: f.when,
+  }));
+}
+
+/**
+ * The FETCH path over qualifyingAnnounceFacts — cursor-filtered, sorted
+ * newest-first, capped at FETCH_LIMIT, mirroring the SQL sources' own
+ * `ORDER BY ... LIMIT FETCH_LIMIT` shape (issue #778 plan step 3), just done
+ * in JS since this source has no SQL query of its own to attach that clause
+ * to (see qualifyingAnnounceFacts' doc comment for why).
+ * @param {string|null} checkpoint
+ * @param {{todayIso: string, nowMs: number, timezone: string}} clock
+ * @param {{when: string, key: string|null}|null} cursor
+ * @returns {Array<object>}
+ */
+function announceRows(checkpoint, clock, cursor) {
+  const rows = qualifyingAnnounceFacts(checkpoint, clock).filter((r) =>
+    passesAnnounceCursor(r.when, r.key, cursor)
+  );
+  rows.sort((a, b) => {
+    if (a.when !== b.when) {
+      return a.when < b.when ? 1 : -1;
+    }
+    return a.key < b.key ? 1 : -1;
+  });
+  return rows.slice(0, FETCH_LIMIT);
+}
+
+/**
+ * The COUNT path over qualifyingAnnounceFacts — exact, uncapped (unlike
+ * announceRows above), matching the other three sources' COUNT statements'
+ * own "never the FETCH-bounded number" discipline (see getUnreadCount's doc
+ * comment). Every fact IS unread by construction (an announcement only
+ * exists at all while newer than the checkpoint — see qualifyingAnnounceFacts'
+ * own doc comment), so the count is simply how many facts exist.
+ * @param {string|null} checkpoint
+ * @param {{todayIso: string, nowMs: number, timezone: string}} clock
+ * @returns {number}
+ */
+function announceCount(checkpoint, clock) {
+  return qualifyingAnnounceFacts(checkpoint, clock).length;
+}
+
+/**
+ * The recap's request-scoped clock (issue #778) — `{todayIso, nowMs,
+ * timezone}`, the shape the announcements source's read-time derivations
+ * need. This is the ONE place that object literal is assembled: every real
+ * HTTP call site (src/middleware/session.js, src/services/render-locals.js,
+ * src/routes/guest.js's `GET /recap`) resolves its OWN `timezone` from
+ * `getEventConfig()` and passes it in here, rather than each hand-building the
+ * same three-field literal (issue #778 PR review finding: the literal was
+ * inlined verbatim in four places, including this module's own fallback
+ * below). Injecting `timezone` rather than resolving it inside this function
+ * keeps the builder a pure function of its argument — the deliberate
+ * purity/testability tradeoff a reviewer noted (this module's own
+ * defaultAnnounceClock below resolves it via getEventConfig for callers that
+ * have no request timezone to hand). `nowMs` is read
+ * fresh on every call, matching the "one clock per request, built once, read
+ * fresh — never cached across requests" discipline src/routes/admin.js's
+ * currentClock() and src/services/tasks.js's own doc comments establish for
+ * every other clock parameter in this app.
+ * @param {string} timezone
+ * @returns {{todayIso: string, nowMs: number, timezone: string}}
+ */
+function buildRecapClock(timezone) {
+  return {
+    todayIso: eventDays.eventLocalDateString(timezone),
+    nowMs: Date.now(),
+    timezone: timezone,
+  };
+}
+
+// The default clock (issue #778) for a caller that has no request-scoped
+// instant to thread through — delegates to buildRecapClock (this module's
+// own timezone-resolving caller, since a non-HTTP caller — e.g. a test, or a
+// script — has no request to resolve one from any other way). This fallback
+// exists only so getRecap/getUnreadCount stay callable with their PRE-#778
+// signature — every test and internal call site written before this issue
+// exists calls them with no clock argument at all.
+function defaultAnnounceClock() {
+  return buildRecapClock(getEventConfig().timezone);
+}
+
 /**
  * One bounded, time-ordered (newest first) slice of one guest's recap row
- * set — every STORED event, every visible non-self comment, and every
- * unread like-batch strictly older than `cursor` (or every one, when
- * `cursor` is null), merged and sorted, capped at FETCH_LIMIT rows PER
- * SOURCE (issue #644 review — the pre-review version pulled every row of
- * every source with no LIMIT at all).
+ * set — every STORED event, every visible non-self comment, every unread
+ * like-batch, and every currently-true announcement (issue #778), each
+ * strictly older than `cursor` (or every one, when `cursor` is null), merged
+ * and sorted, capped at FETCH_LIMIT rows PER SOURCE (issue #644 review — the
+ * pre-review version pulled every row of every source with no LIMIT at all).
  *
  * Correctness of the per-source FETCH_LIMIT bound: the caller (getRecap)
  * only ever wants the true top PAGE_SIZE rows of this merge, plus whether a
  * (PAGE_SIZE + 1)-th exists. Those top (PAGE_SIZE + 1) rows can include AT
- * MOST (PAGE_SIZE + 1) rows from any ONE of the three sources — trivially,
+ * MOST (PAGE_SIZE + 1) rows from any ONE of the four sources — trivially,
  * since (PAGE_SIZE + 1) is the total count wanted. So asking each source for
  * its own top FETCH_LIMIT = PAGE_SIZE + 1 rows (in the same order the merge
  * uses) is guaranteed to include the source's full contribution to the true
  * top (PAGE_SIZE + 1), even though it may also include some rows that do
- * NOT end up in that true top (PAGE_SIZE + 1) once merged with the other two
+ * NOT end up in that true top (PAGE_SIZE + 1) once merged with the other
  * sources — which is fine, since getRecap only reads this array's sorted
  * prefix and its length, never relies on every returned row being "in the
  * final page."
@@ -544,13 +849,15 @@ function likeBatchRows(guestId, checkpoint, cursor) {
  * @param {number} guestId
  * @param {string} checkpoint
  * @param {{when: string, key: string|null}|null} [cursor]
+ * @param {{todayIso: string, nowMs: number, timezone: string}} clock
  * @returns {Array<object>} newest-first, sorted by (when, key) descending —
  *   callers (getRecap) depend on this exact order for their paging cursor.
  */
-function allRows(guestId, checkpoint, cursor) {
+function allRows(guestId, checkpoint, cursor, clock) {
   const rows = storedRows(guestId, cursor).concat(
     commentRows(guestId, cursor),
-    likeBatchRows(guestId, checkpoint, cursor)
+    likeBatchRows(guestId, checkpoint, cursor),
+    announceRows(checkpoint, clock, cursor)
   );
   rows.sort((a, b) => {
     if (a.when !== b.when) {
@@ -580,11 +887,17 @@ function allRows(guestId, checkpoint, cursor) {
  * accepted simplification, not a silent bug.
  *
  * @param {number} guestId
- * @param {{before?: string, beforeKey?: string}} [opts] - `before`: an
- *   ISO-ish SQLite datetime string; rows strictly older (by the composite
- *   (when, key) order, see allRows) are returned. Omit both for the first
- *   page. `beforeKey` omitted with `before` present falls back to a plain
- *   `when`-only comparison (see the source-query comment above).
+ * @param {{before?: string, beforeKey?: string, clock?: {todayIso: string, nowMs: number, timezone: string}}} [opts] -
+ *   `before`: an ISO-ish SQLite datetime string; rows strictly older (by the
+ *   composite (when, key) order, see allRows) are returned. Omit both
+ *   `before`/`beforeKey` for the first page. `beforeKey` omitted with
+ *   `before` present falls back to a plain `when`-only comparison (see the
+ *   source-query comment above). `clock` (issue #778) is the request's
+ *   single event-local instant, needed only by the announcements source —
+ *   the caller-supplied instant a real HTTP request builds once (see
+ *   defaultAnnounceClock's doc comment); omitted, this falls back to a
+ *   fresh one so this function's pre-#778 callers (including every test
+ *   written before this issue) keep working unchanged.
  * @returns {{ rows: Array<object>, hasMore: boolean }}
  */
 function getRecap(guestId, opts = {}) {
@@ -596,7 +909,8 @@ function getRecap(guestId, opts = {}) {
           key: typeof opts.beforeKey === 'string' && opts.beforeKey ? opts.beforeKey : null,
         }
       : null;
-  const rows = allRows(guestId, checkpoint, cursor);
+  const clock = opts.clock || defaultAnnounceClock();
+  const rows = allRows(guestId, checkpoint, cursor, clock);
 
   const page = rows.slice(0, PAGE_SIZE).map((r) => ({
     key: r.key,
@@ -648,24 +962,27 @@ const stmtUnreadLikeSubmissionCount = db.prepare(`
  * what the list renders" (issue #644 plan step 5): the batched-like row
  * counts once per photo, never once per like.
  *
- * This is three independent per-source COUNT queries, not a count derived
- * from allRows/getRecap — deliberately, since getRecap's job is a bounded
- * PAGE, and a guest can have far more than one page of unread rows (the
- * count must still be exact for all of them). Each COUNT's WHERE clause
- * shares its `_EXISTENCE_WHERE` constant (defined above the FETCH
+ * This is four independent per-source counts, not a count derived from
+ * allRows/getRecap — deliberately, since getRecap's job is a bounded PAGE,
+ * and a guest can have far more than one page of unread rows (the count must
+ * still be exact for all of them). The three SQL sources' COUNT statements
+ * share their `_EXISTENCE_WHERE` constant (defined above the FETCH
  * statements, issue #644 review — the source registry) with the matching
  * FETCH query storedRows/commentRows/likeBatchRows runs, so the two are
  * STRUCTURALLY unable to disagree about which rows exist for a given
  * checkpoint — not "kept in lockstep by hand," the failure mode this JSDoc
- * used to flag and leave unfixed. #778 adding a new stored/derived source
- * (an announcement source with its own existence rule) follows the same
- * shape: define that source's own `_EXISTENCE_WHERE` constant once, reuse it
- * in both its FETCH statement and its new fourth COUNT statement here, and
- * the same structural guarantee extends to it automatically.
+ * used to flag and leave unfixed. The fourth source, announcements (issue
+ * #778), follows the identical shape one level up in JS rather than SQL:
+ * announceCount() and announceRows() both consume the SAME
+ * qualifyingAnnounceFacts(), so they too cannot disagree about which
+ * announcements exist for a given checkpoint/clock.
  * @param {number} guestId
+ * @param {{todayIso: string, nowMs: number, timezone: string}} [clock] -
+ *   issue #778's request-scoped instant, needed only by the announcements
+ *   source; omitted, falls back to a fresh one (see defaultAnnounceClock).
  * @returns {number}
  */
-function getUnreadCount(guestId) {
+function getUnreadCount(guestId, clock) {
   const checkpoint = checkpointFor(guestId);
   if (checkpoint === null) {
     return 0;
@@ -673,7 +990,8 @@ function getUnreadCount(guestId) {
   const events = stmtUnreadEventCount.get(guestId, checkpoint).n;
   const comments = stmtUnreadCommentCount.get(guestId, checkpoint).n;
   const likes = stmtUnreadLikeSubmissionCount.get(guestId, checkpoint).n;
-  return events + comments + likes;
+  const announces = announceCount(checkpoint, clock || defaultAnnounceClock());
+  return events + comments + likes + announces;
 }
 
 const stmtMarkSeen = db.prepare(
@@ -697,4 +1015,5 @@ module.exports = {
   getRecap,
   getUnreadCount,
   markSeen,
+  buildRecapClock,
 };
