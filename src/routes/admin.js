@@ -43,8 +43,9 @@
 //   GET  /admin/comments                 RETIRED (issue #684) -> 404 (renderNotFound)
 //   POST /admin/comments/:id/hide        hide a comment (redirects to its photo's feed card, #684)
 //   POST /admin/comments/:id/restore     unhide a comment (redirects to its photo's feed card, #684)
-//   GET  /admin/bugs                     bug report queue (unresolved, then resolved)
-//   POST /admin/bugs/:id/resolve         mark a bug report resolved
+//   GET  /admin/bugs                     bug report queue (open, then tracked/closed under Handled — issue #686)
+//   POST /admin/bugs/:id/track           mark a bug report tracked (handed to GitHub, issue #686)
+//   POST /admin/bugs/:id/close           mark a bug report closed (issue #686)
 //   GET  /admin/export                   defined in 09-export (see ADD-THIS there)
 //
 // NOTE: GET/POST /admin/login and POST /admin/logout live in 03-auth (routes/auth.js).
@@ -2573,10 +2574,13 @@ router.post('/comments/:id/restore', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /admin/bugs  — bug report queue (issue #245). Unresolved reports first
-// (newest first within that group), then resolved reports collapsed at the
-// bottom (also newest first) — one ORDER BY does both: resolved=0 sorts
-// before resolved=1, and created_at DESC breaks ties inside each group.
+// GET /admin/bugs  — bug report queue (issue #245; three-state lifecycle
+// issue #686). Open reports first (newest first within that group), then
+// tracked/closed reports collapsed under "Handled" at the bottom (also
+// newest first within each) — one ORDER BY does the whole ordering: a CASE
+// over status ranks open (0) before tracked (1) before closed (2), and
+// created_at DESC breaks ties inside each group. githubRepoUrl feeds the
+// view's "Open issue" prefill link; the view builds no repo URL of its own.
 // ---------------------------------------------------------------------------
 router.get('/bugs', (req, res) => {
   const reports = db
@@ -2584,35 +2588,56 @@ router.get('/bugs', (req, res) => {
       `SELECT r.id          AS id,
               r.body        AS body,
               r.page        AS page,
-              r.resolved    AS resolved,
+              r.status      AS status,
               r.created_at  AS created_at,
               g.id          AS guest_id,
               g.name        AS guest_name
          FROM bug_reports r
          JOIN guests g ON g.id = r.guest_id
-        ORDER BY r.resolved ASC, r.created_at DESC, r.id DESC`
+        ORDER BY CASE r.status WHEN 'open' THEN 0 WHEN 'tracked' THEN 1 ELSE 2 END ASC,
+                 r.created_at DESC, r.id DESC`
     )
     .all();
 
   res.render('admin-bugs', {
     title: 'Bugs',
     reports,
+    githubRepoUrl: config.GITHUB_REPO_URL,
     msg: req.query.msg || '',
     isAdmin: true,
   });
 });
 
-// POST /admin/bugs/:id/resolve  — mark a bug report resolved. One-way (there
-// is no "reopen" affordance per the design), so this always sets resolved to
-// 1 rather than toggling.
-router.post('/bugs/:id/resolve', (req, res) => {
+// POST /admin/bugs/:id/track  — mark a bug report tracked (issue #686 AC1):
+// the admin used the "Open issue" link, which (per the view's onclick) also
+// fires this POST so the report leaves the open queue without the admin
+// having to come back and close it separately. Idempotent to call again on
+// an already-tracked or already-closed report (it only ever advances
+// forward, never reopens) — a duplicate beacon from a flaky network retry is
+// harmless.
+router.post('/bugs/:id/track', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const report = db.prepare('SELECT id FROM bug_reports WHERE id = ?').get(id);
   if (!report) {
     return redirectWithMsg(res, '/admin/bugs', 'Bug report not found.');
   }
-  db.prepare('UPDATE bug_reports SET resolved = 1 WHERE id = ?').run(id);
-  redirectWithMsg(res, '/admin/bugs', 'Bug report resolved.');
+  db.prepare(`UPDATE bug_reports SET status = 'tracked' WHERE id = ?`).run(id);
+  redirectWithMsg(res, '/admin/bugs', 'Bug report tracked.');
+});
+
+// POST /admin/bugs/:id/close  — mark a bug report closed (issue #686 AC2/AC3).
+// Reachable from BOTH open and tracked (a report already on GitHub must be
+// closable once it's dealt with, not just a not-an-issue dismissal from
+// open) — this route does not check the report's current status, it always
+// sets closed. One-way: there is no "reopen" affordance per the design.
+router.post('/bugs/:id/close', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const report = db.prepare('SELECT id FROM bug_reports WHERE id = ?').get(id);
+  if (!report) {
+    return redirectWithMsg(res, '/admin/bugs', 'Bug report not found.');
+  }
+  db.prepare(`UPDATE bug_reports SET status = 'closed' WHERE id = ?`).run(id);
+  redirectWithMsg(res, '/admin/bugs', 'Bug report closed.');
 });
 
 // ---------------------------------------------------------------------------

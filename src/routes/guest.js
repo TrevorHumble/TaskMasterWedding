@@ -661,9 +661,13 @@ router.post('/bug-report', socialRateLimiter, function (req, res) {
   const page = refererPath(req.get('referer'));
   const userAgent = req.get('user-agent') || null;
 
+  // status defaults to 'open' (bug_reports.status, issue #686) — every new
+  // report starts open, so this INSERT relies on the column's own DEFAULT
+  // instead of naming it. The retired `resolved` column is no longer named
+  // here either; it keeps its own 0 default, unread everywhere now.
   db.prepare(
-    `INSERT INTO bug_reports (guest_id, body, page, user_agent, resolved)
-     VALUES (?, ?, ?, ?, 0)`
+    `INSERT INTO bug_reports (guest_id, body, page, user_agent)
+     VALUES (?, ?, ?, ?)`
   ).run(guest.id, body, page, userAgent);
 
   setFlash(res, 'success', BUG_REPORT_THANKS);

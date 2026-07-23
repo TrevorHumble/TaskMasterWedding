@@ -1595,3 +1595,53 @@ server-computed `data-flash-state`/`data-flash-strip-label` attributes the board
 `flashStripLabel` is non-empty exactly when the state is `active` or `scheduled`), and the client keys
 its own visibility toggle off that same label being non-empty rather than re-deriving the active/
 scheduled test a second time.
+
+## Bug-report lifecycle: additive `status` over a `resolved` rebuild, one count owner (#686)
+
+**Date:** 2026-07-23. **Status:** accepted; shipped.
+
+**(a) `bug_reports.resolved` is retired but not dropped — `status` is a purely additive column plus
+a one-time backfill, not a table rebuild.** Every other CHECK-widening migration in `src/db.js`
+(`ensureTaskSpecialDayColumns`, `ensureBadgeTypeCheckWidened`, …) rebuilds its table because SQLite
+cannot widen a CHECK in place. `bug_reports` has no inbound foreign key from any other table, so none
+of the FK-cascade hazard those rebuilds exist to survive applies here — `ensureBugReportStatusColumn()`
+instead runs a single `ALTER TABLE … ADD COLUMN status TEXT NOT NULL DEFAULT 'open' CHECK (status IN
+(…))`, confirmed against this tree's better-sqlite3/SQLite build to accept a CHECK on an added column in
+one statement (enforced on every write from that point on, including the migration's own backfill). The
+backfill only needs to move the `resolved = 1` half forward (`UPDATE … SET status = 'closed' WHERE
+resolved = 1`) — a `resolved = 0` row is already `'open'` from the column's own DEFAULT, so no second
+UPDATE is needed for that half. `resolved` itself is left in the table, unread from this point on:
+dropping it would cost a rebuild for a column that costs nothing to leave alone once nothing queries it.
+
+**(b) The lifecycle index swap runs unconditionally, outside the column-presence guard, because the
+column doesn't exist yet when it would need to.** The top-of-file `CREATE TABLE IF NOT EXISTS` block
+runs before any guarded migration, so it cannot unconditionally `CREATE INDEX … ON bug_reports(status,
+…)` — that statement would throw `no such column: status` on every pre-#686 database, which by
+definition doesn't have the column until the guarded migration below runs. `idx_bug_reports_status`
+is instead created (and the retired `idx_bug_reports_resolved` dropped) inside
+`ensureBugReportStatusColumn()` itself, every boot, unconditionally (both statements are naturally
+idempotent — `DROP INDEX IF EXISTS` / `CREATE INDEX IF NOT EXISTS`) rather than only inside the
+column-add branch: a fresh database already has `status` from the `CREATE TABLE` and would otherwise
+never get the new index at all, since it never takes the add-column branch.
+
+**(c) One `openBugCount()` owner in `src/db.js`, not two independent `WHERE status = 'open'` counts.**
+Before this issue, `src/services/host-checklist.js`'s `buildRows()` ran its own `COUNT(*) … WHERE
+resolved = 0` query and reused the local result for both the dashboard stat-grid cell and the "Today"
+checklist's bug pin — already one query shared within that function, but the fact itself (what counts as
+open) lived nowhere reusable outside it. `openBugCount()` now lives in `src/db.js` next to the schema
+that defines `status`, and `host-checklist.js` calls it instead of hand-writing the predicate — so a
+future third surface (or a test) asking "how many bugs are open" reads the same answer by construction,
+not by two call sites happening to agree today.
+
+**(d) The "Open issue" link stays a plain anchor whose `href` is literally the GitHub prefill URL;
+using it also marks the report tracked via a same-origin `sendBeacon` POST, not a route-level
+redirect.** The owner-approved screen (settled live 2026-07-23) renders "Open issue" as `<a
+target="_blank">` — a link, not a form — because the admin authenticates to GitHub in their own browser
+tab and submits there; no token, no server-side GitHub API call. A same-origin GET route that marked the
+report tracked and then 302-redirected to GitHub was considered and rejected: it would have made the
+rendered `href` an internal path instead of the literal `GITHUB_REPO_URL + /issues/new?...` URL, breaking
+AC1's literal requirement and the approved markup's own shape. Instead the anchor keeps its real `href`
+and carries an `onclick` that fires `navigator.sendBeacon('/admin/bugs/:id/track')` (falling back to
+`fetch(..., {keepalive: true})` on a browser without `sendBeacon`) — a background POST that survives the
+click's normal navigation to the new tab, changing no visible markup, class, or structure the owner
+approved.

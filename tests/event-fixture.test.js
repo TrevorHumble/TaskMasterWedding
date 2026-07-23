@@ -540,6 +540,36 @@ describe('#450 AC4: default seedEvent (no social, no topTie) seeds zero likes/co
   });
 });
 
+describe('#686 AC6: bugReports opt-in seeds a spread of open/tracked/closed reports', () => {
+  it('at least one of each status is inserted, tied to real guest ids, when opted in', () => {
+    const { guestIds } = eventFixture.seedEvent(db, { guests: 10, seed: 1, bugReports: true });
+
+    const rows = db.prepare('SELECT guest_id, status FROM bug_reports').all();
+    expect(rows.length).toBeGreaterThanOrEqual(3);
+
+    const statuses = new Set(rows.map((r) => r.status));
+    expect(statuses.has('open')).toBe(true);
+    expect(statuses.has('tracked')).toBe(true);
+    expect(statuses.has('closed')).toBe(true);
+
+    const guestIdSet = new Set(guestIds);
+    rows.forEach((r) => {
+      expect(guestIdSet.has(r.guest_id)).toBe(true);
+    });
+  });
+
+  it('default seedEvent (bugReports omitted) seeds zero bug reports', () => {
+    eventFixture.seedEvent(db, { guests: 10, seed: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bug_reports').get().n).toBe(0);
+  });
+
+  it('rejects a non-boolean bugReports instead of coercing it', () => {
+    expect(() => eventFixture.seedEvent(db, { guests: 5, bugReports: 'yes' })).toThrow(
+      /bugReports must be a boolean/
+    );
+  });
+});
+
 describe('input validation', () => {
   it('seedEvent rejects a non-positive or non-integer guest count instead of coercing it', () => {
     expect(() => eventFixture.seedEvent(db, { guests: 0 })).toThrow(/positive integer/);
