@@ -1,0 +1,12 @@
+<%# src/views/partials/crowd-favorite-mark.ejs — the crowd-favorite crown a
+    top-5 photo wears on its tile (issue #788). One renderer for every surface
+    (gallery / feed / profile) so the mark never drifts per page. Rank 1 wears
+    it gold; ranks 2–5 wear it plain white. Composes the shared crown SVG
+    (partials/crown) rather than forking a second crown mark.
+
+    Locals:
+      rank (required) — the photo's crowd-favorite rank (1 is gold). %>
+<span class="cf-crown<%= Number(rank) === 1 ? ' cf-crown-gold' : '' %>"
+      aria-label="Crowd favorite<%= Number(rank) === 1 ? ' — number one' : '' %>">
+  <%- include('crown', { size: 15 }) %>
+</span>
