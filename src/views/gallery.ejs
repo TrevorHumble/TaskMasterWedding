@@ -20,15 +20,17 @@
 
   <% if (view === 'task' || view === 'user') { %>
     <%# The GET form is the no-JS fallback (server-side substring filter).
-        In the By-person view the same input is also the LIVE filter:
-        /js/gallery.js listens on #person-search and hides non-matching
-        [data-person-section] sections as the guest types. %>
+        In BOTH grouped views the same input is also the LIVE filter (issue
+        #527): /js/gallery.js listens on #person-search / #task-search and
+        hides non-matching [data-person-section] / [data-task-section]
+        sections as the guest types. One control, one behavior. %>
     <form class="gallery-search" method="get">
       <input type="hidden" name="view" value="<%= view %>">
       <input
         type="search"
         name="q"
-        <% if (view === 'user') { %>id="person-search" autocomplete="off"<% } %>
+        id="<%= view === 'user' ? 'person-search' : 'task-search' %>"
+        autocomplete="off"
         value="<%= q %>"
         placeholder="<%= view === 'user' ? 'Search people' : 'Search tasks' %>"
         aria-label="<%= view === 'user' ? 'Search people' : 'Search tasks' %>"
@@ -93,7 +95,12 @@
           ? (g.task_id ? '/gallery?view=recent&task=' + g.task_id : '/gallery?view=recent')
           : '/u/' + g.guest_id;
       %>
-      <section class="gallery-group"<% if (view === 'user') { %> data-person-section="<%= g.heading %>"<% } %>>
+      <%# The live-filter hook carries the section's own heading, so the
+          client filter matches exactly what the guest can read on screen.
+          In the By-task view that heading is the task title — or the literal
+          "Memories" for the task-free group (issue #247), which therefore
+          filters on the word "Memories" like any other section. %>
+      <section class="gallery-group"<% if (view === 'user') { %> data-person-section="<%= g.heading %>"<% } else if (view === 'task') { %> data-task-section="<%= g.heading %>"<% } %>>
         <a class="gallery-group-head" href="<%= sectionHref %>">
           <% if (view === 'user') { %>
             <span class="gallery-person-avatar">
@@ -122,7 +129,9 @@
     <% } %>
   <% } %>
 
-<% if (view === 'user') { %>
+<%# Both grouped views get the live filter (#527); the recent view has no
+    search control, so it loads neither script. %>
+<% if (view === 'user' || view === 'task') { %>
   <script src="/js/filter.js" defer></script>
   <script src="/js/gallery.js" defer></script>
 <% } %>

@@ -1,61 +1,65 @@
 // tests/gallery-person-filter.test.js
 // Covers issue #251 AC5 — the live person search filters sections client-side
 // by case-insensitive any-word-prefix match, and clearing the field restores
-// everything. Tests the pure applyPersonFilter exported from
-// src/public/js/gallery.js with the real match rule from
-// src/public/js/filter.js (the same pair the browser wires together), using
-// plain section stand-ins: applyPersonFilter only touches getAttribute and
-// the `hidden` property, exactly what it uses on real DOM elements.
+// everything. Tests the pure applySectionFilter exported from
+// src/public/js/gallery.js (generalized from the person-only applyPersonFilter
+// by issue #527, which also wired the By-task view to the same function) with
+// the real match rule from src/public/js/filter.js (the same pair the browser
+// wires together), using plain section stand-ins: applySectionFilter only
+// touches getAttribute and the `hidden` property, exactly what it uses on
+// real DOM elements.
 'use strict';
 
-const { applyPersonFilter, wireUpPersonSearch } = require('../src/public/js/gallery');
+const { applySectionFilter, wireUpSectionSearch } = require('../src/public/js/gallery');
 const { nameMatchesQuery } = require('../src/public/js/filter');
+
+const ATTR = 'data-person-section';
 
 function section(name) {
   return {
     hidden: false,
-    getAttribute: (attr) => (attr === 'data-person-section' ? name : null),
+    getAttribute: (attr) => (attr === ATTR ? name : null),
   };
 }
 
 function visibleNames(sections) {
-  return sections.filter((s) => !s.hidden).map((s) => s.getAttribute('data-person-section'));
+  return sections.filter((s) => !s.hidden).map((s) => s.getAttribute(ATTR));
 }
 
 const NAMES = ['Priya Patel', 'Marcus Bell', 'Ava Fenwick', 'Pat Marlowe'];
 
 it('typing "pri" leaves only sections whose name has a word starting with "pri"', () => {
   const sections = NAMES.map(section);
-  const shown = applyPersonFilter(sections, 'pri', nameMatchesQuery);
+  const shown = applySectionFilter(sections, 'pri', nameMatchesQuery, ATTR);
   expect(visibleNames(sections)).toEqual(['Priya Patel']);
   expect(shown).toBe(1);
 });
 
 it('"pat" prefix-matches ANY word of the name: Priya Patel and Pat Marlowe', () => {
   const sections = NAMES.map(section);
-  applyPersonFilter(sections, 'pat', nameMatchesQuery);
+  applySectionFilter(sections, 'pat', nameMatchesQuery, ATTR);
   expect(visibleNames(sections)).toEqual(['Priya Patel', 'Pat Marlowe']);
 });
 
 it('matching is case-insensitive', () => {
   const sections = NAMES.map(section);
-  applyPersonFilter(sections, 'MARCUS', nameMatchesQuery);
+  applySectionFilter(sections, 'MARCUS', nameMatchesQuery, ATTR);
   expect(visibleNames(sections)).toEqual(['Marcus Bell']);
 });
 
 it('clearing the field restores every section', () => {
   const sections = NAMES.map(section);
-  applyPersonFilter(sections, 'pri', nameMatchesQuery);
+  applySectionFilter(sections, 'pri', nameMatchesQuery, ATTR);
   expect(visibleNames(sections)).toEqual(['Priya Patel']);
 
-  const shown = applyPersonFilter(sections, '', nameMatchesQuery);
+  const shown = applySectionFilter(sections, '', nameMatchesQuery, ATTR);
   expect(visibleNames(sections)).toEqual(NAMES);
   expect(shown).toBe(NAMES.length);
 });
 
 it('a query matching nothing hides every section (clean empty state)', () => {
   const sections = NAMES.map(section);
-  const shown = applyPersonFilter(sections, 'zzz', nameMatchesQuery);
+  const shown = applySectionFilter(sections, 'zzz', nameMatchesQuery, ATTR);
   expect(shown).toBe(0);
   expect(visibleNames(sections)).toEqual([]);
 });
@@ -109,7 +113,7 @@ describe('DOM wiring via jsdom: typing in #person-search filters sections (#251 
     // self-wiring was a no-op — CJS caching means a re-require would not
     // re-execute it, hence the explicit exported entry point.)
     dom.window.HuntFilter = { nameMatchesQuery };
-    wireUpPersonSearch();
+    wireUpSectionSearch('person-search', 'data-person-section');
   });
 
   afterAll(() => {
