@@ -27,6 +27,14 @@
   --color-hairline: var(--green-300);
   --color-on-primary: var(--white);
 
+  /* Strongest ink on the page ground — one step past --color-text, for the
+     rare figure that has to outrank ordinary body copy (the raised price tag
+     on a Today Only / flash task row). Semantic, not a raw ramp reach-in: on
+     the stag variant --green-900 is remapped to the near-black PAGE GROUND,
+     so a rule that inks text with the ramp directly renders black on black
+     there (#878). */
+  --color-ink-strong: var(--green-900);
+
   /* Bundled badge-icon glyph fill (#869). The single owner of the color the
      ~349 pickable Material icons render in, via the CSS mask technique on
      .badge-medallion-icon / .badge-picker-glyph — so the wedding instance
@@ -122,6 +130,12 @@
   --color-text-muted: #9a9a9a;
   --color-hairline: #2e2e2e;
   --color-on-primary: #0a0a0a;
+
+  /* Strong ink runs the other way here: on black, "stronger" is brighter than
+     --color-text, not darker. Without this the shared alias would resolve
+     through the remapped --green-900 above and paint the raised price tag the
+     same near-black as the page (#878). */
+  --color-ink-strong: #fafafa;
 
   /* Black-tie gold — the one accent color allowed on the monochrome ground. */
   --gold: #c8a24c;
@@ -1532,7 +1546,10 @@ a.stat:hover {
   align-items: flex-end;
   font-size: 12px;
   font-weight: 700;
-  color: var(--green-900);
+  /* Semantic alias, never the raw ramp: --green-900 is dark ink on the wedding
+     instance but the near-black PAGE GROUND on stag, so inking with it directly
+     rendered the raised total black on black there (#878). */
+  color: var(--color-ink-strong);
 }
 .task-points-was {
   font-weight: 600;
