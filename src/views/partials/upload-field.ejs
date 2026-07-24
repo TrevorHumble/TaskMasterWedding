@@ -7,7 +7,6 @@
       id       (required) - input id; also used as the label's `for`
       name     (required) - input name
       accept   (optional) - input accept attribute
-      capture  (optional) - input capture attribute (e.g. "environment")
       required (optional) - boolean; adds the required attribute
       multiple (optional) - boolean; adds the multiple attribute (issue #247's
                  memory-batch upload; every other caller omits this and is
@@ -17,6 +16,22 @@
                  identical to before this local existed (issue #364), so every
                  caller that doesn't pass it is unaffected. The memory batch
                  picker passes "Choose photos…" (issue #364 AC1).
+
+    NOT a local, deliberately: the HTML capture attribute (issue #880). The
+    spec frames capture as a hint, but on the affected iOS Safari versions it
+    behaves as a directive — it opens the rear camera and drops "Photo
+    Library" from the sheet, so a guest cannot reach a photo they already
+    took. (Observed first-hand on the owner's iPhone, 2026-07-24; the same
+    symptom was recorded as Major-21 in docs/reviews/2026-06-28-adversarial-
+    review.md. Behavior has varied across iOS versions, hence "affected".)
+    Android likewise skips the app-chooser and goes straight to the camera.
+
+    Omitting the attribute is strictly non-regressive: no browser offers
+    FEWER picker options without it than with it, and every OS default picker
+    is library-first while still offering the camera. Both deployments render
+    this one partial from the single views directory (config.js VIEWS_DIR),
+    so the wedding instance and the VARIANT=stag bachelor instance are fixed
+    by the same omission.
 %>
 <div class="upload-field">
   <%# No-JS baseline: this visible text intentionally mirrors PLACEHOLDER /
@@ -32,7 +47,6 @@
          id="<%= id %>"
          name="<%= name %>"
          <% if (typeof accept !== 'undefined' && accept) { %>accept="<%= accept %>"<% } %>
-         <% if (typeof capture !== 'undefined' && capture) { %>capture="<%= capture %>"<% } %>
          <% if (typeof required !== 'undefined' && required) { %>required<% } %>
          <% if (typeof multiple !== 'undefined' && multiple) { %>multiple<% } %>
          class="visually-hidden" />
