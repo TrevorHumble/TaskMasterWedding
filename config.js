@@ -143,6 +143,17 @@ const config = {
   // guest cookie.
   ADMIN_COOKIE_MAX_AGE_MS: parseInt(process.env.ADMIN_COOKIE_MAX_AGE_MS, 10) || 1209600000,
 
+  // Second-instance variant flag (issue #640). '' (the default) is the
+  // wedding instance, unchanged. The literal 'stag' switches every
+  // variant-aware render/catalog path (palette, branding, milestone badge
+  // catalog) to the black-tie "Stag Master" bachelor-party look for a
+  // second deployment of this same app at its own subdomain/DATA_DIR. Any
+  // OTHER value — a typo, an unrecognized name — behaves exactly like unset:
+  // every variant-aware call site tests for the exact string 'stag', never
+  // truthiness alone, so a wedding instance never accidentally goes stag
+  // from a misconfigured env var (AC1).
+  VARIANT: process.env.VARIANT || '',
+
   // Project root
   ROOT: ROOT,
 
@@ -383,6 +394,7 @@ const config = {
 // ---- Lowercase aliases (backwards compatibility ONLY) ----------------------
 // New code should read the UPPER_SNAKE_CASE keys above. These aliases exist so
 // any stray lowercase reference still resolves to the same value.
+config.variant = config.VARIANT;
 config.port = config.PORT;
 config.baseUrl = config.BASE_URL;
 config.trustProxy = config.TRUST_PROXY;

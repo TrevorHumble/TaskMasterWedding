@@ -523,7 +523,14 @@ router.get('/feed', (req, res) => {
 router.get('/slideshow', (req, res) => {
   const mode = req.query.mode === 'directed' ? 'directed' : 'auto';
   const sequence = feed.slideshowSequence();
-  return res.render('slideshow', { title: 'Slideshow — Lilly & Axel', sequence, mode });
+  // Issue #640 AC3: the <title> is server-rendered here, not derived in the
+  // view (unlike the on-screen .names wordmark, which slideshow.ejs itself
+  // switches on res.locals.isStag) — so this route reads config.VARIANT
+  // directly, the same "server-side code reads config.VARIANT, no
+  // res.locals needed" rule src/services/badge-icons.js and
+  // src/services/task-badges.js already follow.
+  const title = config.VARIANT === 'stag' ? 'Slideshow — Axel' : 'Slideshow — Lilly & Axel';
+  return res.render('slideshow', { title, sequence, mode });
 });
 
 // ---------------------------------------------------------------------------

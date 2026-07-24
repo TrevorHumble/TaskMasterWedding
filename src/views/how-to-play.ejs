@@ -1,9 +1,10 @@
 <!-- src/views/how-to-play.ejs -->
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
+<% var _isStag = (typeof isStag !== 'undefined' && isStag); -%>
 
   <h1 class="page-title center">How to play</h1>
-  <p class="muted center">Help Lilly and Axel remember their day.</p>
+  <p class="muted center"><%= _isStag ? 'Help Axel remember the weekend.' : 'Help Lilly and Axel remember their day.' %></p>
 
   <ul class="rule-list">
     <li class="rule-row">
@@ -36,7 +37,7 @@
       </span>
       <span class="rule-body">
         <span class="rule-title">Earn the Masters&rsquo; favor</span>
-        <span class="rule-desc">The Wedding Masters award bonus points for capturing great shots, funny moments, and images that give us those warm, fuzzy feelings.</span>
+        <span class="rule-desc"><%= _isStag ? 'The Stag Masters award bonus points for capturing great shots, funny moments, and images that give us those warm, fuzzy feelings.' : 'The Wedding Masters award bonus points for capturing great shots, funny moments, and images that give us those warm, fuzzy feelings.' %></span>
       </span>
     </li>
     <li class="rule-row">

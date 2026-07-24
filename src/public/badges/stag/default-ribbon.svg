@@ -1,0 +1,13 @@
+<!-- src/public/badges/stag/default-ribbon.svg — gold-on-dark recolor of
+     ../default-ribbon.svg, the shared fallback art every un-customized task
+     badge points at (src/services/task-badges.js) — for the black-tie
+     "Stag Master" variant (issue #640 AC4). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Task badge">
+  <circle cx="60" cy="60" r="56" fill="#161616" stroke="#c8a24c" stroke-width="4"/>
+  <circle cx="60" cy="60" r="47" fill="none" stroke="#6b592e" stroke-width="1.5"/>
+  <path d="M52 46 L40 94 L50 86 L58 94 L58 46 Z" fill="#a8852f"/>
+  <path d="M68 46 L80 94 L70 86 L62 94 L62 46 Z" fill="#a8852f"/>
+  <circle cx="60" cy="50" r="20" fill="#c8a24c"/>
+  <circle cx="60" cy="50" r="20" fill="none" stroke="#8a6d2a" stroke-width="2"/>
+  <circle cx="60" cy="50" r="7" fill="#f0dfae"/>
+</svg>

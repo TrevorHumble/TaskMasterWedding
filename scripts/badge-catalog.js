@@ -62,6 +62,76 @@ const BADGES = [
   },
 ];
 
+// Bachelor-party "Stag Master" second-instance catalog (issue #640). Same
+// upsert, keyed on the same badges.code values, but a different
+// display/art set: the milestone badges rename to the bar-themed tier the
+// bachelor party actually runs (First Round / Second Round / Last Call) and
+// wear the bundled Material bar icons in the gold medallion instead of the
+// composed flower art. There is deliberately NO GARDEN entry — the event
+// runs 10 challenges, no 15-task tier. src/services/scoring.js's
+// BADGE_THRESHOLDS still lists GARDEN at n=15 (that array is shared, not
+// variant-aware — see its own comment), but recomputeBadges already skips a
+// threshold whose badge row is absent (`if (!badge) continue`), so the
+// missing row here is safe without any scoring.js change (AC5). Every
+// art_path here points under src/public/badges/stag/, a gold-on-dark
+// recolor of the wedding files that leaves them byte-unchanged (AC4).
+const STAG_BADGES = [
+  {
+    code: 'BLOOM',
+    name: 'First Round',
+    type: 'auto',
+    threshold: 5,
+    art_path: '/badges/stag/icons/sports-bar.svg',
+    description: 'Completed 5 tasks.',
+  },
+  {
+    code: 'BOUQUET',
+    name: 'Second Round',
+    type: 'auto',
+    threshold: 10,
+    art_path: '/badges/stag/icons/liquor.svg',
+    description: 'Completed 10 tasks.',
+  },
+  {
+    code: 'EARLYBIRD',
+    name: 'Early Bird',
+    type: 'special',
+    threshold: null,
+    art_path: '/badges/stag/earlybird.svg',
+    description: 'Awarded by the Stag Master for early arrival.',
+  },
+  {
+    code: 'COMPLETIONIST',
+    name: 'Last Call',
+    type: 'metric',
+    threshold: null,
+    art_path: '/badges/stag/icons/nightlife.svg',
+    description: 'Completed every active task. One-time; auto-revokes if a new task is added.',
+  },
+  {
+    code: 'TOPLIKED',
+    name: 'Crowd Favorite',
+    type: 'transferable',
+    threshold: null,
+    art_path: '/badges/stag/most-liked.svg',
+    description: 'Owns a top-five most-liked photo. Keep the likes coming to hold on.',
+  },
+];
+
+/**
+ * Resolve which catalog array a boot/seed should upsert, keyed on the
+ * VARIANT flag (issue #640). Any value other than the exact literal 'stag'
+ * — including undefined/unset — resolves to the wedding catalog, matching
+ * config.js's own "anything but the literal 'stag' behaves like unset"
+ * contract (AC1).
+ *
+ * @param {string} [variant]
+ * @returns {object[]}
+ */
+function catalogForVariant(variant) {
+  return variant === 'stag' ? STAG_BADGES : BADGES;
+}
+
 /**
  * Upsert the catalog keyed on the badges.code UNIQUE constraint (see
  * src/db.js's CREATE TABLE): a code not yet present is inserted; a code
@@ -84,7 +154,17 @@ const BADGES = [
  * (#655 AC5). Classify each code by reading its existing row (if any) before
  * running the upsert, and compare its display fields to the catalog values.
  *
+ * Issue #640: takes an optional `variant` second argument — `catalogForVariant`
+ * above resolves it to STAG_BADGES or BADGES, and the loop below upserts
+ * exactly that array, so the "no GARDEN row on a stag boot" and "a stag
+ * restart re-asserts stag values, never wedding ones" guarantees (AC1, AC5)
+ * fall out of which array this call receives rather than a second code path.
+ *
  * @param {import('better-sqlite3').Database} db
+ * @param {string} [variant] - config.VARIANT ('' or 'stag'). Omitted/anything
+ *   other than 'stag' upserts the wedding BADGES array, unchanged from before
+ *   this parameter existed — every pre-#640 caller (this module's own tests,
+ *   any script that has not been updated) keeps its exact prior behavior.
  * @returns {{ inserted: number, updated: number, unchanged: number }}
  */
 // The catalog display fields re-synced to an existing row on conflict. This
@@ -96,7 +176,8 @@ const BADGES = [
 // interpolating them into the SQL text carries no injection risk.
 const SYNCED_FIELDS = ['name', 'description', 'art_path'];
 
-function ensureBadgeCatalog(db) {
+function ensureBadgeCatalog(db, variant) {
+  const catalog = catalogForVariant(variant);
   const selectExisting = db.prepare(
     `SELECT ${SYNCED_FIELDS.join(', ')} FROM badges WHERE code = ?`
   );
@@ -110,7 +191,7 @@ function ensureBadgeCatalog(db) {
   let inserted = 0;
   let updated = 0;
   let unchanged = 0;
-  for (const b of BADGES) {
+  for (const b of catalog) {
     const existing = selectExisting.get(b.code);
     if (!existing) {
       inserted += 1;
@@ -124,4 +205,4 @@ function ensureBadgeCatalog(db) {
   return { inserted, updated, unchanged };
 }
 
-module.exports = { BADGES, ensureBadgeCatalog };
+module.exports = { BADGES, STAG_BADGES, catalogForVariant, ensureBadgeCatalog };

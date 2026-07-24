@@ -1,6 +1,6 @@
 <%# src/views/404.ejs %>
 <%- include('partials/message-card', {
-  title: 'Page not found · Lilly & Axel',
+  title: 'Page not found · ' + ((typeof isStag !== 'undefined' && isStag) ? 'Axel' : 'Lilly & Axel'),
   heading: 'Page Not Found',
   paragraphs: [
     { text: 'We could not find', code: (typeof url !== 'undefined' && url) ? url : '', after: '.' },

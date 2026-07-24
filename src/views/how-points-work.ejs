@@ -1,6 +1,7 @@
 <!-- src/views/how-points-work.ejs -->
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
+<% var _isStag = (typeof isStag !== 'undefined' && isStag); -%>
 
   <h1 class="page-title center">How to earn points</h1>
   <p class="muted center points-intro">Points add up from all over the weekend. Here&rsquo;s every way to score.</p>
@@ -12,7 +13,7 @@
         <span class="points-tag points-tag-points">1&ndash;5 points</span>
         <span class="points-tag points-tag-badge">Badge</span>
       </div>
-      <p class="points-desc">The Wedding Masters award the top five: great shots, funny moments, and images that give us those warm, fuzzy feelings.</p>
+      <p class="points-desc"><%= _isStag ? 'The Stag Masters award the top five: great shots, funny moments, and images that give us those warm, fuzzy feelings.' : 'The Wedding Masters award the top five: great shots, funny moments, and images that give us those warm, fuzzy feelings.' %></p>
     </li>
 
     <li class="points-row">
@@ -46,7 +47,7 @@
         <span class="points-tag points-tag-points">1 point</span>
         <span class="points-tag points-tag-badge">Badge</span>
       </div>
-      <p class="points-desc">Rack up tasks and badges land on their own: First Bloom at 5, Bouquet Builder at 10, Full Garden at 15, Completionist for the clean sweep.</p>
+      <p class="points-desc"><%= _isStag ? 'Rack up tasks and badges land on their own: First Round at 5, Second Round at 10, Last Call for the clean sweep.' : 'Rack up tasks and badges land on their own: First Bloom at 5, Bouquet Builder at 10, Full Garden at 15, Completionist for the clean sweep.' %></p>
     </li>
   </ul>
 

@@ -215,7 +215,7 @@ function main() {
     console.error(guard.message);
     process.exitCode = 1;
   } else {
-    const badgeResult = ensureBadgeCatalog(db);
+    const badgeResult = ensureBadgeCatalog(db, config.VARIANT);
 
     // Seed the DB rows FIRST. seedEvent's completion spread depends on the
     // engineered per-guest counts (not a fixed formula), so the exact set of

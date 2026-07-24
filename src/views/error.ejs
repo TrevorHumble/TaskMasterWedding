@@ -1,6 +1,6 @@
 <%# src/views/error.ejs %>
 <%- include('partials/message-card', {
-  title: 'Something went wrong · Lilly & Axel',
+  title: 'Something went wrong · ' + ((typeof isStag !== 'undefined' && isStag) ? 'Axel' : 'Lilly & Axel'),
   heading: 'Something Went Wrong',
   paragraphs: [message],
   links: [{ href: '/', text: 'Back to the start' }],

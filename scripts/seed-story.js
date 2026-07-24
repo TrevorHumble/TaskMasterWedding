@@ -98,7 +98,7 @@ function main() {
     return;
   }
 
-  ensureBadgeCatalog(db);
+  ensureBadgeCatalog(db, config.VARIANT);
   const { guestIds, manifest } = seedEvent(db, STORIES[story]);
 
   installSamplePhotos(manifest)

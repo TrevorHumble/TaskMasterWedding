@@ -29,6 +29,34 @@ const config = require('../../config');
 const ICONS_DIR = path.join(config.PUBLIC_DIR, 'badges', 'icons');
 const ICONS_URL_PREFIX = '/badges/icons/';
 
+// Stag-variant (issue #640) bare-icon path prefix. The three black-tie
+// milestone badges (First Round/Second Round/Last Call — scripts/badge-catalog.js's
+// STAG_BADGES) point their art_path at a gold-on-dark recolor of a bundled
+// Material icon, vendored under src/public/badges/stag/icons/ instead of the
+// wedding ICONS_DIR above (AC4: the wedding icon files stay byte-unchanged).
+// This module does NOT maintain a second pickable catalog for these — the
+// admin custom-badge icon PICKER (listIcons/resolveIconPath below) stays
+// wedding-icon-only; no acceptance criterion asks the stag admin to pick from
+// a gold-recolored ~200-icon set. Only the isIconArtPath prefix test below
+// needs to recognize this second prefix, so a stag milestone badge's art_path
+// still renders as a bare icon inside the gold medallion (badge-art.ejs)
+// instead of falling through to the composed-image branch.
+const STAG_ICONS_DIR = path.join(config.PUBLIC_DIR, 'badges', 'stag', 'icons');
+const STAG_ICONS_URL_PREFIX = '/badges/stag/icons/';
+// The exact three milestone icon ids the stag catalog references. Checked at
+// require() time — same fail-fast-at-boot idea as the wedding ICONS
+// assertions below — so a missing stag icon file breaks the boot loudly
+// instead of 404ing silently the first time a guest earns the badge.
+const STAG_MILESTONE_ICON_IDS = ['sports-bar', 'liquor', 'nightlife'];
+for (const stagId of STAG_MILESTONE_ICON_IDS) {
+  const stagFilePath = path.join(STAG_ICONS_DIR, `${stagId}.svg`);
+  if (!fs.existsSync(stagFilePath)) {
+    throw new Error(
+      `badge-icons: stag milestone icon "${stagId}" has no bundled SVG at ${stagFilePath}`
+    );
+  }
+}
+
 // Curated id -> display-name pairs (owner-approved 2026-07-19, carried over
 // verbatim from the phase-1 inline array in src/views/admin-tasks.ejs). `id`
 // is the bundled SVG's bare filename (no extension); `name` is what the
@@ -316,16 +344,20 @@ const iconArtPath = resolveIconPath;
 
 /**
  * True only if the given art_path string is a bundled catalog icon's path
- * (i.e. starts with the ICONS_URL_PREFIX this module owns), false for any
- * other value including a composed/system badge's own circle SVG. The single
- * place that encapsulates the "/badges/icons/" prefix test so no other
- * module needs to know the literal to tell an icon badge from a composed one.
+ * (i.e. starts with the wedding ICONS_URL_PREFIX this module owns, OR the
+ * stag STAG_ICONS_URL_PREFIX above — issue #640), false for any other value
+ * including a composed/system badge's own circle SVG. The single place that
+ * encapsulates both bare-icon prefixes so no other module needs to know
+ * either literal to tell an icon badge from a composed one.
  *
  * @param {unknown} artPath
  * @returns {boolean}
  */
 function isIconArtPath(artPath) {
-  return typeof artPath === 'string' && artPath.indexOf(ICONS_URL_PREFIX) === 0;
+  return (
+    typeof artPath === 'string' &&
+    (artPath.indexOf(ICONS_URL_PREFIX) === 0 || artPath.indexOf(STAG_ICONS_URL_PREFIX) === 0)
+  );
 }
 
 /**
@@ -344,6 +376,7 @@ function iconName(id) {
 
 module.exports = {
   ICONS_URL_PREFIX,
+  STAG_ICONS_URL_PREFIX,
   listIcons,
   isValidIconId,
   resolveIconPath,

@@ -86,6 +86,105 @@
   --dur-base: 240ms;
 }
 
+/* ----------------------- Stag Master variant (issue #640) ---------------------
+   Bachelor-party second-instance palette. Applies ONLY when the <html>
+   element carries data-theme="stag" (src/views/partials/head.ejs emits that
+   attribute only when res.locals.isStag is true — the wedding instance
+   never emits it, so every rule below is inert there and the :root block
+   above stays byte-identical, AC1). Black-tie strict monochrome ground with
+   one gold accent; values transcribed from the owner-approved 2026-07-23
+   live preview (issue #640 context). */
+[data-theme='stag'] {
+  /* Black-tie: strict monochrome. Black ground, white ink, silver-gray
+     supporting tones. No color anywhere except the gold accent and the
+     functional ok/err reads, kept desaturated. */
+  --green-900: #0a0a0a; /* page ground — near-black */
+  --green-700: #f2f2f2; /* PRIMARY — headings, links, buttons (white on black) */
+  --green-500: #9a9a9a; /* muted — secondary labels, silver-gray */
+  --green-300: #2e2e2e; /* hairlines, disabled */
+  --green-50: #161616; /* raised surface — cards, input wells, panels */
+  --white: #0a0a0a; /* background alias flips dark */
+
+  --color-bg: #0a0a0a;
+  --color-surface: #161616;
+  --color-primary: #f2f2f2;
+  --color-primary-hover: #ffffff;
+  --color-heading: #fafafa;
+  --color-text: #e4e4e4;
+  --color-text-muted: #9a9a9a;
+  --color-hairline: #2e2e2e;
+  --color-on-primary: #0a0a0a;
+
+  /* Black-tie gold — the one accent color allowed on the monochrome ground. */
+  --gold: #c8a24c;
+  --gold-dim: #8a7136;
+
+  --ok-bg: #1d261d;
+  --ok-ink: #b9ccb4;
+  --err-bg: #2a1414;
+  --err-ink: #e2938a;
+  --color-danger: #cf6f5f;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-raise: 0 6px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* Stag-theme scoped overrides for hard-coded light-theme colors. */
+/* How-to-play rule circles: green ramp -> gold ramp (glyph ink flips to
+   black via the base rule's var(--white)). */
+[data-theme='stag'] .rule-icon-1 {
+  background: #c8a24c;
+}
+[data-theme='stag'] .rule-icon-2 {
+  background: #a8852f;
+}
+[data-theme='stag'] .rule-icon-3 {
+  background: #8a7136;
+}
+[data-theme='stag'] .rule-icon-4 {
+  background: #6b592e;
+}
+/* Badge medallion ring: gold ring + dim-gold inner hairline over the dark
+   ground (the light theme's green-over-white garden ring). */
+[data-theme='stag'] .badge-medallion {
+  border-color: var(--gold);
+  box-shadow:
+    inset 0 0 0 2px var(--white),
+    inset 0 0 0 3px var(--gold-dim);
+}
+[data-theme='stag'] .badge-medallion-empty {
+  border-color: var(--gold-dim);
+  box-shadow: none;
+}
+[data-theme='stag'] .badge-medallion-lg {
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--gold-dim);
+}
+[data-theme='stag'] .badge-detail-header .badge-medallion {
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--gold-dim);
+}
+/* Danger reads deep wine on black-tie, not the light theme's pink fills. */
+[data-theme='stag'] .btn-danger {
+  background: #6e2222;
+  color: #f2f2f2;
+}
+[data-theme='stag'] .btn-danger:hover {
+  background: #8a2a2a;
+}
+[data-theme='stag'] .admin-tile-resub {
+  background: #6e2222;
+}
+[data-theme='stag'] .admin-fav-on {
+  background: rgba(150, 45, 45, 0.95);
+}
+[data-theme='stag'] .admin-feed-fav.like-button-liked .like-heart {
+  fill: #b85050;
+  stroke: #b85050;
+}
+
 /* ----------------------- Self-hosted fonts (issue #252) -----------------------
    Every font this app uses — display, body, and the masthead script face —
    is self-hosted here as a latin-subset woff2 under src/public/fonts/. No

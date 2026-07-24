@@ -1,0 +1,21 @@
+<!-- src/public/badges/stag/earlybird.svg — gold-on-dark recolor of
+     ../earlybird.svg for the black-tie "Stag Master" variant (issue #640
+     AC4). Same shape, the wedding green ramp mapped to the gold ramp
+     recorded in the issue's approved-look reference. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Early Bird badge">
+  <circle cx="60" cy="60" r="56" fill="#161616" stroke="#c8a24c" stroke-width="4"/>
+  <circle cx="60" cy="60" r="47" fill="none" stroke="#6b592e" stroke-width="1.5"/>
+  <path d="M40 76 A20 20 0 0 1 80 76 Z" fill="#c8a24c"/>
+  <g stroke="#c8a24c" stroke-width="3.5" stroke-linecap="round" fill="none">
+    <path d="M60 50 L60 40"/>
+    <path d="M43 57 L36 50"/>
+    <path d="M77 57 L84 50"/>
+    <path d="M34 70 L25 68"/>
+    <path d="M86 70 L95 68"/>
+  </g>
+  <line x1="26" y1="76" x2="94" y2="76" stroke="#8a6d2a" stroke-width="4" stroke-linecap="round"/>
+  <g fill="none" stroke="#8a6d2a" stroke-width="3.5" stroke-linecap="round">
+    <path d="M60 30 q6 -8 12 0 q6 -8 12 0"/>
+    <path d="M36 38 q4.5 -6 9 0 q4.5 -6 9 0"/>
+  </g>
+</svg>
