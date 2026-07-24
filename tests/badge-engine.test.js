@@ -107,8 +107,13 @@ describe('AC1: Completionist — one-time, auto-revokes', () => {
   });
 });
 
-describe('AC2 (#711): transferable engine with an empty registry is a safe no-op', () => {
+describe('AC2 (#711/#817): transferable engine on a fixture that seeds no likes grants nothing', () => {
   it('recomputeTransferableBadges() runs cleanly and grants no transferable badge to anyone', () => {
+    // TOPLIKED (issue #817) is now a registered TRANSFERABLE_BADGES member,
+    // but its holder set comes from scoring.crowdFavorites(), which reads
+    // `likes` rows this fixture never seeds — so the registry is non-empty
+    // yet still produces zero holders here, the same no-op outcome this test
+    // asserted back when the registry itself was empty (#711).
     const task1 = makeTask('AC2 Task 1');
     const task2 = makeTask('AC2 Task 2');
     const guestA = makeGuest('ac2-guest-a', 'A');
@@ -322,10 +327,16 @@ describe('#193 AC3: engine badges fire on event-seeded data', () => {
     db.prepare('DELETE FROM guest_badges').run();
     db.prepare('DELETE FROM badges').run();
     const { inserted, updated, unchanged } = ensureBadgeCatalog(db);
-    // Five catalog codes since issue #661 retired SHUTTERBUG/CROWDFAV/CHOICE
-    // (they collided in NAME ONLY with the now-deleted give-a-badge
-    // photo-winner picker's own codes).
-    expect({ inserted, updated, unchanged }).toEqual({ inserted: 5, updated: 0, unchanged: 0 });
+    // BADGES.length catalog codes: five survived issue #661's retirement of
+    // SHUTTERBUG/CROWDFAV/CHOICE (they collided in NAME ONLY with the
+    // now-deleted give-a-badge photo-winner picker's own codes), plus
+    // TOPLIKED, added by issue #817.
+    const { BADGES } = require('../scripts/badge-catalog');
+    expect({ inserted, updated, unchanged }).toEqual({
+      inserted: BADGES.length,
+      updated: 0,
+      unchanged: 0,
+    });
     const codes = db
       .prepare('SELECT code FROM badges ORDER BY code')
       .all()
@@ -412,37 +423,40 @@ describe('AC8: schema migration is guarded and idempotent', () => {
 
 describe('#314: badge catalog boot-heal — played-in databases missing new catalog rows', () => {
   // Runs last: the "#193 AC3" block above already reset `badges` to exactly
-  // the 5 canonical rows (it deletes everything, including AC5's BESTDRESSED,
-  // then rebuilds from scripts/seed-event's ensureBadgeCatalog — five, not
-  // eight, since issue #661 retired SHUTTERBUG/CROWDFAV/CHOICE), THEN that
-  // same test's seedEvent() call adds 3 more, non-catalog 'custom' rows
+  // the BADGES.length canonical rows (it deletes everything, including AC5's
+  // BESTDRESSED, then rebuilds from scripts/seed-event's ensureBadgeCatalog —
+  // six as of issue #817's TOPLIKED, down from the original nine before
+  // issue #661 retired SHUTTERBUG/CROWDFAV/CHOICE), THEN that same test's
+  // seedEvent() call adds 3 more, non-catalog 'custom' rows
   // (tests/helpers/event-fixture.js's EVENT-FIXTURE-A/B/C, issue #661's own
   // replacement for the 3 retired codes that fixture used to hand-award) —
   // ensureBadgeCatalog never touches those three (they are absent from
   // scripts/badge-catalog.js's BADGES array, same as any other admin-created
   // custom badge), but they DO count toward a raw COUNT(*) here. AC8 cleans
-  // up its own AC8PROBE row, so this block starts from a known 8-row baseline
-  // (5 canonical + 3 fixture-custom).
+  // up its own AC8PROBE row, so this block starts from a known
+  // BADGES.length + 3 fixture-custom baseline.
+  const { BADGES } = require('../scripts/badge-catalog');
+  const CANONICAL_PLUS_FIXTURE = BADGES.length + 3;
 
-  it('AC1: a DB missing COMPLETIONIST (4 canonical rows, +3 non-catalog) is healed to 5 canonical by the boot-path ensure', () => {
+  it('AC1: a DB missing COMPLETIONIST (BADGES.length - 1 canonical rows, +3 non-catalog) is healed to BADGES.length canonical by the boot-path ensure', () => {
     const { ensureBadgeCatalog } = require('../src/db');
 
-    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(8);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(CANONICAL_PLUS_FIXTURE);
     db.prepare(`DELETE FROM badges WHERE code = 'COMPLETIONIST'`).run();
-    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(7);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(CANONICAL_PLUS_FIXTURE - 1);
 
     // The boot-path ensure: src/db.js's own exported guard, the same one
     // called once automatically at module load — proving a database that
     // predates #193 gets healed on a later boot, not just on first creation.
     const result = ensureBadgeCatalog();
-    // The other 4 CANONICAL rows survived AC3's fresh reinsert untouched
-    // (the 3 fixture-custom rows are outside ensureBadgeCatalog's own BADGES
-    // list entirely, so they show up in neither this tally nor the raw
-    // COUNT(*) change below), so this heal inserts exactly the 1 deleted
-    // code and re-syncs nothing else.
-    expect(result).toEqual({ inserted: 1, updated: 0, unchanged: 4 });
+    // The other BADGES.length - 1 CANONICAL rows survived AC3's fresh
+    // reinsert untouched (the 3 fixture-custom rows are outside
+    // ensureBadgeCatalog's own BADGES list entirely, so they show up in
+    // neither this tally nor the raw COUNT(*) change below), so this heal
+    // inserts exactly the 1 deleted code and re-syncs nothing else.
+    expect(result).toEqual({ inserted: 1, updated: 0, unchanged: BADGES.length - 1 });
 
-    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(8);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM badges').get().n).toBe(CANONICAL_PLUS_FIXTURE);
     const codes = db
       .prepare('SELECT code FROM badges')
       .all()

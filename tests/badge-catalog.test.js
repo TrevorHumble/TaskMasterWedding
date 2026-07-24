@@ -108,9 +108,10 @@ describe('#193 AC4: one catalog, not two', () => {
     expect(readScript('seed-event.js')).not.toMatch(/const BADGES\s*=\s*\[/);
   });
 
-  it('the shared catalog holds all five badge codes', () => {
+  it('the shared catalog holds all six badge codes', () => {
     // Issue #661 retired SHUTTERBUG/CROWDFAV/CHOICE from this array — see
-    // this file's own header comment on the AC1 test above.
+    // this file's own header comment on the AC1 test above. Issue #817 added
+    // TOPLIKED, the sixth code.
     const { BADGES } = require('../scripts/badge-catalog');
     expect(BADGES.map((b) => b.code)).toEqual([
       'BLOOM',
@@ -118,6 +119,7 @@ describe('#193 AC4: one catalog, not two', () => {
       'GARDEN',
       'EARLYBIRD',
       'COMPLETIONIST',
+      'TOPLIKED',
     ]);
   });
 });

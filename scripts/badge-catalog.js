@@ -52,6 +52,14 @@ const BADGES = [
     art_path: '/badges/completionist.svg',
     description: 'Completed every active task. One-time; auto-revokes if a new task is added.',
   },
+  {
+    code: 'TOPLIKED',
+    name: 'Most Liked',
+    type: 'transferable',
+    threshold: null,
+    art_path: '/badges/most-liked.svg',
+    description: 'Holds the most-liked photo of the whole weekend. Steal it with more likes.',
+  },
 ];
 
 /**

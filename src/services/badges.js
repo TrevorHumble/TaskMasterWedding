@@ -28,6 +28,11 @@
 // there is no second identity column here. Adding a badge to either map
 // below is what "adds" it to the engine; scripts/seed.js must also seed its
 // catalog row (type = 'metric' or 'transferable').
+//
+// TOPLIKED (issue #817) is the current TRANSFERABLE_BADGES member: its
+// holder set is every guest owning a rank === 1 placing in
+// scoring.crowdFavorites() (see that registry entry below for the full
+// rationale, including why it requires scoring.js lazily).
 
 'use strict';
 
@@ -35,6 +40,8 @@ const { db } = require('../db');
 // tasks.js is the ONE active-task owner (issue #727) — liveTaskWhere('t')
 // consumes it here instead of a hand-written 'hidden'/is_active predicate.
 const tasks = require('./tasks');
+// scoring.js is NOT required at this file's top level — see TOPLIKED's
+// compute function below for why.
 
 // ---------------------------------------------------------------------------
 // COMPLETIONIST (metric, one-time): the guest has a visible submission for
@@ -84,13 +91,46 @@ const METRIC_BADGES = {
   COMPLETIONIST: isCompletionist,
 };
 
-// No transferable badges are currently registered (MOSTPHOTOS/MOSTLIKED
-// retired by issue #711). recomputeTransferableBadges() in scoring.js still
-// iterates any badges.type = 'transferable' catalog rows and safely no-ops
-// on a row with no registry entry (`if (!computeHolders) continue`), so the
-// engine stays in place for a future transferable badge.
+// ---------------------------------------------------------------------------
+// TOPLIKED (transferable, issue #817): holder set is every guest who owns a
+// rank === 1 placing in scoring.crowdFavorites() — the crowd's single
+// most-liked photo (or every tied co-leader, standard-competition ranking).
+// A distinct concept from the retired #711 MOSTLIKED/MOSTPHOTOS pair (that
+// pair counted a guest's LIFETIME total likes/photos; this counts who
+// currently OWNS the single #1 spot) and additive to, not a replacement for,
+// #788's render-time crown marker on the photo tile itself — that marker
+// stays a pure read of crowdFavorites() with no guest_badges row; this badge
+// materializes the same rank-1 fact as a holder set recomputeTransferableBadges()
+// can grant/revoke.
+//
+// scoring.js requires this module ('./badges') at ITS OWN top level (to
+// destructure METRIC_BADGES/TRANSFERABLE_BADGES), so a top-level
+// require('./scoring') HERE would complete a load-order-sensitive
+// cycle — mirroring notifications.js's own documented reason for deferring
+// its require('./scoring') to call time (see that file's KIND_VIEW.
+// crowd_favorite.parts()). Deferring the require to inside this function
+// sidesteps the cycle: by the time recomputeTransferableBadges() ever calls
+// this function, both modules have long since finished loading.
+// ---------------------------------------------------------------------------
+
+/**
+ * @returns {Set<number>} guestIds owning a rank === 1 crowdFavorites() placing.
+ */
+function topLikedHolders() {
+  const scoring = require('./scoring');
+  const holders = new Set();
+  for (const placing of scoring.crowdFavorites()) {
+    if (placing.rank === 1) {
+      holders.add(placing.guest_id);
+    }
+  }
+  return holders;
+}
+
 /** code -> () => Set<guestId> */
-const TRANSFERABLE_BADGES = {};
+const TRANSFERABLE_BADGES = {
+  TOPLIKED: topLikedHolders,
+};
 
 module.exports = {
   METRIC_BADGES,
