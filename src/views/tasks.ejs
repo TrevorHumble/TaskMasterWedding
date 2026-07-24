@@ -1,6 +1,7 @@
 <!-- src/views/tasks.ejs -->
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
+<% var _isStag = (typeof isStag !== 'undefined' && isStag); -%>
 
   <h1 class="page-title">Tasks</h1>
 
@@ -91,7 +92,7 @@
       <% } %>
     <% } else { %>
       <% if (todoTasks.length === 0 && starterDone) { %>
-        <p class="muted">All done &mdash; you&rsquo;ve finished every task. The Wedding Masters are impressed.</p>
+        <p class="muted">All done &mdash; you&rsquo;ve finished every task. <%= _isStag ? 'The Stag Masters are impressed.' : 'The Wedding Masters are impressed.' %></p>
       <% } else { %>
         <%
           // The special rows (flash, today, locked) lead the to-do list —

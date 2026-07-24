@@ -1,24 +1,36 @@
 // scripts/seed.js
 'use strict';
 
+const config = require('../config');
 const { db } = require('../src/db');
 
 // ---------------------------------------------------------------------------
 // 1) Canonical badge catalog — one shared module (#193 AC4, consolidated
 //    #314). scripts/seed.js, scripts/seed-event.js, and src/db.js's boot path
 //    all insert via this same function so the catalogs can never drift apart.
+//    Passes config.VARIANT through (issue #640) so re-running this script
+//    against a stag DATA_DIR keeps upserting the black-tie catalog, not the
+//    wedding one.
 // ---------------------------------------------------------------------------
 const { ensureBadgeCatalog } = require('./badge-catalog');
 
 // ---------------------------------------------------------------------------
 // 2) Sample photo tasks for the wedding.
 //    The admin can edit/add/remove these later; these just seed a starting set.
-//    sort_order controls display order (0 first).
+//    sort_order controls display order (0 first). docs/deploy.md forbids
+//    running this script against real event data (real tasks come from the
+//    admin UI) — but a developer previewing the stag look locally can still
+//    run `VARIANT=stag node scripts/seed.js`, and this description would
+//    then render as real guest/admin-facing task copy on that instance
+//    (issue #640 AC3), so the one "Lilly" mention is variant-aware too.
 // ---------------------------------------------------------------------------
 const TASKS = [
   {
     title: 'Snap the happy couple',
-    description: 'Get a photo with Axel and Lilly together. Bonus charm for a candid one.',
+    description:
+      config.VARIANT === 'stag'
+        ? 'Get a photo with Axel and the crew together. Bonus charm for a candid one.'
+        : 'Get a photo with Axel and Lilly together. Bonus charm for a candid one.',
   },
   {
     title: 'Catch someone on the dance floor',
@@ -50,7 +62,7 @@ const {
   inserted: badgesInserted,
   updated: badgesUpdated,
   unchanged: badgesUnchanged,
-} = ensureBadgeCatalog(db);
+} = ensureBadgeCatalog(db, config.VARIANT);
 
 // ---------------------------------------------------------------------------
 // 4) Insert sample tasks ONLY if the tasks table is currently empty,

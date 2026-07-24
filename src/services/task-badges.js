@@ -45,8 +45,14 @@ const notifications = require('./notifications');
 // The shared default-ribbon artwork every un-customized task badge points
 // at (issue #483's "shared file, not a shared catalog row"). A single
 // constant so the resolver and every caller agree on the exact path — never
-// a literal duplicated at more than one call site.
-const DEFAULT_RIBBON_ART_PATH = '/badges/default-ribbon.svg';
+// a literal duplicated at more than one call site. Variant-aware (issue
+// #640 AC4): the stag instance's own gold-on-dark recolor lives under
+// src/public/badges/stag/, leaving the wedding file byte-unchanged. Read
+// once at module load — config.VARIANT never changes for the lifetime of a
+// running process (it is set from the environment at boot), so this never
+// needs to be re-evaluated per request the way res.locals.variant is.
+const DEFAULT_RIBBON_ART_PATH =
+  config.VARIANT === 'stag' ? '/badges/stag/default-ribbon.svg' : '/badges/default-ribbon.svg';
 
 // Prefix every host-uploaded art_path carries (photos.urlForOriginal's own
 // output shape — see admin.js's POST /tasks/:id/badge, which builds artPath

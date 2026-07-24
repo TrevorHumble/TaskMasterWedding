@@ -1,12 +1,33 @@
 <%# src/views/partials/head.ejs %>
+<%
+  // Issue #640: data-theme="stag" ONLY when the request is running the
+  // black-tie bachelor-party variant — an unset/non-'stag' variant emits
+  // nothing here, so <html> stays byte-identical to before this issue
+  // (AC1). theme.css's [data-theme='stag'] block is the only CSS this
+  // attribute unlocks; it never applies without it. Reads the pre-derived
+  // res.locals.isStag (src/app.js), not the raw `variant` string — the
+  // `typeof ... !== 'undefined'` guard still stands for a standalone/test
+  // render that skips the app.js middleware and never sets either local.
+  //
+  // The <meta name="theme-color"> tag below is the mobile browser-toolbar
+  // tint: wedding green by default, the black-tie near-black ground on the
+  // stag variant, matching theme.css's [data-theme='stag'] --green-900
+  // value (kept as a literal there, not a CSS var — this meta tag is read
+  // by the OS chrome before any stylesheet loads). This comment lives here,
+  // in the already-slurped scriptlet block (renders nothing), rather than
+  // inline between the meta tags below — an EJS comment tag there would
+  // inject extra whitespace into the rendered <head>, breaking AC1's
+  // byte-identical wedding output.
+  var _isStag = (typeof isStag !== 'undefined' && isStag);
+-%>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"<%- _isStag ? ' data-theme="stag"' : '' %>>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#467058">
+  <meta name="theme-color" content="<%= _isStag ? '#0a0a0a' : '#467058' %>">
   <meta name="robots" content="noindex, nofollow">
-  <title><%= (typeof title !== 'undefined' && title) ? title : 'Wedding Master' %></title>
+  <title><%= (typeof title !== 'undefined' && title) ? title : (_isStag ? 'Stag Master' : 'Wedding Master') %></title>
   <%# Every font (display, body, and the masthead script face) is self-hosted
       under src/public/fonts/ — no external font-CDN request at the venue
       (issue #252 AC3). @font-face rules live in theme.css. %>

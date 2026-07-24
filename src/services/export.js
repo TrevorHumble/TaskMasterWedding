@@ -75,7 +75,13 @@ function fmtDate(value) {
  */
 async function buildSummaryBuffer() {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Wedding Master';
+  // Issue #640 AC3: this XLSX metadata field is admin-facing (visible in
+  // Excel/Sheets' File > Properties on the exported keepsake), so it reads
+  // config.VARIANT directly, same "server-side code reads config.VARIANT,
+  // no res.locals needed" rule src/services/badge-icons.js,
+  // src/services/task-badges.js, and src/routes/community.js's /slideshow
+  // route already follow.
+  workbook.creator = config.VARIANT === 'stag' ? 'Stag Master' : 'Wedding Master';
   workbook.created = new Date();
 
   // ---- Pull data once -----------------------------------------------------

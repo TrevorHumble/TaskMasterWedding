@@ -33,6 +33,7 @@ Set these in a `.env` file in the project root (copy `.env.example`; the `.env` 
 | `RATE_LIMIT_TRACKED_MAX`              | No                   | Hard cap on how many distinct keys one rate limiter tracks at a time. Default `5000`. Bounds memory and per-request CPU under a flood from many distinct source IPs; over the cap, the key whose window expires soonest is evicted. Raise only if you expect more than 5000 distinct clients in one window.                                                                                                                                                                                                                                 |
 | `GUEST_LOGIN_TRACKED_MAX`             | No                   | Hard cap on how many distinct normalized contacts the guest-login lockout tracker (`src/routes/auth.js`) holds at once. Default `5000`. Over the cap, the oldest contact NOT currently locked out is evicted first, so a flood of made-up contacts cannot un-lock a real one.                                                                                                                                                                                                                                                               |
 | `ADMIN_LOGIN_MAX_CONCURRENT_COMPARES` | No                   | Bound on how many `bcrypt.compare` calls `POST /admin/login` runs AT ONCE (issue #543). Default `2`. Not a rate limiter — see `DESIGN.md`'s "No limiter on `POST /admin/login`, deliberately." An over-limit caller queues (never refused) rather than being rejected, so raising or lowering this only trades event-loop share for queue wait time; it does not change the login page's total request throughput.                                                                                                                          |
+| `VARIANT`                             | No                   | `''` (unset, the default) runs the wedding instance, byte-identical to today. The literal `stag` switches the palette, branding, and milestone badge catalog to the black-tie "Stag Master" bachelor-party look (issue #640) — see § Second instance below. Any other value behaves exactly like unset.                                                                                                                                                                                                                                     |
 
 ## Option A — Docker Compose
 
@@ -132,6 +133,53 @@ server {
     }
 }
 ```
+
+## Second instance — the bachelor-party subdomain (issue #640)
+
+The "Stag Master" bachelor-party game is a **second, fully separate deployment of this same app** — not a route inside the wedding instance. The app writes root-absolute links throughout the views (`href="/…"`, `action="/…"`), so serving it under a path prefix (`lillyandaxel.com/bachelorparty/...`) would break every link, and two instances sharing one hostname would collide on cookie names. It lives at its own subdomain instead, with its own `DATA_DIR` (so its own database, uploads, and `admin.hash` — admin separation falls out of `DATA_DIR` separation for free) and its own cookies. The private join link **is** the whitelist; no per-user access-control code exists or is needed.
+
+**Required environment** — a second `.env` (or a second set of container env vars), distinct from the wedding instance's:
+
+| Variable        | Value for the bachelor instance                                                                                                                                                                                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATA_DIR`      | A directory that is NOT the wedding instance's `data/` — e.g. `/srv/stag-master/data`. Everything (database, uploads, `admin.hash`) lives under this path; sharing the wedding instance's `DATA_DIR` here is the one mistake that defeats the whole point of a second instance.  |
+| `PORT`          | A port distinct from the wedding instance's (Option B), or leave unset under Docker Compose as its own service (Option A) — see the `PORT` row in the main table above; the same "leave it at the container's internal 3000" guidance applies to a second compose service.       |
+| `COOKIE_SECRET` | Its own value, distinct from the wedding instance's. Two instances signing cookies with the same secret is not a security hole by itself (each instance only reads its own cookie names), but generate a separate one anyway — see the main table's `COOKIE_SECRET` row for how. |
+| `BASE_URL`      | The bachelor instance's own public URL, e.g. `https://bp.lillyandaxel.com`. Bakes into its own entry poster's QR code, same as the main table's `BASE_URL` row.                                                                                                                  |
+| `VARIANT`       | `stag` — the one flag that switches the palette, branding, and milestone badge catalog (AC1-AC5). Every other env var in the main table above (rate limits, `MAINTENANCE`, `TRUST_PROXY`, etc.) applies identically to this instance.                                            |
+
+**Caddy site block** for the subdomain (add alongside the wedding instance's own block — see § Reverse proxy + TLS above for the single-site version this extends):
+
+```
+bp.lillyandaxel.com {
+    reverse_proxy localhost:3001
+}
+```
+
+(`3001` here is whatever host port the bachelor instance's container/process actually publishes — keep it distinct from the wedding instance's `3000` the same way `PORT`/the Compose `ports:` mapping above does. Same TLS-at-the-proxy shape as the wedding site: Caddy provisions and renews the certificate automatically, and the app itself keeps serving plain HTTP behind it.)
+
+**The `/bachelorparty` redirect**, one line inside the WEDDING instance's own Caddy site block (`lillyandaxel.com`, not the bachelor subdomain's block above):
+
+```
+lillyandaxel.com {
+    redir /bachelorparty https://bp.lillyandaxel.com permanent
+    reverse_proxy localhost:3000
+}
+```
+
+`redir ... permanent` issues a 301; verify after deploy with:
+
+```bash
+curl -I https://lillyandaxel.com/bachelorparty
+```
+
+**DNS record.** An `A` (or `CNAME`, if the bachelor instance shares the same host as the wedding one — the common case) record for the subdomain, pointed at the same host as the main domain:
+
+```
+bp.lillyandaxel.com.   A   <host-ip>
+```
+
+Everything else in this runbook — the Docker/systemd setup, the first-boot checklist, backups, restore — applies to the bachelor instance exactly as written, run a second time against its own `DATA_DIR`/`.env`. **Do not run `scripts/backup.js`, `scripts/set-admin-password.js`, or any other script against the wrong instance's environment** — every script reads `DATA_DIR` from `config.js` (env var / `.env`, never a CLI flag), so running one with the wedding instance's `.env` sourced operates on the wedding instance's data even if you meant the bachelor one. Each instance's `data/` is fully independent; there is no shared state to sync between the two.
 
 ## First-boot checklist
 

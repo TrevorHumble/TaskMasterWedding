@@ -1165,8 +1165,12 @@ ensureSubmissionsBonusColumns();
  *
  * @returns {{ inserted: number, updated: number, unchanged: number }}
  */
+// Passes config.VARIANT through so a stag instance's own DATA_DIR boots (and
+// re-syncs on every restart) to the black-tie catalog instead of the wedding
+// one (issue #640 AC5) — the wedding instance (VARIANT unset) passes '' here,
+// unchanged from before this argument existed.
 function ensureBadgeCatalog() {
-  return ensureBadgeCatalogRows(db);
+  return ensureBadgeCatalogRows(db, config.VARIANT);
 }
 
 ensureBadgeCatalog();
