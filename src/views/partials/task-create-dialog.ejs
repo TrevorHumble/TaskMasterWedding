@@ -14,6 +14,7 @@
 %>
 <dialog id="task-create-dialog" class="task-dialog" aria-labelledby="task-create-title">
   <form class="task-dialog-form" id="task-create-form" method="post" action="/admin/tasks">
+    <%- include('csrf-field') %>
     <header class="task-dialog-head">
       <h2 class="task-dialog-title" id="task-create-title">New task</h2>
       <button type="button" class="task-dialog-close" data-dialog-close aria-label="Close">&times;</button>

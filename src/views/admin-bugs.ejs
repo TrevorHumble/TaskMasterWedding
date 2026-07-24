@@ -41,9 +41,29 @@
     // built for exactly this (a background POST that survives the page
     // losing focus to the new tab); the fetch(..., {keepalive:true}) branch
     // is the fallback for a browser without sendBeacon.
+    //
+    // Issue #284: /admin/bugs/:id/track is a state-changing POST, so it needs
+    // a CSRF token like every other write route. sendBeacon has no custom-
+    // header API, so its token rides as a URLSearchParams body instead (the
+    // browser sets that body's Content-Type to
+    // application/x-www-form-urlencoded automatically, which express.
+    // urlencoded parses into req.body._csrf same as any other form field);
+    // the fetch fallback uses the ordinary X-CSRF-Token header via
+    // window.csrfHeader() (src/public/js/csrf.js, loaded by every page via
+    // partials/footer.ejs). No double quotes anywhere in the returned
+    // string — this whole expression is embedded inside an onclick
+    // attribute rendered by EJS's escaping output tag, which HTML-entity-
+    // encodes it, and single quotes survive that round trip cleanly (see
+    // the existing sendBeacon URL string below, which already relies on
+    // this). NOTE: do not write the literal output-tag delimiters in this
+    // comment (open-angle-percent, percent-close-angle) — EJS's tag scanner
+    // is a plain text scan, not JS-comment-aware, so that literal sequence
+    // inside this scriptlet block would prematurely close it and break the
+    // whole template (this exact bug shipped once already; see #284 buildlog).
     function trackOnClick(id) {
-      return "if (navigator.sendBeacon) { navigator.sendBeacon('/admin/bugs/" + id + "/track'); } "
-        + "else { fetch('/admin/bugs/" + id + "/track', { method: 'POST', keepalive: true }); }";
+      return "var _tok = window.csrfToken ? window.csrfToken() : ''; "
+        + "if (navigator.sendBeacon) { navigator.sendBeacon('/admin/bugs/" + id + "/track', new URLSearchParams({ _csrf: _tok })); } "
+        + "else { fetch('/admin/bugs/" + id + "/track', { method: 'POST', keepalive: true, headers: window.csrfHeader ? window.csrfHeader() : {} }); }";
     }
   %>
 
@@ -62,6 +82,7 @@
             Open issue
           </a>
           <form action="/admin/bugs/<%= r.id %>/close" method="post">
+            <%- include('partials/csrf-field') %>
             <button type="submit" class="btn btn-sm btn-ghost">Close</button>
           </form>
         </div>
@@ -86,6 +107,7 @@
             <p class="comment-body muted"><%= r.body %></p>
             <div class="bug-admin-actions">
               <form action="/admin/bugs/<%= r.id %>/close" method="post">
+                <%- include('partials/csrf-field') %>
                 <button type="submit" class="btn btn-sm btn-ghost">Close</button>
               </form>
             </div>

@@ -20,6 +20,14 @@ const { db, markGuestOnboarded, getEventConfig } = require('../db');
 // `flash` cookie's shape.
 const { requireGuest, setFlash, setTaskCompleteReward } = require('../middleware/session');
 
+// CSRF (issue #284): the three multer-driven routes in this file (POST
+// /tasks/:id/submit, POST /memories, POST /me/edit) run multer manually, so
+// req.body is not parsed until inside that callback — assertCsrf is the
+// shared post-multer verifier every multer-driven route in this app calls
+// immediately before any state change; rejectCsrf is the one shared 403
+// response, same literal as csrfMiddleware's own rejection.
+const { assertCsrf, rejectCsrf } = require('../middleware/csrf');
+
 // Route-level rate limiting (issue #283) — see the createRateLimiter call
 // sites below (after the services/rate-limit require) for the two instances
 // this file wires up. guestOrIpKey is the single owner of the "guest-keyed,
@@ -861,6 +869,23 @@ router.post('/tasks/:id/submit', uploadRateLimiter, function (req, res) {
       return res.redirect('/tasks/' + taskId);
     }
 
+    // CSRF check (issue #284): now that multer has parsed the body,
+    // req.body._csrf (the hidden field partials/csrf-field.ejs renders as
+    // the FIRST field in task.ejs's form) is available as a second chance
+    // for a no-JS native multipart submit, alongside the header
+    // csrfMiddleware may already have verified. Runs before submitPhoto's
+    // DB write. photos.upload's disk storage has already written req.file to
+    // UPLOADS_DIR by this point (unlike memory-storage uploadAvatar), so a
+    // rejection here must also delete that orphaned original — mirroring
+    // cleanupBatchOriginals below (POST /memories), the sibling route with
+    // the same "multer already wrote a file to disk before we could reject"
+    // shape.
+    if (!assertCsrf(req)) {
+      photos.deleteOriginalFile(req.file.filename);
+      rejectCsrf(res);
+      return;
+    }
+
     let result;
     try {
       result = await withUploadSlot(() =>
@@ -995,6 +1020,21 @@ router.post('/memories', function (req, res, next) {
       return res.redirect('/memories/new');
     }
 
+    // CSRF check (issue #284): now that multer has parsed the body,
+    // req.body._csrf (the hidden field partials/csrf-field.ejs renders as
+    // the FIRST field in memory-new.ejs's form) is available as a second
+    // chance for a no-JS native multipart submit, alongside the header
+    // csrfMiddleware may already have verified. Runs before the rate-limit
+    // guard below consumes the guest's budget and before any row is
+    // written — cleanupBatchOriginals removes the originals multer already
+    // wrote to disk, the same cleanup every other rejection branch in this
+    // handler already performs.
+    if (!assertCsrf(req)) {
+      cleanupBatchOriginals(files);
+      rejectCsrf(res);
+      return;
+    }
+
     // Rate-limit guard (AC11). recordMemoryAttempt only consumes the guest's
     // budget when it ALLOWS the attempt, so a rejected batch does not extend
     // the penalty past the real window. Reject before persisting; clean up the
@@ -1105,6 +1145,19 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
     if (err) {
       setFlash(res, 'error', 'That avatar could not be uploaded: ' + err.message);
       return res.redirect('/me/edit');
+    }
+
+    // CSRF check (issue #284): now that multer has parsed the body,
+    // req.body._csrf (the hidden field partials/csrf-field.ejs renders as
+    // the FIRST field in me-edit.ejs's form) is available as a second chance
+    // for a no-JS native multipart submit, alongside the header
+    // csrfMiddleware may already have verified. Runs before any state
+    // change — uploadAvatar is MEMORY storage (issue #122), so unlike the
+    // disk-storage routes above there is no orphaned file on disk to clean
+    // up on rejection.
+    if (!assertCsrf(req)) {
+      rejectCsrf(res);
+      return;
     }
 
     // Optional new re-entry code (issue #243 AC3/AC4). Empty/absent means

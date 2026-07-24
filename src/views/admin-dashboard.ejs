@@ -50,6 +50,7 @@
         %>
         <% if (row.kind === 'manual') { %>
           <form class="check-manual-form" method="post" action="/admin/checklist/<%= row.id %>/toggle">
+            <%- include('partials/csrf-field') %>
             <input type="hidden" name="checked" value="<%= row.checked ? '1' : '0' %>">
             <%# The visible box glyph that signals checked/unchecked sits inside
                 aria-hidden="true" below, so a screen reader hears nothing that

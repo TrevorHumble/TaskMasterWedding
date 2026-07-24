@@ -39,12 +39,18 @@ describe('AC1: GET /j/:token never signs anyone in', () => {
     expect(cookies.some((c) => c.startsWith('gsid='))).toBe(false);
   });
 
-  it('an unknown token also redirects to /join with no cookie (no DB lookup)', async () => {
+  it('an unknown token also redirects to /join with no gsid cookie (no DB lookup)', async () => {
     const res = await request(app).get('/j/this-token-has-never-existed');
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/join');
-    expect(res.headers['set-cookie']).toBeUndefined();
+    // Issue #284: csrfMiddleware now mints/reuses a signed `csrf` cookie on
+    // EVERY response (including this one), so "no Set-Cookie at all" is no
+    // longer the right assertion — the AC1 guarantee this test protects is
+    // "no gsid", not "no cookie of any kind". Same predicate as the sibling
+    // test above (the known-token case).
+    const cookies = [].concat(res.headers['set-cookie'] || []);
+    expect(cookies.some((c) => c.startsWith('gsid='))).toBe(false);
   });
 
   it('a previously-valid session is not restored — a guest who follows the redirect is signed out', async () => {

@@ -298,7 +298,17 @@ function initTaskSubmit() {
         // Leaving the redirect unfollowed keeps the cookie unspent; the full
         // navigation below consumes it in a page context where the page's
         // scripts (js/badge-moment.js) actually run.
-        return fetch(form.action, { method: 'POST', body: formData, redirect: 'manual' });
+        // Issue #284: the CSRF header, merged in alongside the form's own
+        // hidden _csrf field (already inside formData via `new
+        // FormData(form)` above, since partials/csrf-field.ejs renders it as
+        // the form's first field) — belt and suspenders, matching every
+        // other write-fetch in this app.
+        return fetch(form.action, {
+          method: 'POST',
+          body: formData,
+          redirect: 'manual',
+          headers: window.csrfHeader ? window.csrfHeader() : {},
+        });
       })
       .then(function (response) {
         // The normal outcome (success, replace, or a validation flash) is a

@@ -8,6 +8,12 @@ const bcrypt = require('bcryptjs');
 const config = require('../../config');
 const { db, getGuestByContact } = require('../db');
 const { setFlash, cookieOpts } = require('../middleware/session');
+// CSRF (issue #284): POST /join runs multer manually (photos.uploadAvatar),
+// so req.body is not parsed until inside that callback — assertCsrf is the
+// shared post-multer verifier every multer-driven route in this app calls
+// immediately before any state change; rejectCsrf is the one shared 403
+// response, same literal as csrfMiddleware's own rejection.
+const { assertCsrf, rejectCsrf } = require('../middleware/csrf');
 const photos = require('../services/photos');
 const { normalizeContact, isValidPin, makeUniqueToken } = require('../services/identity');
 // Persistent admin-lockout state (issue #283) — replaces the module-scoped
@@ -116,6 +122,19 @@ router.get('/join', (req, res) => {
 router.post('/join', joinRateLimiter, (req, res, next) => {
   photos.uploadAvatar(req, res, async (err) => {
     try {
+      // CSRF check (issue #284): now that multer has parsed the body,
+      // req.body._csrf (the hidden field partials/csrf-field.ejs renders as
+      // the FIRST field in join.ejs's form) is available as a second chance
+      // for a no-JS native multipart submit, alongside the header
+      // csrfMiddleware may already have verified. Runs before any state
+      // change — no guest row is inserted and no avatar is saved for a
+      // request that fails this, regardless of whether the avatar itself
+      // was accepted or rejected by multer above.
+      if (!assertCsrf(req)) {
+        rejectCsrf(res);
+        return;
+      }
+
       const name = ((req.body && req.body.name) || '').trim();
 
       // A rejected avatar (bad type / too large) is not itself a reason to

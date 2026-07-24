@@ -5,6 +5,18 @@
   <p class="footer-line">Wedding Master &#183; Lilly &amp; Axel</p>
 </footer>
 
+<%# Issue #284: loaded on every page, ahead of every other script tag below
+    and every deferred script this page's header/body may have already
+    queued (partials/header.ejs's recap.js, and any admin/*.js) — a
+    non-deferred script at this position in the document executes as the
+    parser reaches it, which is always BEFORE any `defer` script runs
+    (deferred scripts wait for the whole document to finish parsing). Not
+    that any of those scripts read the token at their own top level — every
+    write-fetch call is inside a later event-triggered function — but this
+    ordering keeps window.csrfHeader()/csrfToken() unconditionally defined
+    for the whole page from the earliest possible moment regardless. %>
+<script src="/js/csrf.js"></script>
+
 <% if (typeof pageScript !== 'undefined' && pageScript) { %>
   <script src="/js/<%= pageScript %>"></script>
 <% } %>

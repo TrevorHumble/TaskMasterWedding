@@ -821,7 +821,12 @@
       fetch('/admin/tasks/reorder-all', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        // Issue #284: Object.assign merges the CSRF header in without
+        // clobbering Content-Type.
+        headers: Object.assign(
+          { 'Content-Type': 'application/json' },
+          window.csrfHeader ? window.csrfHeader() : {}
+        ),
         body: JSON.stringify({ order: ids }),
       })
         .then(function (res) {
