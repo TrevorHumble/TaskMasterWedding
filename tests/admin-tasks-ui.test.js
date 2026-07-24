@@ -77,6 +77,64 @@ describe('AC1: task cards render (issue #682 markup)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #812 AC1 — the photo-count control is a direct door to that task's
+// Rank & award page (/admin/tasks/:id/rank), not the scoped photo gallery
+// (/admin/photos?view=task&task=:id) it used to point at (issue #661 put the
+// rank/award UI on its own page; #812 makes this the obvious way in).
+// ---------------------------------------------------------------------------
+describe('issue #812 AC1: task row photo-count control links straight to Rank & award', () => {
+  it('the anchor href is /admin/tasks/<that task id>/rank and its text ends "to rank and award", for the REAL seeded task/count', async () => {
+    const taskId = db
+      .prepare('INSERT INTO tasks (title, sort_order) VALUES (?, ?)')
+      .run('812 Rank Door Task', 999).lastInsertRowid;
+    const guestId = db
+      .prepare('INSERT INTO guests (token, name) VALUES (?, ?)')
+      .run('812-rank-door-guest', '812 Rank Door Guest').lastInsertRowid;
+    db.prepare(
+      `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+       VALUES (?, ?, ?, ?, 0)`
+    ).run(guestId, taskId, '812.jpg', '812-t.jpg');
+
+    const res = await adminAgent.get('/admin/tasks');
+    expect(res.status).toBe(200);
+
+    // Real value, tied to the real seeded task id and its real count (1) —
+    // would fail if the href still pointed at the old scoped-gallery
+    // destination, or if the anchor's class/text were wrong.
+    expect(res.text).toContain(
+      '<a class="admin-task-photos" href="/admin/tasks/' +
+        taskId +
+        '/rank">1 photo to rank and award</a>'
+    );
+    expect(res.text).not.toContain('href="/admin/photos?view=task&amp;task=' + taskId + '"');
+  });
+
+  it('pluralizes: n === 2 renders "2 photos to rank and award"', async () => {
+    const taskId = db
+      .prepare('INSERT INTO tasks (title, sort_order) VALUES (?, ?)')
+      .run('812 Rank Door Task Plural', 1000).lastInsertRowid;
+    // Two DIFFERENT guests — submissions carries a UNIQUE(guest_id, task_id)
+    // constraint (one submission per guest per task), so a count of 2 needs
+    // two guests, not one guest submitting twice.
+    for (let i = 0; i < 2; i++) {
+      const guestId = db
+        .prepare('INSERT INTO guests (token, name) VALUES (?, ?)')
+        .run('812-rank-door-guest-2-' + i, '812 Rank Door Guest 2-' + i).lastInsertRowid;
+      db.prepare(
+        `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+         VALUES (?, ?, ?, ?, 0)`
+      ).run(guestId, taskId, '812-plural-' + i + '.jpg', '812-plural-' + i + '-t.jpg');
+    }
+
+    const res = await adminAgent.get('/admin/tasks');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(
+      '<a class="admin-task-photos" href="/admin/tasks/' + taskId + '/rank">2 photos to rank and award</a>'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC3 — add_to_top field. Issue #682's 3-step wizard requires a badge on
 // every create (AC-A), so every send() below carries a valid catalog
 // badge_icon.

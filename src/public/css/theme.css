@@ -2123,6 +2123,13 @@ textarea {
   color: var(--color-text-muted);
   white-space: nowrap;
 }
+/* Same compact count, but tappable: it links to the task's rank & award page
+   (issue #661). An underline is the only affordance added — size/placement stay
+   identical to the plain count beside it. */
+.gallery-group-rank {
+  text-decoration: underline;
+  cursor: pointer;
+}
 .gallery-group-chevron {
   color: var(--color-text-muted);
   font-size: var(--fs-h3);
@@ -4608,6 +4615,11 @@ body:has(dialog[open]) {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  /* Query container for the footer: the admin column is capped narrow
+     (main max-width), so the footer's total-beside-button row must key off
+     THIS card's real width, not the viewport — a wide desktop viewport does
+     not mean this card is wide. */
+  container-type: inline-size;
 }
 .rank-award-head {
   display: flex;
@@ -4788,7 +4800,9 @@ body:has(dialog[open]) {
 }
 
 /* Mobile-first: total stacked above a full-width release button so the button
-   can never overflow the card. At ≥480px they sit on one row. */
+   can never overflow the card. They sit on one row only when the card ITSELF is
+   ≥440px wide (the @container query below) — not at any viewport width, since
+   the admin column keeps this card narrow even on a wide desktop. */
 .rank-award-foot {
   display: flex;
   flex-direction: column;
@@ -4802,7 +4816,7 @@ body:has(dialog[open]) {
 .rank-award-release {
   align-self: stretch;
 }
-@media (min-width: 480px) {
+@container (min-width: 440px) {
   .rank-award-foot {
     flex-direction: row;
     align-items: center;
@@ -5945,7 +5959,7 @@ body:has(dialog[open]) {
   font-size: var(--fs-eyebrow);
   font-weight: 600;
   color: var(--color-text-muted);
-  text-decoration: none;
+  text-decoration: underline;
 }
 .admin-task-empty {
   list-style: none;
