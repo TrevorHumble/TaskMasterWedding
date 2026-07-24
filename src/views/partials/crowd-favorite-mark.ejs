@@ -1,12 +1,19 @@
 <%# src/views/partials/crowd-favorite-mark.ejs — the crowd-favorite crown a
     top-5 photo wears on its tile (issue #788). One renderer for every surface
-    (gallery / feed / profile) so the mark never drifts per page. Rank 1 wears
-    it gold; ranks 2–5 wear it plain white. Composes the shared crown SVG
+    (gallery / feed / profile) so the mark never drifts per page. Gold is
+    reserved for a SINGLE champion: a photo wears it gold only when it holds
+    rank 1 AND no other photo ties it there; a shared top spot (or any rank
+    2–5) wears the plain white crown. Composes the shared crown SVG
     (partials/crown) rather than forking a second crown mark.
 
     Locals:
-      rank (required) — the photo's crowd-favorite rank (1 is gold). %>
-<span class="cf-crown<%= Number(rank) === 1 ? ' cf-crown-gold' : '' %>"
-      aria-label="Crowd favorite<%= Number(rank) === 1 ? ' — number one' : '' %>">
+      rank (required) — the photo's crowd-favorite rank (1 is best).
+      gold (optional) — force the gold treatment on/off. When omitted, falls
+        back to rank === 1 (the historical behavior). The gallery passes it as
+        "rank 1 and the sole rank-1 photo", so a big top tie shows white
+        crowns rather than a sea of gold. %>
+<% var cfGold = (typeof gold !== 'undefined') ? gold : (Number(rank) === 1); %>
+<span class="cf-crown<%= cfGold ? ' cf-crown-gold' : '' %>"
+      aria-label="Crowd favorite<%= cfGold ? ' — number one' : '' %>">
   <%- include('crown', { size: 15 }) %>
 </span>

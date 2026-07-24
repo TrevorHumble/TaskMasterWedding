@@ -1,0 +1,15 @@
+<%# src/views/partials/badge-victory-mark.ejs — the task-badge-victory medal a
+    ranked photo wears on its tile, bottom-left (issue #811). Same shape and
+    "only the winner is gold" rule as partials/crowd-favorite-mark (the
+    crowd-favorite crown), so the two tile marks read as one family; a
+    distinct medal glyph (not the crown) keeps "won a task badge" legible as
+    its own thing. Rank 1 wears it gold; ranks 2-5 wear it plain white.
+
+    Locals:
+      rank (required) — the photo's task-badge placement (1 is gold). %>
+<span class="tile-victory<%= Number(rank) === 1 ? ' tile-victory-gold' : '' %>"
+      aria-label="Task badge winner<%= Number(rank) === 1 ? ' — first place' : '' %>">
+  <svg viewBox="0 -960 960 960" width="16" height="16" aria-hidden="true" style="fill:currentColor">
+    <path d="m480-161-73 54q-9 7-17.5.5T384-124l28-90-73-54q-9-7-5.5-17t14.5-10h90l25-97-140-82q-20-12-31.5-31T280-547v-273q0-25 17.5-42.5T340-880h280q25 0 42.5 17.5T680-820v273q0 23-11.5 42T637-474l-141 82 26 97h89q11 0 14.5 10t-5.5 17l-73 54 28 90q3 11-5.5 17t-17.5-1l-72-53Zm-26-659v350l30 16 30-16v-350h-60Z"/>
+  </svg>
+</span>

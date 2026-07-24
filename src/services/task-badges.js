@@ -392,6 +392,45 @@ function currentRanking(taskId) {
   return stmtCurrentRanking.all(badge.id);
 }
 
+// Every currently-visible ranked award, across every task's badge — the
+// event-wide read the gallery tile's victory medal needs (issue #811),
+// unlike currentRanking above which is scoped to one task at a time (the
+// admin rank-and-award page's own read). `s.taken_down = 0` is what keeps a
+// taken-down winner's medal off the wall; the award ROW itself survives a
+// takedown (see releaseRanking's own doc comment on AC4), so this is a
+// display-time visibility filter, not a data change.
+const stmtVictoryRanks = db.prepare(`
+  SELECT gb.submission_id AS sid, gb.rank AS rank
+    FROM guest_badges gb
+    JOIN submissions s ON s.id = gb.submission_id
+   WHERE gb.rank IS NOT NULL AND s.taken_down = 0
+`);
+
+/**
+ * Every currently-visible ranked submission, re-keyed from the released
+ * `guest_badges` rows to a plain `{ [submission_id]: rank }` object — the
+ * gallery tile's single render-time lookup (issue #811 AC2/AC3), mirroring
+ * community.js's crownRankState() re-key-array-to-object shape for the
+ * crowd-favorite crown. A guest holds at most one submission per task
+ * (`submissions` carries `UNIQUE(guest_id, task_id)`) and a release pins
+ * exactly one rank to one submission_id, so each visible ranked submission
+ * appears at most once here — no fold/collapse step is needed the way
+ * foldRankedPlacements needs one for the write path.
+ *
+ * Read-only, ONE prepared statement, no write — safe to call once per
+ * request from a route the same way crownRankState() calls
+ * scoring.crowdFavorites() once.
+ *
+ * @returns {Object<number, number>} submission_id -> rank (1 is best)
+ */
+function victoryRankBySubmission() {
+  const lookup = {};
+  for (const row of stmtVictoryRanks.all()) {
+    lookup[row.sid] = row.rank;
+  }
+  return lookup;
+}
+
 // A placement's own submission, gated on belonging to THIS task and being
 // currently visible — releaseRanking's per-entry validity check (below).
 const stmtSubmissionForRanking = db.prepare(
@@ -574,6 +613,7 @@ module.exports = {
   currentRanking,
   foldRankedPlacements,
   releaseRanking,
+  victoryRankBySubmission,
   // orphaned-art cleanup (issue #501) — exported for admin.js's task-delete
   // handler and for direct unit testing.
   isUploadedArtPath,

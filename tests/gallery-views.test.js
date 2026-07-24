@@ -1,9 +1,10 @@
 // tests/gallery-views.test.js
 // Original view-switcher/filter coverage, plus issue #251's gallery rework:
-//   #251 AC2 — like-count badge on tiles with likes, none at zero
 //   #251 AC3 — grouped sections cap at 6 tiles with a "+N" overlay
 //   #251 AC4 — By-person order: pinned guests first, then recency
 //   #251 AC6 — "Show more" pagination replaces "Older →"
+// Issue #811 retired #251 AC2's like-count badge entirely, replacing it with
+// the task-badge victory medal — see the #811 AC1/AC2 block below.
 'use strict';
 
 const { loadApp, seed, makeAdminAgent, signInGuest } = require('./helpers/testApp');
@@ -224,55 +225,98 @@ function sectionChunk(html, heading) {
 }
 
 // ---------------------------------------------------------------------------
-// #251 AC2 — like-count badge on tiles with likes; no badge at zero
+// #811 AC1/AC2 — the like-count overlay is gone from the tile; a photo
+// holding a released task-badge rank wears its victory medal instead
+// (gold for rank 1, white for ranks 2-5), and a merely-liked, unranked photo
+// wears no corner mark at all.
 // ---------------------------------------------------------------------------
-describe('#251 AC2: like badges on recent-wall tiles', () => {
-  let likedThumb;
-  let unlikedThumb;
+describe('#811 AC1/AC2: victory medals replace the like-count overlay', () => {
+  let taskBadges;
+  let likedNoRankThumb;
+  let rank1Thumb;
+  let rank2Thumb;
 
   beforeAll(() => {
-    const taskId = db
+    taskBadges = require('../src/services/task-badges');
+
+    // A well-liked photo that has NOT won a ranked award — AC1 says the
+    // tile's like tally is gone entirely, and AC2 says an unranked photo
+    // wears no medal either, regardless of how many likes it holds.
+    const likedTaskId = db
       .prepare(`INSERT INTO tasks (title) VALUES (?)`)
-      .run('Badge task').lastInsertRowid;
+      .run('Victory task (liked, unranked)').lastInsertRowid;
     const authorId = db
       .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
-      .run('badge-author', 'Badge Author').lastInsertRowid;
-    likedThumb = 'badge-liked-t.jpg';
-    const likedId = db
+      .run('victory-author', 'Victory Author').lastInsertRowid;
+    likedNoRankThumb = 'victory-liked-t.jpg';
+    const likedNoRankId = db
       .prepare(
         `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
-         VALUES (?, ?, 'badge-liked.jpg', ?, 0)`
+         VALUES (?, ?, 'victory-liked.jpg', ?, 0)`
       )
-      .run(authorId, taskId, likedThumb).lastInsertRowid;
-
-    // Five distinct likers.
+      .run(authorId, likedTaskId, likedNoRankThumb).lastInsertRowid;
     for (let i = 0; i < 5; i++) {
       const likerId = db
         .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
-        .run(`badge-liker-${i}`, `Badge Liker ${i}`).lastInsertRowid;
-      db.prepare(`INSERT INTO likes (submission_id, guest_id) VALUES (?, ?)`).run(likedId, likerId);
+        .run(`victory-liker-${i}`, `Victory Liker ${i}`).lastInsertRowid;
+      db.prepare(`INSERT INTO likes (submission_id, guest_id) VALUES (?, ?)`).run(
+        likedNoRankId,
+        likerId
+      );
     }
 
-    const task2 = db
+    // A released task with a 1st and 2nd place, so the same page renders
+    // both the gold and white medal in one request.
+    const rankedTaskId = db
       .prepare(`INSERT INTO tasks (title) VALUES (?)`)
-      .run('Badge task 2').lastInsertRowid;
-    unlikedThumb = 'badge-unliked-t.jpg';
-    db.prepare(
-      `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
-       VALUES (?, ?, 'badge-unliked.jpg', ?, 0)`
-    ).run(authorId, task2, unlikedThumb);
+      .run('Victory task (ranked)').lastInsertRowid;
+    const winner1Id = db
+      .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
+      .run('victory-winner-1', 'Victory Winner 1').lastInsertRowid;
+    const winner2Id = db
+      .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
+      .run('victory-winner-2', 'Victory Winner 2').lastInsertRowid;
+    rank1Thumb = 'victory-rank1-t.jpg';
+    const rank1Id = db
+      .prepare(
+        `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+         VALUES (?, ?, 'victory-rank1.jpg', ?, 0)`
+      )
+      .run(winner1Id, rankedTaskId, rank1Thumb).lastInsertRowid;
+    rank2Thumb = 'victory-rank2-t.jpg';
+    const rank2Id = db
+      .prepare(
+        `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+         VALUES (?, ?, 'victory-rank2.jpg', ?, 0)`
+      )
+      .run(winner2Id, rankedTaskId, rank2Thumb).lastInsertRowid;
+
+    const released = taskBadges.releaseRanking(rankedTaskId, [rank1Id, rank2Id]);
+    expect(released).toBeTruthy();
   });
 
-  it('a 5-like tile carries a badge with the text 5; a 0-like tile has no badge', async () => {
+  it('AC1: no tile on the page carries the retired like-count overlay', async () => {
     const res = await agent.get('/gallery');
     expect(res.status).toBe(200);
+    expect(res.text).not.toContain('tile-like-badge');
+  });
 
-    const liked = tileChunk(res.text, likedThumb);
-    expect(liked).toContain('tile-like-badge');
-    expect(liked).toMatch(/tile-like-badge[^<]*<[^>]*>[^<]*<\/span>\s*5\s*</);
+  it('AC2: a liked-but-unranked photo wears no corner mark', async () => {
+    const res = await agent.get('/gallery');
+    const chunk = tileChunk(res.text, likedNoRankThumb);
+    expect(chunk).not.toContain('tile-victory');
+  });
 
-    const unliked = tileChunk(res.text, unlikedThumb);
-    expect(unliked).not.toContain('tile-like-badge');
+  it('AC2: rank 1 wears the gold victory medal, rank 2 wears the white one', async () => {
+    const res = await agent.get('/gallery');
+
+    const first = tileChunk(res.text, rank1Thumb);
+    expect(first).toContain('tile-victory');
+    expect(first).toContain('tile-victory-gold');
+
+    const second = tileChunk(res.text, rank2Thumb);
+    expect(second).toContain('tile-victory');
+    expect(second).not.toContain('tile-victory-gold');
   });
 });
 

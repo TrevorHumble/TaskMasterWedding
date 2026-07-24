@@ -48,12 +48,30 @@
       so the crown mark below simply matches nothing rather than throwing. %>
   <% var crownRank = (typeof crownRank !== 'undefined' && crownRank) ? crownRank : {}; %>
 
+  <%# Gold is reserved for a SINGLE champion (issue #811 AC4): the route
+      derives crownGoldId from the SAME crowdFavorites() call that built
+      crownRank above (community.js's crownRankState()) — the sole rank-1
+      submission id when exactly one photo holds rank 1, else null when zero
+      or several tie there. Defaults to null when a caller omits it, matching
+      crownRank's own guard idiom. %>
+  <% var crownGoldId = (typeof crownGoldId !== 'undefined') ? crownGoldId : null; %>
+
+  <%# Task-badge victory medal lookup (issue #811): submission_id -> released
+      placement rank (1 is gold), supplied by the route from ONE
+      taskBadges.victoryRankBySubmission() call over guest_badges' released
+      ranks. Defaults to an empty lookup when a caller renders this view
+      without it, matching crownRank's own guard idiom. %>
+  <% var badgeVictory = (typeof badgeVictory !== 'undefined' && badgeVictory) ? badgeVictory : {}; %>
+
   <%
-    /* One photo tile: thumbnail linking into the feed at that photo, with a
-       like-count badge only when likes exist (no badge at 0). A top-5
-       crowd-favorite photo also wears its crown (issue #788). overlayCount
-       and overlayHref, when given, render the "+N" scrim on this tile
-       (grouped previews, issue #251) and repoint the tile at the full list. */
+    /* One photo tile: thumbnail linking into the feed at that photo. A top-5
+       crowd-favorite photo wears its crown, top-left (issue #788); a photo
+       that holds a released task-badge rank wears its victory medal,
+       bottom-left, and no corner mark otherwise — the tile carries no
+       like-count overlay (issue #811). overlayCount and overlayHref, when
+       given, render the "+N" scrim on this tile (grouped previews, issue
+       #251), taking precedence over the medal, and repoint the tile at the
+       full list. */
     function renderTile(p, overlayCount, overlayHref) {
   %>
     <figure class="gallery-item">
@@ -71,12 +89,18 @@
           height="400"
         />
         <% if (!overlayCount && crownRank[p.submission_id]) { %>
-          <%- include('partials/crowd-favorite-mark', { rank: crownRank[p.submission_id] }) %>
+          <%- include('partials/crowd-favorite-mark', {
+                rank: crownRank[p.submission_id],
+                gold: crownGoldId !== null && p.submission_id === crownGoldId
+              }) %>
         <% } %>
         <% if (overlayCount) { %>
           <span class="tile-more">+<%= overlayCount %></span>
-        <% } else if (p.like_count > 0) { %>
-          <span class="tile-like-badge"><span aria-hidden="true">&hearts;</span> <%= p.like_count %></span>
+        <% } else if (badgeVictory[p.submission_id]) { %>
+          <%# The gallery tile carries no like-count overlay (issue #811): the
+              only bottom-left mark a photo wears is its task-badge victory
+              medal, when it has won one. %>
+          <%- include('partials/badge-victory-mark', { rank: badgeVictory[p.submission_id] }) %>
         <% } %>
       </a>
     </figure>

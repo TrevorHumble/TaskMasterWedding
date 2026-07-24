@@ -9,6 +9,11 @@ const scoring = require('../services/scoring');
 const feed = require('../services/feed');
 const photos = require('../services/photos');
 const submissions = require('../services/submissions');
+// The victory-medal lookup (issue #811 — victoryRankBySubmission) and the
+// existing ranked-release write path (issue #661). Already required at the
+// top level by src/routes/admin.js and src/routes/guest.js with no cycle
+// back to this file, so this require is safe the same way.
+const taskBadges = require('../services/task-badges');
 // denseRank (issue #625) is the leaderboard's own dense ("1223") ranking
 // rule, moved out of this file's GET /leaderboard handler into
 // src/services/rank.js so it lives beside crowd favorites' DIFFERENT
@@ -337,24 +342,37 @@ function attachPhotoPoints(photos) {
 }
 
 /**
- * The event-wide crowd-favorite rank lookup (issue #788 phase 2): a plain
- * `submission_id -> rank` object built from ONE `scoring.crowdFavorites()`
+ * The event-wide crowd-favorite rank + gold-champion state (issue #788 phase
+ * 2, refined by issue #811 AC4): built from ONE `scoring.crowdFavorites()`
  * call, the single derived set that decides who places and at what rank
- * (scoring.js's own doc comment). This is a thin re-key from that array to a
- * lookup object — nothing here re-derives a like ranking of its own. Every
- * crowd-favorite surface (GET /gallery, GET /feed, GET /u/:guestId) calls
- * this exactly once per request and hands the result straight to its view,
- * which renders the shared partials/crowd-favorite-mark from it and nothing
- * else (AC1). Rank 1 is gold; the crown mark itself owns that distinction
- * (partials/crowd-favorite-mark.ejs), not this lookup.
- * @returns {Object<number, number>} submission_id -> rank (1 is best)
+ * (scoring.js's own doc comment) — nothing here re-derives a like ranking of
+ * its own. `crownRank` is a thin re-key from that array to a
+ * `submission_id -> rank` lookup object. `crownGoldId` is folded out of the
+ * SAME pass over that array (issue #811's own plan: "fold the goldId out of
+ * the existing lookup pass", never a second crowdFavorites() call): the sole
+ * rank-1 submission id when exactly one placing holds rank 1, else `null`
+ * when zero or two-or-more photos tie there — gold marks a LONE champion,
+ * never a shared top spot. Every crowd-favorite surface (GET /gallery, GET
+ * /feed, GET /u/:guestId) calls this exactly once per request and hands both
+ * fields straight to its view, which renders the shared
+ * partials/crowd-favorite-mark from them and nothing else (AC1/AC4).
+ * @returns {{crownRank: Object<number, number>, crownGoldId: number|null}}
  */
-function crownRankLookup() {
-  const lookup = {};
+function crownRankState() {
+  const crownRank = {};
+  let rank1Count = 0;
+  let rank1SubmissionId = null;
   for (const placing of scoring.crowdFavorites()) {
-    lookup[placing.submission_id] = placing.rank;
+    crownRank[placing.submission_id] = placing.rank;
+    if (placing.rank === 1) {
+      rank1Count += 1;
+      rank1SubmissionId = placing.submission_id;
+    }
   }
-  return lookup;
+  return {
+    crownRank,
+    crownGoldId: rank1Count === 1 ? rank1SubmissionId : null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -395,8 +413,12 @@ function renderGallery(
       // One crowdFavorites() call per request (issue #788 AC1) — every
       // branch above calls renderGallery exactly once and returns, so this
       // single call point covers the whole handler regardless of which
-      // branch ran.
-      crownRank: crownRankLookup(),
+      // branch ran. crownRankState() also folds out crownGoldId (issue #811
+      // AC4) from this SAME call — no second scan.
+      ...crownRankState(),
+      // One victoryRankBySubmission() query per request (issue #811 AC3),
+      // covering every branch above the same way crownRankState() does.
+      badgeVictory: taskBadges.victoryRankBySubmission(),
     })
   );
 }
@@ -482,8 +504,9 @@ router.get('/feed', (req, res) => {
       captionMaxLength: submissions.CAPTION_MAX_LENGTH,
       olderHref,
       newerHref,
-      // One crowdFavorites() call per request (issue #788 AC1).
-      crownRank: crownRankLookup(),
+      // One crowdFavorites() call per request (issue #788 AC1); crownGoldId
+      // (issue #811 AC4) is folded out of that same call.
+      ...crownRankState(),
     })
   );
 });
@@ -1024,8 +1047,12 @@ router.get('/u/:guestId', (req, res, next) => {
       socialLinks,
       photos,
       score,
-      // One crowdFavorites() call per request (issue #788 AC1).
-      crownRank: crownRankLookup(),
+      // One crowdFavorites() call per request (issue #788 AC1); crownGoldId
+      // (issue #811 AC4) is folded out of that same call. This route also has
+      // a pre-existing SECOND, unrelated crowdFavorites() call via
+      // scoring.getPoints -> crowdPointsByGuest (the profile's points header)
+      // — see crownRankState()'s own doc comment; that call is untouched.
+      ...crownRankState(),
     })
   );
 });
