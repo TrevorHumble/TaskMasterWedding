@@ -4,6 +4,90 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
 
 **North Star / goals:** confirmed. The product goals live in [`docs/north-star.md`](docs/north-star.md) (one-screen summary in [`CLAUDE.md`](CLAUDE.md)). The decisions recorded below serve those goals — most directly getting any guest in fast and keeping the app standing under the whole guest list at once (Goal A). One goal-driven decision is still **open and unbuilt**: Goal C's contained sharing (scoping content to the right audience). Moderation today is takedown-only (see "Photos: … takedown over delete" below); the audience-split design will be recorded here once chosen. The app must be live for guests by **Friday, Aug 7, 2026**.
 
+## Table of contents
+
+**Live app architecture** — how the deployed guest/admin app actually works.
+
+- [Constraints that shaped the design](#constraints-that-shaped-the-design)
+- Key decisions (app architecture):
+  - [Single SQLite file via better-sqlite3 (synchronous)](#single-sqlite-file-via-better-sqlite3-synchronous)
+  - [Server-rendered EJS, vanilla client JS, no build step](#server-rendered-ejs-vanilla-client-js-no-build-step)
+  - [guests.token: an internal session credential, never distributed (#244)](#gueststoken-an-internal-session-credential-never-distributed-244)
+  - [Guest identity: contact as the account key, plaintext re-entry PIN (#239)](#guest-identity-contact-as-the-account-key-plaintext-re-entry-pin-239)
+  - [Single admin password, bcrypt hash on disk](#single-admin-password-bcrypt-hash-on-disk)
+  - [COOKIE_SECRET must be fixed for the event](#cookie_secret-must-be-fixed-for-the-event)
+  - [Guest sessions are rolling and long-lived, admin is not (#242)](#guest-sessions-are-rolling-and-long-lived-admin-is-not-242)
+  - [Photos: multer intake, sharp normalization, takedown over delete](#photos-multer-intake-sharp-normalization-takedown-over-delete)
+  - [HEIC accepted and converted to JPEG at intake (#281, supersedes #188's rejection)](#heic-accepted-and-converted-to-jpeg-at-intake-281-supersedes-188s-rejection)
+  - [sharp 0.35.2 SAC block was a reputation-lag, now cleared (#304)](#sharp-0352-sac-block-was-a-reputation-lag-now-cleared-304)
+  - [Scoring derived, not stored](#scoring-derived-not-stored)
+  - [Badge thresholds live in scoring.js; custom badges reverse the earlier "fixed catalog" decision](#badge-thresholds-live-in-scoringjs-custom-badges-reverse-the-earlier-fixed-catalog-decision)
+  - [Task badges: one badge row per task, awards carry the variable data (#483)](#task-badges-one-badge-row-per-task-awards-carry-the-variable-data-483)
+  - [Two UNIQUE constraints enforce the core rules in the schema](#two-unique-constraints-enforce-the-core-rules-in-the-schema)
+  - [Export as a ZIP + xlsx, then discard](#export-as-a-zip-xlsx-then-discard)
+  - [Hosted deployment](#hosted-deployment)
+  - [CSRF tokens and security headers: implemented (#284)](#csrf-tokens-and-security-headers-implemented-284)
+  - [Rate limiting and persistent admin lockout (#283)](#rate-limiting-and-persistent-admin-lockout-283)
+- [ADR: Backup split — database and photos get opposite cadences (#558)](#adr-backup-split-database-and-photos-get-opposite-cadences-558)
+- Feature ADRs (one per shipped guest/admin feature):
+  - [Host checklist: one row-definition module, feature-detected rows (#646)](#host-checklist-one-row-definition-module-feature-detected-rows-646)
+  - [Memory-day bonus: event-local day math in JS, leaderboard's JS re-sort (#656)](#memory-day-bonus-event-local-day-math-in-js-leaderboards-js-re-sort-656)
+  - [Flash guest marker: shared shape, separate hue, no floor, no neutral fallback (#762)](#flash-guest-marker-shared-shape-separate-hue-no-floor-no-neutral-fallback-762)
+  - [Recap: derived events vs. written events, and the badge-moment stamp (#644)](#recap-derived-events-vs-written-events-and-the-badge-moment-stamp-644)
+  - [Admin Photos, task-scoped: taken-down included, feed narrowed, H1 reads the scope (#748)](#admin-photos-task-scoped-taken-down-included-feed-narrowed-h1-reads-the-scope-748)
+  - [Badge celebration priority derived from the catalog, not a code list (#714)](#badge-celebration-priority-derived-from-the-catalog-not-a-code-list-714)
+  - [Community guard completeness: stack-derived, not hand-maintained (#574)](#community-guard-completeness-stack-derived-not-hand-maintained-574)
+  - [Lucky task: its own columns, no special_mode member, banked-not-derived, last in the walk (#650)](#lucky-task-its-own-columns-no-special_mode-member-banked-not-derived-last-in-the-walk-650)
+  - [Gallery live search: one parameterized wiring serves both grouped views (#527)](#gallery-live-search-one-parameterized-wiring-serves-both-grouped-views-527)
+  - [Flash task: HOST surface — sentinel radio, one no-op rule, candidate-selection date math (#763)](#flash-task-host-surface-sentinel-radio-one-no-op-rule-candidate-selection-date-math-763)
+  - [Rank & award: a separate page, one-badge-system consolidation, client-side-only draft state (#661)](#rank-award-a-separate-page-one-badge-system-consolidation-client-side-only-draft-state-661)
+  - [Bug-report lifecycle: additive `status` over a `resolved` rebuild, one count owner (#686)](#bug-report-lifecycle-additive-status-over-a-resolved-rebuild-one-count-owner-686)
+  - [Crowd favorites: derived not materialized, standard-competition rank, one absorbed ranker (#625)](#crowd-favorites-derived-not-materialized-standard-competition-rank-one-absorbed-ranker-625)
+  - [Crowd-favorite crown: a render-time marker, never a stored badge (#788)](#crowd-favorite-crown-a-render-time-marker-never-a-stored-badge-788)
+  - [TOPLIKED: the Most Liked crown as a materialized, transferable badge (#817, widened by #821)](#topliked-the-most-liked-crown-as-a-materialized-transferable-badge-817-widened-by-821)
+
+**Retired governance history** — the AI-review pipeline's own evolution. Most of this machinery no
+longer runs (see the teardown ADR); it is kept as a record of what was tried and why. A few entries
+(the coverage-floor ratchet, the sonnet-only tier, wave governance, the visual-approval loop, Fable)
+describe pipeline rules still in force today — recorded here as the history of how they came to be,
+not as app architecture.
+
+- Key decisions (process/governance):
+  - [Merge policy: owner-merge boundary retired](#merge-policy-owner-merge-boundary-retired)
+  - [Visual-approval loop reinstated (active screenshot gate) (#294) — SUPERSEDED by #378](#visual-approval-loop-reinstated-active-screenshot-gate-294-superseded-by-378)
+  - [Visual-approval loop, live-preview mechanism (#378)](#visual-approval-loop-live-preview-mechanism-378)
+  - [Commit gate: review evidence bound to the staged tree](#commit-gate-review-evidence-bound-to-the-staged-tree)
+  - [Bias-gate and adjudication evidence artifacts (#47)](#bias-gate-and-adjudication-evidence-artifacts-47)
+  - [Program-driven review runner (#128)](#program-driven-review-runner-128)
+  - [Issue-review gate: every code commit names a reviewed issue (#46)](#issue-review-gate-every-code-commit-names-a-reviewed-issue-46)
+  - [Issue-creation review marker: born `needs-issue-review`, cleared by a separate reader-gated tool (#62)](#issue-creation-review-marker-born-needs-issue-review-cleared-by-a-separate-reader-gated-tool-62)
+  - [Worktree-per-agent isolation (#113)](#worktree-per-agent-isolation-113)
+  - [Fetch-fresh worktrees, overlap-aware freshness, and wave alignment (#357)](#fetch-fresh-worktrees-overlap-aware-freshness-and-wave-alignment-357)
+  - [Branch protection on main](#branch-protection-on-main)
+  - [Review-artifact-present check (#48)](#review-artifact-present-check-48)
+  - [Server-side issue-creation guard (#116)](#server-side-issue-creation-guard-116)
+  - [Roadmap: board-derived, session-structured (#139)](#roadmap-board-derived-session-structured-139)
+  - [Planning governance: agents tick status, the owner reshapes intent (#140)](#planning-governance-agents-tick-status-the-owner-reshapes-intent-140)
+  - [Fable: available, owner-signal only (#453)](#fable-available-owner-signal-only-453)
+  - [Empirical smoke gate (#197)](#empirical-smoke-gate-197)
+  - [Review-cost overhaul: 1-reviewer routine rounds, batching, advisory lenses (#201, #218)](#review-cost-overhaul-1-reviewer-routine-rounds-batching-advisory-lenses-201-218)
+  - [Governance ledger (#219): committed record, CI is the only writer](#governance-ledger-219-committed-record-ci-is-the-only-writer)
+  - [BUILDLOG comment harvest (#447): per-merge entries move off hand-appended edits](#buildlog-comment-harvest-447-per-merge-entries-move-off-hand-appended-edits)
+  - [Governance snapshots (#224): tagged states, exported surface + stats](#governance-snapshots-224-tagged-states-exported-surface-stats)
+  - [Event mode (#220): wedding-day freeze with expiring flag and mandatory retro-review](#event-mode-220-wedding-day-freeze-with-expiring-flag-and-mandatory-retro-review)
+  - [Trivial dep-bump gate (#448): recomputed, not attested](#trivial-dep-bump-gate-448-recomputed-not-attested)
+  - [Coverage floors are a ratchet; mutation score is the quality signal (#198, #199)](#coverage-floors-are-a-ratchet-mutation-score-is-the-quality-signal-198-199)
+  - [Wave governance (#310): grandfathering, owner-invoked wave review, doc-currency step](#wave-governance-310-grandfathering-owner-invoked-wave-review-doc-currency-step)
+  - [Merge queue (#404)](#merge-queue-404)
+  - [Sonnet-only run tier (#427)](#sonnet-only-run-tier-427)
+  - [Acceptance criteria as a promise, not a rulebook (#541)](#acceptance-criteria-as-a-promise-not-a-rulebook-541)
+  - [No severity adjudicator when the orchestrator concedes a rewrite (#540)](#no-severity-adjudicator-when-the-orchestrator-concedes-a-rewrite-540)
+- [System-level change (definition)](#system-level-change-definition)
+- [Security lens (#222)](#security-lens-222)
+- [ADR: Governance teardown and freeze (#587)](#adr-governance-teardown-and-freeze-587)
+- [ADR: Sonnet-only tier reinstated as reviewer judgment (#680)](#adr-sonnet-only-tier-reinstated-as-reviewer-judgment-680)
+- [ADR: DESIGN.md carved out of the governance freeze (#707)](#adr-designmd-carved-out-of-the-governance-freeze-707)
+
 ## Constraints that shaped the design
 
 - One small Linux host (VPS or PaaS volume) with a persistent disk and TLS terminated at a reverse proxy, running from before the welcome dinner until the post-event export.
@@ -647,7 +731,7 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 ### Coverage floors are a ratchet; mutation score is the quality signal (#198, #199)
 
-**Coverage gate (#198).** The thresholds in `vitest.config.mjs` were commented out from the start — the 80% rule the owner believed was enforced never gated anything. Rather than wait for a suite that clears 80 (the "enable later" posture that had already held for months), the gate is ON at the floors measured on `main` @ 485886a (2026-07-05): statements 62, branches 53, functions 65, lines 62. The floors are a **ratchet**: raise them toward 80/80/80/80 as tests land (tracked by #181), never lower them. A change that drops coverage below any floor fails the required `test` check — that is the failure mode the gate exists to catch, and it works today, not after some future test-writing push.
+**Coverage gate (#198).** The thresholds in `vitest.config.mjs` were commented out from the start — the 80% rule the owner believed was enforced never gated anything. Rather than wait for a suite that clears 80 (the "enable later" posture that had already held for months), the gate went ON at the floors measured on `main` @ 485886a (2026-07-05): statements 62, branches 53, functions 65, lines 62. The floors are a **ratchet**: they move up as tests land (tracked by #181), never down. A change that drops coverage below any floor fails the required `test` check — that is the failure mode the gate exists to catch, and it works today, not after some future test-writing push. **The current numbers are not restated here** — they have already moved twice since the 2026-07-05 baseline above — read them straight from `vitest.config.mjs`'s `thresholds` block, which is the single owner and the only copy that can't go stale.
 
 **Mutation testing (#199).** Coverage says a line _ran_ under tests; it cannot say a test would _fail_ if the line were wrong. Stryker (`npm run mutation`, config in `stryker.conf.json`) measures exactly that by planting small bugs and counting how many the suite catches. It is a **signal, not a gate**: too slow and too noisy to block PRs, so it runs on demand and on a weekly schedule (`.github/workflows/mutation.yml`, never a required check). The baseline score, the plain-English list of what the tests currently miss, and the ratchet intent live in `docs/test-quality.md`.
 
@@ -1016,8 +1100,9 @@ omitted outright rather than gated on a check that has nothing to test.
 
 **Why manual rows post through a plain form, not new client-side JavaScript.** The design calls for
 exactly one interaction shape reused from elsewhere in this admin: a form POST that flips one piece of
-server-held state and redirects back (`POST /admin/bugs/:id/resolve`, `POST /admin/guests/:id/badge`'s
-toggle case). Manual items are persisted the same way `src/services/lockout.js` persists its own
+server-held state and redirects back (`POST /admin/bugs/:id/track` / `/close` since #686 retired the
+single `/resolve` route into a three-state lifecycle, `POST /admin/guests/:id/badge`'s toggle case).
+Manual items are persisted the same way `src/services/lockout.js` persists its own
 counters — a `settings` key/value row read and written through the exported `db` handle — so no new
 storage shape or read/write pattern was introduced. The one visual cost is that a `<button>` needs a
 full CSS reset before it can render pixel-identical to the frozen `.check-link` anchor style (a bare
@@ -1038,7 +1123,7 @@ than left to rot.
 **CSRF deviation from the issue plan (recorded, #769).** The issue's implementation plan called the
 manual-toggle POST "CSRF-protected." This app carries no CSRF middleware or token anywhere
 (`grep -rni csrf src` returns nothing) — `POST /admin/checklist/:id/toggle` matches the same
-session-cookie-only protection every other admin POST route already uses (`POST /admin/bugs/:id/resolve`,
+session-cookie-only protection every other admin POST route already uses (`POST /admin/bugs/:id/track`,
 `POST /admin/guests/:id/badge`, etc.), which is consistent with existing prior art but is not actually
 CSRF protection. The gap is real and app-wide, not specific to this issue's one new route; it is tracked
 separately as #769 rather than being invented ad hoc inside this issue's narrow Touches.

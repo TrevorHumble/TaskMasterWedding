@@ -15,6 +15,8 @@ How to take Wedding Master from a bare Linux host to serving guests over HTTPS, 
 
 Set these in a `.env` file in the project root (copy `.env.example`; the `.env` you create is gitignored and never committed).
 
+**This table is a curated subset** — the variables you're most likely to need to touch on a real deploy. Every environment variable the app reads, including ones not repeated here (the lockout-duration pair `ADMIN_LOGIN_LOCKOUT_MS`/`GUEST_LOGIN_LOCKOUT_MS`, `MAX_CONCURRENT_UPLOADS`, `MIN_FREE_DISK_BYTES`, and the memory/HEIC rate knobs), is defined with its default and rationale in [`config.js`](../config.js) — that file, not this table, is the single source of truth.
+
 | Variable                              | Required             | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `COOKIE_SECRET`                       | Yes                  | Signs the guest and admin cookies. Fixed, so restarts do not sign everyone out. Generate one with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`                                                                                                                                                                                                                                                                                                                                                               |
@@ -33,6 +35,34 @@ Set these in a `.env` file in the project root (copy `.env.example`; the `.env` 
 | `RATE_LIMIT_TRACKED_MAX`              | No                   | Hard cap on how many distinct keys one rate limiter tracks at a time. Default `5000`. Bounds memory and per-request CPU under a flood from many distinct source IPs; over the cap, the key whose window expires soonest is evicted. Raise only if you expect more than 5000 distinct clients in one window.                                                                                                                                                                                                                                 |
 | `GUEST_LOGIN_TRACKED_MAX`             | No                   | Hard cap on how many distinct normalized contacts the guest-login lockout tracker (`src/routes/auth.js`) holds at once. Default `5000`. Over the cap, the oldest contact NOT currently locked out is evicted first, so a flood of made-up contacts cannot un-lock a real one.                                                                                                                                                                                                                                                               |
 | `ADMIN_LOGIN_MAX_CONCURRENT_COMPARES` | No                   | Bound on how many `bcrypt.compare` calls `POST /admin/login` runs AT ONCE (issue #543). Default `2`. Not a rate limiter — see `DESIGN.md`'s "No limiter on `POST /admin/login`, deliberately." An over-limit caller queues (never refused) rather than being rejected, so raising or lowering this only trades event-loop share for queue wait time; it does not change the login page's total request throughput.                                                                                                                          |
+
+### Security posture, current
+
+Stated in one place, so it doesn't have to be pieced together from separate sections.
+
+**CSRF: implemented.** Every unsafe-method request (POST/PUT/PATCH/DELETE) carries a signed
+double-submit token (`src/middleware/csrf.js`), verified against the same signed cookie the
+`gsid`/`admin` sessions already use. The four multipart upload routes (`/join`, `/tasks/:id/submit`,
+`/memories`, `/me/edit`) get a scoped post-multer check instead of the middleware's own check, since
+multer hasn't parsed the body yet when the middleware runs — every other route is verified directly. See
+`DESIGN.md` § "CSRF tokens and security headers: implemented (#284)" for the full mechanism; this
+runbook doesn't restate it.
+
+**Security headers: three baseline headers ship.** `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, and `Referrer-Policy: strict-origin-when-cross-origin` are set in `src/app.js`
+ahead of the static mounts, so `/uploads`, `/thumbs`, `/js`, and `/css` carry them too, not just the
+rendered pages.
+
+**CSP: still deliberately not added.** This is a stated, intentional gap, not an oversight — several
+views render inline event-adjacent attributes, and a CSP tight enough to matter needs an inline-script
+audit that hasn't been done yet. Landing an untested CSP risked breaking a page for hardening the other
+three headers don't carry the same risk for.
+
+**Still true, unchanged by the above:** every session cookie (guest and admin) is signed and carries
+`SameSite=Lax` (`src/middleware/session.js`); every state-changing route is a POST, never a
+GET-triggered mutation; the app sits behind a single dedicated domain with no untrusted sibling origin
+(issue #544); the rate limiters and lockouts documented in the table above bound credential-guessing and
+abusive traffic; and every upload path enforces a body-size cap.
 
 ## Option A — Docker Compose
 

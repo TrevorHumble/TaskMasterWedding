@@ -2,7 +2,11 @@
 
 A checklist for judging whether a change is actually finished — not just merged. The PR reviewer applies this alongside the issue's acceptance criteria (`agents/reviewer-pr.md`); an unmet clause is a defect, not a nice-to-have. Ten clauses, each a short rule with a concrete example. Read it in under two minutes.
 
-**Why this exists.** Custom badges shipped with a create path and no delete or edit path (#410; the gap is now #533). Nobody decided "no delete" — it just wasn't in the acceptance criteria, so it fell off. This list exists so that gap gets caught before merge, not discovered by a host at the party.
+**Why this exists.** Custom badges shipped with a create path and no delete or edit path (#410). #533,
+filed to track the gap, was closed `NOT_PLANNED` as filed-in-error — the gap itself is real and, as of
+this writing, untracked by any open issue. Nobody decided "no delete" — it just wasn't in the acceptance
+criteria, so it fell off. This list exists so that gap gets caught before merge, not discovered by a host
+at the party.
 
 ---
 
@@ -16,7 +20,7 @@ Example: a photo-upload feature that only specifies "guest submits a photo, it a
 
 If a change lets a host or guest create a thing — a badge, a photo, a note, a task — the same change gives them a way to undo, edit, or remove it. Ask, for anything the change can create: once this ships, is anyone **trapped, or merely wanting**? "Trapped" means no path out at all — a bad badge stays forever. "Wanting" means a real but lower-priority improvement, like wanting to reorder favorites — that can wait for its own issue. A change owns every state it can create: if it can create a thing, it must also cover that thing being wrong, failing, or needing to go away.
 
-Example: custom badges (#410) shipped an upload path with no delete path. The host who uploaded a bad badge was trapped, not merely wanting — that is the gap this clause exists to catch, now tracked as #533.
+Example: custom badges (#410) shipped an upload path with no delete path. The host who uploaded a bad badge was trapped, not merely wanting — that is the gap this clause exists to catch. (#533 was filed against it and closed `NOT_PLANNED` as filed-in-error; the gap itself remains real and untracked.)
 
 Mechanically enforced at: the PR reviewer's create/delete/hide/restore/resubmit checklist item (`agents/reviewer-pr.md`, evidence #190/#191/#196) — this clause is that item's whole-feature framing, checked once there.
 
@@ -68,6 +72,6 @@ Example: a redesigned leaderboard screen is not done at "the code renders it cor
 
 An issue whose last step is a manual action by the owner or on GitHub itself — flipping a repo setting, turning on a required check, enabling a feature flag — is **not done when the code merges**. It is done when that manual step has actually been taken and the described behavior is true in production, not just possible in production.
 
-Example: #48 and #431 both closed as done while their final manual step was never carried out — `review-artifact-present` still is not a required check, and `strict` is still `true` on live `main` despite #431 closing as "kill the update-loop." Both looked green on the board and were false in reality. This clause exists so that stops counting as done. (Note, 2026-07-17: the `review-artifact-present` job named in this example no longer exists — it was retired along with the rest of the proof layer, see `DESIGN.md`'s teardown ADR — but the clause itself, and the lesson the example teaches, still stand.)
+Example: #48 and #431 both closed as done while their final manual step was never carried out — at the time, `review-artifact-present` was still not a required check, and `strict` was still `true` on live `main` despite #431 closing as "kill the update-loop." Both looked green on the board and were false in reality. This clause exists so that stops counting as done. (Note, 2026-07-17: both of those specific facts have since changed — `review-artifact-present` no longer exists, retired along with the rest of the proof layer, and the owner turned branch protection's `strict` off, so it is now `false` on live `main`; see `DESIGN.md`'s teardown ADR. The clause itself, and the lesson the example teaches, still stand.)
 
 At PR-review time, before the manual step can possibly have run, this clause is satisfied by confirming the step is recorded and the issue cannot auto-close as done ahead of it — full liveness is confirmed at issue-closure, not against the diff (see `agents/reviewer-pr.md` § "Apply the Definition of Done").
