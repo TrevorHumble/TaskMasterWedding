@@ -1,0 +1,56 @@
+<!-- src/views/how-points-work.ejs -->
+<%- include('partials/head', { title: title }) %>
+<%- include('partials/header') %>
+
+  <h1 class="page-title center">How to earn points</h1>
+  <p class="muted center points-intro">Points add up from all over the weekend. Here&rsquo;s every way to score.</p>
+
+  <ul class="points-list">
+    <li class="points-row">
+      <span class="points-title">Earn the Masters&rsquo; favor</span>
+      <div class="points-tags">
+        <span class="points-tag points-tag-points">1&ndash;5 points</span>
+        <span class="points-tag points-tag-badge">Badge</span>
+      </div>
+      <p class="points-desc">The Wedding Masters award the top five: great shots, funny moments, and images that give us those warm, fuzzy feelings.</p>
+    </li>
+
+    <li class="points-row">
+      <span class="points-title">Snap the tasks</span>
+      <div class="points-tags">
+        <span class="points-tag points-tag-points">1&ndash;3 points</span>
+      </div>
+      <p class="points-desc">Each task is a photo the hosts ask you to take. Snap it and it scores. Trickier tasks are worth more.</p>
+    </li>
+
+    <li class="points-row">
+      <span class="points-title">Win the crowd</span>
+      <div class="points-tags">
+        <span class="points-tag points-tag-points">1&ndash;5 points</span>
+        <span class="points-tag points-tag-badge">Badge</span>
+      </div>
+      <p class="points-desc">Like the photos you love. The top 5 most-liked photos win points for whoever took them.</p>
+    </li>
+
+    <li class="points-row">
+      <span class="points-title">Share a memory</span>
+      <div class="points-tags">
+        <span class="points-tag points-tag-points">1 point</span>
+      </div>
+      <p class="points-desc">Your first memory earns a point. Share as many as you like.</p>
+    </li>
+
+    <li class="points-row">
+      <span class="points-title">Collect milestone badges</span>
+      <div class="points-tags">
+        <span class="points-tag points-tag-points">1 point</span>
+        <span class="points-tag points-tag-badge">Badge</span>
+      </div>
+      <p class="points-desc">Rack up tasks and badges land on their own: First Bloom at 5, Bouquet Builder at 10, Full Garden at 15, Completionist for the clean sweep.</p>
+    </li>
+  </ul>
+
+  <a class="btn btn-block" href="/tasks">See your list of tasks</a>
+  <p class="back-link center"><a href="/how-to-play">Back to how to play</a></p>
+
+<%- include('partials/footer') %>

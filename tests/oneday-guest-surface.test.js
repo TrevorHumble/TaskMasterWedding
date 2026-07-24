@@ -5,7 +5,7 @@
 // approved gold flag/struck price and a past-day challenge falls back to an
 // ordinary row (AC4), the detail/submit routes 404 a sealed task exactly like
 // an inactive one (AC5), and the three guest-facing counts (/tasks chips,
-// home progress bar, /how-to-play mission count) all exclude a challenge the
+// home progress bar, /how-to-play task count) all exclude a challenge the
 // one-box ceiling suppresses (AC6).
 //
 // "Today" for every route under test comes from
@@ -676,7 +676,7 @@ describe('issue #754 review fix: a completed sealed challenge stays reachable an
 // ---------------------------------------------------------------------------
 // AC6: the three counts exclude a suppressed challenge.
 // ---------------------------------------------------------------------------
-describe('AC6: /tasks chips, home progress bar, and /how-to-play mission count all exclude a suppressed sealed challenge', () => {
+describe('AC6: /tasks chips, home progress bar, and /how-to-play task count all exclude a suppressed sealed challenge', () => {
   test('a suppressed challenge is excluded everywhere; the surviving (rendered) locked row IS still counted', async () => {
     resetTables();
     const guest = insertGuest({ avatarSet: true }); // starter already done, keeps counts simple
@@ -706,13 +706,13 @@ describe('AC6: /tasks chips, home progress bar, and /how-to-play mission count a
     expect(homeRes.status).toBe(200);
     expect(homeRes.text).toContain('1 of 4');
 
-    // /how-to-play mission count does NOT include the starter (issue #754
+    // /how-to-play task count does NOT include the starter (issue #754
     // AC6: the three counts are not required to agree with each other) —
-    // "3 photo missions", never "4" (which the suppressed challenge would add).
+    // "3 photo tasks", never "4" (which the suppressed challenge would add).
     const howToRes = await agent.get('/how-to-play');
     expect(howToRes.status).toBe(200);
-    expect(howToRes.text).toContain('3 photo missions');
-    expect(howToRes.text).not.toContain('4 photo missions');
+    expect(howToRes.text).toContain('3 photo tasks');
+    expect(howToRes.text).not.toContain('4 photo tasks');
   });
 
   test('the "finished every task" state is still reachable when a suppressed challenge exists', async () => {
