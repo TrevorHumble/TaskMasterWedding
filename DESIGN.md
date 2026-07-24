@@ -1991,3 +1991,75 @@ parenthetical noting the transferable registry was empty — now stale, since `T
 Fixing all four would be comment-only, but it would expose each whole core route/service file to review for no
 functional gain (this repo's review bar judges the whole touched file, not the diff). They are left for a
 later low-risk sweep rather than bundled here.
+
+## Bachelor-party second instance: one VARIANT flag, not a fork or a path prefix (#640)
+
+**Date:** 2026-07-23. **Status:** accepted.
+
+The bachelor party ("Stag Master") needed its own game — own standings, own admin backend, own photo pool —
+reachable from `lillyandaxel.com/bachelorparty`, styled black-tie instead of garden-pastel, with Lilly's name
+scrubbed throughout. Three shapes were on the table: fork the repo into a second codebase; serve it as a path
+prefix inside the existing wedding instance; or run a second deployment of the SAME codebase, switched by one
+config flag.
+
+**Path prefix was ruled out first, on a concrete fact, not a preference.** The app writes root-absolute links
+throughout the views — `href="/…"`, `action="/…"`, 150+ occurrences — so serving a second "instance" under
+`lillyandaxel.com/bachelorparty/...` would break every one of them (each would resolve back to the wedding
+site's own root). Rewriting every link to be prefix-aware would touch nearly every view in the app for a
+feature that exists for one weekend. Two instances on ONE hostname would also collide on cookie names
+(`gsid`/`admin` are unscoped by path) — a guest signed into the wedding game and a guest signed into the
+bachelor game from the same browser would fight over the same cookie. A path prefix was never a live option
+once these two facts were on the table.
+
+**Fork vs. one flag: the fork loses on every axis that matters here.** A fork buys nothing this event needs —
+there is no divergent FEATURE set, only a divergent PALETTE, WORDMARK, and BADGE CATALOG, all data/config-
+shaped, not behavior-shaped. A fork costs everything a second codebase always costs: every future bug fix
+(rate-limit tuning, a HEIC-decode edge case, a moderation fix) now needs porting twice or silently drifts;
+two `npm audit` surfaces; two CI pipelines; two places `git blame` has to search. Weighed against a single
+`VARIANT` env flag — one boolean-shaped fact threaded through config, `res.locals`, a handful of view
+conditionals, and one badge-catalog array swap — the flag is strictly cheaper for a difference this shallow,
+and it is REVERSIBLE in a way a fork is not: deleting the flag later (after the bachelor party is over) is a
+grep-and-remove; un-forking a diverged codebase is not.
+
+**Config.VARIANT drives three independent things through one flag, deliberately, not three separate flags.**
+Palette (`theme.css`'s `[data-theme='stag']` block), branding copy (wordmark, Lilly's name, the brand
+ornament), and the milestone badge catalog (`scripts/badge-catalog.js`'s `STAG_BADGES`) all read the SAME
+`config.VARIANT === 'stag'` (or, server-side, `res.locals.variant === 'stag'`) test. Three flags
+(`THEME=stag`, `BRAND=stag`, `BADGES=stag`) would let an operator accidentally run gold palette with wedding
+badge names — a combination nobody asked for and nothing in the design calls for supporting. One flag makes
+"stag" atomic: every variant-aware surface moves together or not at all.
+
+**Two instances, one codebase, isolated by `DATA_DIR` alone — no new access-control code.** The bachelor
+instance is a second deployment (own `DATA_DIR`/`DB_PATH`/`PORT`/`COOKIE_SECRET`/`BASE_URL`, `docs/deploy.md`
+§ Second instance) of the exact same `src/app.js`, not a second code path reachable from the wedding
+instance's own process. Admin separation, guest separation, and photo-pool separation all fall out of
+`DATA_DIR` separation for free — there is no `WHERE variant = ?` guard anywhere in a query, because there is
+no shared database for one to guard. The private join link IS the whitelist (issue #640's own framing): no
+per-user access-control code exists or is needed, matching how the wedding instance already onboards guests
+(a shared link, not individual invitations enforced server-side).
+
+**AC1's byte-identical default is a testing discipline, not a runtime branch.** Every variant-aware call site
+(views, `theme.css`, `scripts/badge-catalog.js`'s `catalogForVariant`) tests the EXACT string `=== 'stag'`,
+never truthiness — so a typo'd or unset `VARIANT` behaves exactly like the wedding instance always has,
+without a separate "is this a known variant" validation step. `config.VARIANT`'s own default (`''`) and this
+exact-match discipline are the only two places this guarantee is enforced; every other file just inherits it
+by following the same test.
+
+**Badge art: additive files under `src/public/badges/stag/`, never an in-place recolor.** The phase-1 live-
+preview loop (owner-approved 2026-07-23) initially recolored the wedding SVGs in place to iterate quickly;
+that was reverted before this issue shipped, because AC4 requires the wedding instance's badge files to stay
+byte-unchanged. The gold-on-dark set lives as SEPARATE files mirroring the wedding structure
+(`src/public/badges/stag/icons/*.svg`, `src/public/badges/stag/*.svg`) — a stag catalog entry's `art_path`
+points at its own file; nothing under the wedding path is ever touched. Only the badges the stag catalog
+actually references got a stag copy (the three milestone icons, `earlybird`, `most-liked`, `default-ribbon`)
+— the admin custom-badge icon picker (`src/services/badge-icons.js`'s `listIcons`/`resolveIconPath`) stays
+wedding-icon-only; no acceptance criterion asks the stag admin to pick from a gold-recolored ~200-icon set,
+and recoloring the full set for a picker nobody's shown wanting would be scope with no AC behind it.
+
+**No 15-task tier, no `src/services/scoring.js` change.** The bachelor event runs 10 challenges, so the stag
+catalog (`scripts/badge-catalog.js`'s `STAG_BADGES`) has no `GARDEN` entry at all. `scoring.js`'s
+`BADGE_THRESHOLDS` still lists `GARDEN` at `n=15` — that array is shared across both variants, not
+variant-aware — but `recomputeBadges`' existing `if (!badge) continue` guard (added for an unrelated reason:
+tolerating a fresh, not-yet-seeded catalog) already skips a threshold whose `badges` row is absent. The
+missing `GARDEN` row on a stag boot is therefore safe by an EXISTING guard, not a new one — one array reused
+by two catalogs is simpler than teaching `scoring.js` which variant it is running under.

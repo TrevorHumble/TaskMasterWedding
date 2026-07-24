@@ -1,12 +1,13 @@
 <!-- src/views/bug-report.ejs -->
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
+<% var _isStag = (typeof isStag !== 'undefined' && isStag); -%>
 
   <p class="back-link"><a href="/">&#8592; Home</a></p>
   <h1 class="page-title">Report a bug</h1>
 
   <p class="muted">
-    Something not working right? Tell the Wedding Masters what happened and
+    Something not working right? Tell the <%= _isStag ? 'Stag' : 'Wedding' %> Masters what happened and
     where — no need to track anyone down on the dance floor.
   </p>
 
@@ -24,7 +25,7 @@
         maxlength="1000"
         required
       ></textarea>
-      <p class="field-hint">The Wedding Masters will see this right away.</p>
+      <p class="field-hint">The <%= _isStag ? 'Stag' : 'Wedding' %> Masters will see this right away.</p>
     </div>
 
     <button type="submit" class="btn btn-block">Send report</button>

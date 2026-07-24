@@ -609,8 +609,14 @@ router.get('/how-points-work', function (req, res) {
 
 // Copy shown to the guest after a bug report is stored (AC1) and when the
 // body field is left empty (AC5). Named constants so the route and the tests
-// reference the same literal in one place.
-const BUG_REPORT_THANKS = 'Thanks — the Wedding Masters have been told.';
+// reference the same literal in one place. Variant-aware (issue #640 AC3):
+// read once at module load, same as task-badges.js's DEFAULT_RIBBON_ART_PATH
+// — config.VARIANT never changes for the lifetime of a running process, so
+// this never needs to be re-evaluated per request.
+const BUG_REPORT_THANKS =
+  config.VARIANT === 'stag'
+    ? 'Thanks — the Stag Masters have been told.'
+    : 'Thanks — the Wedding Masters have been told.';
 const BUG_REPORT_EMPTY_ERROR = 'Tell us what went wrong first.';
 // A stored bug body is capped at this many characters (issue #245 AC6) — long
 // enough for a real description. This bounds only the per-request body

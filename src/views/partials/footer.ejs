@@ -2,7 +2,7 @@
 </main>
 
 <footer class="site-footer">
-  <p class="footer-line">Wedding Master &#183; Lilly &amp; Axel</p>
+  <p class="footer-line"><%- (typeof isStag !== 'undefined' && isStag) ? 'Stag Master &#183; Axel' : 'Wedding Master &#183; Lilly &amp; Axel' %></p>
 </footer>
 
 <% if (typeof pageScript !== 'undefined' && pageScript) { %>

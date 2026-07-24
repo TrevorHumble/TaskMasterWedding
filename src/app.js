@@ -162,6 +162,37 @@ app.use((req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// 3a. Variant flag (issue #640). Expose config.VARIANT to every render as
+//     res.locals.variant — the single per-request write site, so every view
+//     (header.ejs, heart.ejs, theme.css's [data-theme] block, ...) reads the
+//     same value instead of each re-deriving it from config. Placed here,
+//     ahead of the static mounts, /healthz, maintenance mode (4b), and
+//     attachGuest (5), so a response that can be sent before attachGuest ever
+//     runs (the maintenance 503, a 404/500 error page) still carries the
+//     right variant — those pages render through partials/head.ejs and
+//     partials/message-card.ejs too (AC1/AC2 cover "any guest or admin
+//     page", not just the ones behind attachGuest). AC1's byte-identical
+//     default holds because every view tests this local against the exact
+//     string 'stag', never truthiness alone — matching config.VARIANT's own
+//     "anything but the literal 'stag' behaves like unset" contract.
+//
+//     res.locals.isStag is a SECOND, derived local — the pre-computed
+//     `variant === 'stag'` boolean — set alongside variant so every view
+//     that only ever needs the yes/no question can read one boolean instead
+//     of re-deriving it from the raw string (PR review finding: ~13 views
+//     were each writing their own `(typeof variant !== 'undefined' &&
+//     variant === 'stag')` local). config.VARIANT stays the single source
+//     of truth; both res.locals keys are just its per-request mirrors —
+//     views needing the raw string (e.g. a future third variant) still have
+//     `variant` available.
+// ---------------------------------------------------------------------------
+app.use((req, res, next) => {
+  res.locals.variant = config.VARIANT;
+  res.locals.isStag = config.VARIANT === 'stag';
+  next();
+});
+
+// ---------------------------------------------------------------------------
 // 4. Static file mounts.
 //    /        -> src/public  (css, js, badges)
 //    /uploads -> data/uploads (full-size originals + avatars)

@@ -24,6 +24,14 @@
   function _navAttrs(section) {
     return _active === section ? ' aria-current="page"' : '';
   }
+
+  // Issue #640: black-tie "Stag Master" branding — wordmark and Lilly's name
+  // scrubbed (AC3). Reads the pre-derived res.locals.isStag (src/app.js);
+  // the `typeof ... !== 'undefined'` guard still stands for a standalone/
+  // test render that skips the app.js middleware (AC1's byte-identical
+  // default).
+  var _isStag = (typeof isStag !== 'undefined' && isStag);
+  var _wordmark = _isStag ? 'Stag Master' : 'Wedding Master';
 %>
 <header class="site-header">
   <div class="site-header-inner">
@@ -31,8 +39,8 @@
       <a class="admin-brand" href="/admin">
         <span class="brand-heart" style="color:var(--color-primary);"><%- include('heart', { size: 20 }) %></span>
         <span class="admin-brand-stack">
-          <span class="brand-script admin-brand-wordmark">Wedding Master</span>
-          <span class="admin-brand-text">Lilly &amp; Axel</span>
+          <span class="brand-script admin-brand-wordmark"><%= _wordmark %></span>
+          <span class="admin-brand-text"><%- _isStag ? 'Axel' : 'Lilly &amp; Axel' %></span>
         </span>
       </a>
       <nav class="site-nav" aria-label="Primary">
@@ -48,8 +56,8 @@
       </nav>
     <% } else { %>
       <a class="masthead" href="/">
-        <span class="brand-script">Wedding Master</span>
-        <span class="masthead-names">&#9829; Lilly &amp; Axel &#9829;</span>
+        <span class="brand-script"><%= _wordmark %></span>
+        <% if (_isStag) { %><span class="masthead-names"><%- include('heart', { size: 14 }) %> Axel <%- include('heart', { size: 14 }) %></span><% } else { %><span class="masthead-names">&#9829; Lilly &amp; Axel &#9829;</span><% } %>
       </a>
       <nav class="site-nav site-nav-guest" aria-label="Primary">
         <div class="site-nav-row">
