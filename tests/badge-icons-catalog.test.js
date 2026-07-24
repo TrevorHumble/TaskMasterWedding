@@ -1,15 +1,22 @@
 // tests/badge-icons-catalog.test.js
 //
-// Issue #410: src/services/badge-icons.js is the SINGLE owner of the bundled
-// badge-icon catalog (≥200 curated Material Symbols SVGs under
-// src/public/badges/icons/). This file covers:
+// Issue #410 (extended by #870): src/services/badge-icons.js is the SINGLE
+// owner of the bundled badge-icon catalog (349 curated Material Symbols SVGs
+// under src/public/badges/icons/ — 200 wedding entries plus 149 bachelor-
+// party entries added by #870). This file covers:
 //
-//   AC1 — the catalog has at least 200 entries, every id resolves to a real
+//   AC1 — the catalog is at or above #410's original 200-entry floor (349
+//         today), every id resolves to a real
 //         bundled file, and no entry points outside src/public/badges/icons/
 //         (no path-traversal-shaped id, no external URL).
 //   AC5 — one catalog owner: isValidIconId/resolveIconPath reject anything
 //         not in the list, so a view or route can never invent its own
 //         second list of "real" icons.
+//   #870 AC2 — the catalog is exactly 349 entries long, a spot-set of the 149
+//         new ids round-trip to their approved names and paths, and no id or
+//         case-insensitive name repeats across all 349.
+//   #870 AC3 — every one of the 149 new bundled SVGs matches the existing
+//         200's form: viewBox="0 -960 960 960", no width/height, fill="#467058".
 //
 // No app/DB bootstrap needed — this module has no dependency on Express or
 // better-sqlite3, so it is required directly (no loadApp()).
@@ -22,10 +29,68 @@ const badgeIcons = require('../src/services/badge-icons');
 const config = require('../config');
 
 describe('badge-icons catalog — issue #410', () => {
-  it('AC1: lists at least 200 icons', () => {
+  it("AC1: lists at least #410's floor of 200 icons (349 today)", () => {
     const icons = badgeIcons.listIcons();
     expect(Array.isArray(icons)).toBe(true);
     expect(icons.length).toBeGreaterThanOrEqual(200);
+  });
+
+  it('#870 AC2: the catalog is exactly 349 entries — 200 wedding + 149 bachelor-party', () => {
+    const icons = badgeIcons.listIcons();
+    expect(icons.length).toBe(349);
+  });
+
+  it('#870 AC2: a spot-set of the 149 new ids round-trip to their approved name and path', () => {
+    const spotSet = [
+      { id: 'crown', name: 'Crown' },
+      { id: 'sick', name: 'Rough Morning' },
+      { id: 'grid-4x4', name: 'Hopscotch' },
+      { id: 'burst-mode', name: 'Burst' },
+      { id: 'help', name: 'Questionable' },
+      { id: 'shopping-bag', name: 'Loot' },
+      { id: 'group-add', name: 'New Friend' },
+      { id: 'bookmark', name: 'Bookmark' },
+    ];
+    for (const { id, name } of spotSet) {
+      expect(badgeIcons.iconName(id)).toBe(name);
+      expect(badgeIcons.resolveIconPath(id)).toBe(`/badges/icons/${id}.svg`);
+      expect(badgeIcons.isValidIconId(id)).toBe(true);
+    }
+  });
+
+  it('#870 AC2: no duplicate id and no case-insensitive duplicate name across all 349', () => {
+    const icons = badgeIcons.listIcons();
+    const ids = icons.map((i) => i.id);
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(ids.length);
+
+    const lowerNames = icons.map((i) => i.name.toLowerCase());
+    const uniqueNames = new Set(lowerNames);
+    expect(uniqueNames.size).toBe(lowerNames.length);
+  });
+
+  it('#870 AC2: the pre-existing 200 keep their original order ahead of the 149 new entries', () => {
+    const icons = badgeIcons.listIcons();
+    // The first pre-#870 entry (src/services/badge-icons.js) and the first
+    // #870 entry, pinned so a reorder of either block would fail this test.
+    expect(icons[0]).toEqual({ id: 'favorite', name: 'Heart' });
+    expect(icons[199]).toEqual({ id: 'library-music', name: 'Music Library' });
+    expect(icons[200]).toEqual({ id: 'burst-mode', name: 'Burst' });
+    expect(icons[348]).toEqual({ id: 'bookmark', name: 'Bookmark' });
+  });
+
+  it('#870 AC3: every one of the 149 new SVG files matches the existing 200s form', () => {
+    const icons = badgeIcons.listIcons();
+    const newIcons = icons.slice(200);
+    expect(newIcons.length).toBe(149);
+    for (const icon of newIcons) {
+      const absPath = path.join(config.PUBLIC_DIR, 'badges', 'icons', `${icon.id}.svg`);
+      const svg = fs.readFileSync(absPath, 'utf8');
+      expect(svg).toContain('viewBox="0 -960 960 960"');
+      expect(svg).toContain('fill="#467058"');
+      expect(svg).not.toMatch(/\swidth="/);
+      expect(svg).not.toMatch(/\sheight="/);
+    }
   });
 
   it('AC1: every catalog id resolves to a real file under src/public/badges/icons/', () => {

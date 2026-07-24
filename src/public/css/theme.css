@@ -28,7 +28,7 @@
   --color-on-primary: var(--white);
 
   /* Bundled badge-icon glyph fill (#869). The single owner of the color the
-     ~200 pickable Material icons render in, via the CSS mask technique on
+     ~349 pickable Material icons render in, via the CSS mask technique on
      .badge-medallion-icon / .badge-picker-glyph — so the wedding instance
      keeps its green-700 glyphs and the stag theme (below) can drive them gold
      from one place, with no second recolored icon set to bundle or keep in
@@ -128,7 +128,7 @@
   --gold-dim: #8a7136;
 
   /* Bundled badge-icon glyphs render gold on stag, not the wedding green
-     (#869) — matches the three gold milestone medallions so the ~200 pickable
+     (#869) — matches the three gold milestone medallions so the ~349 pickable
      custom icons stop leaking wedding green into the tasks, admin board, and
      badge builder. */
   --badge-icon-color: var(--gold);

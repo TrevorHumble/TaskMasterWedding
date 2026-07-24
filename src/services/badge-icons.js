@@ -1,7 +1,7 @@
 // src/services/badge-icons.js
 //
 // Issue #410: the SINGLE owner of the bundled badge-icon catalog. Enumerates
-// the ~200 bare SVGs vendored under src/public/badges/icons/ (Material
+// the ~349 bare SVGs vendored under src/public/badges/icons/ (Material
 // Symbols, recolored, Apache-2.0 — see that directory's LICENSE/
 // ATTRIBUTION.md), validates a picked icon id, and resolves an id to its
 // public path. Every caller that needs "the list of pickable icons" or "is
@@ -37,7 +37,7 @@ const ICONS_URL_PREFIX = '/badges/icons/';
 // This module does NOT maintain a second pickable catalog for these — the
 // admin custom-badge icon PICKER (listIcons/resolveIconPath below) stays
 // wedding-icon-only; no acceptance criterion asks the stag admin to pick from
-// a gold-recolored ~200-icon set. Only the isIconArtPath prefix test below
+// a gold-recolored ~349-icon set. Only the isIconArtPath prefix test below
 // needs to recognize this second prefix, so a stag milestone badge's art_path
 // still renders as a bare icon inside the gold medallion (badge-art.ejs)
 // instead of falling through to the composed-image branch.
@@ -262,6 +262,183 @@ const ICONS = [
   { id: 'back-hand', name: 'High Five' },
   { id: 'photo-library', name: 'Photo Album' },
   { id: 'library-music', name: 'Music Library' },
+
+  // Issue #870: bachelor-party (Stag Master variant, #640) coverage —
+  // 149 entries, owner-approved 2026-07-24 ("keep all of them" / "add every
+  // single one"). Transcribed verbatim, in the order approved, from the 11
+  // labelled blocks in that issue's authoritative id -> name table. Do not
+  // reorder, rename, or add/drop an entry here without a fresh owner review.
+
+  // Photos, reactions & faces (28)
+  { id: 'burst-mode', name: 'Burst' },
+  { id: 'local-see', name: 'Spotted' },
+  { id: 'party-mode', name: 'Party Cam' },
+  { id: 'photo-camera-back', name: 'Lens' },
+  { id: 'camera-roll', name: 'Film Roll' },
+  { id: 'flash-on', name: 'Flash' },
+  { id: 'panorama', name: 'Panorama' },
+  { id: 'motion-photos-on', name: 'Motion' },
+  { id: 'linked-camera', name: 'Linked Cam' },
+  { id: 'slideshow', name: 'Slideshow' },
+  { id: 'image', name: 'Picture' },
+  { id: 'visibility', name: 'Seen' },
+  { id: 'visibility-off', name: 'Unseen' },
+  { id: 'help', name: 'Questionable' },
+  { id: 'sentiment-worried', name: 'Worried' },
+  { id: 'sentiment-dissatisfied', name: 'Unimpressed' },
+  { id: 'sentiment-very-dissatisfied', name: 'Horrified' },
+  { id: 'sentiment-neutral', name: 'Deadpan' },
+  { id: 'mood-bad', name: 'Regret' },
+  { id: 'psychology', name: 'Big Brain' },
+  { id: 'question-mark', name: 'Mystery' },
+  { id: 'priority-high', name: 'Uh Oh' },
+  { id: 'warning', name: 'Warning' },
+  { id: 'report', name: 'Flagged' },
+  { id: 'emergency', name: 'Emergency' },
+  { id: 'flag', name: 'Flag' },
+  { id: 'whatshot', name: 'Hot' },
+  { id: 'trending-up', name: 'Trending' },
+
+  // Crown & glory (8)
+  { id: 'crown', name: 'Crown' },
+  { id: 'flare', name: 'Sparkle' },
+  { id: 'star-rate', name: 'Gold Star' },
+  { id: 'grade', name: 'Merit' },
+  { id: 'emoji-events', name: 'Cup' },
+  { id: 'shield', name: 'Shield' },
+  { id: 'verified-user', name: 'Certified' },
+  { id: 'local-police', name: 'The Law' },
+
+  // Nightlife & sound (12)
+  { id: 'local-drink', name: 'Drink' },
+  { id: 'no-drinks', name: 'Cut Off' },
+  { id: 'smoking-rooms', name: 'Cigar' },
+  { id: 'nights-stay', name: 'Night Sky' },
+  { id: 'headphones', name: 'Headphones' },
+  { id: 'album', name: 'Record' },
+  { id: 'graphic-eq', name: 'Levels' },
+  { id: 'equalizer', name: 'Equalizer' },
+  { id: 'radio', name: 'Radio' },
+  { id: 'speaker', name: 'Speaker' },
+  { id: 'volume-up', name: 'Volume' },
+  { id: 'mic-external-on', name: 'Karaoke' },
+
+  // Gifts, money & loot (15)
+  { id: 'payments', name: 'Cash' },
+  { id: 'shopping-bag', name: 'Loot' },
+  { id: 'money-off', name: 'Free' },
+  { id: 'shopping-cart', name: 'Cart' },
+  { id: 'sell', name: 'Price Tag' },
+  { id: 'loyalty', name: 'Perk' },
+  { id: 'token', name: 'Token' },
+  { id: 'price-check', name: 'Bargain' },
+  { id: 'paid', name: 'Paid' },
+  { id: 'attach-money', name: 'Dollar' },
+  { id: 'credit-card', name: 'Card' },
+  { id: 'account-balance-wallet', name: 'Wallet' },
+  { id: 'wallet', name: 'Billfold' },
+  { id: 'receipt-long', name: 'Receipt' },
+  { id: 'local-atm', name: 'ATM' },
+
+  // Travel & wheels (12)
+  { id: 'pin-drop', name: 'Pin' },
+  { id: 'near-me', name: 'Nearby' },
+  { id: 'signpost', name: 'Signpost' },
+  { id: 'route', name: 'Route' },
+  { id: 'local-gas-station', name: 'Fuel' },
+  { id: 'airport-shuttle', name: 'Shuttle' },
+  { id: 'moped', name: 'Moped' },
+  { id: 'motorcycle', name: 'Motorcycle' },
+  { id: 'directions-railway', name: 'Rail' },
+  { id: 'subway', name: 'Subway' },
+  { id: 'backpack', name: 'Backpack' },
+  { id: 'hail', name: 'Hail a Ride' },
+
+  // Food & late night (7)
+  { id: 'local-convenience-store', name: 'Corner Store' },
+  { id: 'store', name: 'Shop' },
+  { id: 'storefront', name: 'Storefront' },
+  { id: 'restaurant-menu', name: 'Menu' },
+  { id: 'menu-book', name: 'Cookbook' },
+  { id: 'local-shipping', name: 'Delivery' },
+  { id: 'no-food', name: 'No Food' },
+
+  // Sport & motion (14)
+  { id: 'directions-walk', name: 'Walk' },
+  { id: 'footprint', name: 'Footprint' },
+  { id: 'grid-on', name: 'Grid' },
+  { id: 'grid-4x4', name: 'Hopscotch' },
+  { id: 'steps', name: 'Steps' },
+  { id: 'directions-run', name: 'Run' },
+  { id: 'sports-martial-arts', name: 'Martial Arts' },
+  { id: 'sports-mma', name: 'MMA' },
+  { id: 'sports-rugby', name: 'Rugby' },
+  { id: 'sports-motorsports', name: 'Motorsport' },
+  { id: 'paragliding', name: 'Paraglide' },
+  { id: 'sledding', name: 'Sledding' },
+  { id: 'nordic-walking', name: 'Trek' },
+  { id: 'phishing', name: 'Fishing' },
+
+  // Odd things & objects (19)
+  { id: 'category', name: 'Odd Thing' },
+  { id: 'extension', name: 'Puzzle' },
+  { id: 'widgets', name: 'Widgets' },
+  { id: 'inventory-2', name: 'Box' },
+  { id: 'label', name: 'Label' },
+  { id: 'emoji-objects', name: 'Bright Idea' },
+  { id: 'lightbulb', name: 'Lightbulb' },
+  { id: 'smart-toy', name: 'Robot' },
+  { id: 'construction', name: 'Construction' },
+  { id: 'hardware', name: 'Tools' },
+  { id: 'build', name: 'Wrench' },
+  { id: 'carpenter', name: 'Hammer' },
+  { id: 'handyman', name: 'Handyman' },
+  { id: 'plumbing', name: 'Plumbing' },
+  { id: 'chair', name: 'Chair' },
+  { id: 'weekend', name: 'Sofa' },
+  { id: 'bathtub', name: 'Bathtub' },
+  { id: 'checkroom', name: 'Hanger' },
+  { id: 'dry-cleaning', name: 'Dry Cleaning' },
+
+  // The morning after (12)
+  { id: 'sick', name: 'Rough Morning' },
+  { id: 'medication', name: 'Remedy' },
+  { id: 'local-pharmacy', name: 'Pharmacy' },
+  { id: 'medical-services', name: 'First Aid' },
+  { id: 'healing', name: 'Patch Up' },
+  { id: 'monitor-heart', name: 'Vitals' },
+  { id: 'snooze', name: 'Snooze' },
+  { id: 'alarm', name: 'Alarm' },
+  { id: 'airline-seat-flat', name: 'Lie Flat' },
+  { id: 'shower', name: 'Shower' },
+  { id: 'soap', name: 'Soap' },
+  { id: 'local-laundry-service', name: 'Laundry' },
+
+  // People & mingling (11)
+  { id: 'group-add', name: 'New Friend' },
+  { id: 'person-add', name: 'Add Someone' },
+  { id: 'connect-without-contact', name: 'Connect' },
+  { id: 'diversity-2', name: 'Crew' },
+  { id: 'emoji-people', name: 'Greeting' },
+  { id: 'record-voice-over', name: 'Speech' },
+  { id: 'campaign', name: 'Announce' },
+  { id: 'forum', name: 'Chatter' },
+  { id: 'chat', name: 'Chat' },
+  { id: 'thumb-down', name: 'Thumbs Down' },
+  { id: 'pan-tool', name: 'Stop' },
+
+  // Time & memory (11)
+  { id: 'history', name: 'Throwback' },
+  { id: 'auto-stories', name: 'Story' },
+  { id: 'schedule', name: 'Clock' },
+  { id: 'hourglass-top', name: 'Hourglass' },
+  { id: 'timer', name: 'Timer' },
+  { id: 'update', name: 'Rewind' },
+  { id: 'event', name: 'Event' },
+  { id: 'today', name: 'Today' },
+  { id: 'calendar-month', name: 'Calendar' },
+  { id: 'book', name: 'Book' },
+  { id: 'bookmark', name: 'Bookmark' },
 ];
 
 // Fail at require() time — before any request is ever served — if the

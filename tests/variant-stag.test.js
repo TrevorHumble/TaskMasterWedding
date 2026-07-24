@@ -90,7 +90,7 @@ describe('AC2: VARIANT=stag emits data-theme="stag" and the black-tie palette', 
     expect(rootBlock).toContain('--badge-icon-color: var(--green-700);');
     expect(stagBlock).toContain('--badge-icon-color: var(--gold);');
 
-    // The mask contract that actually recolors the ~200 bundled icons: both
+    // The mask contract that actually recolors the ~349 bundled icons: both
     // glyph classes pull their fill from the single --badge-icon-color owner
     // above and mask the per-render --icon-src, rather than sizing an <img>.
     // Sliced per-selector (not a bare res.text.toContain) so a regression
