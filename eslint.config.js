@@ -21,6 +21,10 @@ module.exports = [
       // linting it duplicates (and can misattribute) findings that belong to
       // that worktree's own `npm run lint`, not this checkout's.
       '.claude/worktrees/**',
+      // Antigravity/Gemini agent session worktrees (#822): same rationale as
+      // .claude/worktrees/** above — a nested worktree holds its own full
+      // source copy on its own branch, so linting it here duplicates findings.
+      '.agents/worktrees/**',
     ],
   },
   js.configs.recommended,

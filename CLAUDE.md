@@ -70,6 +70,15 @@ Reviewers run on a different model than the implementer, on every issue by defau
 
 **Fable (#453).** Fable is an available model, used only on the owner's explicit per-use signal. Absent that signal, every implementer — Fable included — goes through the standard independent adversarial review per the table above; there is no standing Fable-specific review handling until the owner specifies one.
 
+**Gemini / Antigravity (#822).** Running this pipeline under Google Antigravity / Gemini models maps
+tiers to these ecosystem defaults: the **Opus tier** (orchestrator + reviewers) → **Gemini 3.6 Flash
+(High)**; the **Implementer (Sonnet) tier** → **Gemini 3.5 (High) or Sonnet 4.6** (Antigravity exposes
+Sonnet 4.6). These are defaults, not an override of the binding rule above: the reviewer must always run
+on a model that is different from, and non-weaker than, the implementer's. Where a Gemini pairing would
+violate that — e.g. an implementer on Sonnet 4.6 paired with a reviewer left on a lighter default — the
+reviewer is bumped to a non-weaker model rather than run under the default; the invariant governs, the
+mapping is illustrative.
+
 ## Adversarial review, in brief
 
 - Assume total failure. Every artifact enters review as broken until proven otherwise.
