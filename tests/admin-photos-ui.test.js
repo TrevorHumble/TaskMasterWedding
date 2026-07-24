@@ -542,10 +542,15 @@ describe('#748: task-scoped view=task&task=<id>', () => {
       expect(chunk).toContain('admin-tile-down">Taken down<');
     });
 
-    it('the group\'s own count AND the page H1 count both read "4 photos"', async () => {
+    it('the page H1 count reads "4 photos"; the group count is now the rank-and-award link (issue #812 AC2 supersedes the plain span for a real task group)', async () => {
       const res = await adminAgent.get('/admin/photos?view=task&task=' + scopedTaskId);
       expect(res.text).toContain('<span class="gallery-count">4 photos</span>');
-      expect(res.text).toContain('<span class="gallery-group-count">4 photos</span>');
+      expect(res.text).toContain(
+        '<a class="gallery-group-count gallery-group-rank" href="/admin/tasks/' +
+          scopedTaskId +
+          '/rank">4 photos to rank and award</a>'
+      );
+      expect(res.text).not.toContain('<span class="gallery-group-count">4 photos</span>');
     });
   });
 
@@ -699,8 +704,15 @@ describe('#748: task-scoped view=task&task=<id>', () => {
     });
   });
 
-  describe('AC5: the Tasks admin page photo-count link carries the same view=task&task=<id> pair', () => {
-    it('the admin-task-photos href reads view=task&amp;task=<id> — the same pair the route reads', async () => {
+  describe('AC5 (superseded by issue #812 AC1): the Tasks admin page photo-count link', () => {
+    // #812 replaced the view=task&task=<id> gallery-scope destination this
+    // link used to carry with a direct door to that task's Rank & award page
+    // — the full behavioral coverage for the new destination and its exact
+    // link text now lives in tests/admin-tasks-ui.test.js's "issue #812 AC1"
+    // describe block. This case is kept, updated to the current href, so the
+    // fact "the Tasks list photo-count control targets /rank, not the scoped
+    // gallery" stays proven in this file too, not silently deleted.
+    it('the admin-task-photos href now reads /admin/tasks/<id>/rank, not the retired view=task&task= destination', async () => {
       const taskId = insertTask('748 Link Task');
       const guestId = insertGuest('748 Link Guest', '748-link');
       insertSubmission({
@@ -712,7 +724,8 @@ describe('#748: task-scoped view=task&task=<id>', () => {
 
       const res = await adminAgent.get('/admin/tasks');
       expect(res.status).toBe(200);
-      expect(res.text).toContain('href="/admin/photos?view=task&amp;task=' + taskId + '"');
+      expect(res.text).toContain('href="/admin/tasks/' + taskId + '/rank"');
+      expect(res.text).not.toContain('href="/admin/photos?view=task&amp;task=' + taskId + '"');
     });
   });
 
@@ -738,5 +751,126 @@ describe('#748: task-scoped view=task&task=<id>', () => {
       expect(grid).toContain('<h2 class="gallery-group-heading">748 Query Task</h2>');
       expect(grid).toContain('/thumbs/748-query-t.jpg');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #812 AC2/AC3 — the by-task gallery's group count doubles as the same
+// door to Rank & award as the Tasks list (AC2), but only for a real task
+// group; the task-less "Memories" group and every By-person group stay a
+// plain, unlinked count (AC3 guard) so the rank-and-award affordance never
+// leaks onto a group with no task to rank.
+// ---------------------------------------------------------------------------
+describe('issue #812 AC2: by-task gallery count is the rank-and-award link', () => {
+  it('a real task group (view=task) renders <a class="gallery-group-count gallery-group-rank" href="/admin/tasks/<that task id>/rank">, text ending "to rank and award"', async () => {
+    const taskId = insertTask('812 Gallery Rank Task');
+    for (let i = 0; i < 3; i++) {
+      const gid = insertGuest('812 Gallery Rank Guest ' + i, '812-gallery-rank-' + i);
+      insertSubmission({
+        guestId: gid,
+        taskId,
+        photoPath: '812-gallery-rank-' + i + '.jpg',
+        thumbPath: '812-gallery-rank-' + i + '-t.jpg',
+      });
+    }
+
+    const res = await adminAgent.get('/admin/photos?view=task');
+    expect(res.status).toBe(200);
+    const grid = gridOnly(res.text);
+
+    // Tied to the real seeded task id and its real count (3) — would fail if
+    // the href pointed at another task's id, or at the retired
+    // ?view=task&task=<id> gallery-scope destination.
+    expect(grid).toContain(
+      '<a class="gallery-group-count gallery-group-rank" href="/admin/tasks/' +
+        taskId +
+        '/rank">3 photos to rank and award</a>'
+    );
+  });
+
+  it('singular count (n === 1) reads "1 photo to rank and award"', async () => {
+    const taskId = insertTask('812 Gallery Rank Singular Task');
+    const gid = insertGuest('812 Gallery Rank Singular Guest', '812-gallery-rank-singular');
+    insertSubmission({
+      guestId: gid,
+      taskId,
+      photoPath: '812-gallery-rank-singular.jpg',
+      thumbPath: '812-gallery-rank-singular-t.jpg',
+    });
+
+    const res = await adminAgent.get('/admin/photos?view=task');
+    expect(res.status).toBe(200);
+    expect(gridOnly(res.text)).toContain(
+      '<a class="gallery-group-count gallery-group-rank" href="/admin/tasks/' +
+        taskId +
+        '/rank">1 photo to rank and award</a>'
+    );
+  });
+});
+
+describe('issue #812 AC3: non-task group counts stay a plain, unlinked span', () => {
+  it('view=user renders every group count as <span class="gallery-group-count">, never gallery-group-rank or a /rank href', async () => {
+    const taskId = insertTask('812 Guard User View Task');
+    const gid = insertGuest('812 Guard User Guest', '812-guard-user');
+    insertSubmission({
+      guestId: gid,
+      taskId,
+      photoPath: '812-guard-user.jpg',
+      thumbPath: '812-guard-user-t.jpg',
+    });
+
+    const res = await adminAgent.get('/admin/photos?view=user');
+    expect(res.status).toBe(200);
+    const grid = gridOnly(res.text);
+
+    // The real value: this guest's own group count is a bare span with the
+    // real count text, not an anchor — proven against the actual seeded
+    // guest/count, not just "some span exists somewhere".
+    expect(grid).toContain('<span class="gallery-group-count">1 photo</span>');
+    expect(grid).not.toContain('gallery-group-rank');
+    expect(grid).not.toContain('/rank">');
+  });
+
+  it('the task-less "Memories" group in view=task (photos with null task_id) also stays a plain span, no rank link', async () => {
+    const gid = insertGuest('812 Guard Memory Guest', '812-guard-memory');
+    insertSubmission({
+      guestId: gid,
+      taskId: null,
+      photoPath: '812-guard-memory.jpg',
+      thumbPath: '812-guard-memory-t.jpg',
+    });
+
+    // Earlier tests in this shared-DB file may have already seeded other
+    // null-task_id ("Memories") submissions, so the real live count is not
+    // necessarily 1 — read it back from the DB rather than assume, so the
+    // assertion still ties to the actual rendered VALUE instead of going
+    // structure-only.
+    const expectedCount = db
+      .prepare('SELECT COUNT(*) AS n FROM submissions WHERE task_id IS NULL AND taken_down = 0')
+      .get().n;
+
+    const res = await adminAgent.get('/admin/photos?view=task');
+    expect(res.status).toBe(200);
+    const grid = gridOnly(res.text);
+
+    // The Memories heading's own count sits right after its heading; assert
+    // the plain-span form is present with the real count and that no anchor
+    // variant of THIS group's count leaked in — the file's other tests
+    // already prove real task groups DO render the anchor, so a global "no
+    // gallery-group-rank anywhere" assertion would be too strong (and wrong)
+    // here; this checks the Memories group specifically via its
+    // heading-adjacent count.
+    const headingAt = grid.indexOf('<h2 class="gallery-group-heading">Memories</h2>');
+    expect(headingAt).toBeGreaterThan(-1);
+    const afterHeading = grid.slice(headingAt, headingAt + 400);
+    expect(afterHeading).toContain(
+      '<span class="gallery-group-count">' +
+        expectedCount +
+        ' photo' +
+        (expectedCount === 1 ? '' : 's') +
+        '</span>'
+    );
+    expect(afterHeading).not.toContain('gallery-group-rank');
+    expect(afterHeading).not.toContain('/rank"');
   });
 });

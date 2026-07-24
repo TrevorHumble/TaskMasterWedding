@@ -81,7 +81,9 @@
           <% } else if (t.flashState === 'scheduled') { %>
             <span class="admin-chip admin-chip-flash-scheduled">Flash at <%= t.flashWhenLabel %></span>
           <% } %>
-          <a class="admin-task-photos" href="/admin/photos?view=task&amp;task=<%= t.id %>"><%= t.submissions %> photo<%= t.submissions === 1 ? '' : 's' %></a>
+          <%# The photo-count is the compact door to this task's rank & award
+              page (issue #661) — a quiet link, not a loud pill. %>
+          <a class="admin-task-photos" href="/admin/tasks/<%= t.id %>/rank"><%= t.submissions %> photo<%= t.submissions === 1 ? '' : 's' %> to rank and award</a>
         </div>
         <%# A real, server-rendered form per task (issue #59's data-confirm
             convention — src/public/js/admin.js's delegated submit listener,

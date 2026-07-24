@@ -158,7 +158,17 @@
               <span class="gallery-person-avatar"><%= initials(g.heading) || '?' %></span>
             <% } %>
             <h2 class="gallery-group-heading"><%= g.heading %></h2>
-            <span class="gallery-group-count"><%= g.photos.length %> photo<%= g.photos.length === 1 ? '' : 's' %></span>
+            <%# In the By-task view a real task's photo-count doubles as the
+                compact door to its rank & award page (issue #661), matching the
+                admin Tasks list. The task id rides on any photo in the group
+                (g.photos[0].task_id); the task-less "Memories" group (null id)
+                and the By-person view keep the plain, unlinked count. %>
+            <% var _rankTaskId = (view === 'task' && g.photos[0] && g.photos[0].task_id != null) ? g.photos[0].task_id : null; %>
+            <% if (_rankTaskId != null) { %>
+              <a class="gallery-group-count gallery-group-rank" href="/admin/tasks/<%= _rankTaskId %>/rank"><%= g.photos.length %> photo<%= g.photos.length === 1 ? '' : 's' %> to rank and award</a>
+            <% } else { %>
+              <span class="gallery-group-count"><%= g.photos.length %> photo<%= g.photos.length === 1 ? '' : 's' %></span>
+            <% } %>
           </div>
           <%- adminGrid(g.photos, '') %>
         </section>
