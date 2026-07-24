@@ -1157,11 +1157,12 @@ function leaderboard() {
 // function stays the ONE place the guest_badges/badges join is written.
 const stmtGuestBadgesFull = db.prepare(
   `SELECT b.id AS badge_id, b.code, b.name, b.art_path, b.type, b.threshold, b.description,
-          gb.awarded_by, gb.points, gb.created_at
+          gb.awarded_by, gb.points, gb.created_at, gb.rank
      FROM guest_badges gb
      JOIN badges b ON b.id = gb.badge_id
     WHERE gb.guest_id = ?
-    ORDER BY CASE WHEN b.type = 'special' THEN 1 ELSE 0 END ASC,
+    ORDER BY CASE WHEN gb.rank = 1 THEN 0 ELSE 1 END ASC,
+             CASE WHEN b.type = 'special' THEN 1 ELSE 0 END ASC,
              b.threshold ASC,
              b.code ASC`
 );
@@ -1243,6 +1244,11 @@ const UNRANKED_BADGE_TYPE_RANK = Number.MAX_SAFE_INTEGER;
  * @returns {number} negative if a precedes b, positive if b precedes a, 0 if tied
  */
 function compareBadgeMoment(a, b) {
+  const isGoldA = Number(a.rank) === 1 ? 1 : 0;
+  const isGoldB = Number(b.rank) === 1 ? 1 : 0;
+  if (isGoldA !== isGoldB) {
+    return isGoldB - isGoldA;
+  }
   const rankA = BADGE_TYPE_RANK[a.type] ?? UNRANKED_BADGE_TYPE_RANK;
   const rankB = BADGE_TYPE_RANK[b.type] ?? UNRANKED_BADGE_TYPE_RANK;
   if (rankA !== rankB) {

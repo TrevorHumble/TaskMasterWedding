@@ -38,12 +38,14 @@
 %>
 <% var badgeArtIcon = badge && badgeIsIcon(badge.art_path); %>
 <% var badgeArtAlt = typeof alt !== 'undefined' ? alt : (badge ? badge.name : ''); %>
+<% var badgeRank = typeof rank !== 'undefined' ? rank : (badge ? badge.rank : undefined); %>
+<% var isGold = Number(badgeRank) === 1; %>
 <% if (badgeArtIcon) { %>
-  <span class="badge-medallion">
+  <span class="badge-medallion<%= isGold ? ' badge-gold' : '' %>">
     <img class="badge-medallion-icon" src="<%= badge.art_path %>" alt="<%= badgeArtAlt %>" />
   </span>
 <% } else { %>
-  <img class="<%= typeof imgClass !== 'undefined' ? imgClass : 'badge-art' %>"
+  <img class="<%= typeof imgClass !== 'undefined' ? imgClass : 'badge-art' %><%= isGold ? ' badge-gold' : '' %>"
        src="<%= badge.art_path %>"
        alt="<%= badgeArtAlt %>"
        <% if (typeof width !== 'undefined') { %>width="<%= width %>" height="<%= height %>"<% } %> />

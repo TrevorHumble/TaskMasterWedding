@@ -156,6 +156,11 @@ function parseSocialLinks(raw) {
  */
 function loadGuestBadges(guestId) {
   return scoring.getGuestBadges(guestId).sort((a, b) => {
+    const isGoldA = Number(a.rank) === 1 ? 1 : 0;
+    const isGoldB = Number(b.rank) === 1 ? 1 : 0;
+    if (isGoldA !== isGoldB) {
+      return isGoldB - isGoldA;
+    }
     if (a.created_at !== b.created_at) {
       return a.created_at < b.created_at ? -1 : 1;
     }
