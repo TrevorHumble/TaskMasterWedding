@@ -29,10 +29,11 @@
 // below is what "adds" it to the engine; scripts/seed.js must also seed its
 // catalog row (type = 'metric' or 'transferable').
 //
-// TOPLIKED (issue #817) is the current TRANSFERABLE_BADGES member: its
-// holder set is every guest owning a rank === 1 placing in
-// scoring.crowdFavorites() (see that registry entry below for the full
-// rationale, including why it requires scoring.js lazily).
+// TOPLIKED (issue #817, widened by #821) is the current TRANSFERABLE_BADGES
+// member: its holder set is every guest owning ANY rank 1-5 placing in
+// scoring.crowdFavorites() — matching the #788 on-photo crown's population
+// (see that registry entry below for the full rationale, including why it
+// requires scoring.js lazily).
 
 'use strict';
 
@@ -92,16 +93,17 @@ const METRIC_BADGES = {
 };
 
 // ---------------------------------------------------------------------------
-// TOPLIKED (transferable, issue #817): holder set is every guest who owns a
-// rank === 1 placing in scoring.crowdFavorites() — the crowd's single
-// most-liked photo (or every tied co-leader, standard-competition ranking).
-// A distinct concept from the retired #711 MOSTLIKED/MOSTPHOTOS pair (that
-// pair counted a guest's LIFETIME total likes/photos; this counts who
-// currently OWNS the single #1 spot) and additive to, not a replacement for,
-// #788's render-time crown marker on the photo tile itself — that marker
-// stays a pure read of crowdFavorites() with no guest_badges row; this badge
-// materializes the same rank-1 fact as a holder set recomputeTransferableBadges()
-// can grant/revoke.
+// TOPLIKED (transferable, issue #817; widened to every rank 1-5 placing by
+// #821): holder set is every guest who owns ANY placing (rank 1 through 5,
+// standard-competition ranking, ties included) in scoring.crowdFavorites() —
+// matching the population of #788's on-photo crown mark exactly, not just
+// the single #1 spot. A distinct concept from the retired #711
+// MOSTLIKED/MOSTPHOTOS pair (that pair counted a guest's LIFETIME total
+// likes/photos; this counts who currently OWNS a top-5 placing) and additive
+// to, not a replacement for, #788's render-time crown marker on the photo
+// tile itself — that marker stays a pure read of crowdFavorites() with no
+// guest_badges row; this badge materializes the same rank 1-5 fact as a
+// holder set recomputeTransferableBadges() can grant/revoke.
 //
 // scoring.js requires this module ('./badges') at ITS OWN top level (to
 // destructure METRIC_BADGES/TRANSFERABLE_BADGES), so a top-level
@@ -114,15 +116,13 @@ const METRIC_BADGES = {
 // ---------------------------------------------------------------------------
 
 /**
- * @returns {Set<number>} guestIds owning a rank === 1 crowdFavorites() placing.
+ * @returns {Set<number>} guestIds owning any rank 1-5 crowdFavorites() placing.
  */
 function topLikedHolders() {
   const scoring = require('./scoring');
   const holders = new Set();
   for (const placing of scoring.crowdFavorites()) {
-    if (placing.rank === 1) {
-      holders.add(placing.guest_id);
-    }
+    holders.add(placing.guest_id);
   }
   return holders;
 }

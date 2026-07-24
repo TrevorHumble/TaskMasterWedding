@@ -54,11 +54,11 @@ const BADGES = [
   },
   {
     code: 'TOPLIKED',
-    name: 'Most Liked',
+    name: 'Crowd Favorite',
     type: 'transferable',
     threshold: null,
     art_path: '/badges/most-liked.svg',
-    description: 'Holds the most-liked photo of the whole weekend. Steal it with more likes.',
+    description: 'Owns a top-five most-liked photo. Keep the likes coming to hold on.',
   },
 ];
 
