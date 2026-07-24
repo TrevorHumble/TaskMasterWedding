@@ -97,6 +97,13 @@ app.locals.initials = initials;
 // the literal inline (issue #410 review fix).
 app.locals.badgeIsIcon = badgeIcons.isIconArtPath;
 
+// The single owner (#869) of the `--icon-src` CSS value an icon glyph's
+// style attribute carries (badge-art.ejs / badge-picker.ejs) — see
+// badge-icons.js's iconMaskStyle doc comment for why this must not be a
+// hand-written `url('<%= art_path %>')` at each call site (CSS-injection
+// escaping has to have one owner too).
+app.locals.badgeIconMaskStyle = badgeIcons.iconMaskStyle;
+
 // ---------------------------------------------------------------------------
 // 1. Make sure the data directories exist before anything tries to use them.
 // ---------------------------------------------------------------------------

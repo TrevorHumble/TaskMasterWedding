@@ -2175,3 +2175,51 @@ variant-aware — but `recomputeBadges`' existing `if (!badge) continue` guard (
 tolerating a fresh, not-yet-seeded catalog) already skips a threshold whose `badges` row is absent. The
 missing `GARDEN` row on a stag boot is therefore safe by an EXISTING guard, not a new one — one array reused
 by two catalogs is simpler than teaching `scoring.js` which variant it is running under.
+
+## Bundled badge-icon glyphs: a theme-driven CSS mask, not a second vendored icon set (#869)
+
+**Date:** 2026-07-24. **Status:** accepted.
+
+#640 shipped a gold recolor for the three stag milestone badges only, as pre-baked vendored SVGs under
+`src/public/badges/stag/icons/`. Every other pickable badge icon — the ~200-entry catalog `src/services/
+badge-icons.js` serves from `src/public/badges/icons/` — still rendered as an `<img src="…">` with the fill
+baked into the file at `#467058` (wedding green-700). An `<img>`'s pixel data cannot be recolored by CSS, so
+the stag instance leaked wedding green into the task card, the admin task board, and the badge picker grid —
+every surface that renders a custom (picker-chosen) badge.
+
+**Two shapes were on the table: vendor a second gold-recolored ~200-file icon set (mirroring how #640 handled
+the three milestone icons), or make the existing set recolorable in place.** The first was rejected. It is the
+same duplication #640's own ADR (above) already ruled out for the app as a whole, reintroduced at the file
+level instead of the codebase level: every future icon added to the picker catalog would need a second,
+hand-recolored gold twin, and the two sets would drift the moment someone updated one file and forgot the
+other. Nothing about the difference between green and gold icons is behavior-shaped or even artwork-shaped —
+it is one fill color — so paying a per-file vendoring cost for it fails the same test #640 already applied to
+a whole second codebase.
+
+**Chosen: recolor via a CSS mask, driven by one theme variable.** The bundled icon SVG becomes an element's
+`mask-image` (via a per-render `--icon-src` custom property) instead of an `<img>` payload, and the fill comes
+from `--badge-icon-color` — `var(--green-700)` in `:root`, `var(--gold)` under `[data-theme='stag']`
+(`src/public/css/theme.css`). `src/views/partials/badge-art.ejs` and `badge-picker.ejs` swap their icon `<img>`
+for a `<span class="badge-medallion-icon">` / `<span class="badge-picker-glyph">` carrying that property. The
+former `<img alt="">` did double duty as both the accessible name AND (when empty) an implicit "decorative,
+skip me" signal to assistive tech; a bare `role="img"` + `aria-label=""` does not get that same auto-demotion,
+so the icon branch (PR review fix) branches explicitly on whether the resolved alt is empty: non-empty gets
+`role="img"` + `aria-label`, empty gets `aria-hidden="true"` and neither attribute — mirroring the two shapes
+the retired `<img alt="">` gave for free. One variable now owns icon color for every surface that renders one;
+the ~200 wedding SVG files stay byte-unchanged, matching #640's AC4 discipline of never touching the wedding
+art in place, and there is no second icon set to keep in sync going forward. The mask technique itself is not
+new here — `theme.css`'s `.gallery-search::before` magnifying-glass icon already recolors an inline SVG the
+same way — this issue is that pattern's second call site, not a new one.
+
+**Scope: the pickable custom-icon set only.** A composed/system badge (its own multi-color circle SVG, e.g.
+the default ribbon) never went through the icon-glyph branch of `badge-art.ejs` and still does not; the stag
+milestone medallions keep their existing #640 gold vendored art untouched (masking an SVG that is already gold
+is still gold, so their look is unaffected either way).
+
+**Tradeoff, recorded honestly (PR review):** a `mask-image` that fails to load (a moved/deleted/typo'd icon
+file) renders as fully transparent — nothing at all, just the empty ring — where the old `<img>` would have
+shown a visible broken-image glyph in the same spot. A missing icon file now fails silently instead of
+visibly. Not engineered around here: the ~200-file catalog is checked against disk at require() time
+(`badge-icons.js` throws at boot on any catalog/file drift), so the realistic way to hit this is a file
+deleted or renamed on disk post-boot without a matching code change — an operational mistake outside this
+issue's scope, not a runtime input this feature needs to defend against.

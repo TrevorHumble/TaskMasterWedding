@@ -13,6 +13,12 @@
                  repo already hands data down from routes to views. artPath
                  is the ONLY place this partial gets an icon's public path —
                  badge-icons.js is the single owner of that path format.
+
+    The grid glyph's `--icon-src` style value (#869) is built by calling
+    badgeIconMaskStyle (an app.locals function, src/services/badge-icons.js's
+    single owner of the CSS-mask encoding) rather than hand-writing the raw
+    url(...) value here — see that function's doc comment for why the
+    escaping needs one owner, not one per call site.
 %>
   <dialog id="badge-picker" class="badge-picker-dialog" aria-label="Choose a badge">
     <form method="post" class="badge-picker-form" id="badge-picker-form">
@@ -27,7 +33,7 @@
 
       <div class="badge-picker-stage">
         <span class="badge-medallion badge-medallion-lg badge-medallion-empty" id="badge-preview">
-          <img class="badge-medallion-icon" id="badge-preview-icon" src="" alt="" hidden />
+          <span class="badge-medallion-icon" id="badge-preview-icon" hidden></span>
         </span>
         <label class="badge-picker-name">
           Badge name
@@ -44,7 +50,7 @@
         <% badgeIcons.forEach(function (ic) { %>
           <label class="badge-picker-cell" title="<%= ic.name %>" data-name="<%= ic.name.toLowerCase() %>">
             <input type="radio" name="icon" value="<%= ic.id %>" class="badge-picker-radio" data-name="<%= ic.name %>" data-art-path="<%= ic.artPath %>" />
-            <img class="badge-picker-glyph" src="<%= ic.artPath %>" alt="<%= ic.name %>" loading="lazy" />
+            <span class="badge-picker-glyph" style="<%= badgeIconMaskStyle(ic.artPath) %>" role="img" aria-label="<%= ic.name %>"></span>
           </label>
         <% }); %>
         <p class="badge-picker-empty" id="badge-picker-empty" hidden>No icons match.</p>

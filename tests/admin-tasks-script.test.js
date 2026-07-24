@@ -17,12 +17,34 @@
 // — a hand-built fixture keeps this file independent of unrelated markup
 // churn elsewhere on the page, same tradeoff lightbox.test.js/
 // task-countdown.test.js already made for their own scripts.
+//
+// Issue #869 PR review, finding 6: reflectBadge()'s masked-glyph branch
+// (window.BadgeIconMask.set/clear on the badge preview icon) had no test
+// that could fail either — the edit/create dialog fixtures below used to
+// declare `<img id="task-edit-badge-icon">` / `<img id="task-create-badge-
+// icon">`, which no longer matches what the views render post-#869 (a bare
+// <span>, styled via the --icon-src custom property, not an <img src>).
+// Both fixtures are updated to <span>, and the describe block below at the
+// bottom of this file covers reflectBadge's set/clear round trip.
 'use strict';
 
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
 const ADMIN_TASKS_JS_PATH = path.join(__dirname, '..', 'src', 'public', 'js', 'admin-tasks.js');
+// #869: admin-tasks.js's reflectBadge() calls window.BadgeIconMask.set/clear
+// rather than hand-writing the --icon-src property itself — require the
+// REAL badge-icon-mask.js (not a hand-rolled stub) so this test exercises
+// the same load-order contract src/views/admin-tasks.ejs's <script> tags
+// establish in production.
+const BADGE_ICON_MASK_JS_PATH = path.join(
+  __dirname,
+  '..',
+  'src',
+  'public',
+  'js',
+  'badge-icon-mask.js'
+);
 
 const DAY1 = '2026-08-07';
 const DAY2 = '2026-08-08';
@@ -193,7 +215,7 @@ function editDialogMarkup() {
     luckyAccordion('task-edit') +
     '</div>' +
     '<span id="task-edit-badge-preview" class="badge-medallion-empty">' +
-    '<img id="task-edit-badge-icon" hidden /></span>' +
+    '<span id="task-edit-badge-icon" hidden></span></span>' +
     '<span id="task-edit-badge-name"></span>' +
     '<button type="button" id="task-edit-badge-btn"></button>' +
     '<input type="hidden" name="badge_icon" />' +
@@ -223,7 +245,7 @@ function createDialogMarkup() {
     luckyAccordion('task-create') +
     '</div>' +
     '<span id="task-create-badge-preview" class="badge-medallion-empty">' +
-    '<img id="task-create-badge-icon" hidden /></span>' +
+    '<span id="task-create-badge-icon" hidden></span></span>' +
     '<span id="task-create-badge-name"></span>' +
     '<input type="hidden" name="badge_icon" />' +
     '<input type="hidden" name="badge_name" />' +
@@ -260,6 +282,8 @@ function taskCardMarkup(
     flashMinutes,
     flashState,
     flashStripLabel,
+    badgeName,
+    badgeArt,
   }
 ) {
   return (
@@ -289,7 +313,11 @@ function taskCardMarkup(
     (flashStripLabel || '') +
     '" data-special-kind="' +
     (specialKind || '') +
-    '" data-badge-name="" data-badge-art="" data-badge-default="1">' +
+    '" data-badge-name="' +
+    (badgeName || '') +
+    '" data-badge-art="' +
+    (badgeArt || '') +
+    '" data-badge-default="1">' +
     '<button type="button" data-edit-task="' +
     taskId +
     '"></button>' +
@@ -413,6 +441,18 @@ function pageMarkup() {
       flashState: 'expired',
       flashStripLabel: '',
     }) +
+    // Card 12 (issue #869 PR review, finding 6): the one fixture with a real
+    // data-badge-art, driving reflectBadge()'s masked-glyph branch (every
+    // other card above leaves badge-art empty, only exercising its "no
+    // badge chosen" branch).
+    taskCardMarkup(12, {
+      title: 'Badged Task',
+      worth: 1,
+      mode: 'none',
+      specialKind: '',
+      badgeName: 'Heart',
+      badgeArt: '/badges/icons/favorite.svg',
+    }) +
     '</ul>' +
     editDialogMarkup() +
     createDialogMarkup()
@@ -441,6 +481,12 @@ function loadAdminTasks() {
       writable: true,
     });
   });
+
+  // badge-icon-mask.js first (its own header requires this load order),
+  // establishing window.BadgeIconMask before admin-tasks.js's reflectBadge()
+  // ever calls into it.
+  delete require.cache[require.resolve(BADGE_ICON_MASK_JS_PATH)];
+  require(BADGE_ICON_MASK_JS_PATH);
 
   delete require.cache[require.resolve(ADMIN_TASKS_JS_PATH)];
   require(ADMIN_TASKS_JS_PATH);
@@ -874,5 +920,58 @@ describe('admin-tasks.js (issue #755 PR review fix — the client-side half now 
     change(doc, flashRadio);
 
     expect(flashMinutes.disabled).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #869 PR review, finding 6: reflectBadge()'s masked-glyph branch
+  // (window.BadgeIconMask.set/clear on the preview icon) had no test that
+  // could fail — reverting it to `iconEl.src = artPath` would silently stop
+  // the admin create/edit live preview from updating while every other test
+  // stayed green. tests/admin-tasks-script.test.js is this file's own
+  // precedent (issue #755's own header) for exactly this failure mode.
+  // -------------------------------------------------------------------------
+  test('(w) opening a card with a stored badge sets --icon-src on the edit preview icon and shows the badge name', () => {
+    openEditFor(doc, 12); // badgeArt: '/badges/icons/favorite.svg', badgeName: 'Heart'
+    var iconEl = doc.getElementById('task-edit-badge-icon');
+    var previewEl = doc.getElementById('task-edit-badge-preview');
+    var nameEl = doc.getElementById('task-edit-badge-name');
+
+    expect(iconEl.style.getPropertyValue('--icon-src')).toBe("url('/badges/icons/favorite.svg')");
+    expect(iconEl.hidden).toBe(false);
+    expect(previewEl.classList.contains('badge-medallion-empty')).toBe(false);
+    expect(nameEl.textContent).toBe('Heart');
+  });
+
+  test('(x) opening an ordinary card straight after a badged one clears --icon-src on the edit preview icon (no leak)', () => {
+    openEditFor(doc, 12); // sets --icon-src
+    expect(doc.getElementById('task-edit-badge-icon').style.getPropertyValue('--icon-src')).toBe(
+      "url('/badges/icons/favorite.svg')"
+    );
+
+    openEditFor(doc, 2); // ordinary task, no stored badge
+    var iconEl = doc.getElementById('task-edit-badge-icon');
+    var previewEl = doc.getElementById('task-edit-badge-preview');
+    var nameEl = doc.getElementById('task-edit-badge-name');
+
+    expect(iconEl.style.getPropertyValue('--icon-src')).toBe('');
+    expect(iconEl.hidden).toBe(true);
+    expect(previewEl.classList.contains('badge-medallion-empty')).toBe(true);
+    expect(nameEl.textContent).toBe('No badge chosen yet');
+  });
+
+  test('(y) resetCreate() clears any --icon-src left over from an abandoned earlier create', () => {
+    click(doc, doc.querySelector('[data-open-create]'));
+    var createIconEl = doc.getElementById('task-create-badge-icon');
+    // Simulate a badge picked via the picker dialog mid-create (the real
+    // path goes through the picker-reflection handler, which also calls
+    // reflectBadge — setting the property directly here is equivalent and
+    // keeps this test scoped to resetCreate()'s own clearing behavior).
+    createIconEl.style.setProperty('--icon-src', "url('/badges/icons/favorite.svg')");
+    createIconEl.hidden = false;
+
+    click(doc, doc.querySelector('[data-open-create]')); // reopen (create dialog is reused)
+
+    expect(createIconEl.style.getPropertyValue('--icon-src')).toBe('');
+    expect(createIconEl.hidden).toBe(true);
   });
 });

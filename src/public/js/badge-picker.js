@@ -12,6 +12,12 @@
 // src/views/partials/badge-art.ejs. This file owns only the picker
 // interaction (preview, search, save-button enablement) — it does not know
 // or care how the id is validated or stored server-side.
+//
+// Depends on src/public/js/badge-icon-mask.js (issue #869) being loaded
+// first — window.BadgeIconMask.set/clear is the single owner of the
+// --icon-src custom property the live preview glyph carries; see that
+// file's own header. src/views/admin-tasks.ejs's <script> order is what
+// guarantees the load order.
 (function () {
   'use strict';
 
@@ -36,13 +42,18 @@
   function clearPreview() {
     preview.classList.add('badge-medallion-empty');
     previewIcon.hidden = true;
-    previewIcon.removeAttribute('src');
+    window.BadgeIconMask.clear(previewIcon);
     saveBtn.disabled = true;
   }
 
   function selectIcon(radio) {
     var name = radio.getAttribute('data-name') || '';
-    previewIcon.src = radio.getAttribute('data-art-path') || '';
+    // The glyph is a CSS-masked box (#869), not an <img>: its shape comes from
+    // the icon SVG set as a mask via --icon-src, its color from the theme's
+    // --badge-icon-color. badge-icon-mask.js (loaded before this file) is the
+    // single owner of that property's set/clear — see its own header.
+    var artPath = radio.getAttribute('data-art-path') || '';
+    window.BadgeIconMask.set(previewIcon, artPath);
     previewIcon.hidden = false;
     preview.classList.remove('badge-medallion-empty');
     saveBtn.disabled = false;

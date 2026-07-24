@@ -8,7 +8,7 @@
 // or db (see tests/helpers/testApp.js).
 'use strict';
 
-const { loadApp, makeAdminAgent } = require('./helpers/testApp');
+const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -452,9 +452,103 @@ describe('AC10: task board shows the badge slot', () => {
     );
     const card = cardMatch[0];
 
-    expect(card).toMatch(/src="\/badges\/icons\/favorite\.svg"/);
+    // #869: a custom-icon badge now renders as a CSS-masked <span> (the icon
+    // supplied via --icon-src, recolored per-theme by --badge-icon-color),
+    // not an <img src> baking the icon's fill into the served file — see
+    // DESIGN.md's "Bundled badge-icon glyphs" ADR. The style value is built
+    // by badgeIconMaskStyle (src/services/badge-icons.js, PR review finding
+    // 3) and echoed via EJS's escaping `<%=`, so its quotes render as the
+    // HTML entity `&#39;`, not a literal `'` — harmless to the browser (it
+    // HTML-decodes the attribute before ever handing it to the CSS parser)
+    // and required for finding 4's CSS-injection defense to hold together
+    // with the HTML-attribute boundary.
+    expect(card).toMatch(
+      /<span class="badge-medallion-icon" style="--icon-src: url\(&#39;\/badges\/icons\/favorite\.svg&#39;\)"/
+    );
     expect(card).toMatch(/Golden Move/);
     expect(card).not.toMatch(/name="badge_art"/);
     expect(res.text).toContain('Change badge');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #869 PR review, finding 5: the only existing test touching
+// .badge-picker-glyph (tests/variant-stag.test.js) asserts the CSS RULE
+// exists in theme.css, never that the picker GRID actually renders a masked
+// span. Reverting badge-picker.ejs's grid glyph back to <img src> would keep
+// every other test green while silently re-breaking the stag recolor for
+// the picker surface specifically — this covers the rendered markup itself.
+// ---------------------------------------------------------------------------
+describe('#869 PR review finding 5: the badge-picker grid renders masked spans, not <img>', () => {
+  it('GET /admin/tasks renders a known catalog icon as a masked span carrying --icon-src, inside the picker grid', async () => {
+    const res = await adminAgent.get('/admin/tasks');
+    expect(res.status).toBe(200);
+
+    // 'favorite' -> 'Heart' is src/services/badge-icons.js's first catalog
+    // entry — real catalog data, not a hand-invented id.
+    expect(res.text).toContain(
+      '<span class="badge-picker-glyph" style="--icon-src: url(&#39;/badges/icons/favorite.svg&#39;)" role="img" aria-label="Heart"></span>'
+    );
+    // Regression guard: the pre-#869 grid rendered this exact icon as
+    // `<img ... src="/badges/icons/favorite.svg" ...>` — the shape that
+    // would reappear if the glyph ever reverted to an <img>.
+    expect(res.text).not.toMatch(/<img[^>]*src="\/badges\/icons\/favorite\.svg"/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #869 PR review, finding 2: the masked-icon branch's accessibility must
+// mirror what the retired <img alt=""> gave for free. An <img alt=""> is
+// treated as decorative and skipped by assistive tech; a bare
+// role="img" aria-label="" is NOT auto-demoted the same way and reads as an
+// unnamed graphic. src/views/task.ejs:82 passes alt: '' to badge-art.ejs on
+// purpose — the adjacent "<%= taskBadge.name %>" text already names the
+// badge — so this is the exact call site that would regress if badge-art.ejs
+// always emitted role="img"/aria-label regardless of whether alt is empty.
+// ---------------------------------------------------------------------------
+describe('#869 PR review finding 2: empty alt on the icon branch renders decorative, not an unnamed graphic', () => {
+  it("task.ejs (alt: '') renders aria-hidden, no role/aria-label, for a custom-icon badge", async () => {
+    const taskId = makeTask('Accessible icon task');
+    taskBadges.setTaskBadge(taskId, {
+      name: 'Golden Moment',
+      artPath: '/badges/icons/favorite.svg',
+    });
+
+    // Insert directly with an own literal token, rather than reusing
+    // makeGuest's shared guestSeq counter and re-deriving its token scheme
+    // (fragile if another test's ordering ever changes) — this file's own
+    // makeGuest/makeSubmission helpers do the same direct-insert pattern.
+    const token = 'a11y-icon-token';
+    db.prepare('INSERT INTO guests (token, name) VALUES (?, ?)').run(token, 'A11y Guest');
+    const agent = signInGuest(app, token);
+
+    const res = await agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+
+    // The decorative shape: masked span carries the icon, but is invisible
+    // to assistive tech (aria-hidden), and carries neither role nor
+    // aria-label -- the adjacent badge name text is the only accessible name.
+    expect(res.text).toContain(
+      '<span class="badge-medallion-icon" style="--icon-src: url(&#39;/badges/icons/favorite.svg&#39;)" aria-hidden="true"></span>'
+    );
+    expect(res.text).not.toContain('role="img" aria-label=""');
+    expect(res.text).not.toMatch(/badge-medallion-icon[^>]*role="img"/);
+  });
+
+  it('admin task board (no alt local -> defaults to badge.name) still renders role="img" + aria-label for the SAME icon', async () => {
+    // Regression guard the other way: a NON-empty alt must keep the
+    // accessible-name shape, so a future fix cannot "solve" finding 2 by
+    // always going decorative.
+    const taskId = makeTask('Named icon task');
+    taskBadges.setTaskBadge(taskId, {
+      name: 'Golden Moment',
+      artPath: '/badges/icons/favorite.svg',
+    });
+
+    const res = await adminAgent.get('/admin/tasks');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(
+      '<span class="badge-medallion-icon" style="--icon-src: url(&#39;/badges/icons/favorite.svg&#39;)" role="img" aria-label="Golden Moment"></span>'
+    );
   });
 });
