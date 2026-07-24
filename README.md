@@ -1,18 +1,23 @@
 # Wedding Master
 
-A photo task game for the wedding of **Axel Fenwick & Lilly Sckeiky**. Around 100 guests, each on their own phone, scan one shared QR code on a poster, sign up with no password, and complete tasks by uploading photos — goofy, funny, or touching, building a shared record of memories the couple keeps: one keepsake of the whole day. Each completed task earns a point, badges unlock automatically, and there is a leaderboard and shared photo gallery visible to every signed-in guest. A password-protected admin (the Wedding Master) manages tasks, awards bonus points and special badges, hides photos, and exports everything at the end.
+A photo task game for the wedding of **Axel Fenwick & Lilly Sckeiky**. Around 100 guests, each on their own phone, scan one shared QR code on a poster, sign up with no password, and complete tasks by uploading photos — goofy, funny, or touching, building a shared record of memories the couple keeps: one keepsake of the whole day. A completed task pays its host-set worth (1–3 points) plus any bonuses that apply, badges unlock automatically or get hand-awarded, and there is a leaderboard, shared photo gallery, an end-of-night slideshow, and a recap of what a guest missed, all visible to every signed-in guest. A password-protected admin (the Wedding Master) manages tasks, awards bonus points and special badges, hides photos, and exports everything at the end.
 
 It runs on a small rented Linux host with a persistent disk, reachable over HTTPS through the host's reverse proxy at a stable domain the QR codes point to; see [`docs/deploy.md`](docs/deploy.md) for the full deploy runbook. It originally ran on a laptop behind a temporary Cloudflare tunnel.
 
 ## What it does
 
 - **QR sign-up, no guest passwords.** One shared QR code, printed once on a poster, opens `/join` for every guest, who signs up with a name, contact, and a self-chosen 4-digit PIN. A returning guest re-enters at `/login` with that same contact + PIN on any device.
-- **Photo tasks.** One photo per task per guest marks that task done and adds +1 point.
-- **Badges.** Auto badges unlock at 5 / 10 / 15 completed tasks; special badges are hand-awarded by the admin; metric and transferable badges are computed by the badge engine from live data (e.g. a "most photos" badge that can change hands); and the admin can create further `custom` badges. Not a fixed set.
+- **Photo tasks.** One photo per task per guest marks that task done. A completed task pays its host-set worth (1–3 points, set per task by the admin) plus any bonuses that apply — an admin-set per-photo bonus, a banked one-day-only challenge bonus, badge award points, and more (see `src/services/scoring.js`) — never a flat "+1".
+- **Memories.** A task-free photo share (no task required) at `/memories/new` — it earns no base point, but a guest's first visible memory on a given event day pays a once-per-day bonus point.
+- **Mystery-box challenge.** A one-day-only task (host-scheduled) stays sealed until its day, then appears as a locked "mystery box" card; a guest sees at most one locked card at a time (the one-box ceiling).
+- **Badges.** Auto badges unlock at 5 / 10 / 15 completed tasks; a metric badge (Completionist) is computed from live data; special badges are hand-awarded by the admin; a transferable badge (the TOPLIKED / Crowd Favorite crown) is recomputed live and can change hands as likes shift; and the admin can create further `custom` badges. Not a fixed set.
+- **Rank-and-award.** Per task, the admin ranks the submitted photos and releases the ranking to award that task's badge to the top finishers — this is how a task's own badge is actually won.
 - **Leaderboard + gallery.** A ranking and one shared photo gallery — tap a thumbnail to open its own photo page — visible to every signed-in guest.
 - **Feed, likes, comments.** A live `/feed` shows recent photos; guests can like and comment on any photo.
+- **End-of-night slideshow.** A full-screen `/slideshow` sequence over the event's photos, opened with the crowd's most-liked shots.
+- **Recap / notifications.** A per-guest "what you missed" panel — new badges, likes, comments, and host announcements since the guest last checked.
 - **Profiles.** Avatar, name, badges, submissions, and optional social links. Guests can view each other's profiles.
-- **Admin panel.** View and edit a guest's contact and re-entry PIN (or delete a guest), print the shared entry poster, manage tasks, award bonus points and per-photo bonus points, award special badges, take photos down and restore them, moderate comments, work a bug-report queue, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
+- **Admin panel.** View and edit a guest's contact and re-entry PIN (or delete a guest), print the shared entry poster, manage tasks, rank and award task badges, award bonus points and special badges, favorite and take photos down and restore them, moderate comments inline on the photos screen, set the event timezone and dates, work through a live host-checklist dashboard, handle a bug-report queue, and run a one-click export (a ZIP of all photos plus `summary.xlsx`).
 
 ## Quickstart
 
@@ -37,7 +42,7 @@ Requires **Node.js 20+** on Windows (PowerShell) for local development. Producti
 ```powershell
 npm install
 node scripts/set-admin-password.js <password>   # sets the admin (Wedding Master) password
-node scripts/seed.js                  # creates tables, badges, and sample data
+node scripts/seed.js                  # creates tables, seeds badges + sample tasks (no guests)
 npm run serve                         # starts the server on port 3000
 ```
 
@@ -46,15 +51,16 @@ Then open <http://localhost:3000>.
 - `npm run serve` runs the app under `scripts/serve-resilient.js`, which restarts the server about a second after any crash — one bad request cannot end the event. (`npm start` runs the bare server with no restart safety net; use it only when you want a crash to stay down, e.g. while debugging.)
 
 - `node scripts/set-admin-password.js <password>` writes a bcrypt hash to `data/admin.hash`. Run it again any time to change the password; the old one stops working immediately.
-- `node scripts/seed.js` creates the SQLite schema and seeds badges plus sample tasks/guests. The badge catalog itself is also healed on every app boot (`src/db.js`, issue #314) — INSERT-OR-IGNORE, so it backfills any badge added since a database was first seeded, even on an already-played `app.db`, without touching sample tasks/guests or anything an admin has edited.
-- `npm run seed-event -- --guests 100 --seed 1` generatively seeds a realistic ~100-guest event (dense leaderboard, earned and special badges, moderated photos, real image files on disk) for pre-wedding testing at true scale. It must be pointed at a non-live `DATA_DIR` (e.g. `data-demo`) — set the `DATA_DIR` environment variable first, since it deletes and replaces its own fixture data on every run and refuses to touch a directory holding real guests.
+- `node scripts/seed.js` creates the SQLite schema and seeds badges plus sample tasks only — **no guests**. The badge catalog itself is also healed on every app boot (`src/db.js`, issue #314) — INSERT-OR-IGNORE, so it backfills any badge added since a database was first seeded, even on an already-played `app.db`, without touching sample tasks or anything an admin has edited.
+- `npm run seed-event -- --guests 100 --seed 1` (`scripts/seed-event.js`) generatively seeds a realistic ~100-guest event (dense leaderboard, earned and special badges, moderated photos, real image files on disk) for pre-wedding testing at true scale. It must be pointed at a non-live `DATA_DIR` (e.g. `data-demo`) — set the `DATA_DIR` environment variable first, since it deletes and replaces its own fixture data on every run and refuses to touch a directory holding real guests.
+- `node scripts/seed-story.js --story <normal|extreme>` seeds one of two named, disk-swappable "story" datasets (built on `seed-event.js`'s sample-photo install) for demoing a specific scenario — a representative mid-size wedding, or a stress case with a leaderboard tie and heavy engagement. Also dev-data tooling; point `DATA_DIR` at a scratch folder first, same as `seed-event.js`.
 - Copy `.env.example` to `.env` and set a fixed `COOKIE_SECRET` before the event. In production, the app refuses to boot without one (issue #242) — a regenerated secret would silently sign out every guest and admin at once, mid-event. In dev/test, a missing secret just generates a random one on each boot and signs everyone out on every restart.
 
 ## How it is used
 
-**Guests** scan one shared QR code (printed once, on the poster) which opens `/join`, where they sign up with a name, an email or phone, an optional avatar, and a self-chosen 4-digit PIN — one form does signup and onboarding together, and signs them in immediately (a signed `gsid` cookie). A guest who already has an account is sent to `/login` to re-enter with that same contact + PIN, on any device. From the home page they browse `/tasks`, open a task, upload a photo to complete it, view `/gallery`, `/feed` (where they can like and comment on photos), `/leaderboard`, and profiles at `/u/:guestId`, and can revisit `/how-to-play` or send in `/bug-report` from the profile menu.
+**Guests** scan one shared QR code (printed once, on the poster) which opens `/join`, where they sign up with a name, an email or phone, an optional avatar, and a self-chosen 4-digit PIN — one form does signup and onboarding together, and signs them in immediately (a signed `gsid` cookie). A guest who already has an account is sent to `/login` to re-enter with that same contact + PIN, on any device, and can `/logout` from any device too. From the home page they browse `/tasks`, open a task, upload a photo to complete it, or share a task-free photo at `/memories/new` (listed at `/memories`); they can also view `/gallery`, `/feed` (where they can like and comment on photos, open a photo's own page at `/p/:submissionId`, and — as its owner — edit its caption or delete it), `/leaderboard`, tap any earned badge at `/badge/:code` for its detail, watch the end-of-night `/slideshow`, and open `/recap` for what they missed (dismissed via `/recap/seen`) and profiles at `/u/:guestId`. They can revisit `/how-to-play`, remove their avatar (`/me/avatar/delete`), or send in `/bug-report` from the profile menu. This list is representative, not exhaustive — see "Where things live" below for the full route map.
 
-**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to the guest table (rename, delete, and set/read a guest's contact + PIN), the printable entry poster at `/admin/poster`, task CRUD, awarding points and badges, comment moderation at `/admin/comments`, the bug-report queue at `/admin/bugs`, photo takedown, and `/admin/export`.
+**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to the guest table (rename, delete, and set/read a guest's contact + PIN), the printable entry poster at `/admin/poster`, task CRUD, rank-and-award (ranking a task's submitted photos and releasing the ranking to award that task's badge), awarding bonus points and special badges, `/admin/config` (event timezone and dates), photo favorites and takedown on `/admin/photos` (where comment moderation is also handled, inline, per photo), the host-checklist dashboard, the bug-report queue at `/admin/bugs`, and `/admin/export`.
 
 ## Going live
 
@@ -144,33 +150,64 @@ The hosted restore procedure is canonical — see the restore section of [`docs/
 
 ## Where things live
 
+Route lists below are representative (the router files themselves are the source of truth for
+the exact set); the services list is the full current `src/services/` set.
+
 ```
 config.js                 Central config + tiny .env loader; paths, port
 scripts/
   set-admin-password.js   Hashes the admin password into data/admin.hash
-  seed.js                 Creates schema, seeds badges + sample tasks/guests
+  seed.js                 Creates schema, seeds badges + sample tasks only (no guests)
+  seed-event.js           Generatively seeds a realistic multi-guest event at scale (dev data)
+  seed-story.js           Seeds a named "story" dataset (normal / extreme) for demos (dev data)
 src/
   app.js                  Express bootstrap: middleware, static mounts, routers, handlers
   db.js                   better-sqlite3 connection, schema, shared helpers
-  middleware/session.js   attachGuest, requireGuest, requireAdmin, one-shot flash
+  middleware/session.js      attachGuest, requireGuest, requireAdmin, one-shot flash
+  middleware/rate-limit.js   Shared fixed-window limiter (issue #283) backing POST /join,
+                             /login, /tasks/:id/submit, /me/edit, /bug-report, /p/:id/like,
+                             /p/:id/comments
   routes/
-    auth.js               /join (signup), /login (re-entry), /admin/login, /admin/logout
-    guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /me/edit,
+    auth.js               /join (signup), /login (re-entry), /logout, /admin/login, /admin/logout
+    guest.js              /, /tasks, /tasks/:id, /tasks/:id/submit, /memories/new, /memories,
+                           /me/edit, /me/avatar/delete, /recap, /recap/seen,
                            /how-to-play, /bug-report
-    community.js          /gallery, /feed, GET /p/:submissionId, /p/:submissionId/like,
-                           /p/:submissionId/comments, /p/:submissionId/comments/:commentId/delete,
-                           /leaderboard, /u/:guestId
-    admin.js              /admin dashboard, guests (rename/delete/identity), poster,
-                           tasks, awards, takedown, export, /admin/bugs
+    community.js          /gallery, /feed, /slideshow, GET /p/:submissionId,
+                           /p/:submissionId/like, /p/:submissionId/comments,
+                           /p/:submissionId/comments/:commentId/delete, /p/:submissionId/caption,
+                           /p/:submissionId/delete, /leaderboard, /badge/:code, /u/:guestId
+    admin.js              /admin dashboard, guests (rename/delete/identity), poster, tasks,
+                           rank-and-award (/admin/tasks/:id/rank), awards, /admin/config,
+                           photos (favorite/takedown, with inline comment moderation),
+                           /admin/bugs, export
   services/
-    photos.js             multer disk storage, sharp thumbnails/avatars, takedown/delete
-    scoring.js            points, auto badges (5/10/15), special badges, leaderboard
-    submissions.js        submit-or-replace sequence for a task photo
-    feed.js               gallery/feed visibility (owns the taken_down filter) + ordering
-    badges.js             metric/transferable badge engine (e.g. Completionist, Most Photos)
-    identity.js           contact normalization + PIN validation for guest sign-in/re-entry
+    badge-icons.js        Badge art path resolution + icon-vs-file classification
+    badges.js             Metric badge (Completionist) + transferable badge (TOPLIKED /
+                           Crowd Favorite) registries
+    event-days.js         Event-local calendar-day derivation from a configured timezone
     export.js             ZIP of photos by guest + summary.xlsx
+    favorites.js          Host-scoped admin photo favorites
+    feed.js               gallery/feed visibility (owns the taken_down filter), ordering, and
+                           the end-of-night slideshow sequence
+    heic-worker.js        Background HEIC-to-JPEG conversion for uploaded photos
+    host-checklist.js     The admin dashboard's live setup checklist
+    identity.js           contact normalization + PIN validation for guest sign-in/re-entry
+    lockout.js            Persisted admin-login lockout state
+    notifications.js      The recap ("what you missed") event log and derived feed
+    photos.js             multer disk storage, sharp thumbnails/avatars, takedown/delete
     qr.js                 QR data URLs
+    rank.js               Dense-rank (leaderboard) and standard-competition rank (crowd
+                           favorites, task rank-and-award) algorithms
+    rate-limit.js         Per-guest sliding-window throttle for memory uploads and HEIC
+                           decode attempts, plus the disk-free-space guard (hasFreeSpace) —
+                           NOT the shared join/login/upload limiter (see middleware/rate-limit.js)
+    relative-time.js      SQLite datetime parsing + human-relative-time formatting
+    render-locals.js      Per-request view locals shared across routes
+    scoring.js            Points (task worth + bonuses), auto badges (5/10/15), special
+                           badges, crowd favorites, leaderboard
+    submissions.js        submit-or-replace sequence for a task photo or memory
+    task-badges.js        Per-task badge resolution + rank-and-award writing
+    tasks.js              Task CRUD helpers, one-day-only ("mystery box") challenge rules
   views/                  EJS templates + partials
   public/                 css, client js, badge SVGs
 data/                     Runtime state (gitignored): app.db, uploads/, thumbs/, exports/, admin.hash
