@@ -570,7 +570,7 @@ router.get('/how-to-play', function (req, res) {
 
   // Same exclusion as GET / and GET /tasks (issue #754) — a sealed one-day-only
   // challenge the mystery-box ceiling suppresses must not inflate this "N
-  // photo missions" count past what a guest can actually reach.
+  // photo tasks" count past what a guest can actually reach.
   // reachableLiveTaskCount is the single owner (review fix, MAJOR C), shared
   // with GET /'s progress-bar denominator.
   const timezone = getEventConfig().timezone;
@@ -595,6 +595,16 @@ router.get('/how-to-play', function (req, res) {
       showSkip: req.query.first === '1',
     })
   );
+});
+
+// GET /how-points-work — the points-breakdown page reached from the
+// "How to earn points" button on the how-to-play card (issue #818). Static
+// copy, no dynamic data — the row titles, reward tags, and descriptions are
+// all fixed in the view, so this route just renders it (still behind
+// router.use(requireGuest) above, same gate as every other route in this
+// file).
+router.get('/how-points-work', function (req, res) {
+  res.render('how-points-work', withBadgeMoment(req, res, { title: 'How to earn points' }));
 });
 
 // Copy shown to the guest after a bug report is stored (AC1) and when the

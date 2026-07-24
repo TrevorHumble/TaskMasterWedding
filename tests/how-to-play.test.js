@@ -1,7 +1,7 @@
 // tests/how-to-play.test.js
 // Covers issue #246 acceptance criteria — the "How to play" rules card:
 //   AC1 — the active-task count is LIVE: 32 active tasks -> "32 photo
-//         missions"; deactivating one -> "31 photo missions" on the next render
+//         tasks"; deactivating one -> "31 photo tasks" on the next render
 //   AC2 (issue #663) — the CTA always reads "See your list of tasks" and
 //         links to /tasks (the task board), regardless of undone tasks,
 //         never an individual /tasks/<id>
@@ -63,7 +63,7 @@ function signedInAgent(token) {
 }
 
 describe('AC1: taskCount is a live count of active tasks', () => {
-  test('32 active tasks render "32 photo missions"; deactivating one renders "31 photo missions"', async () => {
+  test('32 active tasks render "32 photo tasks"; deactivating one renders "31 photo tasks"', async () => {
     resetTables();
     const guestId = insertGuest('ac1-token', true);
     const taskIds = [];
@@ -76,14 +76,14 @@ describe('AC1: taskCount is a live count of active tasks', () => {
 
     const before = await agent.get('/how-to-play');
     expect(before.status).toBe(200);
-    expect(before.text).toContain('32 photo missions');
+    expect(before.text).toContain('32 photo tasks');
 
     db.prepare("UPDATE tasks SET special_mode = 'hidden' WHERE id = ?").run(taskIds[0]);
 
     const after = await agent.get('/how-to-play');
     expect(after.status).toBe(200);
-    expect(after.text).toContain('31 photo missions');
-    expect(after.text).not.toContain('32 photo missions');
+    expect(after.text).toContain('31 photo tasks');
+    expect(after.text).not.toContain('32 photo tasks');
   });
 });
 
@@ -130,7 +130,7 @@ describe('AC2 (issue #663): closing button always links to /tasks, never an indi
 
     expect(res.status).toBe(200);
     expect(res.text).toContain('href="/tasks">See your list of tasks</a>');
-    expect(res.text).toContain('0 photo missions');
+    expect(res.text).toContain('0 photo tasks');
   });
 });
 
@@ -185,7 +185,7 @@ describe('AC4: required literal copy', () => {
     expect(res.text).toContain('How to play');
     expect(res.text).toContain('Help Lilly and Axel remember their day.');
     expect(res.text).toContain('Share every memory');
-    expect(res.text).toContain("Earn the masters' favor");
+    expect(res.text).toContain('Earn the Masters');
   });
 });
 

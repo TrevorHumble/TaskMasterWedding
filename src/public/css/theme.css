@@ -897,6 +897,9 @@ p {
 .rule-icon-3 {
   background: #8fa99a;
 }
+.rule-icon-4 {
+  background: #b3c6ba;
+}
 .rule-body {
   display: flex;
   flex-direction: column;
@@ -909,6 +912,69 @@ p {
 .rule-desc {
   font-size: var(--fs-small);
   color: var(--color-text-muted);
+}
+
+/* The second of the two stacked full-width CTAs on the How-to-play card —
+   spacing above whichever button sits second in the stack. */
+.how-to-cta-2 {
+  margin-top: var(--space-3);
+}
+
+/* ----------------------- How to earn points -----------------------
+   The dedicated points-breakdown page reached from the How-to-play card's
+   second button. No icons. Each row is a full-width block: title, then the
+   reward tags in the subtitle slot beneath it — a points tag (always shown,
+   with its range) plus a filled Badge tag where a badge is earned — then the
+   description. Hairline dividers separate the rows. */
+.points-intro {
+  margin: 0 0 var(--space-5);
+}
+.points-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+}
+.points-row {
+  padding: var(--space-5) 0;
+  border-top: var(--border-hairline);
+}
+.points-row:first-child {
+  border-top: none;
+  padding-top: var(--space-2);
+}
+.points-title {
+  display: block;
+  font-weight: 600;
+  color: var(--color-heading);
+}
+.points-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.points-tag {
+  white-space: nowrap;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: var(--radius-pill);
+  padding: 4px 12px;
+}
+.points-tag-points {
+  color: var(--green-700);
+  background: var(--green-50);
+  border: 1px solid var(--green-300);
+}
+.points-tag-badge {
+  color: var(--white);
+  background: var(--green-700);
+  border: 1px solid var(--green-700);
+}
+.points-desc {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  margin-top: var(--space-3);
 }
 
 /* ----------------------- Cards ----------------------- */

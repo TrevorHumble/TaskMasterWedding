@@ -9,37 +9,51 @@
     <li class="rule-row">
       <span class="rule-icon rule-icon-1" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="22" height="22" style="fill:currentColor">
-          <path d="M9 3l-1.7 2H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.3L15 3H9zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/>
+          <path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>
         </svg>
       </span>
       <span class="rule-body">
         <span class="rule-title">Snap the tasks</span>
-        <span class="rule-desc"><%= taskCount %> photo missions, worth 1 to 3 points each.</span>
+        <span class="rule-desc"><%= taskCount %> photo tasks, worth 1 to 3 points each.</span>
       </span>
     </li>
     <li class="rule-row">
       <span class="rule-icon rule-icon-2" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="22" height="22" style="fill:currentColor">
-          <path d="M12 2l2.4 5.5L20 8l-4.2 4 1 6-4.8-3-4.8 3 1-6L4 8l5.6-.5L12 2zM7 20h10v2H7v-2z"/>
+          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
         </svg>
       </span>
       <span class="rule-body">
-        <span class="rule-title">Earn the masters' favor</span>
-        <span class="rule-desc">The Wedding Masters award bonus points for capturing great shots, funny moments, and images that give us those warm, fuzzy feelings.</span>
+        <span class="rule-title">Vote for your favorites</span>
+        <span class="rule-desc">Tap the heart on any photo you love. The most-liked shots win the crowd.</span>
       </span>
     </li>
     <li class="rule-row">
       <span class="rule-icon rule-icon-3" aria-hidden="true">
-        <%- include('partials/heart', { size: 20 }) %>
+        <svg viewBox="0 0 24 24" width="22" height="22" style="fill:currentColor">
+          <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+        </svg>
+      </span>
+      <span class="rule-body">
+        <span class="rule-title">Earn the Masters&rsquo; favor</span>
+        <span class="rule-desc">The Wedding Masters award bonus points for capturing great shots, funny moments, and images that give us those warm, fuzzy feelings.</span>
+      </span>
+    </li>
+    <li class="rule-row">
+      <span class="rule-icon rule-icon-4" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" style="fill:currentColor">
+          <path d="M3 4V1h2v3h3v2H5v3H3V6H0V4h3zm3 6V7h3V4h7l1.83 2H21c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V10h3zm7 9c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-3.2-5c0 1.77 1.43 3.2 3.2 3.2s3.2-1.43 3.2-3.2-1.43-3.2-3.2-3.2-3.2 1.43-3.2 3.2z"/>
+        </svg>
       </span>
       <span class="rule-body">
         <span class="rule-title">Share every memory</span>
-        <span class="rule-desc">Tap Share a memory on the task board or your profile to add any photo you love. Your first memory each day is +1 point, and you can share as many as you like.</span>
+        <span class="rule-desc">Add any photo you love. Your first is +1 point.</span>
       </span>
     </li>
   </ul>
 
-  <a class="btn btn-block" href="/tasks">See your list of tasks</a>
+  <a class="btn btn-secondary btn-block" href="/how-points-work">How to earn points</a>
+  <a class="btn btn-block how-to-cta-2" href="/tasks">See your list of tasks</a>
 
   <% if (showSkip) { %>
     <p class="back-link center"><a href="/">Skip for now</a></p>

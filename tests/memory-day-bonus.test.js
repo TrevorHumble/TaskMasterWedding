@@ -426,8 +426,7 @@ describe('AC7: the approved copy renders everywhere it was approved', () => {
   const PAYOFF_LINE = '+1 point for your first memory each day, and any photo can win a badge.';
   const MEMORY_NEW_PROMISE =
     "Your first memory each day is +1 point, but share as many as you'd like.";
-  const HOW_TO_PLAY_PROMISE =
-    'Your first memory each day is +1 point, and you can share as many as you like.';
+  const HOW_TO_PLAY_PROMISE = 'Add any photo you love. Your first is +1 point.';
 
   /** The approved copy wraps across source lines in the .ejs templates, so
    * the rendered HTML carries real newlines/indentation where the approved
