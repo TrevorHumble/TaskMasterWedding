@@ -86,6 +86,13 @@
         it, so the crown mark below simply matches nothing rather than
         throwing. %>
     <% var crownRank = (typeof crownRank !== 'undefined' && crownRank) ? crownRank : {}; %>
+    <%# Gold is reserved for a SINGLE champion (issue #811 AC4): the route
+        derives crownGoldId from the SAME crowdFavorites() call that built
+        crownRank above (community.js's crownRankState()) — the sole rank-1
+        submission id when exactly one photo holds rank 1, else null.
+        Defaults to null when a caller omits it, matching crownRank's own
+        guard idiom. %>
+    <% var crownGoldId = (typeof crownGoldId !== 'undefined') ? crownGoldId : null; %>
     <% if (photos.length === 0) { %>
       <p class="muted">No photos shared yet.</p>
     <% } else { %>
@@ -106,7 +113,10 @@
                 height="400"
               />
               <% if (crownRank[p.submission_id]) { %>
-                <%- include('partials/crowd-favorite-mark', { rank: crownRank[p.submission_id] }) %>
+                <%- include('partials/crowd-favorite-mark', {
+                      rank: crownRank[p.submission_id],
+                      gold: crownGoldId !== null && p.submission_id === crownGoldId
+                    }) %>
               <% } %>
             </a>
             <figcaption class="gallery-caption">

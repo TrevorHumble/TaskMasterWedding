@@ -307,6 +307,59 @@ describe('AC8: createCustomBadge refuses a reserved TASK- code', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #811 AC2/AC3: victoryRankBySubmission() — the gallery tile's
+// event-wide, one-query read of every currently-visible ranked award. This
+// is the read side of #661's releaseRanking; tests/task-badge-rank-release.test.js
+// covers the write path itself and is not duplicated here.
+// ---------------------------------------------------------------------------
+describe('issue #811: victoryRankBySubmission()', () => {
+  it('a released ranking yields the expected submission_id -> rank map; an unranked submission is absent', () => {
+    const taskId = makeTask('Victory lookup task');
+    const winner1 = makeGuest('Victory Lookup Winner 1');
+    const winner2 = makeGuest('Victory Lookup Winner 2');
+    const rank1Sub = makeSubmission(winner1, taskId);
+    const rank2Sub = makeSubmission(winner2, taskId);
+
+    // An unrelated, unranked submission on a DIFFERENT task — proves the
+    // lookup only ever surfaces submissions that actually hold a released
+    // rank, never every visible submission.
+    const otherTaskId = makeTask('Victory lookup filler task');
+    const unrankedGuest = makeGuest('Victory Lookup Unranked Guest');
+    const unrankedSub = makeSubmission(unrankedGuest, otherTaskId);
+
+    const released = taskBadges.releaseRanking(taskId, [rank1Sub, rank2Sub]);
+    expect(released).toBeTruthy();
+
+    const lookup = taskBadges.victoryRankBySubmission();
+    expect(lookup[rank1Sub]).toBe(1);
+    expect(lookup[rank2Sub]).toBe(2);
+    expect(lookup[unrankedSub]).toBeUndefined();
+  });
+
+  it('a taken-down winning submission is excluded from the lookup, and returns once restored', () => {
+    const taskId = makeTask('Victory lookup takedown task');
+    const winner = makeGuest('Victory Lookup Takedown Winner');
+    const winningSub = makeSubmission(winner, taskId);
+
+    const released = taskBadges.releaseRanking(taskId, [winningSub]);
+    expect(released).toBeTruthy();
+    expect(taskBadges.victoryRankBySubmission()[winningSub]).toBe(1);
+
+    db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(winningSub);
+    // The award row itself survives the takedown (issue #661 AC4) — only the
+    // display-time lookup drops it, so a taken-down winner's medal comes off
+    // the wall without losing the underlying award.
+    expect(taskBadges.victoryRankBySubmission()[winningSub]).toBeUndefined();
+    expect(
+      db.prepare('SELECT rank FROM guest_badges WHERE submission_id = ?').get(winningSub).rank
+    ).toBe(1);
+
+    db.prepare('UPDATE submissions SET taken_down = 0 WHERE id = ?').run(winningSub);
+    expect(taskBadges.victoryRankBySubmission()[winningSub]).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC9: migration is guarded — booting twice does not throw "duplicate
 // column", same idempotency contract as db.js's other guarded migrations
 // (see tests/per-photo-points.test.js AC1).

@@ -1977,22 +1977,6 @@ textarea {
      viewport re-creates the 522px overflow this rule fixed (issue #251). */
   contain-intrinsic-size: auto 124px;
 }
-/* Like-count badge on a tile — rendered only when the photo has likes. */
-.tile-like-badge {
-  position: absolute;
-  bottom: 6px;
-  left: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 7px;
-  border-radius: var(--radius-pill);
-  background: rgba(20, 30, 24, 0.55);
-  color: #fff;
-  font-size: 11px;
-  line-height: 1.4;
-  pointer-events: none;
-}
 /* "+N" scrim on a grouped preview's last tile when the group holds more
    photos than the six-tile preview shows. */
 .tile-more {
@@ -2029,6 +2013,33 @@ textarea {
   display: block;
 }
 .cf-crown-gold {
+  color: var(--place-1);
+  background: rgba(20, 30, 24, 0.62);
+  box-shadow: 0 0 0 1.5px var(--place-1);
+}
+/* Task-badge-victory medal on a ranked photo's tile. Same disc + "only the
+   winner is gold" language as the crowd-favorite crown above, but seated in
+   the like-count slot (bottom-left) rather than the top corner: a ranked
+   photo shows its victory medal in place of its like tally. */
+.tile-victory {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(20, 30, 24, 0.55);
+  color: #fff;
+  pointer-events: none;
+}
+.tile-victory svg {
+  display: block;
+}
+.tile-victory-gold {
   color: var(--place-1);
   background: rgba(20, 30, 24, 0.62);
   box-shadow: 0 0 0 1.5px var(--place-1);

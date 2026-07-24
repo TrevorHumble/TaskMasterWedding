@@ -17,6 +17,9 @@
 //         three surfaces; a non-placing photo wears none.
 //   AC4 — rank 1 renders gold, ranks 2-5 render white, identically on all
 //         three surfaces (one partial, one CSS rule, no per-surface fork).
+//         Issue #811 AC4 refines this: gold is reserved for a LONE rank-1
+//         champion — a tie at rank 1 renders every placing crown white, no
+//         gold at all. See the "#811 AC4" describe block below.
 //   AC5 — a blocked self-like (403, #712) plays the client "nope" shake and
 //         records nothing; a like on another guest's photo is unaffected.
 //         The server-side 403 contract itself is already covered by
@@ -257,6 +260,77 @@ describe('AC1/AC3/AC4: the crown on every surface reads ONE crowdFavorites() cal
       const output = ejs.render(guardLine + '<%- JSON.stringify(crownRank) %>', {});
       expect(output.trim()).toBe('{}');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #811 AC4 — gold is reserved for a LONE champion: a tie at rank 1 renders
+// zero gold crowns (every placing crown white); a distinct-rank champion
+// still renders exactly one gold crown (AC5's no-regression case). Both
+// checked on all three crown surfaces.
+// ---------------------------------------------------------------------------
+describe('#811 AC4: a tie at rank 1 renders zero gold crowns; AC5: a lone champion still renders exactly one', () => {
+  it('two photos tied at the top like count both render white on every surface', async () => {
+    resetField();
+    const owner = makeGuest('Tie Owner');
+    const tie1 = makeSubmission(owner.id);
+    addLikes(tie1, 5);
+    const tie2 = makeSubmission(owner.id);
+    addLikes(tie2, 5); // same like count as tie1 -> both share rank 1
+
+    // Sanity: the derived set really does tie tie1/tie2 at rank 1 — if this
+    // ever failed the assertions below would be testing the wrong scenario.
+    const placingBySubmission = new Map(scoring.crowdFavorites().map((p) => [p.submission_id, p]));
+    expect(placingBySubmission.get(tie1)).toMatchObject({ rank: 1 });
+    expect(placingBySubmission.get(tie2)).toMatchObject({ rank: 1 });
+
+    const agent = signInGuest(app, owner.token);
+
+    const gallery = await agent.get('/gallery');
+    const feed = await agent.get('/feed');
+    const profile = await agent.get('/u/' + owner.id);
+    expect(gallery.status).toBe(200);
+    expect(feed.status).toBe(200);
+    expect(profile.status).toBe(200);
+
+    // Both tied photos still wear a crown, but neither is gold, on every
+    // surface — this is what would fail if gold were (wrongly) painted onto
+    // an entire top tie instead of being withheld.
+    expect(galleryTileCrown(gallery.text, tie1)).toBe('white');
+    expect(galleryTileCrown(gallery.text, tie2)).toBe('white');
+    expect(feedCardCrown(feed.text, tie1)).toBe('white');
+    expect(feedCardCrown(feed.text, tie2)).toBe('white');
+    expect(profileTileCrown(profile.text, tie1)).toBe('white');
+    expect(profileTileCrown(profile.text, tie2)).toBe('white');
+
+    // Zero gold crowns anywhere on the page while the tie holds.
+    expect((gallery.text.match(/cf-crown-gold/g) || []).length).toBe(0);
+    expect((feed.text.match(/cf-crown-gold/g) || []).length).toBe(0);
+    expect((profile.text.match(/cf-crown-gold/g) || []).length).toBe(0);
+  });
+
+  it('a lone champion (distinct like counts) still renders exactly one gold crown on every surface', async () => {
+    resetField();
+    const owner = makeGuest('Lone Champion Owner');
+    const champion = makeSubmission(owner.id);
+    addLikes(champion, 5);
+    const runnerUp = makeSubmission(owner.id);
+    addLikes(runnerUp, 3);
+
+    const agent = signInGuest(app, owner.token);
+
+    const gallery = await agent.get('/gallery');
+    const feed = await agent.get('/feed');
+    const profile = await agent.get('/u/' + owner.id);
+
+    expect(galleryTileCrown(gallery.text, champion)).toBe('gold');
+    expect(galleryTileCrown(gallery.text, runnerUp)).toBe('white');
+    expect(feedCardCrown(feed.text, champion)).toBe('gold');
+    expect(profileTileCrown(profile.text, champion)).toBe('gold');
+
+    expect((gallery.text.match(/cf-crown-gold/g) || []).length).toBe(1);
+    expect((feed.text.match(/cf-crown-gold/g) || []).length).toBe(1);
+    expect((profile.text.match(/cf-crown-gold/g) || []).length).toBe(1);
   });
 });
 
