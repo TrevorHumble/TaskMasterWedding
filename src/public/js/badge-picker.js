@@ -3,7 +3,7 @@
 // Issue #410: drives the shared badge-picker <dialog> on the tasks admin
 // page. The picker is a dense grid of bare icon glyphs; picking one
 // "populates" it inside a live badge-ring preview and enables Save. A search
-// box filters the grid so the full 200-icon set stays scannable.
+// box filters the grid so the full bundled icon set stays scannable.
 //
 // The pick persists end-to-end: this form POSTs to /admin/tasks/:id/badge
 // (wired server-side in src/routes/admin.js), which validates the chosen

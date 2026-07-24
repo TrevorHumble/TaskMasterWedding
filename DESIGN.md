@@ -2181,7 +2181,7 @@ by two catalogs is simpler than teaching `scoring.js` which variant it is runnin
 **Date:** 2026-07-24. **Status:** accepted.
 
 #640 shipped a gold recolor for the three stag milestone badges only, as pre-baked vendored SVGs under
-`src/public/badges/stag/icons/`. Every other pickable badge icon — the ~200-entry catalog `src/services/
+`src/public/badges/stag/icons/`. Every other pickable badge icon — the ~349-entry catalog `src/services/
 badge-icons.js` serves from `src/public/badges/icons/` — still rendered as an `<img src="…">` with the fill
 baked into the file at `#467058` (wedding green-700). An `<img>`'s pixel data cannot be recolored by CSS, so
 the stag instance leaked wedding green into the task card, the admin task board, and the badge picker grid —
@@ -2219,7 +2219,7 @@ is still gold, so their look is unaffected either way).
 **Tradeoff, recorded honestly (PR review):** a `mask-image` that fails to load (a moved/deleted/typo'd icon
 file) renders as fully transparent — nothing at all, just the empty ring — where the old `<img>` would have
 shown a visible broken-image glyph in the same spot. A missing icon file now fails silently instead of
-visibly. Not engineered around here: the ~200-file catalog is checked against disk at require() time
+visibly. Not engineered around here: the ~349-file catalog is checked against disk at require() time
 (`badge-icons.js` throws at boot on any catalog/file drift), so the realistic way to hit this is a file
 deleted or renamed on disk post-boot without a matching code change — an operational mistake outside this
 issue's scope, not a runtime input this feature needs to defend against.
