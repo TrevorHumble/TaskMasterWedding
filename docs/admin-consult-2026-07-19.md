@@ -222,6 +222,11 @@ visual-approval loop (per the bundle pattern), then split into their phase-2 iss
 
 ## Build order (corrected 2026-07-20 — order only, no dates)
 
+> **Per-issue state annotated 2026-07-24 (#833), via `gh issue view <N>`.** This build order
+> is a historical planning artifact — the annotations below record where each issue actually
+> landed; they do not change the order or strike anything. For live status, the GitHub board
+> is always canonical.
+
 Supersedes the earlier week-by-week draft (owner: order, not dates) AND the first ordered
 list, which predated the concurrent session's merges: already SHIPPED and struck from the
 order — #655 (PR #692), #612-adjacent feed work, #613 (PR #678), #468 slideshow (PR #672),
@@ -232,27 +237,28 @@ the picker); #681 + #682 before #624; #644 before #625 (point swings need delive
 late (its rows read #682/#686/#661 state), #662 right after #646. #682 does NOT depend on
 #681.
 
-1. #612 feed photo fill (verify still open against the merged feed changes, then build)
-2. #684 photo moderation — kebab takedown, comments in viewer, Comments tab removal
-3. #410 icon set
-4. #682 tasks-admin page rebuild
-5. #681 Configuration
-6. #624 one-day tasks (full vertical)
-7. #644 bell
-8. #611 success screen
-9. #625 crowd votes
-10. #626 pedestal
-11. #661 badge ranking (Photos side; #259's chosen/5 flow is its shipped entry)
-12. #683 guests-admin rebuild + Block
-13. #686 bug lifecycle + seeded previews
-14. #685 Invite
-15. #646 dashboard checklist (as amended; reworks the shipped #256 layout)
-16. #662 smart checklist rows
-17. #490 tile medals · 18. #489 leaderboard badges · 19. #469 prizes
-18. #647 Couple's Heart · 21. #666 host role · 22. #669 photos pagination
-19. #656 memories points · 24. #527 live task search · 25. #340 edit own comments
-20. #284 security headers/CSRF · 27. #539 empty-DB drill · 28. #292 load-test drill
+1. #612 feed photo fill (verify still open against the merged feed changes, then build) — **CLOSED, shipped**
+2. #684 photo moderation — kebab takedown, comments in viewer, Comments tab removal — **CLOSED, shipped**
+3. #410 icon set — **CLOSED, shipped**
+4. #682 tasks-admin page rebuild — **CLOSED, shipped**
+5. #681 Configuration — **CLOSED, shipped**
+6. #624 one-day tasks (full vertical) — **CLOSED, shipped**
+7. #644 bell — **CLOSED, shipped** (as the notification recap strip, not a bell icon)
+8. #611 success screen — **OPEN**, not yet built
+9. #625 crowd votes — **CLOSED, shipped**
+10. #626 pedestal — **CLOSED, shipped**
+11. #661 badge ranking (Photos side; #259's chosen/5 flow is its shipped entry) — **CLOSED, shipped**
+12. #683 guests-admin rebuild + Block — **OPEN**, not yet built
+13. #686 bug lifecycle + seeded previews — **CLOSED, shipped**
+14. #685 Invite — **OPEN**, not yet built (Poster tab still says "Poster" in the shipped admin nav)
+15. #646 dashboard checklist (as amended; reworks the shipped #256 layout) — **CLOSED, shipped**
+16. #662 smart checklist rows — **OPEN**, not yet built
+17. #490 tile medals — **OPEN** · 18. #489 leaderboard badges — **OPEN** · 19. #469 prizes — **OPEN**
+18. #647 Couple's Heart — **OPEN** · 21. #666 host role — **OPEN** · 22. #669 photos pagination — **OPEN**
+19. #656 memories points — **CLOSED, shipped** · 24. #527 live task search — **CLOSED, shipped** · 25. #340 edit own comments — **OPEN**
+20. #284 security headers/CSRF — **OPEN** (deliberately deferred to post-wedding, see `DESIGN.md` § "CSRF tokens and security headers") · 27. #539 empty-DB drill — **OPEN** · 28. #292 load-test drill — **OPEN**
 
-If green and time remains: #649 flash, #650 lucky, #648 first-to-finish, #651 duels,
-#253 friends circle, #363 badge-art restyle (10 catalog badges incl. most-liked),
-#368/#653 backlog, #640 bachelor instance.
+If green and time remains: #649 flash — **CLOSED, shipped**, #650 lucky — **CLOSED, shipped**,
+#648 first-to-finish — **CLOSED, shipped**, #651 duels — **OPEN**, #253 friends circle — **OPEN**,
+#363 badge-art restyle (10 catalog badges incl. most-liked) — **OPEN**, #368/#653 backlog — **both OPEN**,
+#640 bachelor instance — **OPEN**.

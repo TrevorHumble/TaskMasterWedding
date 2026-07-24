@@ -134,7 +134,13 @@ zero design work from the hosts.
 Filed in recommended build order within each tier. Each needs the full issue-standards
 treatment (user story, G/W/T, plan, dependency map) before it is real.
 
-### N1. Notification bell (umbrella — absorbs #563)
+### N1. Notification bell (umbrella — absorbs #563) — RESOLVED-AS-SHIPPED (#644, 2026-07-24)
+
+Shipped as a recap strip (not a bell icon) plus a "Notifications" entry, partly realized in the
+site header per issue #644 ("notification recap — strip + profile home, unread events, owed
+celebrations, absorbs #563"). `src/services/notifications.js` owns the recap event log and
+derived feed. The "still open" items below (placement, unread model) were settled during that
+build; read on for what the original consult proposed.
 
 - **Pitch:** a bell with an unread count ("+3"). Tapping shows a recap of what happened to
   you: likes on your photos (batched — "3 people liked your ring-shot photo"), comments on
@@ -251,10 +257,10 @@ Tier 4 — beyond-MVP (all get issues; owner may pull in if time allows): 8. N6 
 
 ## Remaining open questions (the live list — everything else above is settled)
 
-1. **Bell placement / header design** (N1): owner must see it in the visual loop; header is
-   clean today and he's skeptical. Possibly its own small header issue.
-2. **Bell unread model** (N1): last-checked timestamp + derived queries vs. a notifications
-   table — issue-review/implementer call.
+1. **Bell placement / header design** (N1) — RESOLVED-AS-SHIPPED (#644): landed as a recap strip
+   - Notifications entry, partly in the header, not the originally-proposed bell icon.
+2. **Bell unread model** (N1) — RESOLVED-AS-SHIPPED (#644): `src/services/notifications.js` owns
+   the recap event log and derived feed.
 3. **Duels pair-selection + exhaustion rule** (N8) — settle at issue review.
 4. **Flash task schema shape** (N6) — implementer call.
 5. **Couple-account flagging mechanism** (N4) — admin toggle; settle in the issue.
