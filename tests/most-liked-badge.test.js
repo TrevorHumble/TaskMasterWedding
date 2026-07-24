@@ -1,13 +1,17 @@
 // tests/most-liked-badge.test.js
-// Issue #817: TOPLIKED — a transferable badge whose holder set is every guest
-// owning a rank === 1 placing in scoring.crowdFavorites(). Covers AC1-AC4:
+// Issue #817 (widened by #821): TOPLIKED — a transferable badge, display name
+// "Crowd Favorite", whose holder set is every guest owning ANY rank 1-5
+// placing in scoring.crowdFavorites() — matching the #788 on-photo crown's
+// population exactly, not just the single #1 spot. Covers AC1-AC4:
 //
-//   AC1 — the strict leader holds TOPLIKED; a lesser guest never does.
-//   AC2 — a like that overtakes the leader, fired through the real
-//         like-toggle route (already wired, no new route added by this
-//         issue), transfers TOPLIKED to the new leader and revokes it from
-//         the old one.
-//   AC3 — a rank-1 tie grants TOPLIKED to every tied co-leader, not just one.
+//   AC1 — every top-5 placing owner holds it; a guest who owns no placing
+//         photo never does.
+//   AC2 — a rank-5 holder's placing photo getting pushed out of the top-5 by
+//         a like toggle revokes the badge (unless they hold another placing
+//         photo).
+//   AC3 — a guest who owns two placing photos at once holds exactly one
+//         badge row (no duplicate); losing one placing photo while keeping
+//         the other leaves the badge in place.
 //   AC4 — the granted guest_badges row carries points = 0, and holding it
 //         never changes scoring.getPoints()'s total.
 //
@@ -112,79 +116,125 @@ function topLikedRow(guestId) {
     .get(guestId);
 }
 
-describe('AC1: the strict leader holds TOPLIKED, no other guest does', () => {
-  test('a guest with strictly the most likes holds TOPLIKED; a lesser guest does not', () => {
+describe('AC1: every top-5 placing owner holds TOPLIKED; a non-placing guest does not', () => {
+  test('six guests, one below the cutoff: the top five hold TOPLIKED, the sixth does not', () => {
     resetField();
-    const g = makeGuest('G');
-    const h = makeGuest('H');
-    const subG = makeSubmission(g.id);
-    const subH = makeSubmission(h.id);
-    addLikes(subG, 5);
-    addLikes(subH, 2);
+    const g1 = makeGuest('Rank1');
+    const g2 = makeGuest('Rank2');
+    const g3 = makeGuest('Rank3');
+    const g4 = makeGuest('Rank4');
+    const g5 = makeGuest('Rank5');
+    const g6 = makeGuest('Rank6 - misses the cutoff');
+    const s1 = makeSubmission(g1.id);
+    const s2 = makeSubmission(g2.id);
+    const s3 = makeSubmission(g3.id);
+    const s4 = makeSubmission(g4.id);
+    const s5 = makeSubmission(g5.id);
+    const s6 = makeSubmission(g6.id);
+    addLikes(s1, 6);
+    addLikes(s2, 5);
+    addLikes(s3, 4);
+    addLikes(s4, 3);
+    addLikes(s5, 2);
+    addLikes(s6, 1); // rank 6 — never places.
 
     scoring.recomputeTransferableBadges();
 
-    expect(heldCodes(g.id)).toContain('TOPLIKED');
-    expect(heldCodes(h.id)).not.toContain('TOPLIKED');
-    // Exactly one holder — the badge does not fan out to anyone but the
-    // strict leader.
-    expect(topLikedHolderIds()).toEqual([g.id]);
+    for (const g of [g1, g2, g3, g4, g5]) {
+      expect(heldCodes(g.id)).toContain('TOPLIKED');
+    }
+    expect(heldCodes(g6.id)).not.toContain('TOPLIKED');
+    expect(topLikedHolderIds()).toEqual([g1.id, g2.id, g3.id, g4.id, g5.id].sort((a, b) => a - b));
   });
 });
 
-describe('AC2: a like that overtakes the leader transfers TOPLIKED', () => {
-  test('H overtaking G through the real like-toggle route moves TOPLIKED from G to H', async () => {
+describe('AC2: a rank-5 holder pushed out of the top-5 by a like toggle is revoked', () => {
+  test('a new sixth photo overtaking the rank-5 photo revokes TOPLIKED from its owner', async () => {
     resetField();
-    const g = makeGuest('G');
-    const h = makeGuest('H');
-    const subG = makeSubmission(g.id);
-    const subH = makeSubmission(h.id);
-
-    addLikes(subG, 5); // G leads at 5.
-    addLikes(subH, 4); // H trails at 4.
+    const g1 = makeGuest('Rank1');
+    const g2 = makeGuest('Rank2');
+    const g3 = makeGuest('Rank3');
+    const g4 = makeGuest('Rank4');
+    const g5 = makeGuest('Rank5, about to drop out');
+    const challenger = makeGuest('Challenger');
+    const s1 = makeSubmission(g1.id);
+    const s2 = makeSubmission(g2.id);
+    const s3 = makeSubmission(g3.id);
+    const s4 = makeSubmission(g4.id);
+    const s5 = makeSubmission(g5.id);
+    const sChallenger = makeSubmission(challenger.id);
+    addLikes(s1, 6);
+    addLikes(s2, 5);
+    addLikes(s3, 4);
+    addLikes(s4, 3);
+    addLikes(s5, 2); // rank 5, holds TOPLIKED.
+    addLikes(sChallenger, 1); // rank 6, trailing.
 
     scoring.recomputeTransferableBadges();
-    expect(heldCodes(g.id)).toContain('TOPLIKED');
-    expect(heldCodes(h.id)).not.toContain('TOPLIKED');
+    expect(heldCodes(g5.id)).toContain('TOPLIKED');
+    expect(heldCodes(challenger.id)).not.toContain('TOPLIKED');
 
-    // Two more likes on H's photo, POSTed through the real, already-wired
-    // /p/:submissionId/like route (src/routes/community.js) — not a direct
-    // recompute call — proves the existing trigger point, not a new one,
-    // performs the transfer (this issue adds no route). 4 -> 5 (tie,
-    // intermediate) -> 6 (strictly exceeds G's 5).
+    // Two likes on the challenger's photo through the real, already-wired
+    // /p/:submissionId/like route (src/routes/community.js) push it to 3
+    // likes — strictly ahead of g5's 2 — bumping g5 out of the top 5.
     const liker1 = makeGuest('Liker X');
     const agent1 = signInGuest(app, liker1.token);
-    await agent1.post(`/p/${subH}/like`).type('form').send({});
+    await agent1.post(`/p/${sChallenger}/like`).type('form').send({});
 
     const liker2 = makeGuest('Liker Y');
     const agent2 = signInGuest(app, liker2.token);
-    await agent2.post(`/p/${subH}/like`).type('form').send({});
+    await agent2.post(`/p/${sChallenger}/like`).type('form').send({});
 
-    expect(heldCodes(h.id)).toContain('TOPLIKED');
-    expect(heldCodes(g.id)).not.toContain('TOPLIKED');
-    expect(topLikedHolderIds()).toEqual([h.id]);
+    expect(heldCodes(challenger.id)).toContain('TOPLIKED');
+    expect(heldCodes(g5.id)).not.toContain('TOPLIKED');
   });
 });
 
-describe('AC3: a rank-1 tie grants TOPLIKED to every tied co-leader', () => {
-  test('two guests tied for the most likes both hold TOPLIKED; a lower-ranked guest does not', () => {
+describe('AC3: one badge row per guest regardless of placing-photo count', () => {
+  test('a guest owning two placing photos holds exactly one TOPLIKED row; losing one keeps the other', () => {
     resetField();
-    const g = makeGuest('G');
-    const h = makeGuest('H');
-    const other = makeGuest('Other');
-    const subG = makeSubmission(g.id);
-    const subH = makeSubmission(h.id);
-    const subOther = makeSubmission(other.id);
-    addLikes(subG, 5);
-    addLikes(subH, 5);
-    addLikes(subOther, 2);
+    const sweep = makeGuest('Sweep Guest, owns two placing photos');
+    const filler1 = makeGuest('Filler 1');
+    const filler2 = makeGuest('Filler 2');
+    const filler3 = makeGuest('Filler 3');
+    const sSweep1 = makeSubmission(sweep.id);
+    const sSweep2 = makeSubmission(sweep.id);
+    const sFiller1 = makeSubmission(filler1.id);
+    const sFiller2 = makeSubmission(filler2.id);
+    const sFiller3 = makeSubmission(filler3.id);
+    addLikes(sSweep1, 6); // rank 1
+    addLikes(sSweep2, 5); // rank 2 — same guest, second placing photo.
+    addLikes(sFiller1, 4); // rank 3
+    addLikes(sFiller2, 3); // rank 4
+    addLikes(sFiller3, 2); // rank 5
 
     scoring.recomputeTransferableBadges();
 
-    expect(heldCodes(g.id)).toContain('TOPLIKED');
-    expect(heldCodes(h.id)).toContain('TOPLIKED');
-    expect(heldCodes(other.id)).not.toContain('TOPLIKED');
-    expect(topLikedHolderIds()).toEqual([g.id, h.id].sort((a, b) => a - b));
+    // Exactly one guest_badges row for sweep despite two placing photos —
+    // the UNIQUE(guest_id, badge_id) constraint this badge relies on.
+    const sweepRows = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM guest_badges gb JOIN badges b ON b.id = gb.badge_id
+          WHERE gb.guest_id = ? AND b.code = 'TOPLIKED'`
+      )
+      .get(sweep.id).n;
+    expect(sweepRows).toBe(1);
+    expect(heldCodes(sweep.id)).toContain('TOPLIKED');
+
+    // Take down sSweep1 (sweep's rank-1 photo) — sweep still owns sSweep2 at
+    // rank 2 (ranks re-tighten but sweep's remaining photo still places), so
+    // the badge must remain.
+    db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(sSweep1);
+    scoring.recomputeTransferableBadges();
+
+    expect(heldCodes(sweep.id)).toContain('TOPLIKED');
+    const sweepRowsAfter = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM guest_badges gb JOIN badges b ON b.id = gb.badge_id
+          WHERE gb.guest_id = ? AND b.code = 'TOPLIKED'`
+      )
+      .get(sweep.id).n;
+    expect(sweepRowsAfter).toBe(1);
   });
 });
 
@@ -211,6 +261,24 @@ describe('AC4: TOPLIKED is display-only — points = 0, getPoints() unaffected',
     expect(row).toBeTruthy();
     expect(row.points).toBe(0);
 
+    // h also places (rank 2) under the widened rule, and its own grant must
+    // likewise add nothing to its total.
+    const hPointsBeforeCheck = scoring.getPoints(h.id);
+    expect(heldCodes(h.id)).toContain('TOPLIKED');
+    expect(scoring.getPoints(h.id)).toBe(hPointsBeforeCheck);
+
     expect(scoring.getPoints(g.id)).toBe(pointsBeforeGrant);
+  });
+});
+
+describe('AC5: the TOPLIKED catalog row renders the widened "Crowd Favorite" name', () => {
+  test("the seeded catalog row's display name is 'Crowd Favorite' (fed to every badge-display surface)", () => {
+    // The profile Badges grid, leaderboard strip, and /badge/TOPLIKED page all
+    // render badge.name straight off this DB row through the shared badge-art
+    // partial (no per-surface literal), so asserting the row's name here proves
+    // the rename reaches all three surfaces. ensureBadgeCatalog() re-syncs this
+    // from scripts/badge-catalog.js at load time (already run by loadApp()).
+    const badge = db.prepare('SELECT name FROM badges WHERE code = ?').get('TOPLIKED');
+    expect(badge.name).toBe('Crowd Favorite');
   });
 });

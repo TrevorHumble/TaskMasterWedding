@@ -1934,15 +1934,15 @@ already has. One partial renders the mark on all three surfaces (gold for rank 1
 `--place-1` the same token the leaderboard podium and slideshow use for "only the winner is gold"), so the
 mark cannot drift per page.
 
-## TOPLIKED: the Most Liked crown as a materialized, transferable badge (#817)
+## TOPLIKED: the Most Liked crown as a materialized, transferable badge (#817, widened by #821)
 
-**Date:** 2026-07-23. **Status:** accepted.
+**Date:** 2026-07-23. **Status:** accepted. **Amended:** 2026-07-23 (#821) — see below.
 
 `#788` (above) settled the crown as a pure, render-time marker with no `guest_badges` row — deliberately, so a
 like/unlike/takedown/restore never leaves a stale badge to clean up. This issue adds a second, additive
-representation of the SAME rank-1 fact: `TOPLIKED` ("Most Liked"), a `badges.type = 'transferable'` catalog
-row (`scripts/badge-catalog.js`) whose holder set is registered in `src/services/badges.js`'s
-`TRANSFERABLE_BADGES` as every guest owning a `rank === 1` placing in `scoring.crowdFavorites()`. The two
+representation of the SAME rank 1-5 fact: `TOPLIKED` ("Crowd Favorite"), a `badges.type = 'transferable'`
+catalog row (`scripts/badge-catalog.js`) whose holder set is registered in `src/services/badges.js`'s
+`TRANSFERABLE_BADGES` as every guest owning any rank 1-5 placing in `scoring.crowdFavorites()`. The two
 representations do not compete: the crown stays exactly what #788 built (no code in that path changed), and
 `TOPLIKED` is a badge a guest can now see and hold on their profile, beside their name on the leaderboard, and
 on its own `/badge/TOPLIKED` page — through the existing shared badge-display partials, with no per-page
@@ -1951,9 +1951,23 @@ display code added. `TOPLIKED` is display-only at 0 points (the transferable-bad
 double-counts the crowd-favorite points the owner already earns via `crowdPointsByGuest()`.
 
 This is also distinct from the retired `#711` `MOSTLIKED`/`MOSTPHOTOS` pair: those counted a guest's LIFETIME
-total likes/photos across the whole event; `TOPLIKED` counts who currently OWNS the single #1 spot (or every
-tied co-leader, standard-competition ranking, same tie rule `#625` uses for the crown itself) — a fast-moving,
-steal-able honor, not a cumulative tally.
+total likes/photos across the whole event; `TOPLIKED` counts who currently OWNS a top-5 placing (or every tied
+co-leader at the boundary, standard-competition ranking, same tie rule `#625` uses for the crown itself) — a
+fast-moving, steal-able honor, not a cumulative tally.
+
+**#821 — widened from rank-1-only to every rank 1-5 placing owner.** #817 (above, as originally shipped)
+granted `TOPLIKED` only to the strict rank-1 leader (or every tied rank-1 co-leader), while the #788 crown
+marks all five placing photos (gold for rank 1, plain white for ranks 2-5) — so a guest holding a silver/bronze
+crowned photo saw the crown on their tile but never held the matching badge. #821 widens
+`src/services/badges.js`'s `topLikedHolders()` to add every `scoring.crowdFavorites()` placing's `guest_id`
+to the holder set, without a rank filter (`crowdFavorites()` itself already truncates its output at rank 5, so
+no explicit `<= 5` check is needed in the registry function) — the holder set now matches the crown's
+population exactly. The owner separately settled the display name as **"Crowd Favorite"**
+(`scripts/badge-catalog.js`'s `name` field) on this issue, since the singular superlative "Most Liked" no
+longer fit a badge up to five guests can hold at once; the `code` stays `TOPLIKED` (unchanged, to avoid
+`ensureSpecialBadgeCollisionsRemoved()`'s `CROWDFAV` deletion, #661, and `ensureRetiredBadgesRemoved()`'s
+`MOSTLIKED` deletion, #711), as does `art_path` and the `/badge/TOPLIKED` URL. No new route, migration, or
+recompute call site — same trigger points as #817.
 
 **No new route, migration, or call site.** The transferable-badge engine and its trigger points already
 existed and were already wired (the like-toggle in `src/routes/community.js`, `recomputeAfterSubmissionChange`,
