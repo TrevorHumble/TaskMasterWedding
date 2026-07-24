@@ -34,11 +34,14 @@ Nine sources pay points. Each entry names the issue that builds it.
    and the point leaves, upload one again and it returns. Derived, not a one-time banked
    award. (Shipped, #409; amended to derived by #716.)
 7. **Automatic badges pay while held.** Every automatic badge pays +1 point for as long as
-   the guest holds it. (New issue — not yet filed; do not fold this into another issue's
-   scope.)
-8. **Task-badge award ranking.** For each task, the host picks and ranks that task's 5
-   best photos. Rank 1 pays 5, rank 2 pays 4, down to rank 5 paying 1. (#661's rewrite;
-   #662 is its checklist entry point.)
+   the guest holds it. Shipped (#709, PR #746) — `AUTO_METRIC_BADGE_POINTS` in
+   `src/db.js`, consumed by `recomputeBadges`'s grant calls in
+   `src/services/scoring.js`, with a one-time backfill for any pre-#709 grant.
+8. **Task-badge award ranking.** For each task, the host picks and ranks 1 to 5 of that
+   task's best photos — the host's choice, never a forced five. Rank 1 pays 5, rank 2 pays
+   4, down to rank 5 paying 1; a release of fewer than 5 simply stops paying at whichever
+   rank the host stopped ranking. (#661's rewrite, shipped — `releaseRanking` in
+   `src/services/task-badges.js`.)
 9. **Crowd favorites.** Likes are votes. Visible photos (task photos AND memories — memories
    compete) are ranked by like count using STANDARD-COMPETITION ranking — a race rank (1st,
    2nd, 2nd, 4th) where a tie CONSUMES the ranks beneath it, deliberately different from the
@@ -53,9 +56,11 @@ Nine sources pay points. Each entry names the issue that builds it.
 
 Every point a guest sees must have a readable reason drawn from the nine sources above.
 Freeform bonus points — awarded to a guest directly, or awarded to a photo outside the
-nine sources — are being removed (#683 for guest-level awards, #684 for the per-photo
-route). Values already awarded before removal keep counting; only the write paths for new
-freeform awards die.
+nine sources — are the target: the per-photo route is already removed (#684, closed);
+guest-level awards are a planned removal, #683 open and undecided by the owner as of
+2026-07-24 (the admin form is currently live — see "What is dead" below). Values already
+awarded before any removal keep counting; only the write path for new freeform awards
+dies.
 
 ### Takedown and replace
 
@@ -75,24 +80,40 @@ freeform awards die.
 - **Task badges.** Every task has exactly one badge, required at task creation, picked
   from the bundled icon set (#682 + #410). Completing the task does not earn the badge —
   the card copy reads "Best photo wins [badge]," prize framing, not participation framing.
-  The badge goes to the host-ranked 5 best photos for that task; all five winners wear it.
-- **Crowd favorite.** The top-5 most-liked photos wear the crowd-favorite badge (#625).
-- **Gold rule.** In any ranked set — a task badge's 5 winners, or the crowd-favorite 5 —
-  rank 1 wears the same badge rendered gold, and gold badges sort first on every display
-  surface (profile, leaderboard, celebration modal). There is no separate "top" badge.
-  (New issue, low priority — not yet filed.)
+  The badge goes to the host-ranked 1 to 5 best photos for that task (host's choice, never
+  a forced five); every ranked winner wears it.
+- **Crowd favorite.** The top-5 most-liked photos wear a render-time crown mark (shipped
+  #788): `partials/crowd-favorite-mark.ejs`, driven by `crowdFavorites()`
+  (`src/services/scoring.js`) — no `guest_badges` row is written for a crowd-favorite
+  placement, so this is a display marker, not a stored badge award.
+- **Gold rule.** Rank 1 in each ranked set wears a gold variant of that set's own mark, and
+  gold is reserved for a single champion — a tie at rank 1 wears the plain (non-gold)
+  mark instead. This shipped as two sibling render-time marks, not one shared badge
+  rendered gold: the crowd-favorite crown goes gold only when exactly one photo holds rank
+  1 (`crownGoldId`, `src/routes/community.js`'s `crownRankState()`, shipped #788), and a
+  task badge's rank-1 winner renders the separate victory-medal partial
+  (`partials/badge-victory-mark.ejs`, shipped #811) — always gold at rank 1, since
+  `releaseRanking`'s same-guest collapse (`src/services/task-badges.js`) means rank 1 can
+  never be shared. Sorting gold first across every display surface (profile, leaderboard,
+  celebration modal) — beyond the gallery/feed/profile tiles both marks already cover — is
+  unbuilt.
 
 ### One badge substrate
 
 Two badge systems shipped historically and never met: the real badges (`badges` +
 `guest_badges` tables — points-bearing, guest-visible) and the disconnected admin picker
-(`badge_winners` — points-free, invisible to guests). The end state is one system: the
+(`badge_winners` — points-free, invisible to guests). The end state is one system, and it
+shipped that way: `badge_winners` was dropped outright, not repointed — `src/db.js`'s
+guarded boot-time `DROP TABLE IF EXISTS badge_winners` (`ensureBadgeWinnersTableDropped`)
+removes it on every existing database, and no fresh database ever creates it. The
 `badges`/`guest_badges` tables are the only badge substrate. Ranking a task's winners
-releases real `guest_badges` award rows carrying both the points and the winning
-submission, so takedown-revert and profile display come free from the existing model.
-`badge_winners` survives at most as the picking worksheet, never as a second
-points-bearing record. (Structural detail: `docs/economy-architecture-2026-07-20.md`
-§ "One badge medallion.")
+(`releaseRanking`, `src/services/task-badges.js`) releases real `guest_badges` award rows
+carrying both the points and the winning submission, so takedown-revert and profile
+display come free from the existing model. There is no server-side picking worksheet: the
+host's in-progress rank order lives only in the admin page's client-side drag state
+(`src/public/js/admin-badge-rank.js`) until the host confirms the release, at which point
+`releaseRanking` writes it in one transaction. (Structural detail:
+`docs/economy-architecture-2026-07-20.md` § "One badge medallion.")
 
 ---
 
@@ -100,29 +121,45 @@ points-bearing record. (Structural detail: `docs/economy-architecture-2026-07-20
 
 Do not build these, and do not preserve them when touching adjacent code.
 
-| Killed                                                                                                                   | Why                                                                                                                                   | Owning issue                           |
-| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| MOSTPHOTOS (Most Photos badge)                                                                                           | Rewards photo spam                                                                                                                    | New removal issue — not yet filed      |
-| First-to-finish bonus                                                                                                    | Rewards rushing low-effort photos                                                                                                     | #648 (closed)                          |
-| The five standalone photo badges (SHUTTERBUG / CHOICE / BESTDANCE / GOLDEN / CROWDFAV in `src/services/photo-badges.js`) | Test-era placeholders that predate #410's bundled icon picker                                                                         | #661's rewrite                         |
-| TOPSHOT / "Most Liked photo" badge (#490's second half)                                                                  | Absorbed by the crowd favorite                                                                                                        | Superseded by #625                     |
-| MOSTLIKED (Most Liked guest badge)                                                                                       | Absorbed by the crowd favorite; the badge now rides the top-ranked photos                                                             | Superseded by #625                     |
-| Badges awarded to people (the guests-page badge dropdown) and the custom-badge form                                      | A badge attaches to photos — through a task or through the crowd — never directly to a guest, except the auto set the engine computes | #683                                   |
-| Freeform bonus points, guest-level and photo-level                                                                       | See "Nothing else pays" above                                                                                                         | #683 (guest-level), #684 (photo-level) |
+| Killed                                                                                                                   | Why                                                                                                                                   | Owning issue                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| MOSTPHOTOS (Most Photos badge)                                                                                           | Rewards photo spam                                                                                                                    | New removal issue — not yet filed                                                             |
+| First-to-finish bonus                                                                                                    | Rewards rushing low-effort photos                                                                                                     | #648 (closed)                                                                                 |
+| The five standalone photo badges (SHUTTERBUG / CHOICE / BESTDANCE / GOLDEN / CROWDFAV in `src/services/photo-badges.js`) | Test-era placeholders that predate #410's bundled icon picker                                                                         | #661's rewrite                                                                                |
+| TOPSHOT / "Most Liked photo" badge (#490's second half)                                                                  | Absorbed by the crowd favorite                                                                                                        | Superseded by #625                                                                            |
+| MOSTLIKED (Most Liked guest badge)                                                                                       | Absorbed by the crowd favorite; the badge now rides the top-ranked photos                                                             | Superseded by #625                                                                            |
+| Badges awarded to people (the guests-page badge dropdown) and the custom-badge form                                      | A badge attaches to photos — through a task or through the crowd — never directly to a guest, except the auto set the engine computes | planned removal — #683 open, owner decision pending                                           |
+| Freeform bonus points, guest-level and photo-level                                                                       | See "Nothing else pays" above                                                                                                         | guest-level: planned removal — #683 open, owner decision pending · photo-level: #684 (closed) |
 
-The choose-5-winners screen that #661's rewrite keeps still exists after the placeholder
-five die — it now picks winners for each task's real badge, not for the dead placeholders.
+The guest-level badge dropdown, the custom-badge form, and guest-level bonus points named
+in the two rows above are **currently live** (`src/routes/admin.js`'s
+`scoring.awardSpecialBadge`/`scoring.createCustomBadge`/`scoring.addBonusPoints`, rendered
+in `admin-guests.ejs`) — #683 (the guests-admin redesign that would remove them) is open
+and undecided by the owner as of 2026-07-24. The "do not build/preserve" directive in this
+table's header applies to these two rows only once #683 lands; until then, do not remove
+or alter them on the strength of this table alone.
+
+The rank-and-award screen that #661's rewrite keeps still exists after the placeholder
+five die — it now picks winners (1 to 5, host's choice) for each task's real badge, not
+for the dead placeholders.
 
 ---
 
 ## Rule → issue map
 
 - Task worth 1/2/3: #682 · Daily bonus: #624 · Flash: #649 · Lucky: #650
-- Memory +1/day: #656 · Auto-badge +1: new issue, not yet filed · Gold rule: new issue, not yet filed
-- Task-badge ranking + points + one-badge-system consolidation: #661 (+ #662)
+- Memory +1/day: #656 · Auto-badge +1: shipped, #709 (PR #746) · Gold rule (single-champion
+  render, two sibling marks): shipped, #788 (crowd crown) + #811 (task-badge medal); a
+  gold-sorts-first display rule beyond those two marks remains unbuilt
+- Task-badge ranking + points + one-badge-system consolidation: #661 (shipped). #662 (the
+  dashboard checklist entry point) was deliberately not built — `src/services/host-checklist.js`
+  omits a rank-and-award row on purpose (no backing column to feature-detect); do not cite
+  it as a live entry point.
 - Crowd favorite (points + badge + gold): #625 · Duels feed crowd likes: #651
 - Completionist recompute on task changes: #701 · Remove MOSTPHOTOS: new issue, not yet filed
-- No badges/points on people: #683 · Per-photo points route removal: #684
+- No badges/points on people: planned removal — #683 open, owner decision pending (the
+  badge dropdown, custom-badge form, and guest-level bonus points are currently live) ·
+  Per-photo points route removal: #684 (closed)
 - Reward delivery: #644 (recap) + #611 (success screen slots for bonus receipts)
 - Display surfaces: #489/#490 (medals — #490's TOPSHOT half is dead), #653 (next-badge nudge), #646 (host checklist), #363 (badge art), #469 (prizes)
 - #647 (Couple's Heart): the couple's gold heart is a like marker and pays nothing —
