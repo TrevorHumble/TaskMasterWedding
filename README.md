@@ -4,6 +4,8 @@ A photo task game for the wedding of **Axel Fenwick & Lilly Sckeiky**. Around 10
 
 It runs on a small rented Linux host with a persistent disk, reachable over HTTPS through the host's reverse proxy at a stable domain the QR codes point to; see [`docs/deploy.md`](docs/deploy.md) for the full deploy runbook. It originally ran on a laptop behind a temporary Cloudflare tunnel.
 
+**New to this repo?** Start with [`docs/onboarding.md`](docs/onboarding.md) — a one-screen reading map.
+
 ## What it does
 
 - **QR sign-up, no guest passwords.** One shared QR code, printed once on a poster, opens `/join` for every guest, who signs up with a name, contact, and a self-chosen 4-digit PIN. A returning guest re-enters at `/login` with that same contact + PIN on any device.

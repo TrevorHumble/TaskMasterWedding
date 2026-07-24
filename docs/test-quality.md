@@ -12,6 +12,11 @@ Takes ~20 minutes locally (the CI job allows 90 minutes as headroom for slower r
 
 ## Baseline — 2026-07-05, branch `issue-198-199-test-quality` (main @ 485886a)
 
+**Every number in this file — the outcome table, the per-module scores, and the three hand-made probes
+below — is this single 2026-07-05 baseline, pre-#181.** `npm run mutation` has not been re-run since; no
+number here reflects test additions landed after that date. Treat the whole file as historical until a
+fresh dated row is appended per "Ratchet intent" below.
+
 922 mutants planted across `src/services/**` and `src/routes/auth.js` (the admin-login lockout lives there; it is one of the three probe points below). Results:
 
 | Outcome                     | Count | Meaning                                         |
@@ -39,9 +44,9 @@ Per module — higher is better:
 
 The issue's evidence section demonstrated three deliberate bugs by hand. The automated run reproduces the same catch/miss pattern:
 
-1. **Scoring ignores hidden photos** (`taken_down = 0` filter, `scoring.js`) — **detected.** Honest nuance: Stryker cannot edit the inside of a SQL string, so there is no mutant that removes _only_ the filter clause; the nearest mutants (blanking the scoring queries at lines 82 and 94) are detected via test failure/hang.
-2. **Hidden photos blocked from direct URLs** (guard in `photos.js` lines 484–495) — **detected**, same SQL-string nuance as above.
-3. **Admin lockout one attempt late** (`>=` → `>` at `auth.js:238`) — **SURVIVED**, exactly as demonstrated by hand. No test pins the lockout to the exact attempt count.
+1. **Scoring ignores hidden photos** (`taken_down = 0` filter, `scoring.js`) — **detected.** Honest nuance: Stryker cannot edit the inside of a SQL string, so there is no mutant that removes _only_ the filter clause; the nearest mutants (blanking the scoring queries) are detected via test failure/hang.
+2. **Hidden photos blocked from direct URLs** (a guard in `photos.js`) — **detected**, same SQL-string nuance as above.
+3. **Admin lockout one attempt late** (`>=` → `>` in `auth.js`) — **SURVIVED**, exactly as demonstrated by hand. No test pins the lockout to the exact attempt count.
 
 ## Where the tests are thin — plain-English list
 
@@ -49,10 +54,10 @@ What a bug could quietly do today without any test noticing, worst first:
 
 - **The keepsake export could break almost any way** (`export.js`, score 16%). Wrong photos in the ZIP, broken spreadsheet, mislabeled files — 103 planted bugs survived and another 106 weren't executed by any test. This is Goal D's deliverable ("one shared record, kept"); it deserves tests before the wedding.
 - **QR codes** (`qr.js`, 36%): a bug in QR generation (wrong URL encoded, wrong size) would likely ship unnoticed.
-- **Admin lockout boundary** (`auth.js:238`): locking one attempt later than configured goes unnoticed. Known since the hand review; now pinned by a named surviving mutant.
-- **Replaced-photo file cleanup** (`submissions.js:128–131`): if replacing a photo stopped deleting the old files, every test still passes — disk quietly fills with orphans.
-- **Badge-removal guard** (`scoring.js:337`, in `removeSpecialBadge`): if the admin removes a badge using a code that doesn't exist (or a system-managed one), the guard could be bypassed and no test would object. The matching guard on the _award_ path (`scoring.js:319`) is fully defended — every planted bug there was caught.
-- **Silent error paths in submissions** (`submissions.js`): the superseded-file-cleanup error handler (line 135) is never executed by any test at all, and the recompute-failure log message (line 152) can be blanked without a test noticing — minor, but those failure paths are effectively unwatched.
+- **Admin lockout boundary** (`auth.js`): locking one attempt later than configured goes unnoticed. Known since the hand review; now pinned by a named surviving mutant.
+- **Replaced-photo file cleanup** (`submissions.js`): if replacing a photo stopped deleting the old files, every test still passes — disk quietly fills with orphans.
+- **Badge-removal guard** (`removeSpecialBadge`, in `scoring.js`): if the admin removes a badge using a code that doesn't exist (or a system-managed one), the guard could be bypassed and no test would object. The matching guard on the _award_ path, also in `scoring.js`, is fully defended — every planted bug there was caught.
+- **Silent error paths in submissions** (`submissions.js`): the superseded-file-cleanup error handler is never executed by any test at all, and the recompute-failure log message can be blanked without a test noticing — minor, but those failure paths are effectively unwatched.
 
 Killing these survivors — starting with `export.js` and the lockout boundary — is concrete test-writing work tracked under #181.
 

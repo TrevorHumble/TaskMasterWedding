@@ -64,7 +64,7 @@ And a run with failures:
 ```
 Summary: count=4213 server5xx=1 networkFailures=6 p50=42ms p95=310ms p99=880ms rps=140.4
   /gallery: networkFailures=6
-  /tasks/1/submit: server5xx=1
+  /tasks/:id/submit: server5xx=1
 ```
 
 - **count** — total requests sent across all virtual guests.
