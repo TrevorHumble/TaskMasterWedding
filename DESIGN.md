@@ -1933,3 +1933,47 @@ no separate write, the same "nothing is ever stored, so nothing can go stale" pr
 already has. One partial renders the mark on all three surfaces (gold for rank 1, plain white for ranks 2–5,
 `--place-1` the same token the leaderboard podium and slideshow use for "only the winner is gold"), so the
 mark cannot drift per page.
+
+## TOPLIKED: the Most Liked crown as a materialized, transferable badge (#817)
+
+**Date:** 2026-07-23. **Status:** accepted.
+
+`#788` (above) settled the crown as a pure, render-time marker with no `guest_badges` row — deliberately, so a
+like/unlike/takedown/restore never leaves a stale badge to clean up. This issue adds a second, additive
+representation of the SAME rank-1 fact: `TOPLIKED` ("Most Liked"), a `badges.type = 'transferable'` catalog
+row (`scripts/badge-catalog.js`) whose holder set is registered in `src/services/badges.js`'s
+`TRANSFERABLE_BADGES` as every guest owning a `rank === 1` placing in `scoring.crowdFavorites()`. The two
+representations do not compete: the crown stays exactly what #788 built (no code in that path changed), and
+`TOPLIKED` is a badge a guest can now see and hold on their profile, beside their name on the leaderboard, and
+on its own `/badge/TOPLIKED` page — through the existing shared badge-display partials, with no per-page
+display code added. `TOPLIKED` is display-only at 0 points (the transferable-badge engine's existing
+`recomputeTransferableBadges()` always grants at `points = 0`, unchanged since issue #709), so it never
+double-counts the crowd-favorite points the owner already earns via `crowdPointsByGuest()`.
+
+This is also distinct from the retired `#711` `MOSTLIKED`/`MOSTPHOTOS` pair: those counted a guest's LIFETIME
+total likes/photos across the whole event; `TOPLIKED` counts who currently OWNS the single #1 spot (or every
+tied co-leader, standard-competition ranking, same tie rule `#625` uses for the crown itself) — a fast-moving,
+steal-able honor, not a cumulative tally.
+
+**No new route, migration, or call site.** The transferable-badge engine and its trigger points already
+existed and were already wired (the like-toggle in `src/routes/community.js`, `recomputeAfterSubmissionChange`,
+and boot in `src/app.js`) — registering one non-empty `TRANSFERABLE_BADGES` entry is what activates that
+already-built path; this issue's diff is a catalog row, a registry function, and tests. `ensureBadgeCatalog()`
+upserts the new catalog row into both fresh and already-played-in databases on boot, so no migration was
+needed.
+
+**Why `src/services/badges.js` requires `./scoring` lazily, inside the registry function, not at module top
+level.** `scoring.js` requires `./badges` at ITS OWN top level (to destructure
+`METRIC_BADGES`/`TRANSFERABLE_BADGES`), so a top-level `require('./scoring')` added to `badges.js` would
+complete a load-order-sensitive cycle: whichever module finished loading first would see the other's
+`module.exports` still mid-assembly the moment it destructured from it. Deferring the require to inside
+`topLikedHolders()` sidesteps the cycle — mirroring `notifications.js`'s own documented reason for deferring
+its `require('./scoring')` to call time inside `KIND_VIEW.crowd_favorite.parts()` (see "Crowd favorites:
+derived not materialized," above).
+
+**Left deliberately out of scope: four stale `(registry currently empty, #711)` comment asides.**
+`src/app.js`, `src/routes/admin.js`, `src/routes/community.js`, and `src/services/scoring.js` each carry a
+parenthetical noting the transferable registry was empty — now stale, since `TOPLIKED` is the first entry.
+Fixing all four would be comment-only, but it would expose each whole core route/service file to review for no
+functional gain (this repo's review bar judges the whole touched file, not the diff). They are left for a
+later low-risk sweep rather than bundled here.
