@@ -4,6 +4,8 @@ A small, focused design system for a **mobile-first wedding website / web app**.
 
 > This file is portable. Another agent (or Claude Code) can read it top-to-bottom and build on-brand screens without seeing the originals. Concrete token values live in `styles.css`; this doc explains how to use them and why.
 
+> **Reconciled against the shipped app (2026-07-24, #833).** The shipped app (`src/public/css/theme.css`) is Wedding Master, a photo-task scavenger-hunt game — a different product shape than the RSVP/Schedule/Travel/Registry marketing-site sketch this document originally described (§ 10 below). Sections 1–9 (color, type, motif, spacing, components) are the real, shipped, owner-approved system; corrections below bring their specifics in line with `theme.css` as built. § 10's screen inventory is retitled as an out-of-scope sketch — this build does not include those screens (per `docs/north-star.md`, the shift here is guests playing a game at the reception, not RSVP/Travel/Registry planning pages).
+
 ---
 
 ## 1. Brand at a glance
@@ -28,19 +30,20 @@ A small, focused design system for a **mobile-first wedding website / web app**.
 
 **Usage rules**
 
-- The page background is **always white**. `--green-50` is the _only_ fill used to separate a region (cards, the password well, the RSVP panel).
+- The page background is **always white**. `--green-50` is the _only_ fill used to separate a region (cards, input wells — the "RSVP panel" from the § 10 sketch does not exist in this app).
 - Text lives in the green family — `--green-700` for almost everything, `--green-500` for supporting copy. Avoid pure black.
-- **Buttons** are solid `--green-700`, white label, hover to `--green-900`. That is the single call-to-action treatment everywhere.
-- No gradients. No second accent hue. If you need emphasis, use _weight, size, and space_ — not a new color.
+- **Buttons** are solid `--green-700`, white label, hover to `--green-900`. That is the primary call-to-action treatment; the shipped app also has owner-approved secondary treatments for lower-emphasis or destructive actions — see § 6 Components.
+- No gradients. **Gold and ember are the two owner-approved exceptions** to "no second accent hue" — both are intentional, scoped additions, not omissions: gold marks a 1st-place/winner moment (leaderboard rank, slideshow champion), ember marks a live flash-task countdown. Each is scoped to its one meaning, never used as a general decorative accent. See `styles.css` for the hex values and scoping note. Outside of those two cases, use _weight, size, and space_ for emphasis — not a new color.
 
 ---
 
 ## 3. Typography
 
-All-serif. Two families, both from Google Fonts (loaded by `styles.css`):
+All-serif, self-hosted (see `styles.css` — the app never fetches a font over the network at the venue). Three families:
 
-- **Display — `Cormorant Garamond`** (`--font-display`): high-contrast, elegant. Used for couple names, page titles, day headers, the countdown date. Often **UPPERCASE** with letter-spacing for names/titles; mixed-case for dates.
+- **Display — `Cormorant Garamond`** (`--font-display`): high-contrast, elegant. Used for couple names, page titles, day headers, and dates (the "countdown date" use is from the § 10 sketch — this app has no countdown). Often **UPPERCASE** with letter-spacing for names/titles; mixed-case for dates.
 - **Body — `EB Garamond`** (`--font-body`): warm, readable. Paragraphs, event details, form labels, meta.
+- **Wordmark — `Wedding Script`** (`--font-script`): an owner-approved third family, scoped to exactly one use — the "Wedding Master" site wordmark (`.brand-script`). Never used for headings, body copy, or any other text; the display/body pair above still governs everything else.
 
 **Scale** (`--fs-*`): display 56 · h1 34 · h2 24 · h3 19 · body 18 · small 15 · eyebrow 13.
 
@@ -83,7 +86,7 @@ Rules: hearts are **solid green** at name-scale, or **thin-stroke outline** when
 - **8pt spacing scale** (`--space-1`…`--space-9`). Be generous: ceremonial screens breathe with `--space-8`/`--space-9` between blocks.
 - **Mobile-first.** Design canvas is `--app-max-width` (430px); side gutter `--gutter` (24px). On wider screens, center the column and keep the white margins.
 - **Radius:** inputs &amp; buttons `--radius-input` (4px, barely rounded); cards/panels `--radius-card` (14px); pills only for chips/toggles.
-- **Hairlines** (`--green-300`) separate list rows and underline the active nav item. 1px only.
+- **Hairlines** (`--green-300`) separate list rows, 1px only. (The active nav-item underline is a heavier 2px `--color-primary` rule, not a hairline — see § 6 Components.)
 - **Shadows are rare.** Flat by default. Use `--shadow-card` for a lifted panel, `--shadow-raise` for a sheet/menu overlay. Never a heavy drop shadow.
 
 ---
@@ -92,12 +95,12 @@ Rules: hearts are **solid green** at name-scale, or **thin-stroke outline** when
 
 Build these with inline styles referencing the tokens. Keep them flat and centered.
 
-- **Button (primary):** solid `--green-700`, label in `--font-body` weight 600, `--color-on-primary`, padding `14px 28px`, radius `--radius-input`. Hover/press → `--green-900`. Full-width on mobile forms; auto-width inline (e.g. "Map" / "Add to calendar" sit as an equal pair in a `gap` row). No icon needed.
-- **Text input:** white fill, `--border-hairline`, radius `--radius-input`, 14px padding, 18px serif text. Placeholder in `--green-300`. Focus → border `--green-700`. Password field shows an eye/eye-off toggle on the right. Inputs sit inside a `--green-50` well on ceremonial screens.
-- **Card / panel:** `--green-50` fill, radius `--radius-card`, padding `--space-5`–`--space-6`. Used for the password well and the RSVP block. Optional `--shadow-card`.
-- **Nav:** centered wordmark "LILLIAN &amp; AXEL" (Cormorant uppercase) with a horizontal link row beneath on desktop; on mobile collapse to a **hamburger** opening a centered serif menu sheet. Active item is underlined with a 1px `--green-700` rule. Links: Home · Schedule · Travel · Registry · Things to Do · FAQs · RSVP.
-- **Countdown:** four inline units "39 days 10 hours 19 minutes 28 seconds" in `--green-500`, centered, small caps-ish serif. Live-ticking.
-- **Schedule item:** centered stack — day title (Cormorant uppercase) → small heart divider → event title (600) → time → venue name → italic-underline address → description (muted, centered) → button pair (Map / Add to calendar).
+- **Button (primary):** solid `--green-700`, label in `--font-body` weight 600, `--color-on-primary`, padding `14px 28px`, radius `--radius-input`. Hover/press → `--green-900`. Full-width on mobile forms; auto-width inline. No icon needed.
+- **Button variants (owner-approved, shipped beyond the original primary-only spec):** `.btn-secondary` (lower emphasis, non-destructive alternative action), `.btn-ghost` (borderless/tertiary), `.btn-danger` (destructive actions — delete, take-down), `.btn-sm` (compact, dense admin rows), `.btn-block` (full-width), `.btn-sage` (a muted secondary accent). Each is a deliberate addition for a real recurring need (an admin row needs a small destructive action next to a benign one, a dense table needs a compact button) — not a departure from "one call-to-action treatment": the primary green button is still the only _emphasis_ treatment; the variants exist to de-emphasize or warn.
+- **Text input:** white fill, `--border-hairline`, radius `--radius-input`, **13px 16px padding** (as shipped — the original `styles.css` spec said 14px on all sides; corrected here), 18px serif text. Placeholder in `--green-300`. Focus → border `--green-700`. A PIN/password field shows an eye/eye-off reveal toggle (`.pin-reveal`) on the right — masked (green-tinted dots) by default, tap to reveal in place; the input itself always renders as real, readable text server-side so the field works with JavaScript off (progressive enhancement, `src/public/js/pin-field.js`). Inputs sit inside a `--green-50` well on ceremonial screens.
+- **Card / panel:** `--green-50` fill, radius `--radius-card`, padding `--space-5`–`--space-6`. Optional `--shadow-card`.
+- **Nav:** centered wordmark (Cormorant/script uppercase) with a horizontal link row beneath on desktop; on mobile collapse to a **hamburger** opening a centered serif menu sheet. The active item's underline is **2px** solid `--color-primary` (corrected from the original 1px spec). The link set is app-specific — see the shipped nav in `src/views/partials/header.ejs`, not a fixed list here (§ 10 below explains why the original Home/Schedule/Travel/Registry/RSVP link set does not apply to this app).
+- **Countdown** and **Schedule item** — OUT OF SCOPE SKETCH (see § 10): neither a live event countdown nor a Schedule page exists in this app; these two component specs describe the RSVP-style companion-site sketch, not anything built here.
 - **Section divider:** small centered heart (or outline-heart pair) with generous vertical space.
 
 ---
@@ -107,7 +110,7 @@ Build these with inline styles referencing the tokens. Keep them flat and center
 - **Voice:** warm, gracious, first-person-plural ("Join us…", "we celebrate"). Speaks _to_ the guest. Never corporate, never cute-overload.
 - **Casing:** UPPERCASE for names, page titles, day headers; Title Case for event names; sentence case for descriptions.
 - **Dates:** "AUGUST 7 – 9, 2026" (display); "Friday, August 7, 2026" (day header). Place: "Priest Lake, ID".
-- **Examples:**
+- **Examples** (voice/tone reference; the "Password gate" and "Schedule blurb" examples below are from the § 10 out-of-scope sketch — this app's actual sign-in is a name/contact/PIN join-and-login flow, not a single shared invitation password):
   - Password gate: _"Check your invitation for the password. If you cannot find it, contact Lilly or Axel."_
   - Hero: _"Join us for a wedding weekend!"_
   - Schedule blurb: _"Join us for a relaxed lakeside welcome with drinks, light bites, and a campfire. Come comfortable — this is your chance to settle in, reconnect, and ease into the weekend."_
@@ -123,13 +126,25 @@ Subtle and soft. Use `--ease-soft`. Fades and short slides only (menu sheet, scr
 
 ## 9. Files in this system
 
-- `styles.css` — all design tokens + font imports. **Import this.**
+- `styles.css` — all design tokens + self-hosted `@font-face` declarations. **Import this.**
 - `DESIGN_SYSTEM.md` — this guide.
 - `SKILL.md` — portable skill wrapper (for Claude Code / Agent Skills).
 - `Wedding Screens.dc.html` — interactive example: the key mobile screens (password gate, home + live countdown, schedule, RSVP, FAQ) on a pannable canvas. Edit these together to refine the system.
 
 ---
 
-## 10. Screen inventory (for build-out)
+## 10. Screen inventory — OUT OF SCOPE SKETCH, not built
 
-Password gate · Home/landing (hero + date + place + live countdown + RSVP) · Schedule (Fri/Sat/Sun events) · Travel · Registry · Things to Do at Priest Lake · FAQs · RSVP form. All mobile-first, white, centered, serif, heart-accented.
+The list below (password gate, home/landing with RSVP, Schedule, Travel, Registry, Things to
+Do, FAQs, RSVP form) was the original screen inventory for a wedding **marketing/information
+site**. **This build is a different product — a photo scavenger-hunt game (Wedding Master:
+tasks, points, badges, gallery, leaderboard, admin) — and does not include any of these
+screens**, per `docs/north-star.md`: the shift this app designs for is a guest playing a game
+at the reception, not planning travel or RSVPing on a wedding website. None of the screens
+below exist in `src/views/`; do not build against this list. It is kept only as a sketch of
+what a _different_, RSVP-style companion site could look like on this same visual system, in
+case one is ever scoped as its own project:
+
+Password gate · Home/landing (hero + date + place + live countdown + RSVP) · Schedule
+(Fri/Sat/Sun events) · Travel · Registry · Things to Do at Priest Lake · FAQs · RSVP form. All
+mobile-first, white, centered, serif, heart-accented.

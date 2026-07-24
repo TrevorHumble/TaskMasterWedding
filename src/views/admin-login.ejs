@@ -10,6 +10,7 @@
   <% } %>
 
   <form action="/admin/login" method="POST" autocomplete="off">
+    <%- include('partials/csrf-field') %>
     <div class="form-row">
       <label class="form-label" for="password">Password</label>
       <input class="form-input" type="password" id="password" name="password"

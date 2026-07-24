@@ -2,6 +2,19 @@
 
 > **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
 
+> **Resolution status (as of #833, 2026-07-24):** the vast majority of the findings below were
+> resolved by the subsequent redesign/rewrite of the app (guest + admin theme convergence,
+> gallery.js wiring, the `<main>`/flash duplication fixes, the testability seams, the hardened
+> auth/session model, and more — see `BUILDLOG.md` for the individual PRs). Two findings remain
+> open: **Blocker-1, "No CSRF protection on any state-changing POST despite cookie-based auth,"**
+> and **Major-12, "No security response headers (no helmet: CSP, X-Content-Type-Options,
+> X-Frame-Options, Referrer-Policy)."** Both gaps are real and both are deliberately deferred
+> together to post-wedding, tracked on issue #284 (which absorbed #560 and #769) — see
+> `DESIGN.md` § "CSRF tokens and security headers: deliberately deferred to post-wedding (#284)"
+> for the recorded decision and its reasoning ("the app ships to the wedding with no CSRF token
+> layer and no added security-header pass"). This file is kept as the historical record of the
+> original as-built review, not a live defect list.
+
 **Date:** 2026-06-28  
 **Method:** bias-gated multi-adversary review per `standards/adversarial-review-protocol.md`. Architecture had 3 independent reviewers (2-of-3 majority for `confirmed`); security, testability, and UX-usability had 2 each. A separate bias-gate agent audited the briefing.
 

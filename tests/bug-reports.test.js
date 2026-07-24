@@ -209,7 +209,11 @@ describe('AC1 (#686): the "Open issue" prefill href, and using it marks tracked'
     // onclick is present and targets this id (EJS HTML-escapes the single
     // quotes to &#39;) — a future edit dropping the onclick would otherwise
     // leave the suite green while silently breaking "using it marks tracked".
-    expect(res.text).toContain('sendBeacon(&#39;/admin/bugs/' + id + '/track&#39;)');
+    // Issue #284: sendBeacon now carries a second argument (the CSRF token
+    // body, `new URLSearchParams({ _csrf: _tok })`) instead of ending right
+    // after the URL, so the assertion checks up through the trailing comma
+    // rather than an immediate closing paren.
+    expect(res.text).toContain('sendBeacon(&#39;/admin/bugs/' + id + '/track&#39;,');
   });
 
   test('POST /admin/bugs/:id/track marks the report tracked and it leaves the open queue', async () => {

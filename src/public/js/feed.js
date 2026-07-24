@@ -79,7 +79,12 @@
     fetch(form.getAttribute('action'), {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
+      // Issue #284: Object.assign merges the CSRF header in without
+      // clobbering Accept.
+      headers: Object.assign(
+        { Accept: 'application/json' },
+        window.csrfHeader ? window.csrfHeader() : {}
+      ),
     })
       .then(function (res) {
         // A blocked self-like (#712) comes back 403 — you can't vote for your
@@ -369,10 +374,15 @@
     fetch(action, {
       method: 'POST',
       credentials: 'same-origin',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+      // Issue #284: Object.assign merges the CSRF header in without
+      // clobbering Accept/Content-Type.
+      headers: Object.assign(
+        {
+          Accept: 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        window.csrfHeader ? window.csrfHeader() : {}
+      ),
       body: 'body=' + encodeURIComponent(body),
     })
       .then(function (res) {
@@ -430,7 +440,12 @@
     fetch(action, {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
+      // Issue #284: Object.assign merges the CSRF header in without
+      // clobbering Accept.
+      headers: Object.assign(
+        { Accept: 'application/json' },
+        window.csrfHeader ? window.csrfHeader() : {}
+      ),
     })
       .then(function (res) {
         if (!res.ok) {

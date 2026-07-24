@@ -18,7 +18,16 @@ request.
 The test suite (powered by `vitest`, with a coverage threshold) runs on every build. It checks that the
 app's logic — sign-in, scoring, badges, photo handling, the admin panel — produces the right results, not
 just that the code ran without crashing. The smoke job boots the real app against a scratch database and
-walks a guest through the app for real.
+walks a guest through the app for real. A `docker-build` job also builds the exact container image
+`tools/deploy.sh` ships to production, so a broken Dockerfile or a dependency the image can't install is
+caught here, before it would ever break a real deploy.
+
+**A weekly report checks whether the tests would actually catch a bug, not just run the code.**
+Coverage (above) proves a line of code _ran_ under a test. It cannot prove a test would _fail_ if that
+line were wrong. `.github/workflows/mutation.yml` runs `npm run mutation` (Stryker) every Monday: it
+plants hundreds of small deliberate bugs and counts how many the suite notices. This is a quality
+**signal for the owner to read**, never a required check — see `docs/test-quality.md` for the current
+score and what it means.
 
 **GitHub's own security tools are watching continuously.**
 Two GitHub-native checks are configured for this repo:
@@ -40,8 +49,12 @@ prove that work was reviewed — see the honest limit below.
 
 Every PR is intended to go through independent, adversarial review before merge — one PR reviewer plus a
 design-philosophy reviewer for code, on a different AI model than the one that wrote the change, per
-`standards/adversarial-review-protocol.md`. That review practice is real and is how this project actually
-works day to day. But **there is no mechanical gate that blocks a commit or a merge for lacking a review**.
+`standards/adversarial-review-protocol.md`. One exception: an issue the issue reviewer explicitly judges
+`sonnet-only` — a routine, low-risk change reviewed against the criteria in `standards/issue-standards.md`
+§ "Sonnet tier eligibility" — runs its implementer and both reviewers on the same model, Sonnet, instead
+(`CLAUDE.md` § "Model policy", #680). Every issue without that award keeps the different-model bar. That
+review practice is real and is how this project actually works day to day. But **there is no mechanical
+gate that blocks a commit or a merge for lacking a review**.
 No file records that a review happened; no check confirms one before code lands. The commit-msg check
 above only confirms an issue is named, not that its review passed.
 

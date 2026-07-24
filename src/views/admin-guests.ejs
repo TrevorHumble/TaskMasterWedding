@@ -23,6 +23,7 @@
     <% guests.forEach(function (g) { %>
       <article class="guest-card" id="guest-<%= g.id %>" data-guest-name="<%= g.name %>">
         <form action="/admin/guests/<%= g.id %>/edit" method="post" class="guest-name-form">
+          <%- include('partials/csrf-field') %>
           <input type="text" name="name" value="<%= g.name %>" placeholder="(no name)"
                  aria-label="Guest name" />
           <label class="guest-pin-label">
@@ -40,6 +41,7 @@
         </p>
 
         <form action="/admin/guests/<%= g.id %>/identity" method="post" class="guest-identity-form">
+          <%- include('partials/csrf-field') %>
           <label class="guest-identity-label">
             Contact
             <input type="text" name="contact" value="<%= g.contact %>"
@@ -56,6 +58,7 @@
 
         <div class="guest-card-actions">
           <form action="/admin/guests/<%= g.id %>/points" method="post" class="guest-points-form">
+            <%- include('partials/csrf-field') %>
             <label class="guest-points-label">Bonus
               <input type="number" name="delta" value="1" aria-label="Bonus points to apply" />
             </label>
@@ -65,6 +68,7 @@
 
           <% if (specialBadges.length) { %>
             <form action="/admin/guests/<%= g.id %>/badge" method="post" class="badge-award-form">
+              <%- include('partials/csrf-field') %>
               <select name="code" class="badge-select" aria-label="Badge to award or remove">
                 <% specialBadges.forEach(function (b) { %>
                   <% var held = g.heldCodes.indexOf(b.code) !== -1; %>
@@ -80,6 +84,7 @@
 
           <form action="/admin/guests/<%= g.id %>/delete" method="post" class="guest-delete-form"
                 data-confirm="Delete <%= g.name || ('guest #' + g.id) %> and PERMANENTLY remove all their photos (files deleted from disk) and badges? This cannot be undone.">
+            <%- include('partials/csrf-field') %>
             <button type="submit" class="btn btn-sm btn-danger">Delete</button>
           </form>
         </div>
@@ -99,6 +104,7 @@
   <details class="setup-details">
     <summary>Create a custom badge</summary>
     <form action="/admin/badges" method="post" class="inline-form">
+      <%- include('partials/csrf-field') %>
       <label>
         Name
         <input type="text" name="name" required placeholder="e.g. Best Dressed" />

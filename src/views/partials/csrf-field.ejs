@@ -1,0 +1,12 @@
+<%# src/views/partials/csrf-field.ejs
+    Issue #284: the hidden CSRF token field every <form method="post"> in
+    src/views/** includes, immediately inside its opening tag. csrfToken
+    comes from res.locals (src/middleware/csrf.js's csrfMiddleware, which runs
+    on every request), the same channel guest/flash/currentPath already use.
+    This is the no-JS fallback and the token a JS write-fetch's FormData
+    submission (src/public/js/upload.js) picks up automatically along with
+    every other field on the form — a JS caller that instead builds its own
+    fetch() body (src/public/js/feed.js, recap.js, admin-tasks.js) reads the
+    same token off the <meta name="csrf-token"> tag (partials/head.ejs) via
+    src/public/js/csrf.js's window.csrfHeader() instead. %>
+<input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>" />

@@ -3,7 +3,52 @@
    Design tokens. Import this one file to consume the system.
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+/* ----------------------- Self-hosted fonts -----------------------
+   The shipped app self-hosts every font as a latin-subset woff2 under
+   src/public/fonts/ (issue #252) instead of an external Google Fonts CDN
+   import — no view or stylesheet makes a font-CDN request at the venue,
+   where wifi is not guaranteed. Ship the woff2 files alongside whatever
+   consumes this stylesheet and keep these paths, or repoint `src:` at
+   wherever they live. --font-display and --font-body each resolve to a
+   variable font covering their whole requested weight range in one file. */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  src: url('/fonts/cormorant-garamond.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cormorant Garamond';
+  src: url('/fonts/cormorant-garamond-italic.woff2') format('woff2');
+  font-weight: 400 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/eb-garamond.woff2') format('woff2');
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/eb-garamond-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+/* The wordmark script face — used only for the couple/site wordmark, never
+   for body or heading copy. Owner-approved addition beyond the original
+   two-family system (see DESIGN_SYSTEM.md § Typography). */
+@font-face {
+  font-family: 'Wedding Script';
+  src: url('/fonts/wedding-script.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
   /* ---- Brand color ramp ---- */
@@ -28,6 +73,7 @@
   /* ---- Type ---- */
   --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
   --font-body: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  --font-script: 'Wedding Script', cursive; /* wordmark only — see § Typography */
 
   --fs-display: 56px; /* couple names / hero */
   --fs-h1: 34px; /* page / day titles */
@@ -76,3 +122,17 @@
   --dur-fast: 140ms;
   --dur-base: 240ms;
 }
+
+/* ----------------------- Owner-approved accent colors -----------------------
+   Gold and ember are intentional, owner-approved additions beyond the green/
+   white/serif system above — see DESIGN_SYSTEM.md § Color for when to use
+   each. They are deliberately NOT global :root tokens: the app scopes them
+   to the specific component that owns each meaning (e.g. a 1st-place ring,
+   a champion crown, a flash-task countdown) rather than exposing them as a
+   general-purpose "make it fancy" color, so gold always means "the winner"
+   and ember always means "a flash task," never anything else.
+     gold:  #c8a24c (rank/leaderboard 1st place), #c9a45c (slideshow winner)
+     ember: #b5401a (flash-task countdown — deliberately NOT the leaderboard
+            gold, so a flash task and a 1st-place finish never read as the
+            same kind of win)
+   ----------------------------------------------------------------------- */

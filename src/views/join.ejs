@@ -6,6 +6,7 @@
   <div class="heart-divider" style="color:var(--color-primary);"><%- include('partials/heart', { size: 20 }) %></div>
 
   <form action="/join" method="POST" enctype="multipart/form-data">
+    <%- include('partials/csrf-field') %>
     <div class="form-row">
       <label class="form-label" for="name">Your name <span class="req">*</span></label>
       <input class="form-input" type="text" id="name" name="name" maxlength="60"

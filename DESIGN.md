@@ -4,6 +4,90 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
 
 **North Star / goals:** confirmed. The product goals live in [`docs/north-star.md`](docs/north-star.md) (one-screen summary in [`CLAUDE.md`](CLAUDE.md)). The decisions recorded below serve those goals — most directly getting any guest in fast and keeping the app standing under the whole guest list at once (Goal A). One goal-driven decision is still **open and unbuilt**: Goal C's contained sharing (scoping content to the right audience). Moderation today is takedown-only (see "Photos: … takedown over delete" below); the audience-split design will be recorded here once chosen. The app must be live for guests by **Friday, Aug 7, 2026**.
 
+## Table of contents
+
+**Live app architecture** — how the deployed guest/admin app actually works.
+
+- [Constraints that shaped the design](#constraints-that-shaped-the-design)
+- Key decisions (app architecture):
+  - [Single SQLite file via better-sqlite3 (synchronous)](#single-sqlite-file-via-better-sqlite3-synchronous)
+  - [Server-rendered EJS, vanilla client JS, no build step](#server-rendered-ejs-vanilla-client-js-no-build-step)
+  - [guests.token: an internal session credential, never distributed (#244)](#gueststoken-an-internal-session-credential-never-distributed-244)
+  - [Guest identity: contact as the account key, plaintext re-entry PIN (#239)](#guest-identity-contact-as-the-account-key-plaintext-re-entry-pin-239)
+  - [Single admin password, bcrypt hash on disk](#single-admin-password-bcrypt-hash-on-disk)
+  - [COOKIE_SECRET must be fixed for the event](#cookie_secret-must-be-fixed-for-the-event)
+  - [Guest sessions are rolling and long-lived, admin is not (#242)](#guest-sessions-are-rolling-and-long-lived-admin-is-not-242)
+  - [Photos: multer intake, sharp normalization, takedown over delete](#photos-multer-intake-sharp-normalization-takedown-over-delete)
+  - [HEIC accepted and converted to JPEG at intake (#281, supersedes #188's rejection)](#heic-accepted-and-converted-to-jpeg-at-intake-281-supersedes-188s-rejection)
+  - [sharp 0.35.2 SAC block was a reputation-lag, now cleared (#304)](#sharp-0352-sac-block-was-a-reputation-lag-now-cleared-304)
+  - [Scoring derived, not stored](#scoring-derived-not-stored)
+  - [Badge thresholds live in scoring.js; custom badges reverse the earlier "fixed catalog" decision](#badge-thresholds-live-in-scoringjs-custom-badges-reverse-the-earlier-fixed-catalog-decision)
+  - [Task badges: one badge row per task, awards carry the variable data (#483)](#task-badges-one-badge-row-per-task-awards-carry-the-variable-data-483)
+  - [Two UNIQUE constraints enforce the core rules in the schema](#two-unique-constraints-enforce-the-core-rules-in-the-schema)
+  - [Export as a ZIP + xlsx, then discard](#export-as-a-zip-xlsx-then-discard)
+  - [Hosted deployment](#hosted-deployment)
+  - [CSRF tokens and security headers: implemented (#284)](#csrf-tokens-and-security-headers-implemented-284)
+  - [Rate limiting and persistent admin lockout (#283)](#rate-limiting-and-persistent-admin-lockout-283)
+- [ADR: Backup split — database and photos get opposite cadences (#558)](#adr-backup-split-database-and-photos-get-opposite-cadences-558)
+- Feature ADRs (one per shipped guest/admin feature):
+  - [Host checklist: one row-definition module, feature-detected rows (#646)](#host-checklist-one-row-definition-module-feature-detected-rows-646)
+  - [Memory-day bonus: event-local day math in JS, leaderboard's JS re-sort (#656)](#memory-day-bonus-event-local-day-math-in-js-leaderboards-js-re-sort-656)
+  - [Flash guest marker: shared shape, separate hue, no floor, no neutral fallback (#762)](#flash-guest-marker-shared-shape-separate-hue-no-floor-no-neutral-fallback-762)
+  - [Recap: derived events vs. written events, and the badge-moment stamp (#644)](#recap-derived-events-vs-written-events-and-the-badge-moment-stamp-644)
+  - [Admin Photos, task-scoped: taken-down included, feed narrowed, H1 reads the scope (#748)](#admin-photos-task-scoped-taken-down-included-feed-narrowed-h1-reads-the-scope-748)
+  - [Badge celebration priority derived from the catalog, not a code list (#714)](#badge-celebration-priority-derived-from-the-catalog-not-a-code-list-714)
+  - [Community guard completeness: stack-derived, not hand-maintained (#574)](#community-guard-completeness-stack-derived-not-hand-maintained-574)
+  - [Lucky task: its own columns, no special_mode member, banked-not-derived, last in the walk (#650)](#lucky-task-its-own-columns-no-special_mode-member-banked-not-derived-last-in-the-walk-650)
+  - [Gallery live search: one parameterized wiring serves both grouped views (#527)](#gallery-live-search-one-parameterized-wiring-serves-both-grouped-views-527)
+  - [Flash task: HOST surface — sentinel radio, one no-op rule, candidate-selection date math (#763)](#flash-task-host-surface-sentinel-radio-one-no-op-rule-candidate-selection-date-math-763)
+  - [Rank & award: a separate page, one-badge-system consolidation, client-side-only draft state (#661)](#rank-award-a-separate-page-one-badge-system-consolidation-client-side-only-draft-state-661)
+  - [Bug-report lifecycle: additive `status` over a `resolved` rebuild, one count owner (#686)](#bug-report-lifecycle-additive-status-over-a-resolved-rebuild-one-count-owner-686)
+  - [Crowd favorites: derived not materialized, standard-competition rank, one absorbed ranker (#625)](#crowd-favorites-derived-not-materialized-standard-competition-rank-one-absorbed-ranker-625)
+  - [Crowd-favorite crown: a render-time marker, never a stored badge (#788)](#crowd-favorite-crown-a-render-time-marker-never-a-stored-badge-788)
+  - [TOPLIKED: the Most Liked crown as a materialized, transferable badge (#817, widened by #821)](#topliked-the-most-liked-crown-as-a-materialized-transferable-badge-817-widened-by-821)
+
+**Retired governance history** — the AI-review pipeline's own evolution. Most of this machinery no
+longer runs (see the teardown ADR); it is kept as a record of what was tried and why. A few entries
+(the coverage-floor ratchet, the sonnet-only tier, wave governance, the visual-approval loop, Fable)
+describe pipeline rules still in force today — recorded here as the history of how they came to be,
+not as app architecture.
+
+- Key decisions (process/governance):
+  - [Merge policy: owner-merge boundary retired](#merge-policy-owner-merge-boundary-retired)
+  - [Visual-approval loop reinstated (active screenshot gate) (#294) — SUPERSEDED by #378](#visual-approval-loop-reinstated-active-screenshot-gate-294-superseded-by-378)
+  - [Visual-approval loop, live-preview mechanism (#378)](#visual-approval-loop-live-preview-mechanism-378)
+  - [Commit gate: review evidence bound to the staged tree](#commit-gate-review-evidence-bound-to-the-staged-tree)
+  - [Bias-gate and adjudication evidence artifacts (#47)](#bias-gate-and-adjudication-evidence-artifacts-47)
+  - [Program-driven review runner (#128)](#program-driven-review-runner-128)
+  - [Issue-review gate: every code commit names a reviewed issue (#46)](#issue-review-gate-every-code-commit-names-a-reviewed-issue-46)
+  - [Issue-creation review marker: born `needs-issue-review`, cleared by a separate reader-gated tool (#62)](#issue-creation-review-marker-born-needs-issue-review-cleared-by-a-separate-reader-gated-tool-62)
+  - [Worktree-per-agent isolation (#113)](#worktree-per-agent-isolation-113)
+  - [Fetch-fresh worktrees, overlap-aware freshness, and wave alignment (#357)](#fetch-fresh-worktrees-overlap-aware-freshness-and-wave-alignment-357)
+  - [Branch protection on main](#branch-protection-on-main)
+  - [Review-artifact-present check (#48)](#review-artifact-present-check-48)
+  - [Server-side issue-creation guard (#116)](#server-side-issue-creation-guard-116)
+  - [Roadmap: board-derived, session-structured (#139)](#roadmap-board-derived-session-structured-139)
+  - [Planning governance: agents tick status, the owner reshapes intent (#140)](#planning-governance-agents-tick-status-the-owner-reshapes-intent-140)
+  - [Fable: available, owner-signal only (#453)](#fable-available-owner-signal-only-453)
+  - [Empirical smoke gate (#197)](#empirical-smoke-gate-197)
+  - [Review-cost overhaul: 1-reviewer routine rounds, batching, advisory lenses (#201, #218)](#review-cost-overhaul-1-reviewer-routine-rounds-batching-advisory-lenses-201-218)
+  - [Governance ledger (#219): committed record, CI is the only writer](#governance-ledger-219-committed-record-ci-is-the-only-writer)
+  - [BUILDLOG comment harvest (#447): per-merge entries move off hand-appended edits](#buildlog-comment-harvest-447-per-merge-entries-move-off-hand-appended-edits)
+  - [Governance snapshots (#224): tagged states, exported surface + stats](#governance-snapshots-224-tagged-states-exported-surface-stats)
+  - [Event mode (#220): wedding-day freeze with expiring flag and mandatory retro-review](#event-mode-220-wedding-day-freeze-with-expiring-flag-and-mandatory-retro-review)
+  - [Trivial dep-bump gate (#448): recomputed, not attested](#trivial-dep-bump-gate-448-recomputed-not-attested)
+  - [Coverage floors are a ratchet; mutation score is the quality signal (#198, #199)](#coverage-floors-are-a-ratchet-mutation-score-is-the-quality-signal-198-199)
+  - [Wave governance (#310): grandfathering, owner-invoked wave review, doc-currency step](#wave-governance-310-grandfathering-owner-invoked-wave-review-doc-currency-step)
+  - [Merge queue (#404)](#merge-queue-404)
+  - [Sonnet-only run tier (#427)](#sonnet-only-run-tier-427)
+  - [Acceptance criteria as a promise, not a rulebook (#541)](#acceptance-criteria-as-a-promise-not-a-rulebook-541)
+  - [No severity adjudicator when the orchestrator concedes a rewrite (#540)](#no-severity-adjudicator-when-the-orchestrator-concedes-a-rewrite-540)
+- [System-level change (definition)](#system-level-change-definition)
+- [Security lens (#222)](#security-lens-222)
+- [ADR: Governance teardown and freeze (#587)](#adr-governance-teardown-and-freeze-587)
+- [ADR: Sonnet-only tier reinstated as reviewer judgment (#680)](#adr-sonnet-only-tier-reinstated-as-reviewer-judgment-680)
+- [ADR: DESIGN.md carved out of the governance freeze (#707)](#adr-designmd-carved-out-of-the-governance-freeze-707)
+
 ## Constraints that shaped the design
 
 - One small Linux host (VPS or PaaS volume) with a persistent disk and TLS terminated at a reverse proxy, running from before the welcome dinner until the post-event export.
@@ -256,6 +340,33 @@ The gallery pages are guest-gated; the noindex posture behind that gate (`robots
 **Process lifecycle (#282):** a hosting platform's process supervisor probes liveness and restarts the process on every deploy, so the app must answer both. `GET /healthz` is a DB-touching readiness probe — it runs `SELECT 1` against the live SQLite handle and returns `200 {"ok":true}` normally or `503 {"ok":false}` if that query throws (a wedged or corrupt DB fails the platform's check rather than reporting healthy). It is mounted ahead of maintenance mode, so it stays up during a maintenance window, and ahead of `attachGuest` and the routers, so it never pays session-lookup cost and — once #283's rate limiter lands — is never rate-limited by placement alone. On `SIGTERM` (platform restart/redeploy) or `SIGINT` (local Ctrl+C), `src/utils/shutdown.js` drains in flight requests (`server.close`), closes the database, and exits 0; a `timeoutMs` (default 10s) force-exit backstop guards against a connection that never drains. Both handlers are registered only inside the `require.main === module` guard, so requiring `src/app.js` under test never attaches real process signal listeners.
 
 **Container shape (#286):** the image is a **multi-stage** `node:20-slim` (glibc, not alpine) build. `sharp` resolves a prebuilt native binary via its `@img/sharp-linux-x64` npm package with no compiler needed, but `better-sqlite3` does not ship a prebuilt binary for this base image — it falls back to compiling from source via node-gyp, which needs Python 3, `make`, and a C++ compiler. A **builder stage** installs that toolchain with `apt-get` and runs `npm ci --omit=dev` there, so the compile happens once, at build time, in a stage that never ships. The **final stage** is a clean `node:20-slim` with no toolchain at all; it copies the builder's `/app` (compiled `node_modules` and source) across with `COPY --from=build` — both stages share the same glibc base, so the already-compiled `better-sqlite3` `.node` binary runs unmodified in the final image. The process runs as the non-root `node` user (uid 1000), never root; `docker-compose.yml` bind-mounts `./data` and `./backups` from the host, so the persistence boundary is plain host files under the operator's own backup and disk-failure story, not a Docker-managed named volume. The app always listens on `3000` inside the container (`EXPOSE 3000`, the `HEALTHCHECK` probe, and the `CMD` all agree on this); a different host-facing port is obtained by remapping the host side of the compose `ports:` entry, never by setting `PORT` — setting `PORT` for this path would desync the app's actual listen port from the image's fixed `EXPOSE`/`HEALTHCHECK`, which would report the container unhealthy and trigger `restart: unless-stopped` to loop it. `PORT` remains a live override only for the bare-systemd path (Option B in `docs/deploy.md`), which has no such fixed image contract to desync from. Full runbook: `docs/deploy.md`.
+
+### CSRF tokens and security headers: implemented (#284)
+
+**Decision (2026-07-23, superseding the earlier deferral):** the app now ships a signed double-submit CSRF token (`src/middleware/csrf.js`) plus three baseline security response headers (`src/app.js`). The deferral this section used to record (`grep -rni csrf src/` returning nothing) is no longer the state of the tree — this section states the mechanism actually built, not the case for waiting.
+
+**Mechanism.** `csrfMiddleware` (wired in `src/app.js`, after `cookie-parser` and the `urlencoded`/`json` body parsers, before every router) runs on every request:
+
+- **Issues a token.** Reuses `req.signedCookies.csrf` if present; otherwise mints `crypto.randomBytes(32).toString('base64url')` and sets it as a signed cookie via the SAME shared `cookieOpts()` factory (`src/middleware/session.js`) the `gsid`/`admin` cookies already use — httpOnly, `sameSite: 'lax'`, `secure` per `config.COOKIE_SECURE`, signed, `GUEST_COOKIE_MAX_AGE_MS` (400 days) maxAge. Exposed to every view as `res.locals.csrfToken`.
+- **Verifies on unsafe methods** (POST/PUT/PATCH/DELETE only — GET/HEAD/OPTIONS are never gated, so a guest's first page load always gets a token instead of a 403 before one exists anywhere). Multipart requests get a NARROW carve-out, not a blanket pass: for a `multipart/form-data` request, the body is not parsed yet (multer runs inside the route), so the middleware checks the always-available `X-CSRF-Token` header and stamps `req.csrfVerified` with the result — and defers to the route's own post-multer check ONLY if the request's path is one of the four dedicated upload routes (`MULTIPART_UPLOAD_PATHS`: `/join`, `/tasks/:id/submit`, `/memories`, `/me/edit`). A multipart request to any OTHER route falls through to the same header-only verify every non-multipart request gets, and is rejected right here on a missing/wrong header — declaring `Content-Type: multipart/form-data` on a route that never parses a body cannot skip CSRF just by claiming that content type. For every non-multipart unsafe request (urlencoded, JSON, or no body), the submitted token is `req.get('X-CSRF-Token') || req.body._csrf`, compared against the cookie token and rejected on mismatch.
+- **Comparison is constant-time** (`crypto.timingSafeEqual`, length-guarded first so a mismatch never throws) everywhere a token is checked.
+
+**The multer-ordering problem #560 flagged is solved by deferring, not skipping, verification — and the deferral is scoped to exactly four routes, not "any multipart request."** `POST /join` (`src/routes/auth.js`), `POST /tasks/:id/submit`, `POST /memories`, and `POST /me/edit` (`src/routes/guest.js`) each call the module's second export, `assertCsrf(req)`, themselves — immediately after their own multer callback parses the body, and before any state change (DB write, file save). `assertCsrf` passes if `req.csrfVerified === true` (the header already matched, set by the middleware before multer ran — the path a JS `fetch` upload takes) OR `req.body._csrf` now matches the cookie (the path a no-JS native multipart submit takes, since its only token is the hidden form field multer just parsed). A route acting on a `false` result cleans up whatever multer already wrote to disk before rejecting: `photos.deleteOriginalFile` for the two disk-storage routes (`/tasks/:id/submit`, and `cleanupBatchOriginals` for `/memories`'s whole batch), nothing extra for the two memory-storage avatar routes (`/join`, `/me/edit`), since a buffer that is never saved leaves no file behind. Every other route in the app — including a multipart-declared forgery aimed at one of them — is verified by the middleware itself, never deferred; an adversarial review of an earlier draft of this change (issue #284) found that the deferral had no path restriction at all, so any route could dodge CSRF by simply setting a multipart Content-Type, and only the four routes above ever called `assertCsrf` to catch it after the fact. `tests/csrf.test.js`'s "Multipart-bypass regression" describe block exercises this exact attack shape against one guest route and one admin route.
+
+**Reject behavior, one shared literal:** every rejection path — the middleware's own, and the four routes acting on a `false` `assertCsrf` — renders `res.status(403).render('error', { message: 'Your session could not be verified. Please refresh the page and try again.' })` via the module's third export, `rejectCsrf(res)`. No state changes on a rejected request.
+
+**Client side, one shared owner:** `src/public/js/csrf.js` (loaded on every page via `partials/footer.ejs`, ahead of every other script tag) exposes `window.csrfToken()`/`window.csrfHeader()`, reading the token off `<meta name="csrf-token">` (`partials/head.ejs`). Every write `fetch()` in the app (`upload.js`, `feed.js`, `recap.js`, `admin-tasks.js`, and the inline `sendBeacon`/`fetch` fallback in `admin-bugs.ejs`'s "Open issue" tracking click) merges that header in. Every `<form method="post">` under `src/views/**` includes `partials/csrf-field.ejs`, a single hidden `_csrf` input, as the first field inside its opening tag — enforced by a filesystem walk in `tests/csrf.test.js` (AC5) that strips EJS tags before scanning for `<form>` open tags (an earlier version of that same test used a naive regex whose match stopped at the first `>`, which for a form whose action attribute embeds an EJS output tag is the `>` INSIDE `%>` — silently skipping several real forms; fixed alongside this note) and asserts a floor on how many forms it actually inspected, so the guard itself cannot regress back to checking almost nothing while still reporting green.
+
+**Deliberately no Content-Security-Policy.** Several views render inline event-adjacent attributes via EJS (an inline onclick built from a template literal in `admin-bugs.ejs`, for one), and a CSP tight enough to matter would need an inline-script audit this codebase has not done. Landing an untested CSP alongside the rest of this change risked breaking a page for a guess at hardening the other three headers do not carry the same risk for; the three headers that are safe to add unconditionally shipped, the one that is not did not. Those three headers themselves — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` — live in `src/app.js`'s existing response-header middleware (alongside `X-Robots-Tag`), not in `csrf.js`: that middleware runs ahead of the static-file mounts, so `/uploads`, `/thumbs`, `/js`, and `/css` carry them too — `nosniff` on `/uploads` (user-submitted photo bytes) is the header that matters most there, and a copy living inside `csrf.js` instead (which is wired in AFTER those mounts) would never reach them.
+
+**The four open questions #284 required answered — now "how the build handles it" rather than "why it can wait":**
+
+1. _Does the deployed hosting put untrusted content on a sibling subdomain?_ **No** — unchanged from the deferral's answer; #544's single dedicated domain is still the only thing this app shares an origin with.
+2. _Is any guest-facing state change reachable via GET?_ **No** — unchanged; every mutation route is still `router.post`/`put`/`patch`/`delete`. Every one of those routes is CSRF-gated: directly, by the middleware, for every route except the four dedicated upload paths, which gate themselves post-multer instead (see the mechanism above) — not a blanket "the token layer gates everything the same way" claim, since multipart genuinely does take a different path for those four.
+3. _What was the actual cost?_ One new middleware module plus three header lines in `src/app.js`'s existing response-header middleware, four routes (`/join`, `/tasks/:id/submit`, `/memories`, `/me/edit`) each get a four-line post-multer check, every `<form method="post">` under `src/views/**` gets one hidden-field include, five client JS files get a header merged into their write `fetch()` calls, and one new test file (`tests/csrf.test.js`) covers rejection, the multipart no-JS-field path, the multipart-bypass attack against non-upload routes specifically, and a table-driven sweep of a representative set of state-changing routes across every router (not an exhaustive enumeration of every route in the app — a sample chosen to span urlencoded/JSON/no-body shapes plus the two explicit multipart-attack cases) so a future unprotected route is likely to fail the suite. No route needed restructuring; the multer-ordering problem was solved by deferring verification into the route, not by skipping it.
+4. _Was cross-site forgery against a guest worth building for?_ **Built anyway, ahead of the original post-wedding timeline**, once the multer-ordering solution above was worked out concretely enough to no longer read as "the highest-blast-radius change in the app" — the actual diff touches every write path exactly once, in a uniform, mechanically-checkable way (the table-driven test above), not as a rewrite of each route's own logic.
+
+**Test-only legacy grandfather clause (`src/middleware/csrf.js`).** The ~150-file test suite predates this issue and no existing test supplies a CSRF token on its own write requests. Rather than hand-editing every one of those files to mint and carry a token — a mechanical change disproportionate to this one issue, and itself a large surface for a new bug to hide in — the module forgives a request that supplies **no** token at all (neither header nor `_csrf` field) while `NODE_ENV=test`, following the same `isTestEnv()`-gated-seam pattern `src/routes/auth.js` already uses for its own post-hoc test seams (`_setCompareImplForTest`, `_resetAdminLoginSemaphoreForTest`) — inert outside test env by construction, so it can never fire in production regardless of the flag's value. It forgives only "never touched this feature," never "got it wrong": a request that supplies a **wrong** token is rejected unconditionally, flag or no flag, so it can never mask a real bug in the double-submit comparison. `tests/csrf.test.js` calls `_setLegacyBypassForTest(false)` to disable this for its own assertions, so that file — and only that file — exercises the real, unforgiving mechanism end-to-end, including the "supplies nothing" case, which is the actual shape of a cross-site forgery.
 
 **Loopback-only publish (#561):** `docker-compose.yml` binds the published port to `127.0.0.1:3000:3000`, not `3000:3000`. Docker binds an unqualified host port to `0.0.0.0`, which put the app on the public interface in the clear beside the TLS site, defeated `Secure` cookies on that path, and let a caller forge `X-Forwarded-For` to bypass the per-IP limits from #283. A firewall does not fix this: Docker inserts its own iptables rules ahead of ufw's `INPUT` chain, so `ufw deny 3000` does not close a docker-published port. The control is the bind, not the firewall; `docs/deploy.md`'s firewall step is defense in depth on top of it.
 
@@ -620,7 +731,7 @@ Fable is an available model. It is used only on the owner's explicit per-use sig
 
 ### Coverage floors are a ratchet; mutation score is the quality signal (#198, #199)
 
-**Coverage gate (#198).** The thresholds in `vitest.config.mjs` were commented out from the start — the 80% rule the owner believed was enforced never gated anything. Rather than wait for a suite that clears 80 (the "enable later" posture that had already held for months), the gate is ON at the floors measured on `main` @ 485886a (2026-07-05): statements 62, branches 53, functions 65, lines 62. The floors are a **ratchet**: raise them toward 80/80/80/80 as tests land (tracked by #181), never lower them. A change that drops coverage below any floor fails the required `test` check — that is the failure mode the gate exists to catch, and it works today, not after some future test-writing push.
+**Coverage gate (#198).** The thresholds in `vitest.config.mjs` were commented out from the start — the 80% rule the owner believed was enforced never gated anything. Rather than wait for a suite that clears 80 (the "enable later" posture that had already held for months), the gate went ON at the floors measured on `main` @ 485886a (2026-07-05): statements 62, branches 53, functions 65, lines 62. The floors are a **ratchet**: they move up as tests land (tracked by #181), never down. A change that drops coverage below any floor fails the required `test` check — that is the failure mode the gate exists to catch, and it works today, not after some future test-writing push. **The current numbers are not restated here** — they have already moved twice since the 2026-07-05 baseline above — read them straight from `vitest.config.mjs`'s `thresholds` block, which is the single owner and the only copy that can't go stale.
 
 **Mutation testing (#199).** Coverage says a line _ran_ under tests; it cannot say a test would _fail_ if the line were wrong. Stryker (`npm run mutation`, config in `stryker.conf.json`) measures exactly that by planting small bugs and counting how many the suite catches. It is a **signal, not a gate**: too slow and too noisy to block PRs, so it runs on demand and on a weekly schedule (`.github/workflows/mutation.yml`, never a required check). The baseline score, the plain-English list of what the tests currently miss, and the ratchet intent live in `docs/test-quality.md`.
 
@@ -989,8 +1100,9 @@ omitted outright rather than gated on a check that has nothing to test.
 
 **Why manual rows post through a plain form, not new client-side JavaScript.** The design calls for
 exactly one interaction shape reused from elsewhere in this admin: a form POST that flips one piece of
-server-held state and redirects back (`POST /admin/bugs/:id/resolve`, `POST /admin/guests/:id/badge`'s
-toggle case). Manual items are persisted the same way `src/services/lockout.js` persists its own
+server-held state and redirects back (`POST /admin/bugs/:id/track` / `/close` since #686 retired the
+single `/resolve` route into a three-state lifecycle, `POST /admin/guests/:id/badge`'s toggle case).
+Manual items are persisted the same way `src/services/lockout.js` persists its own
 counters — a `settings` key/value row read and written through the exported `db` handle — so no new
 storage shape or read/write pattern was introduced. The one visual cost is that a `<button>` needs a
 full CSS reset before it can render pixel-identical to the frozen `.check-link` anchor style (a bare
@@ -1011,7 +1123,7 @@ than left to rot.
 **CSRF deviation from the issue plan (recorded, #769).** The issue's implementation plan called the
 manual-toggle POST "CSRF-protected." This app carries no CSRF middleware or token anywhere
 (`grep -rni csrf src` returns nothing) — `POST /admin/checklist/:id/toggle` matches the same
-session-cookie-only protection every other admin POST route already uses (`POST /admin/bugs/:id/resolve`,
+session-cookie-only protection every other admin POST route already uses (`POST /admin/bugs/:id/track`,
 `POST /admin/guests/:id/badge`, etc.), which is consistent with existing prior art but is not actually
 CSRF protection. The gap is real and app-wide, not specific to this issue's one new route; it is tracked
 separately as #769 rather than being invented ad hoc inside this issue's narrow Touches.

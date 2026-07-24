@@ -78,6 +78,7 @@
         <div class="feed-actionbar">
           <div class="feed-actions-left">
             <form method="post" action="/p/<%= p.submission_id %>/like" class="like-form">
+              <%- include('partials/csrf-field') %>
               <button
                 type="submit"
                 class="like-button<%= p.viewer_liked ? ' like-button-liked' : '' %>"
@@ -191,6 +192,7 @@
                       class="comment-delete-form"
                       data-confirm="Delete this comment? This can't be undone."
                     >
+                      <%- include('partials/csrf-field') %>
                       <button
                         type="submit"
                         class="comment-delete"
@@ -210,6 +212,7 @@
             action="/p/<%= p.submission_id %>/comments"
             class="comment-form comments-dialog-form"
           >
+            <%- include('partials/csrf-field') %>
             <% if (guest.avatar_path) { %>
               <img class="comments-dialog-avatar" src="/uploads/<%= guest.avatar_path %>" alt="" />
             <% } else { %>

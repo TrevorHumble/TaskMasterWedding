@@ -124,6 +124,24 @@ function runSeeder(script, args, dataDir) {
   return res;
 }
 
+/**
+ * Extract the CSRF double-submit token (issue #284) a rendered page carries,
+ * so the smoke run can echo it back on unsafe requests exactly as a browser
+ * does. Reads the hidden form field first (partials/csrf-field.ejs), falling
+ * back to the <meta name="csrf-token"> tag (partials/head.ejs) for a page with
+ * no form. The token is base64url (no HTML-special characters), so a plain
+ * attribute-value match is safe.
+ * @param {string} html
+ * @returns {string}
+ */
+function tokenFromHtml(html) {
+  const s = String(html || '');
+  const field = /name="_csrf"\s+value="([^"]*)"/i.exec(s);
+  if (field) return field[1];
+  const meta = /name="csrf-token"\s+content="([^"]*)"/i.exec(s);
+  return meta ? meta[1] : '';
+}
+
 async function main() {
   const results = [];
   const check = (name, ok, detail) => {
@@ -183,15 +201,37 @@ async function main() {
     //    (no avatar) and capture the gsid cookie from the response's
     //    Set-Cookie header — the actual signup path every guest now uses
     //    (issue #240), exercised here end-to-end rather than mocked.
+    //
+    //    CSRF (issue #284): every unsafe request now needs the double-submit
+    //    token. GET /join first to obtain the signed `csrf` cookie and the
+    //    token the form carries, then echo that token back on the POST (as the
+    //    `_csrf` body field) while sending the csrf cookie — exactly what a
+    //    browser does. Without the token the app correctly 403s the POST.
+    const joinForm = await probe(`${base}/join`);
+    const csrfCookie = cookieHeaderFrom(joinForm.headers.getSetCookie());
+    const csrfToken = tokenFromHtml(await joinForm.text());
+    check(
+      'GET /join issues a csrf token',
+      Boolean(csrfToken) && csrfCookie.includes('csrf='),
+      `token '${String(csrfToken).slice(0, 8)}...', cookie '${csrfCookie}'`
+    );
+
     const joinRes = await probe(`${base}/join`, {
       method: 'POST',
+      headers: { cookie: csrfCookie },
       body: new URLSearchParams({
         name: 'Smoke Test Guest',
         contact: `smoke-${Date.now()}@example.com`,
         pin: '1234',
+        _csrf: csrfToken,
       }),
     });
-    const cookie = cookieHeaderFrom(joinRes.headers.getSetCookie());
+    // Carry BOTH the csrf cookie (issued on GET /join, and NOT re-sent on the
+    // POST response since it arrived already present) and the fresh gsid
+    // onward, so every authenticated request below is also CSRF-valid.
+    const cookie = [csrfCookie, cookieHeaderFrom(joinRes.headers.getSetCookie())]
+      .filter(Boolean)
+      .join('; ');
     check(
       'POST /join signs in (302 + gsid cookie)',
       joinRes.status === 302 && cookie.includes('gsid='),
@@ -217,6 +257,10 @@ async function main() {
     //    unhandled rejection that kills the process.
     const form = new FormData();
     form.append('name', 'Smoke Test Guest');
+    // CSRF token as the multipart _csrf field (issue #284): /me/edit is a
+    // dedicated upload route, so its token is verified post-multer off this
+    // parsed field. The cookie above already carries the matching csrf cookie.
+    form.append('_csrf', csrfToken);
     form.append(
       'avatar',
       new Blob([Buffer.from('this is not a real jpeg')], { type: 'image/jpeg' }),

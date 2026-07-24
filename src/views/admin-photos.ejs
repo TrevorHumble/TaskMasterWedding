@@ -105,6 +105,7 @@
 
     <div class="admin-tile-actions">
       <form method="post" action="/admin/photos/<%= p.id %>/favorite">
+        <%- include('partials/csrf-field') %>
         <input type="hidden" name="view" value="<%= view %>">
         <input type="hidden" name="q" value="<%= q %>">
         <input type="hidden" name="panel" value="<%= panel %>">
@@ -201,6 +202,7 @@
     <p class="feed-comment<%= clamp ? ' admin-comment-clamp' : '' %>"><a href="/u/<%= c.guest_id %>"><%= c.name || 'Guest' %></a> <%= c.body %></p>
     <% if (c.hidden) { %>
       <form method="post" action="/admin/comments/<%= c.id %>/restore" class="admin-comment-actionform">
+        <%- include('partials/csrf-field') %>
         <input type="hidden" name="view" value="<%= view %>">
         <input type="hidden" name="q" value="<%= q %>">
         <input type="hidden" name="panel" value="feed">
@@ -209,6 +211,7 @@
       </form>
     <% } else { %>
       <form method="post" action="/admin/comments/<%= c.id %>/hide" class="admin-comment-actionform" data-confirm="Hide this comment? Guests will no longer see it.">
+        <%- include('partials/csrf-field') %>
         <input type="hidden" name="view" value="<%= view %>">
         <input type="hidden" name="q" value="<%= q %>">
         <input type="hidden" name="panel" value="feed">
@@ -244,6 +247,7 @@
             <div class="photo-owner-menu-panel">
               <% if (p.taken_down) { %>
                 <form method="post" action="/admin/photos/<%= p.id %>/restore" data-confirm="Restore this photo? Guests will see it again.">
+                  <%- include('partials/csrf-field') %>
                   <input type="hidden" name="view" value="<%= view %>">
                   <input type="hidden" name="q" value="<%= q %>">
                   <input type="hidden" name="panel" value="feed">
@@ -252,6 +256,7 @@
                 </form>
               <% } else { %>
                 <form method="post" action="/admin/photos/<%= p.id %>/takedown" data-confirm="Take this photo down? Guests will no longer see it.">
+                  <%- include('partials/csrf-field') %>
                   <input type="hidden" name="view" value="<%= view %>">
                   <input type="hidden" name="q" value="<%= q %>">
                   <input type="hidden" name="panel" value="feed">
@@ -304,6 +309,7 @@
         <div class="feed-actionbar">
           <div class="feed-actions-left">
             <form method="post" action="/admin/photos/<%= p.id %>/favorite" class="like-form">
+              <%- include('partials/csrf-field') %>
               <input type="hidden" name="view" value="<%= view %>">
               <input type="hidden" name="q" value="<%= q %>">
               <input type="hidden" name="panel" value="feed">

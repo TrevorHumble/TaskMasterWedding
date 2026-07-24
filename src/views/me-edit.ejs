@@ -16,6 +16,7 @@
       <% if (guest.avatar_path) { %>
         <img src="/uploads/<%= guest.avatar_path %>" alt="Your current avatar" class="avatar-img" />
         <form method="post" action="/me/avatar/delete" class="avatar-remove-form">
+          <%- include('partials/csrf-field') %>
           <button type="submit" class="avatar-remove">Remove photo</button>
         </form>
       <% } else { %>
@@ -29,6 +30,7 @@
   <form action="/me/edit"
         method="POST"
         enctype="multipart/form-data">
+    <%- include('partials/csrf-field') %>
 
     <div class="form-row">
       <label for="name" class="form-label">Display name</label>
