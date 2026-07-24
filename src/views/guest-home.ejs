@@ -133,6 +133,7 @@
         How to play and Report a bug per owner's 2026-07-18 placement call. %>
     <li class="menu-row">
       <form method="post" action="/logout" class="menu-logout-form">
+        <%- include('partials/csrf-field') %>
         <button type="submit" class="menu-link menu-link-button">
           <span class="menu-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="20" height="20" style="fill:currentColor">

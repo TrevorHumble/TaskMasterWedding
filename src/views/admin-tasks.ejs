@@ -96,7 +96,7 @@
         <form action="/admin/tasks/<%= t.id %>/delete" method="post"
               class="admin-task-delete-form" data-task-id="<%= t.id %>"
               data-confirm="Delete <%= t.title %> and all its photos (photos are removed from disk)? This cannot be undone."
-              hidden></form>
+              hidden><%- include('partials/csrf-field') %></form>
       </li>
     <% }); %>
     <% if (tasks.length === 0) { %>

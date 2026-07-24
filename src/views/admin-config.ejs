@@ -9,6 +9,7 @@
   <% } %>
 
   <form action="/admin/config" method="POST" autocomplete="off">
+    <%- include('partials/csrf-field') %>
     <div class="form-row">
       <label class="form-label" for="timezone">Event timezone</label>
       <select id="timezone" name="timezone">

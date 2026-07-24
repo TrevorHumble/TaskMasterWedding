@@ -95,6 +95,7 @@
        requestSubmit(). No fetch/JSON reorder-as-you-go endpoint: reordering
        only mutates in-page state until this form actually submits. -->
   <form method="post" action="/admin/tasks/<%= task.id %>/rank" id="rankReleaseForm">
+    <%- include('partials/csrf-field') %>
     <input type="hidden" name="winners" id="rankWinnersInput" value="" />
   </form>
 </div>

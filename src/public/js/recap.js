@@ -100,7 +100,14 @@
     // this resolves or fails, and a failed POST just means the checkpoint
     // does not advance this time — the guest sees the same unread items
     // again next visit rather than losing them, the safer failure mode.
-    fetch('/recap/seen', { method: 'POST', credentials: 'same-origin' }).catch(function () {});
+    // Issue #284: /recap/seen is a state-changing POST (advances the
+    // checkpoint) with no body, so the CSRF header is its only token —
+    // there is no form/FormData here to carry a hidden _csrf field.
+    fetch('/recap/seen', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: window.csrfHeader ? window.csrfHeader() : {},
+    }).catch(function () {});
   }
 
   document.addEventListener('click', function (event) {

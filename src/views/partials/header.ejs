@@ -43,6 +43,7 @@
         <a class="nav-link" href="/admin/bugs">Bugs</a>
         <a class="nav-link" href="/admin/poster">Poster</a>
         <form class="nav-logout" method="post" action="/admin/logout">
+          <%- include('csrf-field') %>
           <button type="submit" class="nav-link nav-link-button">Log out</button>
         </form>
       </nav>

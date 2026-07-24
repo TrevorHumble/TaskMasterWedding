@@ -122,6 +122,7 @@
     <form action="/tasks/<%= task.id %>/submit"
           method="POST"
           enctype="multipart/form-data">
+      <%- include('partials/csrf-field') %>
 
       <div class="form-row">
         <%- include('partials/upload-field', { id: 'photo', name: 'photo', accept: 'image/*', capture: 'environment', required: true }) %>

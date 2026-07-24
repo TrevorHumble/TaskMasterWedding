@@ -28,22 +28,52 @@ const { startPreview } = require('../scripts/preview');
 const REPO_ROOT = path.join(__dirname, '..');
 const PREVIEW_SCRIPT = path.join(REPO_ROOT, 'scripts', 'preview.js');
 
-/** Sign in a fresh guest against a running preview and return its cookie header value. */
+/**
+ * Sign in a fresh guest against a running preview and return its cookie
+ * header value.
+ *
+ * Issue #284: the preview server runs with NODE_ENV=development (see
+ * scripts/preview.js), never NODE_ENV=test, so csrf.js's test-only legacy
+ * bypass never applies here — this must carry a real, valid CSRF token like
+ * any production caller. GET /join first to mint the signed csrf cookie and
+ * read the matching token off the rendered hidden `_csrf` field (the form
+ * this POST is emulating already carries it as its first field, per
+ * partials/csrf-field.ejs), then send both the csrf cookie and the token
+ * along with the POST.
+ */
 async function signIn(url) {
+  const joinRes = await fetch(`${url}/join`);
+  const joinCookies = (joinRes.headers.getSetCookie() || [])
+    .map((c) => c.split(';')[0].trim())
+    .filter((c) => c.includes('='));
+  const joinHtml = await joinRes.text();
+  const tokenMatch = /name="_csrf" value="([^"]*)"/.exec(joinHtml);
+  const csrfToken = tokenMatch ? tokenMatch[1] : '';
+
   const res = await fetch(`${url}/join`, {
     method: 'POST',
     redirect: 'manual',
+    headers: { cookie: joinCookies.join('; ') },
     body: new URLSearchParams({
       name: 'Preview Test Guest',
       contact: `preview-test-${Date.now()}@example.com`,
       pin: '1234',
+      _csrf: csrfToken,
     }),
   });
   const setCookie = res.headers.getSetCookie();
-  return (setCookie || [])
+  const cookies = (setCookie || [])
     .map((c) => c.split(';')[0].trim())
-    .filter((c) => c.includes('='))
-    .join('; ');
+    .filter((c) => c.includes('='));
+  // Merge with the GET's cookies (the signed csrf cookie is reissued
+  // identically on the POST since it was already valid, but keep the union
+  // defensively) so the returned header still carries gsid alongside it.
+  const merged = new Map();
+  for (const c of [...joinCookies, ...cookies]) {
+    const eq = c.indexOf('=');
+    merged.set(c.slice(0, eq), c);
+  }
+  return [...merged.values()].join('; ');
 }
 
 describe('scripts/preview.js — AC1: the link works, with real data', () => {

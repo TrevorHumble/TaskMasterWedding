@@ -152,12 +152,24 @@ app.use((err, req, res, next) => {
 });
 // Signed cookies. The same secret signs the guest (gsid) and admin cookies.
 app.use(cookieParser(config.COOKIE_SECRET));
-// Response header: keep every page and file out of search-engine indexes
-// (DESIGN.md § Hosted deployment). Runs ahead of the static mounts (section 4)
-// on purpose so it also covers /uploads and /thumbs — photo files have no
-// HTML to carry a meta tag, so the header is their only indexing signal.
+// Response headers: keep every page and file out of search-engine indexes
+// (DESIGN.md § Hosted deployment), plus three baseline security headers
+// (issue #284) — X-Content-Type-Options (stop a browser from MIME-sniffing
+// an uploaded file into something executable), X-Frame-Options (block this
+// app from being framed), and Referrer-Policy (trim what leaks in the
+// Referer header on an outbound link, e.g. admin-bugs.ejs's "Open issue"
+// link to GitHub). Runs ahead of the static mounts (section 4) on purpose so
+// ALL four headers also cover /uploads, /thumbs, /js, and /css — photo files
+// and static assets have no HTML to carry a meta tag or inline script, so
+// these response headers are their only signal/protection. src/middleware/
+// csrf.js (section 5a below) deliberately does NOT set these three itself —
+// it is wired in AFTER this static-mount block, so a copy living there would
+// never reach /uploads et al.
 app.use((req, res, next) => {
   res.set('X-Robots-Tag', 'noindex, nofollow');
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('X-Frame-Options', 'DENY');
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
 
@@ -206,6 +218,22 @@ app.use((req, res, next) => {
 // ---------------------------------------------------------------------------
 const session = require('./middleware/session');
 app.use(session.attachGuest);
+
+// ---------------------------------------------------------------------------
+// 5a. CSRF token protection (issue #284). Runs AFTER cookie-parser
+//     (section 3) and the urlencoded/json body parsers (section 3) — it
+//     needs req.signedCookies and, for urlencoded requests, req.body — and
+//     AFTER attachGuest so res.locals already carries guest/admin state by
+//     the time a view renders the token. Runs for every request, including a
+//     page-rendering GET (it only VERIFIES on unsafe methods, so a GET just
+//     receives a token and passes through) — see src/middleware/csrf.js for
+//     the full mechanism, including the narrow multipart-upload-path
+//     deferral (only 4 routes; every other multipart request is verified
+//     right here, by header). The three baseline security headers issue #284
+//     also adds live in section 3 above, not in this middleware.
+// ---------------------------------------------------------------------------
+const { csrfMiddleware } = require('./middleware/csrf');
+app.use(csrfMiddleware);
 
 // ---------------------------------------------------------------------------
 // 6. Routers. Each is an express.Router(). IMPORTANT: admin.js mounts at
