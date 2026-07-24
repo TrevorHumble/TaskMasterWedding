@@ -27,6 +27,14 @@
   --color-hairline: var(--green-300);
   --color-on-primary: var(--white);
 
+  /* Bundled badge-icon glyph fill (#869). The single owner of the color the
+     ~200 pickable Material icons render in, via the CSS mask technique on
+     .badge-medallion-icon / .badge-picker-glyph — so the wedding instance
+     keeps its green-700 glyphs and the stag theme (below) can drive them gold
+     from one place, with no second recolored icon set to bundle or keep in
+     sync. */
+  --badge-icon-color: var(--green-700);
+
   /* ---- Functional accents ---- */
   --ok-bg: #e3f1de;
   --ok-ink: #2a5a22;
@@ -118,6 +126,12 @@
   /* Black-tie gold — the one accent color allowed on the monochrome ground. */
   --gold: #c8a24c;
   --gold-dim: #8a7136;
+
+  /* Bundled badge-icon glyphs render gold on stag, not the wedding green
+     (#869) — matches the three gold milestone medallions so the ~200 pickable
+     custom icons stop leaking wedding green into the tasks, admin board, and
+     badge builder. */
+  --badge-icon-color: var(--gold);
 
   --ok-bg: #1d261d;
   --ok-ink: #b9ccb4;
@@ -5745,10 +5759,25 @@ body:has(dialog[open]) {
     inset 0 0 0 2px var(--white),
     inset 0 0 0 3px var(--green-300);
 }
+/* Bundled badge-icon glyph (#410, recolorable #869). Rendered as a masked box,
+   not an <img>: the monochrome icon SVG is the mask, and the fill comes from
+   --badge-icon-color (green on wedding, gold on stag) so one theme variable
+   owns the color instead of it being baked per-file. The per-icon SVG url is
+   passed in via the --icon-src custom property (inline style server-side, or
+   set by the picker JS for the live preview). Falls back to no mask when
+   --icon-src is unset (the empty/hidden preview state). */
 .badge-medallion-icon {
   width: 62%;
   height: 62%;
-  object-fit: contain;
+  background-color: var(--badge-icon-color);
+  -webkit-mask-image: var(--icon-src, none);
+  mask-image: var(--icon-src, none);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 /* Empty state: a soft dashed ring, no icon (task has no badge yet / nothing
    picked). */
@@ -5921,7 +5950,15 @@ body:has(dialog[open]) {
 .badge-picker-glyph {
   width: 60%;
   height: 60%;
-  object-fit: contain;
+  background-color: var(--badge-icon-color);
+  -webkit-mask-image: var(--icon-src, none);
+  mask-image: var(--icon-src, none);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 .badge-picker-cell:hover {
   background: var(--green-50);

@@ -361,6 +361,35 @@ function isIconArtPath(artPath) {
 }
 
 /**
+ * The SINGLE owner (#869) of how an icon `art_path` becomes the inline
+ * `--icon-src` CSS custom property the server-rendered glyph carries (see
+ * theme.css's `.badge-medallion-icon` / `.badge-picker-glyph` mask rules).
+ * badge-art.ejs and badge-picker.ejs both call this instead of hand-writing
+ * `url('<%= art_path %>')`, so a future change to the quoting/escaping rule
+ * has exactly one place to land.
+ *
+ * CSS-escapes the path rather than trusting it verbatim: POST /admin/badges
+ * (src/routes/admin.js) accepts an arbitrary `art_path` with only a
+ * non-empty check, no catalog validation like the task-badge picker path
+ * gets. EJS's `<%=%>` only HTML-escapes its output (a literal `'` becomes
+ * `&#39;`), but the browser HTML-DECODES an attribute value back to `'`
+ * before the CSS parser ever reads it — so an HTML-escaped quote alone does
+ * NOT stop a crafted path from closing the `url('...')` string early and
+ * smuggling extra CSS declarations into the style attribute. Backslash-
+ * escaping the quote (and any literal backslash, since backslash is CSS's
+ * own escape character) at the CSS-string level closes that gap regardless
+ * of what the HTML layer does with it.
+ *
+ * @param {string} artPath
+ * @returns {string} e.g. "--icon-src: url('/badges/icons/favorite.svg')"
+ */
+function iconMaskStyle(artPath) {
+  const raw = typeof artPath === 'string' ? artPath : '';
+  const cssEscaped = raw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return `--icon-src: url('${cssEscaped}')`;
+}
+
+/**
  * The catalog display name for a validated icon id, or null if the id is
  * not in the catalog. Used to auto-suggest the badge-name field's value —
  * the SAME name the picker grid's tooltip and data-name attribute carry, so
@@ -383,4 +412,5 @@ module.exports = {
   iconArtPath,
   isIconArtPath,
   iconName,
+  iconMaskStyle,
 };

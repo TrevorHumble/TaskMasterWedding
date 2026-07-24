@@ -36,7 +36,7 @@ const config = require('../../config');
 const { db, getEventConfig } = require('../db');
 const { VISIBLE_WHERE, COMMENT_VISIBLE_WHERE } = require('./feed');
 const { relativeTime, parseSqliteDatetime, toSqliteDatetime } = require('./relative-time');
-const { isIconArtPath } = require('./badge-icons');
+const { isIconArtPath, iconMaskStyle } = require('./badge-icons');
 const tasks = require('./tasks');
 const eventDays = require('./event-days');
 
@@ -263,10 +263,14 @@ const KIND_GLYPH = {
 // badge-display call site uses, not a hand-composed `<img>`. Compiled once
 // from the real src/views/partials/badge-art.ejs file — not a second copy of
 // its markup — so this module can never drift from what every other badge
-// call site renders. badgeIsIcon (the partial's one required local besides
-// `badge`/`alt`) is passed explicitly rather than relying on Express's
-// app.locals merge, since this compiled template is invoked directly
-// (ejs.compile), outside any res.render() call.
+// call site renders. badgeIsIcon and badgeIconMaskStyle (#869 — the icon
+// branch's --icon-src encoder) are the partial's required locals besides
+// `badge`/`alt`; both are passed explicitly rather than relying on
+// Express's app.locals merge, since this compiled template is invoked
+// directly (ejs.compile), outside any res.render() call. Missing either one
+// here would 500 the recap replay dialog the moment it hits the icon
+// branch — app.js registers the same pair as app.locals for every normal
+// res.render() call site.
 const badgeArtTemplatePath = path.join(config.VIEWS_DIR, 'partials', 'badge-art.ejs');
 const renderBadgeArtPartial = ejs.compile(fs.readFileSync(badgeArtTemplatePath, 'utf8'), {
   filename: badgeArtTemplatePath,
@@ -286,6 +290,7 @@ function renderBadgeArt(badge) {
     badge: badge,
     alt: badge.name + ' badge',
     badgeIsIcon: isIconArtPath,
+    badgeIconMaskStyle: iconMaskStyle,
   });
 }
 

@@ -17,7 +17,9 @@
     Locals:
       badge    (required) - { name, art_path } (task-badges.toTaskBadgeView's
                  shape, or any badges-table row projected the same way).
-      alt      (optional) - alt text; defaults to badge.name.
+      alt      (optional) - alt text; defaults to badge.name. An explicit
+                 EMPTY string ('') marks the badge decorative — see the
+                 icon-branch accessibility note below.
       imgClass (optional) - class for the plain <img> rendered for a
                  composed/system badge (art_path not a bundled icon).
                  Defaults to 'badge-art', the class every existing composed-
@@ -35,12 +37,28 @@
     rule in theme.css (search "Badge medallion (#410)") rather than passing a
     size local here — this partial only decides WHICH shape renders, never
     how big.
+
+    Icon-branch accessibility (#869 review fix): the old `<img alt="">` was
+    treated as decorative and skipped by assistive tech whenever a caller
+    passed an empty alt (e.g. task.ejs passes alt: '' because its own
+    adjacent badge-name text already names the badge, so the icon itself
+    would be redundant noise for a screen reader). `role="img" aria-label=""`
+    is NOT
+    auto-demoted the same way — it reads as an unnamed graphic — so the
+    masked <span> below branches explicitly: a non-empty alt gets
+    `role="img"` + `aria-label`, an empty one gets `aria-hidden="true"` and
+    neither attribute, mirroring the two shapes `<img alt="">` vs.
+    `<img alt="non-empty">` already gave the composed-image branch.
 %>
 <% var badgeArtIcon = badge && badgeIsIcon(badge.art_path); %>
 <% var badgeArtAlt = typeof alt !== 'undefined' ? alt : (badge ? badge.name : ''); %>
 <% if (badgeArtIcon) { %>
   <span class="badge-medallion">
-    <img class="badge-medallion-icon" src="<%= badge.art_path %>" alt="<%= badgeArtAlt %>" />
+    <% if (badgeArtAlt) { %>
+    <span class="badge-medallion-icon" style="<%= badgeIconMaskStyle(badge.art_path) %>" role="img" aria-label="<%= badgeArtAlt %>"></span>
+    <% } else { %>
+    <span class="badge-medallion-icon" style="<%= badgeIconMaskStyle(badge.art_path) %>" aria-hidden="true"></span>
+    <% } %>
   </span>
 <% } else { %>
   <img class="<%= typeof imgClass !== 'undefined' ? imgClass : 'badge-art' %>"

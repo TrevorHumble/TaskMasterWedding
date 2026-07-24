@@ -37,6 +37,7 @@ let app;
 let db;
 let scoring;
 let badgeIcons;
+let taskBadges;
 
 beforeAll(() => {
   const loaded = loadApp();
@@ -47,6 +48,7 @@ beforeAll(() => {
   // DB and this file's VARIANT.
   scoring = require('../src/services/scoring');
   badgeIcons = require('../src/services/badge-icons');
+  taskBadges = require('../src/services/task-badges');
 });
 
 // Defensive: restore the ambient env for any later test file that happens to
@@ -71,6 +73,37 @@ describe('AC2: VARIANT=stag emits data-theme="stag" and the black-tie palette', 
     expect(res.text).toContain('#c8a24c'); // gold accent
     expect(res.text).toContain('#8a7136'); // dim gold
     expect(res.text).toContain('#6e2222'); // wine danger fill
+  });
+
+  it('#869: --badge-icon-color resolves to stag gold, and stays green-700 in :root (no regression for the default variant)', async () => {
+    const res = await request(app).get('/css/theme.css');
+    expect(res.status).toBe(200);
+
+    // theme.css itself never branches on VARIANT — it ships both the :root
+    // block and the [data-theme='stag'] override in one file, and the
+    // wedding instance (no data-theme attribute on <html>) only ever matches
+    // :root. So the :root slice IS the "wedding stays green" no-regression
+    // assertion, not a separate app instance.
+    const stagSelectorAt = res.text.indexOf("[data-theme='stag']");
+    const rootBlock = res.text.slice(0, stagSelectorAt);
+    const stagBlock = res.text.slice(stagSelectorAt);
+    expect(rootBlock).toContain('--badge-icon-color: var(--green-700);');
+    expect(stagBlock).toContain('--badge-icon-color: var(--gold);');
+
+    // The mask contract that actually recolors the ~200 bundled icons: both
+    // glyph classes pull their fill from the single --badge-icon-color owner
+    // above and mask the per-render --icon-src, rather than sizing an <img>.
+    // Sliced per-selector (not a bare res.text.toContain) so a regression
+    // that keeps the property text somewhere else in the file but detaches it
+    // from these two classes would still be caught.
+    for (const selector of ['.badge-medallion-icon', '.badge-picker-glyph']) {
+      const ruleStart = res.text.indexOf(selector + ' {');
+      expect(ruleStart).toBeGreaterThan(-1);
+      const ruleEnd = res.text.indexOf('}', ruleStart);
+      const rule = res.text.slice(ruleStart, ruleEnd);
+      expect(rule).toContain('background-color: var(--badge-icon-color);');
+      expect(rule).toContain('mask-image: var(--icon-src, none);');
+    }
   });
 });
 
@@ -240,5 +273,49 @@ describe('AC5: stag milestone badges, no GARDEN tier, re-sync survives a reboot'
     const row = db.prepare('SELECT name, art_path FROM badges WHERE code = ?').get('BLOOM');
     expect(row.name).toBe('First Round');
     expect(row.art_path).toBe('/badges/stag/icons/sports-bar.svg');
+  });
+});
+
+describe('#869: a custom (picker-chosen) badge renders as a masked glyph, not a green-baked <img>', () => {
+  // A picker-chosen custom badge points its art_path at the WEDDING icon
+  // catalog (src/services/badge-icons.js's ICONS_URL_PREFIX) even on the
+  // stag instance — #869's own scope note: the admin picker itself stays
+  // wedding-icon-only, only the RENDER of that icon recolors via CSS. So this
+  // is the realistic stag shape: a wedding-prefixed art_path, rendered under
+  // data-theme="stag".
+  let iconTaskId;
+
+  beforeAll(() => {
+    iconTaskId = db
+      .prepare(`INSERT INTO tasks (title, special_mode) VALUES (?, 'none')`)
+      .run('Stag icon task').lastInsertRowid;
+    taskBadges.setTaskBadge(iconTaskId, {
+      name: 'Golden Moment',
+      artPath: badgeIcons.iconArtPath('favorite'),
+    });
+  });
+
+  it('the admin task board emits a masked <span> carrying --icon-src and an accessible name, not an <img> with the icon baked into its src', async () => {
+    const agent = await makeAdminAgent(app);
+    const res = await agent.get('/admin/tasks');
+    expect(res.status).toBe(200);
+
+    // The exact masked-glyph markup badge-art.ejs's icon branch emits
+    // (src/views/partials/badge-art.ejs) — a bare <span>, no src attribute,
+    // the icon supplied only as a mask via --icon-src, with role="img" +
+    // aria-label carrying the accessible name the retired <img alt> used to.
+    // The style value's quotes render as `&#39;` (EJS's `<%=` escaping the
+    // badgeIconMaskStyle output, PR review finding 3/4) — harmless to the
+    // browser, which HTML-decodes the attribute before the CSS parser reads it.
+    expect(res.text).toContain(
+      '<span class="badge-medallion-icon" style="--icon-src: url(&#39;/badges/icons/favorite.svg&#39;)" role="img" aria-label="Golden Moment"></span>'
+    );
+
+    // Regression guard: the pre-#869 shape rendered this exact icon as
+    // `<img ... src="/badges/icons/favorite.svg" ...>`, which bakes the
+    // green-700 fill into the served bytes and cannot be recolored by the
+    // stag theme. If the recolor ever regresses back to an <img>, this is
+    // what would reappear.
+    expect(res.text).not.toContain('src="/badges/icons/favorite.svg"');
   });
 });

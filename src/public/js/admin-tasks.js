@@ -8,6 +8,12 @@
 // and the hidden badge_icon/badge_name fields the routes read, plus
 // persisting a drag-reorder via one small fetch (see "Drag to reorder"
 // below). The dialog open/close idiom follows src/public/js/photo-owner-menu.js.
+//
+// Depends on src/public/js/badge-icon-mask.js (issue #869) being loaded
+// first — reflectBadge below uses window.BadgeIconMask.set/clear rather
+// than hand-writing the --icon-src custom property, the same single owner
+// badge-picker.js's live preview shares. src/views/admin-tasks.ejs's
+// <script> order is what guarantees the load order.
 (function () {
   'use strict';
   if (typeof document === 'undefined') return;
@@ -498,14 +504,19 @@
   function reflectBadge(previewEl, iconEl, nameEl, artPath, name) {
     if (!previewEl || !iconEl || !nameEl) return;
     if (artPath) {
-      iconEl.src = artPath;
+      // Masked-box glyph (#869): the icon SVG is a CSS mask via --icon-src, the
+      // fill is the theme's --badge-icon-color. window.BadgeIconMask
+      // (src/public/js/badge-icon-mask.js, loaded before this file) is the
+      // single owner of setting/clearing that property — badge-picker.js's
+      // live preview shares the same owner rather than each hand-writing it.
+      window.BadgeIconMask.set(iconEl, artPath);
       iconEl.hidden = false;
       previewEl.classList.remove('badge-medallion-empty');
       nameEl.textContent = name || 'Badge';
       nameEl.classList.remove('muted');
     } else {
       iconEl.hidden = true;
-      iconEl.removeAttribute('src');
+      window.BadgeIconMask.clear(iconEl);
       previewEl.classList.add('badge-medallion-empty');
       nameEl.textContent = 'No badge chosen yet';
       nameEl.classList.add('muted');

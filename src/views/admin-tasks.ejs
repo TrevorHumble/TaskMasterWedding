@@ -109,6 +109,10 @@
   <%- include('partials/badge-picker', { badgeIcons: badgeIcons }) %>
 
 <script src="/js/admin.js" defer></script>
+<%# Issue #869: the single owner of the --icon-src custom-property set/clear
+    both badge-picker.js and admin-tasks.js's live badge preview call into —
+    must load before either of its two consumers. %>
+<script src="/js/badge-icon-mask.js" defer></script>
 <script src="/js/badge-picker.js" defer></script>
 <script src="/js/admin-tasks.js" defer></script>
 <%- include('partials/footer') %>
