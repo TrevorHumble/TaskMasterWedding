@@ -2,8 +2,11 @@
 
 Everything decided in the admin working session, page by page, as before → after. This is
 the companion to [`admin-consult-2026-07-19.md`](admin-consult-2026-07-19.md) (the full
-design detail and issue actions) and reads best as the summary of what actually changed.
-Nothing here is built yet; each change lands through the pipeline as an issue.
+design detail and issue actions, with per-issue current state annotated as of 2026-07-24)
+and reads best as the summary of what was decided. **Status as of 2026-07-24:** most of the
+pages below (Dashboard, Tasks, Photos, Bugs, Comments removal) have since shipped through
+the pipeline; Guests and Poster→Invite have not — see `admin-consult-2026-07-19.md`'s
+build-order annotations for the current state of every issue named here.
 
 ---
 

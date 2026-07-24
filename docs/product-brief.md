@@ -2,7 +2,7 @@
 
 > **Historical (hosting model changed 2026-07):** this document describes the original laptop + Cloudflare-tunnel deployment. Current hosting: see DESIGN.md § Hosted deployment and docs/deploy.md.
 
-What the owner asked for, in his own words, captured from discovery. This is the requirements record that fed the goals session. It is **not** the North Star or goals — those are confirmed and live in [`north-star.md`](north-star.md). Architecture decisions and their rationale live in `DESIGN.md`; the historical build reference lives in `PLAN/`, superseded by `PLAN.md`'s refactor plan for current work.
+What the owner asked for, in his own words, captured from discovery. This is the requirements record that fed the goals session. It is **not** the North Star or goals — those are confirmed and live in [`north-star.md`](north-star.md). Architecture decisions and their rationale live in `DESIGN.md`; the historical build reference is condensed in [`PLAN/history.md`](../PLAN/history.md) — planning for current work happens on the GitHub board, not in a plan document.
 
 - **Captured / confirmed:** 2026-06-28
 - **Source:** 25-question discovery with the owner (Trevor), re-confirmed 2026-06-28
@@ -93,5 +93,5 @@ What the owner asked for, in his own words, captured from discovery. This is the
 
 - **Goals / North Star / success measures.** Now confirmed in [`north-star.md`](north-star.md) (one-screen summary in `CLAUDE.md`). This brief is the raw "what and why"; the strategic frame lives there.
 - **Architecture decisions.** See `DESIGN.md`.
-- **The build/refactor plan.** `PLAN/` is the historical as-built plan, superseded; see `PLAN.md` for the current refactor plan once its review passes.
+- **The build/refactor plan.** `PLAN/history.md` is the condensed historical as-built plan, superseded; planning for current work happens on the GitHub board, not a plan document — see `PLAN.md`.
 - **Known defects.** See `docs/reviews/2026-06-28-adversarial-review.md`.

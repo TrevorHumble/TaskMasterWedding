@@ -215,7 +215,7 @@ skills/                   This repo's own /build pipeline skills
 .agents/skills/           Design skills installed via the skills CLI (improve-codebase-architecture,
                           codebase-design, grilling, domain-modeling); .claude/skills/ is a gitignored
                           symlink mirror regenerated from .agents/skills/ + skills-lock.json
-PLAN/                     Detailed build/implementation plan (00-README.md .. 10-theme-and-art.md)
+PLAN/                     Historical build-plan summary (history.md)
 docs/architecture.md      Request-path and data-model diagrams + walkthroughs
 standards/                Checkable standards the orchestrator pipeline enforces
 ```
@@ -225,7 +225,7 @@ standards/                Checkable standards the orchestrator pipeline enforces
 - Hosted deploy runbook (containers, systemd, TLS, backups): [`docs/deploy.md`](docs/deploy.md).
 - Manual pre-wedding walkthrough (step-by-step test plan): [`docs/test-plan.md`](docs/test-plan.md).
 - Peak-load test harness and how to read a run: [`docs/loadtest.md`](docs/loadtest.md).
-- Detailed build plan: [`PLAN/00-README.md`](PLAN/00-README.md) and the numbered files through `10-theme-and-art.md` (historical; for current hosting see docs/deploy.md).
+- Historical build-plan summary: [`PLAN/history.md`](PLAN/history.md) (superseded; for current hosting see docs/deploy.md).
 - Architecture diagrams and walkthroughs: [`docs/architecture.md`](docs/architecture.md).
 - Design rationale and tradeoffs: [`DESIGN.md`](DESIGN.md).
 - Refactor roadmap: [`PLAN.md`](PLAN.md).
