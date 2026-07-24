@@ -129,7 +129,9 @@ describe('issue #812 AC1: task row photo-count control links straight to Rank & 
     const res = await adminAgent.get('/admin/tasks');
     expect(res.status).toBe(200);
     expect(res.text).toContain(
-      '<a class="admin-task-photos" href="/admin/tasks/' + taskId + '/rank">2 photos to rank and award</a>'
+      '<a class="admin-task-photos" href="/admin/tasks/' +
+        taskId +
+        '/rank">2 photos to rank and award</a>'
     );
   });
 });
