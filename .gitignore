@@ -43,6 +43,9 @@ npm-debug.log*
 # Generated symlink mirror of .agents/skills/ (core.symlinks=false would commit these as broken text files)
 .claude/skills/
 
+# Antigravity/Gemini agent session worktrees (#822): per-session worktrees, same sensitivity as build-session worktrees generally -- never commit another checkout's tree.
+.agents/worktrees/
+
 # Test coverage output
 coverage/
 
