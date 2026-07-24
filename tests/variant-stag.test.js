@@ -33,6 +33,36 @@ const request = require('supertest');
 const { loadApp, seed, signInGuest, makeAdminAgent } = require('./helpers/testApp');
 const { ensureBadgeCatalog } = require('../scripts/badge-catalog');
 
+// Copied from tests/feed-full-bleed.test.js (issue #878 implementation plan
+// step 4): extractBalancedBlock/allIndicesOf are file-local there and not
+// exported, so the #878 source-order guard below carries its own copy rather
+// than reaching into another test file or adding a second way to read the
+// stylesheet (this file already fetches it over HTTP; fs.readFileSync is not
+// introduced here).
+/** Find the balanced {...} block whose '{' is the first at or after fromIndex. */
+function extractBalancedBlock(source, fromIndex) {
+  const braceStart = source.indexOf('{', fromIndex);
+  let depth = 0;
+  for (let i = braceStart; i < source.length; i++) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}') {
+      depth--;
+      if (depth === 0) return source.slice(braceStart, i + 1);
+    }
+  }
+  throw new Error('unbalanced braces from index ' + fromIndex);
+}
+
+function allIndicesOf(source, needle) {
+  const out = [];
+  let i = source.indexOf(needle);
+  while (i !== -1) {
+    out.push(i);
+    i = source.indexOf(needle, i + 1);
+  }
+  return out;
+}
+
 let app;
 let db;
 let scoring;
@@ -104,6 +134,96 @@ describe('AC2: VARIANT=stag emits data-theme="stag" and the black-tie palette', 
       expect(rule).toContain('background-color: var(--badge-icon-color);');
       expect(rule).toContain('mask-image: var(--icon-src, none);');
     }
+  });
+
+  it("#878 AC4: --color-ink-strong is declared in both :root and [data-theme='stag']", async () => {
+    const res = await request(app).get('/css/theme.css');
+    expect(res.status).toBe(200);
+
+    // Same root/stag slicing technique as the #869 test above.
+    const stagSelectorAt = res.text.indexOf("[data-theme='stag']");
+    const rootBlock = res.text.slice(0, stagSelectorAt);
+    const stagBlock = res.text.slice(stagSelectorAt);
+
+    expect(rootBlock).toContain('--color-ink-strong: var(--green-900);');
+    expect(stagBlock).toContain('--color-ink-strong: #fafafa;');
+  });
+
+  it('#878 AC2: on the wedding instance (:root), .task-points-raised resolves byte-identical to the pre-change #2a4335', async () => {
+    const res = await request(app).get('/css/theme.css');
+    expect(res.status).toBe(200);
+
+    const stagSelectorAt = res.text.indexOf("[data-theme='stag']");
+    const rootBlock = res.text.slice(0, stagSelectorAt);
+
+    // .task-points-raised itself is unscoped (one shared rule cascades to
+    // both instances; only the custom-property values it reads differ per
+    // theme), so it lives far below the :root block in source order — search
+    // the whole sheet for the rule, then check the WEDDING-side variable
+    // chain it reads from (:root, i.e. rootBlock) separately: color ->
+    // --color-ink-strong -> --green-900. All three must hold, or the
+    // owner-approved wedding pixels have moved.
+    const ruleStart = res.text.indexOf('.task-points-raised {');
+    expect(ruleStart).toBeGreaterThan(-1);
+    const rule = extractBalancedBlock(res.text, ruleStart);
+    expect(rule).toContain('color: var(--color-ink-strong);');
+    expect(rootBlock).toContain('--color-ink-strong: var(--green-900);');
+    expect(rootBlock).toContain('--green-900: #2a4335;');
+  });
+
+  it('#878 AC1: on stag, .task-points-raised resolves to near-white, distinct from the near-black page ground, and is the last color-setting rule for that class', async () => {
+    const res = await request(app).get('/css/theme.css');
+    expect(res.status).toBe(200);
+
+    const stagSelectorAt = res.text.indexOf("[data-theme='stag']");
+    const stagBlock = res.text.slice(stagSelectorAt);
+
+    // Trace the chain for stag: .task-points-raised's color ->
+    // --color-ink-strong -> #fafafa directly (no further var() hop), and
+    // confirm that resolved value is distinct from stag's --color-bg — by
+    // extracting both declared values out of the served stylesheet text and
+    // comparing THOSE, not by comparing two hard-coded string literals to
+    // each other (a comparison that could never fail regardless of what
+    // theme.css actually contains).
+    expect(stagBlock).toContain('--color-ink-strong: #fafafa;');
+    expect(stagBlock).toContain('--color-bg: #0a0a0a;');
+
+    const inkMatch = stagBlock.match(/--color-ink-strong:\s*(#[0-9a-fA-F]+)\s*;/);
+    const bgMatch = stagBlock.match(/--color-bg:\s*(#[0-9a-fA-F]+)\s*;/);
+    expect(inkMatch).toBeTruthy();
+    expect(bgMatch).toBeTruthy();
+    expect(inkMatch[1]).not.toBe(bgMatch[1]);
+
+    // Source-order guard: find every `.task-points-raised { ... }` rule in
+    // the whole stylesheet and confirm the LAST one in source order is the
+    // one that inks via --color-ink-strong — so nothing declared after it
+    // takes the color back (today there is exactly one such rule; this
+    // assertion still catches a future rule added later in the file that
+    // would win the cascade and silently repaint the price tag).
+    const selectorIndices = allIndicesOf(res.text, '.task-points-raised {');
+    expect(selectorIndices.length).toBeGreaterThan(0);
+    const lastSelectorIdx = selectorIndices[selectorIndices.length - 1];
+    const lastRule = extractBalancedBlock(res.text, lastSelectorIdx);
+    expect(lastRule).toContain('color: var(--color-ink-strong);');
+  });
+
+  it('#878 AC3: no color: declaration anywhere in the stylesheet inks directly with the raw --green-900 ramp variable', async () => {
+    const res = await request(app).get('/css/theme.css');
+    expect(res.status).toBe(200);
+
+    // A standalone `color:` property (never `background-color:`,
+    // `border-color:`, `outline-color:`, etc. — those legitimately reference
+    // --green-900 elsewhere in this file for non-text uses, and are not what
+    // AC3 guards). The negative lookbehind excludes any compound property
+    // name ending in "-color" so this only catches the literal `color:` this
+    // issue's defect form used. The value is scanned all the way to the
+    // declaration's closing `;` (or `}` for a rule's last declaration), not
+    // just immediately after `color:`, so a --green-900 reference reached
+    // through a nested fallback — e.g.
+    // `color: var(--some-token, var(--green-900))` — is caught too, not only
+    // a direct `color: var(--green-900)`.
+    const offendingColorDecl = /(?<![a-zA-Z-])color\s*:\s*[^;}]*var\(\s*--green-900\s*\)/;
+    expect(res.text).not.toMatch(offendingColorDecl);
   });
 });
 
