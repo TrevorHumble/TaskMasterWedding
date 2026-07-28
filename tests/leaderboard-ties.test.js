@@ -253,7 +253,8 @@ describe('leaderboard dense ranking (#626)', () => {
     const bigRow = rowOf('BigCollector');
     const bigIcons = (bigRow.match(/<img class="lb-badge-icon"/g) || []).length;
     expect(bigIcons).toBe(8);
-    const bigMore = bigRow.match(/<span class="lb-badge-more">([^<]*)<\/span>/);
+    // The overflow chip is a profile link, not a span (issue #891).
+    const bigMore = bigRow.match(/<a class="lb-badge-more"[^>]*>([^<]*)<\/a>/);
     expect(bigMore).not.toBeNull();
     expect(bigMore[1]).toContain('+4');
 
