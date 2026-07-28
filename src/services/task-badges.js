@@ -451,6 +451,25 @@ const stmtDeleteRankedAwards = db.prepare(
   'DELETE FROM guest_badges WHERE badge_id = ? AND rank IS NOT NULL'
 );
 
+// Issue #889: who already held a RANKED award of this badge, and their
+// celebration stamp, read BEFORE stmtDeleteRankedAwards destroys the row.
+// Scoped to `rank IS NOT NULL` — the exact same scope as the delete above —
+// so this is precisely "who is about to lose a row in this release", the
+// possession set releaseRanking re-grants against instead of re-notifying
+// (the scoring.js awardSpecialBadge pattern: only a guest who did NOT already hold the
+// badge gets a fresh event).
+const stmtRankedHoldersForBadge = db.prepare(
+  'SELECT guest_id, celebrated_at FROM guest_badges WHERE badge_id = ? AND rank IS NOT NULL'
+);
+
+// Restores a re-released winner's PRIOR celebrated_at after the
+// delete-then-upsert cycle above leaves it NULL (issue #889 AC1/AC2) — a
+// guest who already celebrated this badge must not have the full-screen
+// celebration dialog reopen just because the ranking was re-posted.
+const stmtRestoreCelebratedAt = db.prepare(
+  'UPDATE guest_badges SET celebrated_at = ? WHERE guest_id = ? AND badge_id = ?'
+);
+
 // Explicit UPSERT (issue #661's own callout: the existing stmtInsertAward
 // above is INSERT OR IGNORE, which would silently DROP a second guest's
 // award, or a re-rank's changed points/rank/submission_id, on the same
@@ -540,7 +559,7 @@ function foldRankedPlacements(resolved) {
  * placement — never two rows tripping guest_badges' UNIQUE(guest_id,
  * badge_id).
  *
- * Emits one 'badge_granted' recap event per WINNING GUEST (issue #644's
+ * Emits one 'badge_granted' recap event per NEWLY-WINNING GUEST (issue #644's
  * recordEvent, not per placement — a same-guest collapse still notifies
  * once), carrying that guest's pinned submission so the recap can link to
  * the winning photo (src/services/notifications.js's KIND_VIEW.badge_granted
@@ -549,6 +568,17 @@ function foldRankedPlacements(resolved) {
  * failure inside recordEvent would abort the whole transaction rather than
  * silently lose an award, but recordEvent itself has no failure mode beyond
  * the same DB the rest of this function already writes to.
+ *
+ * Re-release is possession-keyed (issue #889, the scoring.js awardSpecialBadge
+ * pattern): a winner who already held a RANKED award of this badge — read by
+ * stmtRankedHoldersForBadge before the delete, scoped to `rank IS NOT NULL`
+ * exactly like the delete itself — gets their prior `celebrated_at` restored
+ * and NO new event, even if their rank or points changed. Only a guest not
+ * in that prior-holder set (a genuinely new winner) gets the normal grant:
+ * one event, `celebrated_at` left NULL, one celebration. This is what stops
+ * a double-clicked or re-posted release from producing duplicate recap rows
+ * (AC1) or re-opening the celebration dialog for an already-celebrated badge
+ * (AC2).
  *
  * @param {number} taskId
  * @param {Array<number>} submissionIds - ordered 1st..Kth, 1 <= length <= 5
@@ -587,14 +617,31 @@ const releaseRanking = db.transaction((taskId, submissionIds) => {
   // doc comment for why this collapse lives in its own pure function.
   const byGuest = foldRankedPlacements(resolved);
 
+  // Issue #889: capture who already held a RANKED award of this badge, and
+  // their celebration stamp, BEFORE the delete below wipes both out. This is
+  // the possession set a re-release checks winners against, below.
+  const priorHolders = new Map(
+    stmtRankedHoldersForBadge.all(badge.id).map((row) => [row.guest_id, row.celebrated_at])
+  );
+
   stmtDeleteRankedAwards.run(badge.id);
 
   for (const [guestId, award] of byGuest) {
     stmtUpsertRankedAward.run(guestId, badge.id, award.points, award.submissionId, award.rank);
-    notifications.recordEvent(guestId, 'badge_granted', {
-      badgeId: badge.id,
-      submissionId: award.submissionId,
-    });
+    if (priorHolders.has(guestId)) {
+      // Re-release of a badge this guest already held (AC1: an identical
+      // replay; AC2: rank/points changed but possession didn't) — restore
+      // their celebration stamp instead of leaving the fresh insert's NULL,
+      // and emit no duplicate event.
+      stmtRestoreCelebratedAt.run(priorHolders.get(guestId), guestId, badge.id);
+    } else {
+      // A guest newly gaining this badge's ranked award — celebrated_at is
+      // still NULL from the insert above, so they get the normal grant.
+      notifications.recordEvent(guestId, 'badge_granted', {
+        badgeId: badge.id,
+        submissionId: award.submissionId,
+      });
+    }
   }
 
   markTaskBadgeAwarded(taskId);

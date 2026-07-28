@@ -1854,7 +1854,8 @@ restated guarantee of that pre-existing rule against a ranked award specifically
 the award row itself is untouched by a takedown, only its contribution to `getPoints`/`leaderboard` moves.
 
 **The recap event reads rank live, never snapshots it.** `releaseRanking` emits one `badge_granted`
-`notifications.recordEvent` per WINNING GUEST (not per placement — a same-guest collapse still notifies
+`notifications.recordEvent` per WINNING GUEST — narrowed to NEWLY-winning guests by #889, see
+"Double-submit idempotency: possession-keyed release events" below — (not per placement — a same-guest collapse still notifies
 once), carrying that guest's pinned `submission_id`. `notifications.js`'s `stmtStoredEvents` gained a `gb`
 `LEFT JOIN guest_badges` (keyed on the stored event's own `(guest_id, badge_id)` pair — `UNIQUE(guest_id,
 badge_id)` means this can never fan a stored event out into more than one row) so `KIND_VIEW.badge_granted`
@@ -2273,3 +2274,46 @@ visibly. Not engineered around here: the ~349-file catalog is checked against di
 (`badge-icons.js` throws at boot on any catalog/file drift), so the realistic way to hit this is a file
 deleted or renamed on disk post-boot without a matching code change — an operational mistake outside this
 issue's scope, not a runtime input this feature needs to defend against.
+
+## Double-submit idempotency: possession-keyed release events, a 30-second bug-report window (#889)
+
+**Date:** 2026-07-27. **Status:** accepted.
+
+Two spamming reports from the owner traced to the same shape of bug: a button click that fires more than
+once (double-tap, a slow response re-tapped, a browser resubmit-on-refresh) had no server-side floor, so
+each extra POST produced its own extra side effect — a second `bug_reports` row, or a second `badge_granted`
+recap event and a re-opened celebration dialog for a badge the guest already had. `releaseRanking`
+(`src/services/task-badges.js`) was already idempotent on WHICH `guest_badges` rows exist (the delete-then-
+upsert #661 already built), but not on the two things layered on top of that write: the recap event, and the
+`celebrated_at` stamp the delete silently wiped and the upsert never restored.
+
+**Release & Award: keyed on ranked possession, not on the POST.** `releaseRanking` now reads the badge's
+existing `rank IS NOT NULL` holders (guest_id -> celebrated_at) before the delete that #661 already runs,
+mirroring `scoring.js`'s `awardSpecialBadge` — an `INSERT OR IGNORE`-gated event on a real state
+change, not a per-call one. A winner who was already in that captured set (the same guest re-released,
+whether at an identical rank or a changed one) gets their prior `celebrated_at` written back after the
+upsert and no event; a winner NOT in that set — genuinely new to the badge — gets the normal grant: one
+event, `celebrated_at` left NULL. A double-clicked or re-posted release now produces at most one recap row
+and one celebration per guest, no matter how many times the identical (or a re-ranked) winner list is
+POSTed. This is possession-keyed on purpose, not POST-keyed: re-releasing the SAME winner list twice and
+re-releasing a CHANGED list that still contains that winner both count as "already held it" — a rank or
+points change alone is not a new grant, since the recap renders rank live off the current row
+(`notifications.js`'s own `KIND_VIEW.badge_granted`) and would otherwise read as duplicate, byte-identical
+noise.
+
+**`/bug-report`: a 30-second same-guest, same-stored-body window.** The existing `socialRateLimiter` throttles
+abuse volume; it does nothing about one guest's own accidental double-tap landing as two rows with identical
+text seconds apart (the owner's own report reproduced exactly this). `POST /bug-report` now checks, before
+the INSERT, for a `bug_reports` row from the same guest whose STORED body (the same trimmed + truncated-to-
+`BUG_REPORT_BODY_MAX` string the INSERT itself writes) matches and was created within the last 30 seconds
+(`created_at >= datetime('now', '-N seconds')` with the window bound as a parameter, compared directly against the column's own `datetime('now')`
+storage shape — no JS-side clock parsing needed). A match skips the INSERT and returns the identical success
+response, so a spammed button reads as one filed report, not several. The window is a resubmit guard, not a
+report cap: a distinct body, a different guest, or the same wording filed again minutes later all record
+normally — 30 seconds covers a double-tap or a refresh-resubmit without suppressing a deliberate repeat
+report.
+
+**Deliberately not in scope.** `notification_events` rows already duplicated by PRE-#889 double-clicks are
+left as-is — stored events are permanent by design (`notifications.js`'s own doc comment) and every guest in
+prod today is a disposable tester (the wedding is 2026-08-07). Client-side button-disable guards that would
+stop the extra POSTs from firing at all are `#898`, tracked separately as the visual half of this fix.

@@ -631,6 +631,10 @@ const BUG_REPORT_EMPTY_ERROR = 'Tell us what went wrong first.';
 // length, not the number of reports a guest can file; an unbounded report
 // count is a known, accepted minor under the guest-comments threat model.
 const BUG_REPORT_BODY_MAX = 1000;
+// Same-guest, same-stored-body reposts inside this window are double-taps or
+// refresh-resubmits, not new reports (issue #889); a deliberate repeat filed
+// later than this always lands.
+const BUG_REPORT_DUPLICATE_WINDOW_SECONDS = 30;
 
 // Pull just the path (no scheme/host) out of a Referer header, so
 // bug_reports.page never stores a full origin a guest's phone happened to be
@@ -685,14 +689,33 @@ router.post('/bug-report', socialRateLimiter, function (req, res) {
   const page = refererPath(req.get('referer'));
   const userAgent = req.get('user-agent') || null;
 
+  // Issue #889 AC3/AC4: dedupe on the STORED form of the body (the same
+  // trimmed+truncated `body` the INSERT below writes), scoped to this guest
+  // and a 30-second window — a double-tap or a refresh-resubmit of the exact
+  // same report inserts no second row, while a distinct body (or the same
+  // body filed again minutes later) is a real second report and lands
+  // normally. The window subtraction compares directly against `created_at`'s
+  // own `datetime('now')` storage shape (src/db.js), so no clock parsing is
+  // needed on this side. Existence is all that matters — SELECT 1, no ordering.
+  const recentDuplicate = db
+    .prepare(
+      `SELECT 1 FROM bug_reports
+        WHERE guest_id = ? AND body = ?
+          AND created_at >= datetime('now', '-' || ? || ' seconds')
+        LIMIT 1`
+    )
+    .get(guest.id, body, BUG_REPORT_DUPLICATE_WINDOW_SECONDS);
+
   // status defaults to 'open' (bug_reports.status, issue #686) — every new
   // report starts open, so this INSERT relies on the column's own DEFAULT
   // instead of naming it. The retired `resolved` column is no longer named
   // here either; it keeps its own 0 default, unread everywhere now.
-  db.prepare(
-    `INSERT INTO bug_reports (guest_id, body, page, user_agent)
-     VALUES (?, ?, ?, ?)`
-  ).run(guest.id, body, page, userAgent);
+  if (!recentDuplicate) {
+    db.prepare(
+      `INSERT INTO bug_reports (guest_id, body, page, user_agent)
+       VALUES (?, ?, ?, ?)`
+    ).run(guest.id, body, page, userAgent);
+  }
 
   setFlash(res, 'success', BUG_REPORT_THANKS);
   return res.redirect('/');

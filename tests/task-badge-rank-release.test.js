@@ -485,6 +485,96 @@ describe('AC7: the give-a-badge catalog is retired', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #889 AC1/AC2: a re-released ranking is possession-keyed — a winner
+// who already held a RANKED award of this badge (at any rank) keeps their
+// celebrated_at stamp and gets no second event; only a guest NEWLY added to
+// the winner set gets a fresh grant. This is what stops a double-clicked or
+// re-posted Release & Award from producing a duplicate recap row or
+// reopening the celebration dialog.
+// ---------------------------------------------------------------------------
+describe('Issue #889 AC1/AC2: re-release is possession-keyed, not per-POST', () => {
+  function eventCount(guestId, badgeId) {
+    return db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM notification_events
+          WHERE guest_id = ? AND badge_id = ? AND kind = 'badge_granted'`
+      )
+      .get(guestId, badgeId).n;
+  }
+
+  it('AC1: an identical re-POST keeps the same guest set/points/rank/submission_id/celebrated_at, and exactly one event total', () => {
+    const taskId = makeTask('889 AC1 Task');
+    const guestId = makeGuest('889 AC1 Guest');
+    const sub = makeSubmission(guestId, taskId);
+
+    const first = taskBadges.releaseRanking(taskId, [sub]);
+    expect(eventCount(guestId, first.badge.id)).toBe(1);
+
+    // Simulate the guest having already celebrated (render-locals.js's
+    // stmtMarkCelebrated write path) before a double-clicked second POST
+    // for the identical winner list lands.
+    db.prepare(
+      `UPDATE guest_badges SET celebrated_at = '2026-07-27 10:00:00' WHERE guest_id = ? AND badge_id = ?`
+    ).run(guestId, first.badge.id);
+
+    const second = taskBadges.releaseRanking(taskId, [sub]);
+    expect(second.winners).toBe(1);
+
+    const row = db
+      .prepare('SELECT * FROM guest_badges WHERE guest_id = ? AND badge_id = ?')
+      .get(guestId, first.badge.id);
+    expect(row.points).toBe(5);
+    expect(row.rank).toBe(1);
+    expect(row.submission_id).toBe(sub);
+    expect(row.celebrated_at).toBe('2026-07-27 10:00:00'); // preserved, not wiped by the replay
+
+    expect(eventCount(guestId, first.badge.id)).toBe(1); // no second event from the replay
+  });
+
+  it('AC2: guest A keeps the badge at a new rank (no new event, celebrated_at preserved); guest B is newly added (one new event, NULL celebrated_at); guest C is dropped', () => {
+    const taskId = makeTask('889 AC2 Task');
+    const guestA = makeGuest('889 AC2 Guest A');
+    const guestB = makeGuest('889 AC2 Guest B');
+    const guestC = makeGuest('889 AC2 Guest C');
+    const subA = makeSubmission(guestA, taskId);
+    const subB = makeSubmission(guestB, taskId);
+    const subC = makeSubmission(guestC, taskId);
+
+    // First release: A 1st, C 2nd.
+    const first = taskBadges.releaseRanking(taskId, [subA, subC]);
+    expect(eventCount(guestA, first.badge.id)).toBe(1);
+    expect(eventCount(guestC, first.badge.id)).toBe(1);
+
+    db.prepare(
+      `UPDATE guest_badges SET celebrated_at = '2026-07-27 10:00:00' WHERE guest_id = ? AND badge_id = ?`
+    ).run(guestA, first.badge.id);
+
+    // Second release: A moves to 2nd, B is newly added at 1st, C is dropped.
+    const second = taskBadges.releaseRanking(taskId, [subB, subA]);
+    expect(second.winners).toBe(2);
+
+    const rowA = db
+      .prepare('SELECT * FROM guest_badges WHERE guest_id = ? AND badge_id = ?')
+      .get(guestA, first.badge.id);
+    expect(rowA.rank).toBe(2);
+    expect(rowA.celebrated_at).toBe('2026-07-27 10:00:00'); // preserved across the rank change
+    expect(eventCount(guestA, first.badge.id)).toBe(1); // still just the original grant
+
+    const rowB = db
+      .prepare('SELECT * FROM guest_badges WHERE guest_id = ? AND badge_id = ?')
+      .get(guestB, first.badge.id);
+    expect(rowB.rank).toBe(1);
+    expect(rowB.celebrated_at).toBeNull(); // a genuinely new winner celebrates normally
+    expect(eventCount(guestB, first.badge.id)).toBe(1);
+
+    const rowC = db
+      .prepare('SELECT * FROM guest_badges WHERE guest_id = ? AND badge_id = ?')
+      .get(guestC, first.badge.id);
+    expect(rowC).toBeUndefined(); // dropped, exactly as AC6's existing coverage
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC8: a winning guest's recap contains a row naming the badge + their rank,
 // linking to the winning photo.
 // ---------------------------------------------------------------------------
