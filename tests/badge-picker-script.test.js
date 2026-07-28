@@ -51,12 +51,12 @@ function pageMarkup() {
     '<input type="search" id="badge-picker-search" />' +
     '<div id="badge-picker-grid">' +
     '<label class="badge-picker-cell" data-name="heart">' +
-    '<input type="radio" name="icon" class="badge-picker-radio" data-name="Heart" ' +
+    '<input type="radio" name="icon" value="favorite" class="badge-picker-radio" data-name="Heart" ' +
     'data-art-path="/badges/icons/favorite.svg" />' +
     '<span class="badge-picker-glyph"></span>' +
     '</label>' +
     '<label class="badge-picker-cell" data-name="star">' +
-    '<input type="radio" name="icon" class="badge-picker-radio" data-name="Star" ' +
+    '<input type="radio" name="icon" value="star" class="badge-picker-radio" data-name="Star" ' +
     'data-art-path="/badges/icons/star.svg" />' +
     '<span class="badge-picker-glyph"></span>' +
     '</label>' +
@@ -74,8 +74,19 @@ function pageMarkup() {
  * navigator as globals, stub <dialog>.showModal/close (jsdom does not
  * implement either), then require badge-icon-mask.js followed by the real
  * badge-picker.js fresh, so its listeners bind to THIS document.
+ *
+ * `options.tags` (issue #903) stands in for src/public/js/badge-icon-tags.js,
+ * which normally assigns window.BadgeIconTags before badge-picker.js loads.
+ * Omitted, it defaults to a small known map covering both fixture icons;
+ * passed explicitly as `null`, window.BadgeIconTags is left entirely unset,
+ * simulating the data file never having loaded (AC5's fallback case). The
+ * real map's own shape/coverage is tested separately in
+ * tests/badge-icon-tags.test.js -- this fixture only needs to be small and
+ * known so a tag-only query can be asserted against exactly.
  */
-function loadBadgePicker() {
+function loadBadgePicker(options) {
+  const opts = options || {};
+
   const dom = new JSDOM('<!doctype html><html><body>' + pageMarkup() + '</body></html>', {
     url: 'http://localhost/admin/tasks',
   });
@@ -98,6 +109,12 @@ function loadBadgePicker() {
   dialogEl.close = function () {
     this.open = false;
   };
+
+  if (Object.prototype.hasOwnProperty.call(opts, 'tags') && opts.tags === null) {
+    delete dom.window.BadgeIconTags;
+  } else {
+    dom.window.BadgeIconTags = opts.tags || { favorite: ['love', 'romance'], star: ['gold'] };
+  }
 
   delete require.cache[require.resolve(BADGE_ICON_MASK_JS_PATH)];
   require(BADGE_ICON_MASK_JS_PATH);
@@ -124,6 +141,11 @@ function click(doc, el) {
 
 function change(doc, el) {
   el.dispatchEvent(new doc.defaultView.Event('change', { bubbles: true }));
+}
+
+function typeSearch(doc, el, value) {
+  el.value = value;
+  el.dispatchEvent(new doc.defaultView.Event('input', { bubbles: true }));
 }
 
 describe('badge-picker.js (issue #869 PR review, finding 6 — the masked-preview set/clear now has a test that can fail)', () => {
@@ -193,5 +215,67 @@ describe('badge-picker.js (issue #869 PR review, finding 6 — the masked-previe
     expect(previewIcon.style.getPropertyValue('--icon-src')).toBe('');
     expect(previewIcon.hidden).toBe(true);
     expect(preview.classList.contains('badge-medallion-empty')).toBe(true);
+  });
+});
+
+describe('badge-picker.js search filter — tag search (issue #903 AC5)', () => {
+  test('a query matching only a tag (not the display name) shows that cell and hides the other (AC5)', () => {
+    const { doc, restore } = loadBadgePicker();
+    const search = doc.getElementById('badge-picker-search');
+    const heartCell = doc.querySelector('.badge-picker-cell[data-name="heart"]');
+    const starCell = doc.querySelector('.badge-picker-cell[data-name="star"]');
+
+    // 'romance' is one of the Heart fixture's tags (see loadBadgePicker's
+    // default map) and appears nowhere in Star's name or tags.
+    typeSearch(doc, search, 'romance');
+
+    expect(heartCell.hidden).toBe(false);
+    expect(starCell.hidden).toBe(true);
+
+    restore();
+  });
+
+  test('a query by display name still matches, tags present or not (AC2)', () => {
+    const { doc, restore } = loadBadgePicker();
+    const search = doc.getElementById('badge-picker-search');
+    const heartCell = doc.querySelector('.badge-picker-cell[data-name="heart"]');
+    const starCell = doc.querySelector('.badge-picker-cell[data-name="star"]');
+
+    typeSearch(doc, search, 'star');
+
+    expect(starCell.hidden).toBe(false);
+    expect(heartCell.hidden).toBe(true);
+
+    restore();
+  });
+
+  test('a query matching no name and no tag hides every cell and shows the empty message (AC3 no-match)', () => {
+    const { doc, restore } = loadBadgePicker();
+    const search = doc.getElementById('badge-picker-search');
+    const heartCell = doc.querySelector('.badge-picker-cell[data-name="heart"]');
+    const starCell = doc.querySelector('.badge-picker-cell[data-name="star"]');
+    const empty = doc.getElementById('badge-picker-empty');
+
+    typeSearch(doc, search, 'no such icon anywhere');
+
+    expect(heartCell.hidden).toBe(true);
+    expect(starCell.hidden).toBe(true);
+    expect(empty.hidden).toBe(false);
+
+    restore();
+  });
+
+  test('with window.BadgeIconTags entirely absent, the picker still filters by display name without throwing (graceful no-tags fallback, AC5)', () => {
+    const { doc, restore } = loadBadgePicker({ tags: null });
+    const search = doc.getElementById('badge-picker-search');
+    const heartCell = doc.querySelector('.badge-picker-cell[data-name="heart"]');
+    const starCell = doc.querySelector('.badge-picker-cell[data-name="star"]');
+
+    expect(() => typeSearch(doc, search, 'heart')).not.toThrow();
+
+    expect(heartCell.hidden).toBe(false);
+    expect(starCell.hidden).toBe(true);
+
+    restore();
   });
 });

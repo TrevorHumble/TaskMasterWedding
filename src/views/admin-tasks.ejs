@@ -113,6 +113,9 @@
     both badge-picker.js and admin-tasks.js's live badge preview call into —
     must load before either of its two consumers. %>
 <script src="/js/badge-icon-mask.js" defer></script>
+<%# Search-tag data for every catalog icon — badge-picker.js folds it into
+    its filter, so it must load first (data only, no behavior). %>
+<script src="/js/badge-icon-tags.js" defer></script>
 <script src="/js/badge-picker.js" defer></script>
 <script src="/js/admin-tasks.js" defer></script>
 <%- include('partials/footer') %>

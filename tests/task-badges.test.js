@@ -497,6 +497,32 @@ describe('#869 PR review finding 5: the badge-picker grid renders masked spans, 
 });
 
 // ---------------------------------------------------------------------------
+// Issue #903: badge-picker.js reads window.BadgeIconTags at init to build
+// each cell's data-search attribute — that data only exists if
+// badge-icon-tags.js has already run, so it must load BEFORE badge-picker.js.
+// Both tags are `defer`, so document order IS execution order (deferred
+// scripts run in source order just before DOMContentLoaded). Dropping this
+// one <script> tag, or reordering it after badge-picker.js, would silently
+// revert search to name-only with a fully green suite otherwise — nothing
+// else asserts the wiring line, only the data file's own shape
+// (tests/badge-icon-tags.test.js) and the filter logic in isolation
+// (tests/badge-picker-script.test.js).
+// ---------------------------------------------------------------------------
+describe('issue #903: badge-icon-tags.js loads before badge-picker.js', () => {
+  it('GET /admin/tasks includes both script tags, with badge-icon-tags.js first', async () => {
+    const res = await adminAgent.get('/admin/tasks');
+    expect(res.status).toBe(200);
+
+    const tagsIndex = res.text.indexOf('<script src="/js/badge-icon-tags.js"');
+    const pickerIndex = res.text.indexOf('<script src="/js/badge-picker.js"');
+
+    expect(tagsIndex).toBeGreaterThan(-1);
+    expect(pickerIndex).toBeGreaterThan(-1);
+    expect(tagsIndex).toBeLessThan(pickerIndex);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // #869 PR review, finding 2: the masked-icon branch's accessibility must
 // mirror what the retired <img alt=""> gave for free. An <img alt=""> is
 // treated as decorative and skipped by assistive tech; a bare
