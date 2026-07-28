@@ -10,8 +10,15 @@
 //   AC1 — [7,5,5,3,2,1] -> ranks 1,2,2,4,5 paying 5,4,4,2,1; the 1-like photo
 //         (rank 6) does not place.
 //   AC2 — a big tie for a spot consumes every rank beneath it.
-//   AC3 — a guest sweeping the 3 highest distinct like counts places at
-//         ranks 1/2/3 and collects 5+4+3=12 — no cap.
+//   AC3 — SUPERSEDED by issue #896 (2026-07-27): a guest's own multiple
+//         liked photos no longer sweep several placing slots. Each guest
+//         appears AT MOST ONCE in the placing set, represented by their
+//         single best photo (highest like_count, then lowest submission_id
+//         tiebreak) — see the "issue #896" describe blocks below for the
+//         new distinct-count and tied-count coverage, and AC1/AC2/AC4/AC5
+//         above were rewritten to seed each ladder rung from a DIFFERENT
+//         guest (dedupe would otherwise collapse a same-owner ladder to one
+//         entry, no longer exercising standardRank's own tie/skip logic).
 //   AC4 — a 0-like photo never places; a takedown drops a placing photo out,
 //         shifts the ranks below it up, and its points leave the owner's
 //         total; a restore reverses all three.
@@ -26,6 +33,12 @@
 //         crowd_favorite_lost (no rank cited).
 //   AC8 — leaderboard() calls crowdFavorites() exactly once, issuing exactly
 //         one SQL statement, regardless of guest count.
+//
+// Issue #896 (2026-07-27) — per-guest dedupe, before ranking: a guest owning
+// N>1 visible liked photos is reduced to their single best photo (highest
+// like_count, then lowest submission_id) BEFORE standardRank ever runs, for
+// both tied and distinct like-counts. This reverses #625 AC3's old "no-cap
+// sweep" rule entirely — see the "issue #896" describe blocks below.
 //
 // REQUIRE ORDER: config / db / services are required only AFTER loadApp()
 // sets DATA_DIR / DB_PATH. Do not hoist requires above the loadApp() call.
@@ -116,13 +129,21 @@ function placingBySubmission() {
 describe('AC1: standard-competition ranking, [7,5,5,3,2,1]', () => {
   test('ranks 1,2,2,4,5 pay 5,4,4,2,1 — the rank-2 tie eats rank 3, and the 1-like photo (rank 6) does not place', () => {
     resetField();
-    const owner = makeGuest('Owner');
-    const s7 = makeSubmission(owner.id);
-    const s5a = makeSubmission(owner.id);
-    const s5b = makeSubmission(owner.id);
-    const s3 = makeSubmission(owner.id);
-    const s2 = makeSubmission(owner.id);
-    const s1 = makeSubmission(owner.id);
+    // Six DIFFERENT guests (issue #896 dedupes to one photo per guest,
+    // before ranking) so this ladder still exercises standardRank's own
+    // tie/skip behavior rather than being collapsed to one entry.
+    const gs7 = makeGuest('Guest 7');
+    const gs5a = makeGuest('Guest 5a');
+    const gs5b = makeGuest('Guest 5b');
+    const gs3 = makeGuest('Guest 3');
+    const gs2 = makeGuest('Guest 2');
+    const gs1 = makeGuest('Guest 1');
+    const s7 = makeSubmission(gs7.id);
+    const s5a = makeSubmission(gs5a.id);
+    const s5b = makeSubmission(gs5b.id);
+    const s3 = makeSubmission(gs3.id);
+    const s2 = makeSubmission(gs2.id);
+    const s1 = makeSubmission(gs1.id);
     addLikes(s7, 7);
     addLikes(s5a, 5);
     addLikes(s5b, 5);
@@ -148,16 +169,20 @@ describe('AC1: standard-competition ranking, [7,5,5,3,2,1]', () => {
 describe('AC2: a big tie consumes every rank beneath it', () => {
   test('[10, eight 8s, 6] -> rank1=10 (5pts), rank2=all eight 8s (4pts each), ranks 3/4/5 pay nobody, the 6 (rank10) does not place', () => {
     resetField();
-    const owner = makeGuest('Owner');
-    const s10 = makeSubmission(owner.id);
+    // Ten DIFFERENT guests — issue #896 dedupes to one photo per guest, so a
+    // big TIE must span distinct owners to still place more than one photo.
+    const ownerTop = makeGuest('Top Owner');
+    const s10 = makeSubmission(ownerTop.id);
     addLikes(s10, 10);
     const eights = [];
     for (let i = 0; i < 8; i++) {
-      const s = makeSubmission(owner.id);
+      const g = makeGuest(`Eight Owner ${i}`);
+      const s = makeSubmission(g.id);
       addLikes(s, 8);
       eights.push(s);
     }
-    const s6 = makeSubmission(owner.id);
+    const ownerSix = makeGuest('Six Owner');
+    const s6 = makeSubmission(ownerSix.id);
     addLikes(s6, 6);
 
     const placing = scoring.crowdFavorites();
@@ -177,42 +202,83 @@ describe('AC2: a big tie consumes every rank beneath it', () => {
   });
 });
 
-describe('AC3: sweeping the 3 highest distinct like counts, no cap', () => {
-  test('a guest owning the top 3 places at ranks 1/2/3 and collects 5+4+3=12', () => {
+describe('AC3: SUPERSEDED by issue #896 — a guest no longer sweeps multiple slots with their own photos', () => {
+  test('distinct like counts: A (9/6/4 likes) places once at rank 1 for 5 points — not 11 — while B (5 likes) places at rank 2', () => {
     resetField();
-    const sweeper = makeGuest('Sweeper');
-    const other = makeGuest('Other');
-    const s1 = makeSubmission(sweeper.id);
-    const s2 = makeSubmission(sweeper.id);
-    const s3 = makeSubmission(sweeper.id);
-    const filler = makeSubmission(other.id);
-    addLikes(s1, 9);
-    addLikes(s2, 6);
-    addLikes(s3, 4);
-    addLikes(filler, 1);
+    const a = makeGuest('Guest A');
+    const b = makeGuest('Guest B');
+    const a9 = makeSubmission(a.id);
+    const a6 = makeSubmission(a.id);
+    const a4 = makeSubmission(a.id);
+    const b5 = makeSubmission(b.id);
+    addLikes(a9, 9);
+    addLikes(a6, 6);
+    addLikes(a4, 4);
+    addLikes(b5, 5);
 
-    const sweeperPlacing = scoring.crowdFavorites().filter((p) => p.guest_id === sweeper.id);
-    expect(sweeperPlacing.length).toBe(3);
-    expect(sweeperPlacing.map((p) => p.rank).sort()).toEqual([1, 2, 3]);
-    expect(sweeperPlacing.map((p) => p.points).sort((a, b) => b - a)).toEqual([5, 4, 3]);
-    expect(scoring.crowdPointsByGuest().get(sweeper.id)).toBe(12);
+    const aPlacing = scoring.crowdFavorites().filter((p) => p.guest_id === a.id);
+    expect(aPlacing.length).toBe(1);
+    expect(aPlacing[0]).toMatchObject({ submission_id: a9, rank: 1, points: 5 });
+    expect(scoring.crowdPointsByGuest().get(a.id)).toBe(5);
 
-    // getPoints reads the same crowd total. The sweeper's 3 memories all land
-    // on the same event-local day (created "now"), so memoryDayCount
-    // contributes exactly +1 on top (a Set of days, not a count of memories)
-    // — every other term (worth/photoBonus/bonusAmount/guest bonus/starter/
-    // award) is 0 for this guest, so the total is exactly 12 + 1 = 13.
-    expect(scoring.getPoints(sweeper.id)).toBe(13);
+    const bPlacing = scoring.crowdFavorites().filter((p) => p.guest_id === b.id);
+    expect(bPlacing.length).toBe(1);
+    expect(bPlacing[0]).toMatchObject({ submission_id: b5, rank: 2, points: 4 });
+
+    // A's own weaker photos never appear in the placing set at all — dedupe
+    // drops them BEFORE ranking, they don't just rank lower.
+    const bySub = placingBySubmission();
+    expect(bySub.has(a6)).toBe(false);
+    expect(bySub.has(a4)).toBe(false);
+
+    // getPoints reads the same crowd total. A's 3 memories all land on the
+    // same event-local day, so memoryDayCount contributes exactly +1 on top
+    // — every other term is 0 for this guest, so the total is 5 + 1 = 6. Under
+    // the old no-cap sweep rule this fixture (9/6/5/4 likes -> ranks 1/2/3/4)
+    // paid A ranks 1, 2 and 4 for 5 + 4 + 2 = 11 crowd points, 11 + 1 = 12 total.
+    expect(scoring.getPoints(a.id)).toBe(6);
+  });
+
+  test('tied like counts: A (two photos tied at 10 likes) places once at rank 1 — the lower submission_id wins the tiebreak — while B (8 likes) places at rank 2', () => {
+    resetField();
+    const a = makeGuest('Tie Guest A');
+    const b = makeGuest('Tie Guest B');
+    const a10a = makeSubmission(a.id);
+    const a10b = makeSubmission(a.id);
+    const b8 = makeSubmission(b.id);
+    addLikes(a10a, 10);
+    addLikes(a10b, 10);
+    addLikes(b8, 8);
+
+    const aPlacing = scoring.crowdFavorites().filter((p) => p.guest_id === a.id);
+    expect(aPlacing.length).toBe(1);
+    // a10a and a10b tie on like_count; stmtVisibleLikeCounts' own
+    // submission_id ASC tiebreak makes a10a (the lower id) A's "best" row,
+    // and dedupe keeps the FIRST row seen per guest_id.
+    expect(aPlacing[0]).toMatchObject({ submission_id: a10a, rank: 1, points: 5 });
+
+    const bPlacing = scoring.crowdFavorites().filter((p) => p.guest_id === b.id);
+    expect(bPlacing.length).toBe(1);
+    expect(bPlacing[0]).toMatchObject({ submission_id: b8, rank: 2, points: 4 });
+
+    const bySub = placingBySubmission();
+    expect(bySub.has(a10b)).toBe(false);
   });
 });
 
 describe('AC4: a 0-like photo never places; takedown/restore move the placing set and the owner total', () => {
   test('takedown drops a placing photo, shifts ranks below it up, and removes its points; restore reverses all three', () => {
     resetField();
+    // s5 and s3 are owned by DIFFERENT guests (issue #896 dedupes to one
+    // photo per guest, so both must place simultaneously to exercise a
+    // takedown shifting one guest's rank while leaving the other's alone).
+    // `zero` shares owner's guest_id — it never places regardless of dedupe,
+    // since it is filtered out by like_count > 0 before dedupe even runs.
     const owner = makeGuest('Owner');
+    const other = makeGuest('Other');
     const zero = makeSubmission(owner.id);
     const s5 = makeSubmission(owner.id);
-    const s3 = makeSubmission(owner.id);
+    const s3 = makeSubmission(other.id);
     addLikes(s5, 5);
     addLikes(s3, 3);
     // `zero` has no likes at all.
@@ -221,7 +287,8 @@ describe('AC4: a 0-like photo never places; takedown/restore move the placing se
     expect(bySub.has(zero)).toBe(false);
     expect(bySub.get(s5)).toMatchObject({ rank: 1, points: 5 });
     expect(bySub.get(s3)).toMatchObject({ rank: 2, points: 4 });
-    expect(scoring.crowdPointsByGuest().get(owner.id)).toBe(9);
+    expect(scoring.crowdPointsByGuest().get(owner.id)).toBe(5);
+    expect(scoring.crowdPointsByGuest().get(other.id)).toBe(4);
 
     photos.hideSubmission(s5);
 
@@ -229,29 +296,33 @@ describe('AC4: a 0-like photo never places; takedown/restore move the placing se
     expect(bySub.has(s5)).toBe(false);
     // s3 shifts up to rank 1 now that s5 is gone.
     expect(bySub.get(s3)).toMatchObject({ rank: 1, points: 5 });
-    expect(scoring.crowdPointsByGuest().get(owner.id)).toBe(5);
+    expect(scoring.crowdPointsByGuest().get(owner.id)).toBeUndefined();
+    expect(scoring.crowdPointsByGuest().get(other.id)).toBe(5);
 
     photos.restoreSubmission(s5);
 
     bySub = placingBySubmission();
     expect(bySub.get(s5)).toMatchObject({ rank: 1, points: 5 });
     expect(bySub.get(s3)).toMatchObject({ rank: 2, points: 4 });
-    expect(scoring.crowdPointsByGuest().get(owner.id)).toBe(9);
+    expect(scoring.crowdPointsByGuest().get(owner.id)).toBe(5);
+    expect(scoring.crowdPointsByGuest().get(other.id)).toBe(4);
   });
 });
 
 describe('AC5: getPoints, leaderboard(), and feed.slideshowSequence() all agree', () => {
-  test('a tie, a sweeper, a placing memory, and a taken-down former favorite reconcile across every reader', () => {
+  test('a leader, a tie, a placing memory, and a taken-down former favorite reconcile across every reader', () => {
     resetField();
 
-    const sweep = makeGuest('Sweep Guest');
+    // Issue #896: each guest holds exactly ONE submission here (a second
+    // submission for `leader` would simply dedupe out before ranking, so it
+    // adds nothing this reconciliation test needs to prove).
+    const leader = makeGuest('Leader Guest');
     const tieA = makeGuest('Tie Guest A');
     const tieB = makeGuest('Tie Guest B');
     const memoryGuest = makeGuest('Memory Guest');
     const formerGuest = makeGuest('Former Guest');
 
-    const sSweep1 = makeSubmission(sweep.id);
-    const sSweep2 = makeSubmission(sweep.id);
+    const sLeader = makeSubmission(leader.id);
     const sTieA = makeSubmission(tieA.id);
     const sTieB = makeSubmission(tieB.id);
     const sMemory = makeSubmission(memoryGuest.id);
@@ -264,20 +335,18 @@ describe('AC5: getPoints, leaderboard(), and feed.slideshowSequence() all agree'
       )
       .run(formerGuest.id, 'former.jpg', 'former-thumb.jpg').lastInsertRowid;
 
-    addLikes(sSweep1, 6); // rank 1 -> 5 pts
-    addLikes(sSweep2, 5); // rank 2 -> 4 pts
-    addLikes(sTieA, 4); // rank 3 (tied) -> 3 pts
-    addLikes(sTieB, 4); // rank 3 (tied) -> 3 pts
-    addLikes(sMemory, 3); // rank 5 (the rank-3 tie consumes rank 4) -> 1 pt
+    addLikes(sLeader, 6); // rank 1 -> 5 pts
+    addLikes(sTieA, 4); // rank 2 (tied) -> 4 pts
+    addLikes(sTieB, 4); // rank 2 (tied) -> 4 pts
+    addLikes(sMemory, 3); // rank 4 (the rank-2 tie consumes rank 3) -> 2 pts
     addLikes(sFormer, 2); // never counted — taken_down = 1
 
     // --- crowdFavorites() itself -------------------------------------------
     const bySub = placingBySubmission();
-    expect(bySub.get(sSweep1)).toMatchObject({ rank: 1, points: 5 });
-    expect(bySub.get(sSweep2)).toMatchObject({ rank: 2, points: 4 });
-    expect(bySub.get(sTieA)).toMatchObject({ rank: 3, points: 3 });
-    expect(bySub.get(sTieB)).toMatchObject({ rank: 3, points: 3 });
-    expect(bySub.get(sMemory)).toMatchObject({ rank: 5, points: 1 });
+    expect(bySub.get(sLeader)).toMatchObject({ rank: 1, points: 5 });
+    expect(bySub.get(sTieA)).toMatchObject({ rank: 2, points: 4 });
+    expect(bySub.get(sTieB)).toMatchObject({ rank: 2, points: 4 });
+    expect(bySub.get(sMemory)).toMatchObject({ rank: 4, points: 2 });
     expect(bySub.has(sFormer)).toBe(false);
 
     // Expected per-guest getPoints: crowd total + 1 memory-day (every guest
@@ -285,10 +354,10 @@ describe('AC5: getPoints, leaderboard(), and feed.slideshowSequence() all agree'
     // + 0 for every other term. formerGuest's only submission is taken down,
     // so it has NO visible memory at all: memoryDayCount = 0, crowd = 0.
     const expected = {
-      [sweep.id]: 9 + 1, // 5 + 4 crowd, +1 memory day
-      [tieA.id]: 3 + 1,
-      [tieB.id]: 3 + 1,
-      [memoryGuest.id]: 1 + 1,
+      [leader.id]: 5 + 1,
+      [tieA.id]: 4 + 1,
+      [tieB.id]: 4 + 1,
+      [memoryGuest.id]: 2 + 1,
       [formerGuest.id]: 0,
     };
 
@@ -312,23 +381,23 @@ describe('AC5: getPoints, leaderboard(), and feed.slideshowSequence() all agree'
     const nextTitleOffset = afterTitle.findIndex((item) => item.type === 'title');
     const openerPhotos = nextTitleOffset === -1 ? afterTitle : afterTitle.slice(0, nextTitleOffset);
 
-    // Exactly the 5 placing photos — the taken-down former favorite never
+    // Exactly the 4 placing photos — the taken-down former favorite never
     // appears anywhere in the sequence.
-    expect(openerPhotos.length).toBe(5);
+    expect(openerPhotos.length).toBe(4);
     expect(openerPhotos.some((p) => p.guest_name === 'Former Guest')).toBe(false);
 
-    // Winner-last (countdown to the winner): the rank-1 sweep photo renders
+    // Winner-last (countdown to the winner): the rank-1 leader photo renders
     // last and carries the winner flag; nobody else does.
     const winner = openerPhotos[openerPhotos.length - 1];
     expect(winner.winner).toBe(true);
-    expect(winner.guest_name).toBe('Sweep Guest');
+    expect(winner.guest_name).toBe('Leader Guest');
     expect(winner.rankLabel).toBe('Crowd favorite');
     expect(openerPhotos.filter((p) => p.winner).length).toBe(1);
 
     const byGuestName = new Map(openerPhotos.map((p) => [p.guest_name, p]));
-    expect(byGuestName.get('Memory Guest')).toMatchObject({ rank: 5, rankLabel: '5th place' });
-    expect(byGuestName.get('Tie Guest A')).toMatchObject({ rank: 3, rankLabel: '3rd place' });
-    expect(byGuestName.get('Tie Guest B')).toMatchObject({ rank: 3, rankLabel: '3rd place' });
+    expect(byGuestName.get('Memory Guest')).toMatchObject({ rank: 4, rankLabel: '4th place' });
+    expect(byGuestName.get('Tie Guest A')).toMatchObject({ rank: 2, rankLabel: '2nd place' });
+    expect(byGuestName.get('Tie Guest B')).toMatchObject({ rank: 2, rankLabel: '2nd place' });
   });
 });
 
@@ -455,5 +524,33 @@ describe('AC8: leaderboard() issues exactly one crowd-favorites SQL statement, r
   test('exactly one query for a 2-guest field and for a 20-guest field', () => {
     expect(countCrowdFavoritesQueries(2)).toBe(1);
     expect(countCrowdFavoritesQueries(20)).toBe(1);
+  });
+});
+
+describe('issue #896 AC1/AC6: the reported bug — one guest, 20 photos tied at the top, places once', () => {
+  test('20 visible photos owned by one guest, all tied at the same like count, place that guest once at rank 1 for 5 points', () => {
+    resetField();
+    const owner = makeGuest('Reported Bug Owner');
+    const submissionIds = [];
+    for (let i = 0; i < 20; i++) {
+      const s = makeSubmission(owner.id);
+      addLikes(s, 3); // every photo tied at 3 likes
+      submissionIds.push(s);
+    }
+
+    const placing = scoring.crowdFavorites().filter((p) => p.guest_id === owner.id);
+    expect(placing.length).toBe(1);
+    expect(placing[0]).toMatchObject({ rank: 1, points: 5 });
+    // stmtVisibleLikeCounts' own submission_id ASC tiebreak makes the FIRST
+    // submitted photo (lowest id) this guest's "best" among the 20-way tie.
+    expect(placing[0].submission_id).toBe(submissionIds[0]);
+    expect(scoring.crowdPointsByGuest().get(owner.id)).toBe(5);
+
+    // None of the other 19 tied photos ever appear in the placing set —
+    // deduped out before ranking even runs, not merely ranked below 5th.
+    const bySub = placingBySubmission();
+    for (let i = 1; i < submissionIds.length; i++) {
+      expect(bySub.has(submissionIds[i])).toBe(false);
+    }
   });
 });

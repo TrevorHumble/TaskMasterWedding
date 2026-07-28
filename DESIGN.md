@@ -43,6 +43,7 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
   - [Rank & award: a separate page, one-badge-system consolidation, client-side-only draft state (#661)](#rank-award-a-separate-page-one-badge-system-consolidation-client-side-only-draft-state-661)
   - [Bug-report lifecycle: additive `status` over a `resolved` rebuild, one count owner (#686)](#bug-report-lifecycle-additive-status-over-a-resolved-rebuild-one-count-owner-686)
   - [Crowd favorites: derived not materialized, standard-competition rank, one absorbed ranker (#625)](#crowd-favorites-derived-not-materialized-standard-competition-rank-one-absorbed-ranker-625)
+  - [Crowd favorites: per-guest dedupe reverses the no-cap sweep rule (#896)](#crowd-favorites-per-guest-dedupe-reverses-the-no-cap-sweep-rule-896)
   - [Crowd-favorite crown: a render-time marker, never a stored badge (#788)](#crowd-favorite-crown-a-render-time-marker-never-a-stored-badge-788)
   - [TOPLIKED: the Most Liked crown as a materialized, transferable badge (#817, widened by #821)](#topliked-the-most-liked-crown-as-a-materialized-transferable-badge-817-widened-by-821)
 
@@ -1933,7 +1934,12 @@ approved.
 this app grants is a single per-guest fact — a guest either holds BLOOM or does not — so one row per
 (guest, badge) is the right shape. A crowd-favorite placement is not that shape: issue #625's own no-cap
 sweep rule (AC3) lets one guest hold three placing photos at once and collect 5+4+3=12 points, which is
-three DISTINCT placements for the SAME guest against the SAME hypothetical badge. Materializing that as
+three DISTINCT placements for the SAME guest against the SAME hypothetical badge. [Superseded 2026-07-27
+by #896's per-guest dedupe — see "Crowd favorites: per-guest dedupe reverses the no-cap sweep rule
+(#896)" below; the derived-not-materialized conclusion still holds, for a different reason — the
+placing photo itself changes read-to-read as likes move, so a stored row would go stale; see
+`src/services/scoring.js`'s crowd-favorites section comment.]
+Materializing that as
 `guest_badges` rows would either violate the UNIQUE constraint (one row per guest per badge, no room for
 a second placing photo) or force a schema change (a `submission_id` column added to a table three other
 badge kinds already write without one). `src/services/scoring.js`'s `crowdFavorites()` sidesteps the
@@ -2027,6 +2033,50 @@ exactly one owner, `src/services/scoring.js`; every reader (`getPoints`, `leader
 `feed.slideshowSequence`, `notifications.js`'s recap copy) reads points off `crowdFavorites()`'s own output
 rather than re-deriving the mapping. The standard-competition ranking ALGORITHM itself has exactly one
 owner, `src/services/rank.js`'s `standardRank` — `scoring.crowdFavorites()` is its only caller today.
+
+## Crowd favorites: per-guest dedupe reverses the no-cap sweep rule (#896)
+
+**Date:** 2026-07-27. **Status:** accepted.
+
+**What changed.** `crowdFavorites()` (`src/services/scoring.js`) now reduces `stmtVisibleLikeCounts`'s rows
+to at most ONE row per `guest_id` — that guest's best (highest `like_count`, then lowest `submission_id`,
+the query's own existing tiebreak order) — BEFORE `rank.standardRank` runs, for both tied and distinct
+like-counts alike. This reverses #625 AC3's "no-cap sweep" rule entirely: a guest can now hold at most one
+of the five paying crowd-favorite slots, no matter how many of their own photos are liked.
+
+**Why the old rule broke.** #625 AC3 deliberately let one guest sweep several placing slots at once — "a
+guest sweeping the 3 highest distinct like counts places at ranks 1/2/3 and collects 5+4+3=12 — no cap" —
+reasoning that a guest who genuinely earned several well-liked photos should collect for all of them. In
+practice this let one guest with many photos (a habitual poster, or one photo re-liked by friends across
+many near-duplicates) occupy EVERY crowd-favorite slot: with 20 photos tied at the top like-count, all 20
+rank 1, all 20 wear a crown (never gold — `rank1Count > 1` nulls `crownGoldId`, `src/routes/community.js`),
+and the guest collects 100 points from a single popularity spike. The owner filed this from the app itself
+(`#897`, bug report, 2026-07-26): "Someone can win best pic for 20 of their own tied for first photo." The
+mechanic no longer resembles a crowd vote once one guest's own back-catalog can fill every seat; it stops
+recognizing DIFFERENT people's best work, which is the whole point of a "crowd favorite."
+
+**Why dedupe-then-rank, not a post-rank cap.** Capping the placing set to N distinct guests AFTER ranking
+would still let a guest's second-best photo silently steal the boundary slot from a different guest's only
+photo, and would complicate `CROWD_FAVORITE_POINTS[rank - 1]`'s straight index lookup (a capped array no
+longer lines up 1:1 with `rank`). Deduping BEFORE ranking sidesteps both: `rank.standardRank` never sees a
+guest's second photo at all, so every downstream consumer — `crowdPointsByGuest`, the crown
+(`crownRankState`), the slideshow's Most Liked opener, the recap diff (`recordCrowdFavoriteChanges`) —
+keeps working unchanged, because the shape of `crowdFavorites()`'s return value did not change, only which
+rows can appear in it.
+
+**Why the dedupe stays inside the single AC8 query.** `stmtVisibleLikeCounts` already orders
+`like_count DESC, submission_id ASC` for `rank.standardRank`'s own tiebreak needs (#625). That same order
+makes "first row seen for a `guest_id`" exactly equal to "that guest's best photo" — a single JS pass over
+the rows already fetched, no second SQL statement, no re-sort. AC8 (leaderboard calling `crowdFavorites()`
+exactly once, one query regardless of guest count) is unaffected and its test
+(`tests/crowd-favorites.test.js`'s AC8 block) passes unmodified.
+
+**Deploy-transition note (accepted, everyone in prod is a tester until the wedding).** Stored
+`crowd_favorite` recap rows for photos that dedupe out at deploy remain in guests' recaps in the degraded
+rank-free form (`notifications.js`'s `crowd_favorite` fallback), and no `crowd_favorite_lost` fires for them
+retroactively — the diff only runs around live mutations. A representative-photo swap (a guest's second
+photo overtaking their first) can emit a false `crowd_favorite` + `crowd_favorite_lost` pair until #895
+re-keys `recordCrowdFavoriteChanges` by guest instead of by `submission_id`.
 
 ## Crowd-favorite crown: a render-time marker, never a stored badge (#788)
 
