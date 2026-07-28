@@ -43,14 +43,18 @@ Nine sources pay points. Each entry names the issue that builds it.
    rank the host stopped ranking. (#661's rewrite, shipped — `releaseRanking` in
    `src/services/task-badges.js`.)
 9. **Crowd favorites.** Likes are votes. Visible photos (task photos AND memories — memories
-   compete) are ranked by like count using STANDARD-COMPETITION ranking — a race rank (1st,
-   2nd, 2nd, 4th) where a tie CONSUMES the ranks beneath it, deliberately different from the
-   leaderboard's dense rank above. Ranks 1-5 pay their owners 5/4/3/2/1, derived live all
-   weekend — a photo that drops out of the top 5 loses the points that came with the spot. A
-   single tier that itself holds 5+ photos (a big tie for a spot) can still place more than
-   five; that is correct, they genuinely tied. (#625's rewrite, settled 2026-07-23 — see that
-   issue's ranking-rule and memory-eligibility decision comments; #651 feeds duel-generated
-   likes into the same count.)
+   compete) are deduped to ONE photo per guest first — their single best (highest like_count,
+   then lowest submission_id) — then ranked by like count using STANDARD-COMPETITION ranking —
+   a race rank (1st, 2nd, 2nd, 4th) where a tie CONSUMES the ranks beneath it, deliberately
+   different from the leaderboard's dense rank above. Ranks 1-5 pay their owners 5/4/3/2/1,
+   derived live all weekend — a photo that drops out of the top 5 loses the points that came
+   with the spot. A single tier that itself holds 5+ DIFFERENT guests' best photos (a big tie
+   for a spot) can still place more than five; that is correct, they genuinely tied. A guest
+   can never occupy more than one of the five paying slots, no matter how many of their own
+   photos are liked — a tied or distinct-count sweep by one guest's own photos is no longer
+   possible. (#625's rewrite, settled 2026-07-23; per-guest dedupe reverses #625 AC3's old
+   "no-cap sweep" rule, #896, settled 2026-07-27 — see #625's ranking-rule and
+   memory-eligibility decision comments; #651 feeds duel-generated likes into the same count.)
 
 ### Nothing else pays
 
@@ -82,10 +86,10 @@ dies.
   the card copy reads "Best photo wins [badge]," prize framing, not participation framing.
   The badge goes to the host-ranked 1 to 5 best photos for that task (host's choice, never
   a forced five); every ranked winner wears it.
-- **Crowd favorite.** The top-5 most-liked photos wear a render-time crown mark (shipped
-  #788): `partials/crowd-favorite-mark.ejs`, driven by `crowdFavorites()`
-  (`src/services/scoring.js`) — no `guest_badges` row is written for a crowd-favorite
-  placement, so this is a display marker, not a stored badge award.
+- **Crowd favorite.** The top-5 placing photos — at most one per guest, their own best liked
+  photo (#896) — wear a render-time crown mark (shipped #788): `partials/crowd-favorite-mark.ejs`,
+  driven by `crowdFavorites()` (`src/services/scoring.js`) — no `guest_badges` row is written
+  for a crowd-favorite placement, so this is a display marker, not a stored badge award.
 - **Gold rule.** Rank 1 in each ranked set wears a gold variant of that set's own mark, and
   gold is reserved for a single champion — a tie at rank 1 wears the plain (non-gold)
   mark instead. This shipped as two sibling render-time marks, not one shared badge
@@ -252,7 +256,7 @@ flowchart LR
 
   subgraph Derived["Computed fresh per request"]
     ATS{{"active task set:<br/>not deleted, not hidden,<br/>not a future-dated challenge.<br/>One definition, five callers"}}
-    CF{{"crowd favorites:<br/>likes per visible photo<br/>(memories compete too),<br/>standard-competition rank,<br/>ranks 1-5 pay 5..1,<br/>all placers wear the badge, no.1 gold"}}
+    CF{{"crowd favorites:<br/>likes per visible photo<br/>(memories compete too),<br/>one best photo per guest,<br/>standard-competition rank,<br/>ranks 1-5 pay 5..1,<br/>all placers wear the badge, no.1 gold"}}
     PTS{{"points recipe, one term list:<br/>task worth + banked bonuses<br/>+ ranked-award points + memory days<br/>+ auto-badge points + starter point<br/>+ crowd-favorite points"}}
   end
 

@@ -289,18 +289,22 @@ function memoryDayCountsByGuest(timezone) {
 }
 
 // ---------------------------------------------------------------------------
-// Crowd favorites (issue #625): the crowd's likes vote on the weekend's best
-// photos, fully derived — no `guest_badges` row is ever written for a
-// crowd-favorite placement. Binding rationale: `guest_badges` carries
-// `CONSTRAINT uq_gb UNIQUE (guest_id, badge_id)` (src/db.js), so a guest
-// sweeping two paying photo slots could never hold two rows for the same
-// badge — materializing would break the no-cap sweep rule (AC3) or force a
-// schema change. crowdFavorites() below is the ONLY place "who is a crowd
-// favorite, at what rank, worth how much" is decided; every reader
-// (getPoints, leaderboard, feed.slideshowSequence's Most Liked opener,
-// notifications.js's crowd_favorite/crowd_favorite_lost recap rows) reads
-// this same live answer rather than a stored copy that could go stale the
-// moment a like/takedown/restore moves it.
+// Crowd favorites (issue #625, per-guest dedupe reversal #896): the crowd's
+// likes vote on the weekend's best photos, fully derived — no `guest_badges`
+// row is ever written for a crowd-favorite placement. Binding rationale:
+// `guest_badges` carries `CONSTRAINT uq_gb UNIQUE (guest_id, badge_id)`
+// (src/db.js), so materializing a crowd-favorite placement as a row on that
+// table would still need a `submission_id` column no other badge kind
+// carries, purely to identify WHICH of a guest's photos earned the row —
+// even though #896 now guarantees at most one placing photo per guest, that
+// photo can change from one read to the next as likes/takedowns move the
+// standings, and a stored row would go stale exactly like every other
+// derived scoring term in this file. crowdFavorites() below is the ONLY
+// place "who is a crowd favorite, at what rank, worth how much" is decided;
+// every reader (getPoints, leaderboard, feed.slideshowSequence's Most Liked
+// opener, notifications.js's crowd_favorite/crowd_favorite_lost recap rows)
+// reads this same live answer rather than a stored copy that could go stale
+// the moment a like/takedown/restore moves it.
 // ---------------------------------------------------------------------------
 
 // Rank -> points, index by (rank - 1). Ranks 1-5 place; a photo at rank 6 or
@@ -334,36 +338,65 @@ const stmtVisibleLikeCounts = db.prepare(`
 /**
  * The crowd-favorite placing set, live, from ONE query (issue #625 AC8: the
  * leaderboard's caller must be able to call this exactly once regardless of
- * guest count). Standard-competition ranking (rank.standardRank, deliberately
- * NOT the leaderboard's dense rank, #626): a tie shares a rank and the next
- * distinct like count skips to `1 + <count of photos ranked above it>`, so a
- * big tie for a spot CONSUMES the ranks beneath it — the rule that keeps the
- * paying set bounded near 5 regardless of party scale (a 60-photo tail all
- * sitting at 1 like never all place, unlike dense ranking, which has no such
- * bound). Ranks 1-5 place, paying CROWD_FAVORITE_POINTS[rank - 1]; a photo
- * ranked 6th or worse, or sitting at 0 likes (excluded by
- * stmtVisibleLikeCounts before ranking even runs), never appears in the
- * returned array. A single tier that itself holds 5+ photos (a big top tie)
- * can still place more than 5 photos — that is correct: they genuinely tied
- * for most-liked (issue #625's own wording).
+ * guest count). Issue #896 reversed #625 AC3's old "no-cap sweep" rule: each
+ * guest now appears AT MOST ONCE in the placing set, represented by their
+ * single BEST visible liked photo (highest like_count, then lowest
+ * submission_id tiebreak). stmtVisibleLikeCounts is already ordered
+ * `like_count DESC, submission_id ASC`, so that order makes the FIRST row
+ * seen for a given guest_id exactly that guest's best photo — the dedupe
+ * below is a single pass keeping only first-seen guest_ids, no second query
+ * and no re-sort. Dedupe happens BEFORE ranking, so a guest who used to sweep
+ * several of the top spots with their own photos now consumes only the one
+ * rank their best photo earns; nobody else's rank shifts as a result except
+ * by that guest's other photos simply not being counted.
+ *
+ * Standard-competition ranking (rank.standardRank, deliberately NOT the
+ * leaderboard's dense rank, #626) then runs over the DEDUPED list: a tie
+ * shares a rank and the next distinct like count skips to `1 + <count of
+ * photos ranked above it>`, so a big tie for a spot CONSUMES the ranks
+ * beneath it — the rule that keeps the paying set bounded near 5 regardless
+ * of party scale (a 60-photo tail all sitting at 1 like never all place,
+ * unlike dense ranking, which has no such bound). Ranks 1-5 place, paying
+ * CROWD_FAVORITE_POINTS[rank - 1]; a photo ranked 6th or worse, sitting at 0
+ * likes (excluded by stmtVisibleLikeCounts before ranking even runs), or
+ * deduped out as a non-best photo of a guest who already placed, never
+ * appears in the returned array. A single tier that itself holds 5+
+ * DIFFERENT guests' best photos (a big top tie) can still place more than 5
+ * — that is correct: they genuinely tied for most-liked (issue #625's own
+ * wording) — but a tie no longer inflates a single guest's own placement
+ * count, only the field's.
  * @returns {Array<{submission_id: number, guest_id: number, like_count:
  *   number, rank: number, points: number}>} best rank first.
  */
 function crowdFavorites() {
   const rows = stmtVisibleLikeCounts.all();
-  const { ranks } = rank.standardRank(rows, (row) => row.like_count);
+
+  // Keep only each guest's first-seen row — their best photo, since rows
+  // arrive ordered like_count DESC, submission_id ASC (issue #896).
+  const seenGuestIds = new Set();
+  const bestPerGuest = [];
+  for (const row of rows) {
+    if (seenGuestIds.has(row.guest_id)) {
+      continue;
+    }
+    seenGuestIds.add(row.guest_id);
+    bestPerGuest.push(row);
+  }
+
+  const { ranks } = rank.standardRank(bestPerGuest, (row) => row.like_count);
   const placing = [];
-  for (let i = 0; i < rows.length; i++) {
+  for (let i = 0; i < bestPerGuest.length; i++) {
     if (ranks[i] > CROWD_FAVORITE_POINTS.length) {
-      // Ranks only ever increase as i advances (rows are sorted DESC by
-      // like_count), so once one row's rank exceeds the paying cutoff every
-      // row after it does too — safe to stop scanning early.
+      // Ranks only ever increase as i advances (bestPerGuest is still sorted
+      // DESC by like_count — dedupe drops rows, it never reorders them), so
+      // once one row's rank exceeds the paying cutoff every row after it
+      // does too — safe to stop scanning early.
       break;
     }
     placing.push({
-      submission_id: rows[i].submission_id,
-      guest_id: rows[i].guest_id,
-      like_count: rows[i].like_count,
+      submission_id: bestPerGuest[i].submission_id,
+      guest_id: bestPerGuest[i].guest_id,
+      like_count: bestPerGuest[i].like_count,
       rank: ranks[i],
       points: CROWD_FAVORITE_POINTS[ranks[i] - 1],
     });
@@ -375,10 +408,11 @@ function crowdFavorites() {
  * Each guest's total crowd-favorite points, folded from ONE crowdFavorites()
  * call into a Map — the all-guests generalization getPoints/leaderboard both
  * need, built the same way memoryDayCountsByGuest generalizes
- * memoryDayCount for the same two callers (issue #656's pattern). A guest
- * who owns more than one placing photo sweeps every one of them (issue #625
- * AC3's no-cap rule: three placing photos at ranks 1/2/3 sum 5+4+3=12) — this
- * is a plain per-guest sum, no cap applied anywhere.
+ * memoryDayCount for the same two callers (issue #656's pattern). Since issue
+ * #896, crowdFavorites() already guarantees at most one placing entry per
+ * guest_id, so this is a plain per-guest sum over an input that can add at
+ * most one term per guest — the Map's value is always exactly that guest's
+ * single placing photo's points, never a sweep total.
  * @returns {Map<number, number>} guestId -> total crowd-favorite points.
  */
 function crowdPointsByGuest() {
@@ -542,13 +576,15 @@ function getCompletedCount(guestId) {
  *     currently holds (issue #709 — the point derives on read from holding
  *     the badge row, and leaves automatically when recomputeBadges revokes
  *     it), and 0 for a transferable/admin-special grant.
- *   + the DERIVED crowd-favorite term (issue #625): crowdPointsByGuest()'s
- *     total over every VISIBLE photo currently in this guest's placing set
- *     (standard-competition rank 1-5 among all liked photos, memories
- *     included). Read fresh on every call, like the memory-day term above —
- *     a guest sweeping several placing photos collects every one (no cap,
- *     AC3), and a photo that drops out of the placing set loses its points
- *     on the very next read, with no separate bookkeeping (AC4).
+ *   + the DERIVED crowd-favorite term (issue #625, per-guest dedupe #896):
+ *     crowdPointsByGuest()'s total for this guest's single BEST liked photo
+ *     currently in the placing set (standard-competition rank 1-5 among all
+ *     liked photos, memories included, deduped one-per-guest before
+ *     ranking). Read fresh on every call, like the memory-day term above —
+ *     a guest can hold at most one placing photo, and a photo that drops out
+ *     of the placing set (or is overtaken by that guest's OWN better photo)
+ *     loses its points on the very next read, with no separate bookkeeping
+ *     (AC4).
  * bonus_points is stored clamped at >= 0, photo_bonus is a non-negative
  * admin-set absolute value, worth is clamped 1-3 by the tasks table's own
  * CHECK constraint, and award points are coerced non-negative at write time
