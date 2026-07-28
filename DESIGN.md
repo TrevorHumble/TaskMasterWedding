@@ -47,6 +47,7 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
   - [Crowd-favorite events: a per-guest placing-status diff, not a per-photo rank diff (#895)](#crowd-favorite-events-a-per-guest-placing-status-diff-not-a-per-photo-rank-diff-895)
   - [Crowd-favorite crown: a render-time marker, never a stored badge (#788)](#crowd-favorite-crown-a-render-time-marker-never-a-stored-badge-788)
   - [TOPLIKED: the Most Liked crown as a materialized, transferable badge (#817, widened by #821)](#topliked-the-most-liked-crown-as-a-materialized-transferable-badge-817-widened-by-821)
+  - [Badge icon search tags: a public client-side data file, not server-rendered attributes (#903)](#badge-icon-search-tags-a-public-client-side-data-file-not-server-rendered-attributes-903)
 
 **Retired governance history** — the AI-review pipeline's own evolution. Most of this machinery no
 longer runs (see the teardown ADR); it is kept as a record of what was tried and why. A few entries
@@ -2350,3 +2351,35 @@ report.
 left as-is — stored events are permanent by design (`notifications.js`'s own doc comment) and every guest in
 prod today is a disposable tester (the wedding is 2026-08-07). Client-side button-disable guards that would
 stop the extra POSTs from firing at all are `#898`, tracked separately as the visual half of this fix.
+
+## Badge icon search tags: a public client-side data file, not server-rendered attributes (#903)
+
+The admin badge-icon picker's search box (`src/public/js/badge-picker.js`, part of #410) matched only an
+icon's display name — a host had to already know the catalog called it "Rough Morning" rather than typing
+the word that actually came to mind ("hangover"). Fixing that needed a much richer set of search words per
+icon (15+ synonyms/categories/related terms) than the one-line `name` the catalog (`src/services/
+badge-icons.js`) already carries.
+
+That tag data lives in its own bundled script, `src/public/js/badge-icon-tags.js` — `window.BadgeIconTags`,
+a plain id-to-tag-array map, loaded before `badge-picker.js` in `src/views/admin-tasks.ejs` (the same
+data-before-consumer script ordering the file already documents for `badge-icon-mask.js`). Two alternatives
+were passed over: server-rendering the tags into a `data-tags` attribute per grid cell would repeat the whole
+tag corpus once per admin page load for no benefit (the tags never change per-request and add nothing a
+static asset can't serve, cached, instead); and exporting the map from `badge-icons.js` itself would hand a
+server-only module a client-search concern it has no other reason to know about. Keeping it a separate
+public data file means the search stays entirely client-side (`applyFilter` matches the query as a substring
+of a per-cell `data-search` string built once at init from name + tags), and one shared map keeps every
+grid cell's own HTML lean — no per-cell tag markup to render or diff.
+
+The catalog and the tag map are two independently-edited artifacts describing the same id set, so nothing
+stops them drifting apart (a new catalog icon shipped with no tags, a renamed id left orphaned in the tag
+map, a hand-typed tag that isn't actually lowercase). `tests/badge-icon-tags.test.js` is the drift guard:
+it evaluates the real data file's source with `new Function('window', src)` (no jsdom needed — the file has
+no other DOM dependency) and asserts its key set matches `badge-icons.js`'s `listIcons()` exactly, every
+entry carries at least 15 well-formed tags, and every word of every display name shows up in that icon's own
+tags — binding the two files together the same way a foreign key would, without either module importing the
+other.
+
+**Deliberately not in scope.** The data file (~106 KB at #903 merge time; it grows with the catalog) loads on every `/admin/tasks` view
+with no lazy-load or compression; this is a one-host admin page, not a hundred-guest surface, so the payload
+cost is accepted rather than engineered around. The tag map has no guest-facing consumer.
