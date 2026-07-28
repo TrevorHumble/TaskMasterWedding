@@ -495,7 +495,10 @@ describe('AC5: a blocked self-like (403) plays "nope" client-side and records no
       const form = doc.querySelector('.like-form[action="/p/' + submissionId + '/like"]');
       expect(form).not.toBeNull();
       const button = form.querySelector('.like-button');
-      const countEl = form.querySelector('.like-count');
+      // Issue #890 moved the count span out of the like form into the
+      // sibling .likes-link button — both live under the same article, but
+      // no longer under the same <form>.
+      const countEl = form.closest('article').querySelector('.like-count');
       const countBefore = countEl.textContent;
 
       expect(button.classList.contains('like-button-nope')).toBe(false);

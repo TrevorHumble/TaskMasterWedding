@@ -11,9 +11,14 @@
 //   AC2/AC6 — `.feed` carries `margin-inline: calc(-1 * var(--gutter))`
 //         (full-bleed via the container, not the photo, so paint containment
 //         on `.feed-item` never clips it); the text rows
-//         (.feed-by/.feed-caption/.feed-actionbar/.feed-comments/
-//         .feed-task-line/.admin-feed-downline) are re-indented with
-//         `padding-inline: var(--gutter)`.
+//         (.feed-by/.feed-caption/.feed-comments/.feed-task-line/
+//         .admin-feed-downline) are re-indented with `padding-inline:
+//         var(--gutter)`. `.feed-actionbar` is DELIBERATELY excluded from
+//         that shared group as of issue #890: the guest feed's action bar
+//         goes flush instead (padding-inline: 0), while the admin
+//         moderation feed's own `.admin-feed-item .feed-actionbar` rule
+//         keeps the gutter — both keyed off the single `.admin-feed-item`
+//         hook (admin-photos.ejs), see the AC2/AC6 block below.
 //   AC3 — `.feed-photo` carries no border-radius and no border.
 //   AC4 — `.feed-photo` keeps `width: 100%` and `height: auto`, and has no
 //         `object-fit: cover` (whole image shown, never cropped).
@@ -106,13 +111,12 @@ describe('AC2/AC6: full-bleed via the .feed container, text rows re-indented', (
     expect(rule).toContain('margin-inline: calc(-1 * var(--gutter))');
   });
 
-  it('the text-row selector group is re-indented with padding-inline: var(--gutter)', () => {
+  it('the text-row selector group is re-indented with padding-inline: var(--gutter), and does NOT include .feed-actionbar', () => {
     // Match the selector group as a whole (order-independent within the
     // group), then confirm the declaration.
     const selectors = [
       '.feed-by',
       '.feed-caption',
-      '.feed-actionbar',
       '.feed-comments',
       '.feed-task-line',
       '.admin-feed-downline',
@@ -126,7 +130,25 @@ describe('AC2/AC6: full-bleed via the .feed container, text rows re-indented', (
     selectors.forEach((sel) => {
       expect(selectorGroup).toContain(sel);
     });
+    // Issue #890: .feed-actionbar is deliberately NOT in this shared group
+    // any more — it gets its own guest-vs-admin-scoped rules instead (see
+    // the two tests below).
+    expect(selectorGroup).not.toContain('.feed-actionbar');
     const rule = extractBalancedBlock(THEME_CSS_SOURCE, braceStart - 1);
+    expect(rule).toContain('padding-inline: var(--gutter)');
+  });
+
+  it('issue #890: the guest feed action bar goes flush (padding-inline: 0), scoped off .admin-feed-item', () => {
+    const idx = THEME_CSS_SOURCE.indexOf('.feed-item:not(.admin-feed-item) .feed-actionbar {');
+    expect(idx).toBeGreaterThan(-1);
+    const rule = extractBalancedBlock(THEME_CSS_SOURCE, idx);
+    expect(rule).toContain('padding-inline: 0');
+  });
+
+  it('issue #890 AC7: the admin moderation feed action bar keeps padding-inline: var(--gutter)', () => {
+    const idx = THEME_CSS_SOURCE.indexOf('.admin-feed-item .feed-actionbar {');
+    expect(idx).toBeGreaterThan(-1);
+    const rule = extractBalancedBlock(THEME_CSS_SOURCE, idx);
     expect(rule).toContain('padding-inline: var(--gutter)');
   });
 
