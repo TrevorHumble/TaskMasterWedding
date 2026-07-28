@@ -512,13 +512,75 @@ const stmtGuestBadge = db.prepare('SELECT * FROM guest_badges WHERE guest_id = ?
 // or admin-special badge stays a display-only award. Whatever is written
 // here is exactly what stmtAwardPointsSum/leaderboard later sum on read; no
 // other statement in this file writes guest_badges.points for a system/
-// admin grant.
+// admin grant — this remains the ONE statement that does so, issue #894
+// included (see the `alreadyAnnounced` param below, not a second INSERT).
+//
+// `alreadyAnnounced` (0 or 1, issue #894) is the ONLY thing that varies
+// celebrated_at at grant time: 1 stamps celebrated_at = now in the same
+// INSERT (a transferable re-grant of a badge notifications.grantWasAnnounced
+// says this guest was already told about — see recomputeTransferableBadges'
+// grant branch below); every other call site passes 0, leaving celebrated_at
+// NULL (omitted from the CASE's ELSE, so SQLite's column default — no
+// default, hence NULL — applies exactly as it did before this column had a
+// writer here at all).
 const stmtGrantBadge = db.prepare(
-  'INSERT OR IGNORE INTO guest_badges (guest_id, badge_id, awarded_by, points) VALUES (?, ?, ?, ?)'
+  `INSERT OR IGNORE INTO guest_badges (guest_id, badge_id, awarded_by, points, celebrated_at)
+   VALUES (?, ?, ?, ?, CASE WHEN ? = 1 THEN datetime('now') ELSE NULL END)`
 );
 
 // Remove a specific badge from a guest.
 const stmtRevokeBadge = db.prepare('DELETE FROM guest_badges WHERE guest_id = ? AND badge_id = ?');
+
+/**
+ * Revoke one guest's SYSTEM-granted transferable badge, used only by
+ * recomputeTransferableBadges' holder-set diff below. Retracts the badge's
+ * badge_granted announcement FIRST, before the row it describes is deleted,
+ * if — and only if — the guest never actually saw it celebrated (issue #894:
+ * the module boundary is deliberate here — notifications.js owns
+ * notification_events and its `kind` vocabulary, so scoring.js asks it to
+ * retract rather than deleting the row itself). A celebrated row is left
+ * alone: that announcement already happened and stands. badge_revoked itself
+ * is always emitted, unchanged by #894 (issue #644 AC4: the guest_badges row
+ * this deletes is the only record the badge was ever held).
+ * @param {number} guestId
+ * @param {{id: number}} badge - a badges catalog row.
+ */
+function revokeBadgeRetractingUnannounced(guestId, badge) {
+  // existingRow is guaranteed to exist here, not merely likely: guestId came
+  // from existingSystemHolders, read from the SAME guest_badges table (by
+  // badge_id + awarded_by = 'system', a broader predicate this per-guest
+  // lookup narrows under UNIQUE(guest_id, badge_id)) moments earlier inside
+  // this SAME db.transaction, and better-sqlite3 is fully synchronous /
+  // single-threaded — no concurrent write can have deleted it in between.
+  const existingRow = stmtGuestBadge.get(guestId, badge.id);
+  if (existingRow.celebrated_at === null) {
+    notifications.retractGrantAnnouncement(guestId, badge.id);
+  }
+  stmtRevokeBadge.run(guestId, badge.id);
+  notifications.recordEvent(guestId, 'badge_revoked', { badgeId: badge.id });
+}
+
+/**
+ * Grant one guest a transferable badge — SYSTEM-awarded, points = 0 (issue
+ * #709: transferable badges stay display-only) — used only by
+ * recomputeTransferableBadges' holder-set diff below. If notifications.
+ * grantWasAnnounced says this guest was already told about this badge (a
+ * flap: revoked and re-granted as a side effect of another guest's like,
+ * issue #894), the row is restored already-celebrated (the `1` flag to
+ * stmtGrantBadge) and no second badge_granted event is written; otherwise
+ * this is a genuine first grant (or one whose never-celebrated prior event
+ * revokeBadgeRetractingUnannounced just retracted) and gets announced
+ * normally.
+ * @param {number} guestId
+ * @param {{id: number}} badge - a badges catalog row.
+ */
+function grantBadgeAnnouncingOnce(guestId, badge) {
+  const alreadyAnnounced = notifications.grantWasAnnounced(guestId, badge.id);
+  stmtGrantBadge.run(guestId, badge.id, 'system', 0, alreadyAnnounced ? 1 : 0);
+  if (!alreadyAnnounced) {
+    notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
+  }
+}
 
 // All badges of a given type (used by recomputeTransferableBadges to walk
 // every 'transferable' catalog row without hard-coding a code list here).
@@ -668,11 +730,13 @@ const recomputeBadges = db.transaction((guestId) => {
       // for as long as the guest holds it; revocation below deletes the
       // row, so the point leaves with no separate scoring step.
       if (!has) {
-        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS);
+        // Flag 0 — celebrated_at stays NULL (issue #894's flag param is only
+        // ever 1 for recomputeTransferableBadges' announced-re-grant path
+        // above; every per-guest auto/metric grant is a plain first grant).
+        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS, 0);
         // Issue #644: emit right beside the grant, where the badge identity
-        // is already in scope — celebrated_at starts NULL by construction
-        // (never named in the INSERT above), so this badge is "owed" the
-        // instant this row exists.
+        // is already in scope — celebrated_at starts NULL (the 0 flag just
+        // above), so this badge is "owed" the instant this row exists.
         notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
       }
     } else {
@@ -704,7 +768,8 @@ const recomputeBadges = db.transaction((guestId) => {
       // metric badge (e.g. COMPLETIONIST) is worth +1 for as long as the
       // guest holds it (issue #709).
       if (!has) {
-        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS);
+        // Flag 0 — see the auto-badge branch above for why this is always 0 here.
+        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS, 0);
         notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
       }
     } else if (has && has.awarded_by === 'system') {
@@ -746,23 +811,17 @@ const recomputeTransferableBadges = db.transaction(() => {
       stmtSystemHoldersOfBadge.all(badge.id).map((row) => row.guest_id)
     );
 
+    // Plain set diff — a guest who dropped out of the current holder set is
+    // revoked, one who newly entered it is granted. Issue #894's
+    // announcement-memory rule lives inside the two helpers above, not here.
     for (const guestId of existingSystemHolders) {
       if (!currentHolders.has(guestId)) {
-        stmtRevokeBadge.run(guestId, badge.id);
-        // Issue #644 AC4 — same reasoning as recomputeBadges' revoke
-        // branches: the guest_badges row this DELETE removes is the only
-        // record the badge was ever held, so the event is emitted right
-        // here, where the badge identity is in scope.
-        notifications.recordEvent(guestId, 'badge_revoked', { badgeId: badge.id });
+        revokeBadgeRetractingUnannounced(guestId, badge);
       }
     }
     for (const guestId of currentHolders) {
       if (!existingSystemHolders.has(guestId)) {
-        // Transferable badges are NOT auto/metric (issue #709) — they stay
-        // display-only, so this grant carries points = 0, unchanged from
-        // before #709.
-        stmtGrantBadge.run(guestId, badge.id, 'system', 0);
-        notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
+        grantBadgeAnnouncingOnce(guestId, badge);
       }
     }
   }
@@ -855,8 +914,10 @@ function awardSpecialBadge(guestId, code) {
   }
   // ADMIN_AWARDABLE_TYPES is 'special'/'custom' only — never auto/metric
   // (issue #709) — so this grant carries points = 0, unchanged from before
-  // #709.
-  const info = stmtGrantBadge.run(guestId, badge.id, 'admin', 0);
+  // #709. Flag 0 (issue #894's flag is only ever 1 for
+  // recomputeTransferableBadges' announced-re-grant path) — a host award is
+  // always a plain grant, celebrated_at stays NULL.
+  const info = stmtGrantBadge.run(guestId, badge.id, 'admin', 0, 0);
   // Issue #644 AC5: stmtGrantBadge is INSERT OR IGNORE, so a host re-awarding
   // a badge the guest already holds (or a double-submitted award form) is a
   // real possibility — info.changes is 0 for that no-op INSERT, and only a

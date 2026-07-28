@@ -20,6 +20,15 @@
 // like, since a guest may like a photo at most once and never their own) and
 // tests/badge-engine.test.js's heldCodes() convention for asserting exact
 // badge codes.
+//
+// Issue #894 (below, its own describe block): the flap-replay fix. TOPLIKED
+// being transferable means recomputeTransferableBadges() revoke-then-regrants
+// a guest's row every time another guest's like nudges them out of and back
+// into the top 5 — AC1/AC2/AC4 pin down that a re-grant of a badge already
+// announced (a badge_granted event on file for this guest+badge) never
+// re-arms render-locals.js's owed-badge celebration, while a badge that
+// flapped away before ever being shown genuinely celebrates once it lands
+// for good.
 'use strict';
 
 const { loadApp, signInGuest } = require('./helpers/testApp');
@@ -114,6 +123,54 @@ function topLikedRow(guestId) {
         WHERE gb.guest_id = ? AND b.code = 'TOPLIKED'`
     )
     .get(guestId);
+}
+
+// Count of stored badge_granted events for one guest's TOPLIKED row, read
+// straight off notification_events (same style as
+// tests/crowd-favorites.test.js's kindCounts) — the precise thing issue
+// #894's AC1/AC2/AC4 promise ("event count is still exactly 1" / "no new
+// event") is a row count, not a recap-rendering concern.
+function badgeGrantedEventCount(guestId) {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM notification_events ne
+         JOIN badges b ON b.id = ne.badge_id
+        WHERE ne.guest_id = ? AND ne.kind = 'badge_granted' AND b.code = 'TOPLIKED'`
+    )
+    .get(guestId).n;
+}
+
+// Same shape as badgeGrantedEventCount, for 'badge_revoked' — AC6's own
+// wording ("no change to A's badge_revoked rows relative to current
+// behavior") is a row count too: #894 changes nothing about badge_revoked
+// emission, so this must read the same after a flap as after a single
+// ordinary revoke (PR review finding: nothing in the AC1/AC4 tests pinned
+// this down before).
+function badgeRevokedEventCount(guestId) {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM notification_events ne
+         JOIN badges b ON b.id = ne.badge_id
+        WHERE ne.guest_id = ? AND ne.kind = 'badge_revoked' AND b.code = 'TOPLIKED'`
+    )
+    .get(guestId).n;
+}
+
+// Renders `guest`'s home page through the real app and returns whether the
+// #255 celebration dialog for a TOPLIKED grant auto-opened — the same
+// `/js/badge-moment.js` script-tag marker tests/recap.test.js's AC1 asserts
+// on (header.ejs only emits it when render-locals.js's resolveBadgeMoment
+// found something owed). NOT a pure query: exactly like a real page render,
+// this STAMPS celebrated_at as a side effect when a badge is owed (the name
+// says so on purpose, PR review finding) — calling it twice in a row is
+// itself the "does a second render replay it" assertion. Renders through the
+// real route per Build rule 6 ("assert the real output value") rather than
+// re-deriving stmtOwedBadges' SQL in test code.
+async function renderAndTakeBadgeMoment(guest) {
+  const agent = signInGuest(app, guest.token);
+  const page = await agent.get('/');
+  expect(page.status).toBe(200);
+  return page.text.includes('/js/badge-moment.js') && page.text.includes('Crowd Favorite!');
 }
 
 describe('AC1: every top-5 placing owner holds TOPLIKED; a non-placing guest does not', () => {
@@ -280,5 +337,156 @@ describe('AC5: the TOPLIKED catalog row renders the widened "Crowd Favorite" nam
     // from scripts/badge-catalog.js at load time (already run by loadApp()).
     const badge = db.prepare('SELECT name FROM badges WHERE code = ?').get('TOPLIKED');
     expect(badge.name).toBe('Crowd Favorite');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #894: a transferable-badge flap (revoke then re-grant, driven by
+// another guest's like) must not replay an already-seen celebration, and must
+// never silently swallow a celebration the guest hasn't seen yet.
+//
+// Shared fixture across all three tests below: six guests, g1-g5 placing
+// (ranks 1-5) and a trailing challenger at rank 6 — the identical scenario
+// AC2's own test above uses, extended with a "push back in" step. g5 sits
+// at the boundary (rank 5, 2 likes) so it is the one that flaps.
+// ---------------------------------------------------------------------------
+function setUpFlapFixture() {
+  resetField();
+  const g1 = makeGuest('Rank1');
+  const g2 = makeGuest('Rank2');
+  const g3 = makeGuest('Rank3');
+  const g4 = makeGuest('Rank4');
+  const g5 = makeGuest('Rank5, about to flap');
+  const challenger = makeGuest('Challenger');
+  const s1 = makeSubmission(g1.id);
+  const s2 = makeSubmission(g2.id);
+  const s3 = makeSubmission(g3.id);
+  const s4 = makeSubmission(g4.id);
+  const s5 = makeSubmission(g5.id);
+  const sChallenger = makeSubmission(challenger.id);
+  addLikes(s1, 6);
+  addLikes(s2, 5);
+  addLikes(s3, 4);
+  addLikes(s4, 3);
+  addLikes(s5, 2); // rank 5 — the guest about to flap.
+  addLikes(sChallenger, 1); // rank 6, trailing.
+  return { g5, s5, sChallenger };
+}
+
+// Pushes g5 out of the top 5: two more likes make the challenger's photo
+// strictly ahead of g5's 2, and strictly its own distinct rank (4, tied only
+// with g4) rather than tying g5 back in — see the per-test comments below for
+// why this specific delta keeps the "out" state unambiguous.
+function flapOut(sChallenger) {
+  addLikes(sChallenger, 2);
+  scoring.recomputeTransferableBadges();
+}
+
+// Pushes g5 back into the top 5 with the smallest possible nudge (one like):
+// g5's count now ties the rank-4 tier (g4/challenger) rather than needing to
+// beat it outright — crowdFavorites()'s own documented rule (src/services/
+// scoring.js, "a big top tie can still place more than 5") means this tie
+// widens the placing set to include everyone at that tier, g5 included;
+// that widening is correct, pre-existing #625/#821 behavior, not something
+// this test needs to avoid.
+function flapBackIn(s5) {
+  addLikes(s5, 1);
+  scoring.recomputeTransferableBadges();
+}
+
+describe('AC1 (#894): a flap after the celebration was shown does not re-arm it', () => {
+  test('event count stays 1 and the restored row is already-celebrated', async () => {
+    const { g5, s5, sChallenger } = setUpFlapFixture();
+    scoring.recomputeTransferableBadges();
+    expect(heldCodes(g5.id)).toContain('TOPLIKED');
+
+    // g5 renders once: the celebration is shown and stamped, exactly like
+    // AC3 of issue #644's own recap.test.js suite.
+    expect(await renderAndTakeBadgeMoment(g5)).toBe(true);
+    expect(badgeGrantedEventCount(g5.id)).toBe(1);
+    expect(topLikedRow(g5.id).celebrated_at).not.toBeNull();
+
+    flapOut(sChallenger);
+    expect(heldCodes(g5.id)).not.toContain('TOPLIKED');
+    // AC6: the flap-out's own badge_revoked emission is unchanged by #894 —
+    // exactly one, same as an ordinary revoke would leave.
+    expect(badgeRevokedEventCount(g5.id)).toBe(1);
+    flapBackIn(s5);
+    expect(heldCodes(g5.id)).toContain('TOPLIKED');
+    // The re-grant does not touch badge_revoked at all — still 1.
+    expect(badgeRevokedEventCount(g5.id)).toBe(1);
+
+    // The rule this issue sets: no owed moment, event count still exactly 1,
+    // and the restored row carries celebrated_at already set — a re-grant of
+    // an already-announced badge is silent.
+    expect(await renderAndTakeBadgeMoment(g5)).toBe(false);
+    expect(badgeGrantedEventCount(g5.id)).toBe(1);
+    expect(topLikedRow(g5.id).celebrated_at).not.toBeNull();
+  });
+});
+
+describe('AC2 (#894): a flap that completes before the guest ever renders still celebrates exactly once', () => {
+  test('the never-celebrated grant event is retracted and reissued, not duplicated', async () => {
+    const { g5, s5, sChallenger } = setUpFlapFixture();
+    scoring.recomputeTransferableBadges();
+    expect(heldCodes(g5.id)).toContain('TOPLIKED');
+    expect(badgeGrantedEventCount(g5.id)).toBe(1);
+    // Not yet rendered — the row is still owed.
+    expect(topLikedRow(g5.id).celebrated_at).toBeNull();
+
+    // The whole flap (out and back in) happens before g5 ever renders a page.
+    flapOut(sChallenger);
+    expect(heldCodes(g5.id)).not.toContain('TOPLIKED');
+    flapBackIn(s5);
+    expect(heldCodes(g5.id)).toContain('TOPLIKED');
+
+    // A never-celebrated grant that un-happens is fully retracted (this
+    // issue's second rule): the revoke deleted the first badge_granted event,
+    // so the re-grant wrote a genuine new one — still exactly 1 on file, and
+    // the row is still owed, not already-celebrated.
+    expect(badgeGrantedEventCount(g5.id)).toBe(1);
+    expect(topLikedRow(g5.id).celebrated_at).toBeNull();
+
+    // First render: celebrates exactly once.
+    expect(await renderAndTakeBadgeMoment(g5)).toBe(true);
+    expect(topLikedRow(g5.id).celebrated_at).not.toBeNull();
+    expect(badgeGrantedEventCount(g5.id)).toBe(1);
+
+    // A second render must not reopen it.
+    expect(await renderAndTakeBadgeMoment(g5)).toBe(false);
+  });
+});
+
+describe('AC4 (#894): re-earning a celebrated-then-revoked badge restores it already-celebrated', () => {
+  test('a guest who genuinely drops out and later re-places gets no second celebration or event', async () => {
+    const { g5, s5, sChallenger } = setUpFlapFixture();
+    scoring.recomputeTransferableBadges();
+    expect(await renderAndTakeBadgeMoment(g5)).toBe(true);
+    expect(topLikedRow(g5.id).celebrated_at).not.toBeNull();
+    expect(badgeGrantedEventCount(g5.id)).toBe(1);
+
+    // g5 drops out and STAYS out across more than one recompute pass — a
+    // genuine revoke, not a same-tick flap (recomputeTransferableBadges is
+    // idempotent, so re-running it while nothing changed must not touch the
+    // already-revoked row or emit a second badge_revoked).
+    flapOut(sChallenger);
+    expect(heldCodes(g5.id)).not.toContain('TOPLIKED');
+    expect(badgeRevokedEventCount(g5.id)).toBe(1);
+    scoring.recomputeTransferableBadges();
+    expect(heldCodes(g5.id)).not.toContain('TOPLIKED');
+    // Idempotent re-run over an unchanged holder set must not emit a second
+    // badge_revoked for a guest who was already out.
+    expect(badgeRevokedEventCount(g5.id)).toBe(1);
+
+    // Later, g5 genuinely re-earns a placing photo.
+    flapBackIn(s5);
+    expect(heldCodes(g5.id)).toContain('TOPLIKED');
+
+    // Restored already-celebrated, no new badge_granted event — the standing
+    // news this re-grant carries is #895's crowd_favorite entry event on the
+    // like-driven path instead (out of scope here, AC4's own wording).
+    expect(topLikedRow(g5.id).celebrated_at).not.toBeNull();
+    expect(badgeGrantedEventCount(g5.id)).toBe(1);
+    expect(await renderAndTakeBadgeMoment(g5)).toBe(false);
   });
 });

@@ -47,15 +47,26 @@ const notifications = require('./notifications');
 const scoring = require('./scoring');
 
 // Every guest_badges row this guest holds that has never been shown its #255
-// celebration (celebrated_at IS NULL) — "owed" by construction, since no
-// grant call site in scoring.js ever writes celebrated_at non-NULL (see
-// db.js's ensureGuestBadgeCelebratedAtColumn doc comment). Joined to the
-// badge catalog so resolveBadgeMoment below never needs a second query.
+// celebration (celebrated_at IS NULL) — "owed" by construction for almost
+// every grant, since almost no grant call site in scoring.js ever writes
+// celebrated_at non-NULL (see db.js's ensureGuestBadgeCelebratedAtColumn doc
+// comment). EXCEPTION (issue #894): a transferable-badge re-grant of a badge
+// this guest was already told about (notifications.grantWasAnnounced) is
+// inserted already-celebrated on purpose — that row is correctly never
+// "owed" here, since re-arming this query for it is exactly the replayed-
+// dialog bug #894 fixes. Joined to the badge catalog so resolveBadgeMoment
+// below never needs a second query.
 //
 // The EXISTS clause requires a matching notification_events 'badge_granted'
 // row — i.e. the badge arrived through one of this app's REAL grant paths
-// (recomputeBadges, recomputeTransferableBadges, awardSpecialBadge, every
-// one of which calls notifications.recordEvent right beside the grant).
+// (recomputeBadges, recomputeTransferableBadges, awardSpecialBadge — each
+// calls notifications.recordEvent right beside the grant, EXCEPT the #894
+// silent re-grant, which deliberately relies on the event its first grant
+// already wrote). This
+// 'badge_granted' kind literal is notifications.js's own vocabulary — that
+// module owns notification_events and its `kind` values (see its
+// grantWasAnnounced/retractGrantAnnouncement, which read/write the identical
+// predicate from the write side, issue #894) — this query just reads it.
 // AC1 only ever describes those two grant paths ("whether granted by the
 // recompute or awarded by a host"); a guest_badges row a test fixture (or a
 // future admin tool) writes by hand, bypassing scoring.js entirely, has no
