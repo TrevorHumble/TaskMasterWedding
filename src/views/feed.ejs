@@ -21,7 +21,18 @@
     <p class="muted">No photos yet. Be the first to share one!</p>
   <% } %>
 
-  <div class="feed">
+  <%# Issue #890 AC5: the signed-in guest's own id/name/avatar are exposed
+      here, once, for src/public/js/feed.js to build their own likers-dialog
+      row client-side (insert on like, remove on unlike) without a round
+      trip — the like-toggle response only carries { liked, likeCount }
+      (POST /p/:id/like, community.js), never guest identity. %>
+  <div
+    class="feed"
+    data-guest-id="<%= guest.id %>"
+    data-guest-name="<%= guest.name || 'Guest' %>"
+    data-guest-avatar="<%= guest.avatar_path || '' %>"
+    data-guest-initials="<%= initials(guest.name) || '?' %>"
+  >
     <% photos.forEach(function (p) {
          // Card v2 (#248): the card shows only the 4 MOST RECENT comments as
          // one-line rows ("4 lines, not 4 comments" — owner amendment). The
@@ -88,9 +99,21 @@
                 <svg class="like-heart" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/>
                 </svg>
-                <span class="like-count"><%= p.like_count %></span>
               </button>
             </form>
+
+            <%# Issue #890 (owner direction 2026-07-27): the count reads
+                "3 likes" and is a tap target opening the likers list —
+                the heart alone toggles. The pluralized word is its own
+                <span> (not a bare text node) so src/public/js/feed.js can
+                update it directly on toggle instead of a text-node splice;
+                the aria-label mirrors the same count for a screen reader. %>
+            <button
+              type="button"
+              class="likes-link"
+              data-open-likes="<%= p.submission_id %>"
+              aria-label="See who liked this photo — <%= p.like_count %> like<%= p.like_count === 1 ? '' : 's' %>"
+            ><span class="like-count"><%= p.like_count %></span> <span class="likes-link-word">like<%= p.like_count === 1 ? '' : 's' %></span></button>
 
             <button
               type="button"
@@ -133,6 +156,72 @@
               task line reads "a shared memory" and links nowhere (AC4). %>
           <p class="feed-task-line">a shared memory</p>
         <% } %>
+
+        <%# Likers dialog (issue #890): who liked this photo, Instagram-style —
+            same native-<dialog> shell and shape as the comments dialog below
+            (header + thumb + close, top-layer so it escapes .feed-item's
+            paint containment, one-dialog-at-a-time via feed.js). p.likers is
+            attached server-side by attachLikers() (community.js), newest
+            like first, bounded to the submissions this page actually
+            renders — never a per-photo query.
+
+            CONTRACT: the `comments-dialog` class on this <dialog> is not
+            just shared styling — src/public/js/feed.js keys its mutual-
+            exclusion invariant (openModalDialog's `dialog.comments-dialog
+            [open]` lookup) AND its backdrop-click-to-close handler
+            (`target.classList.contains('comments-dialog')`) on that exact
+            class name. Renaming or dropping it here silently breaks both,
+            with no test failure pointing back at this line. %>
+        <dialog
+          class="comments-dialog likes-dialog"
+          id="likes-dialog-<%= p.submission_id %>"
+          aria-labelledby="likes-dialog-title-<%= p.submission_id %>"
+        >
+          <div class="comments-dialog-header">
+            <img class="comments-dialog-thumb" src="/thumbs/<%= p.thumb_path %>" alt="" />
+            <h2 class="comments-dialog-title" id="likes-dialog-title-<%= p.submission_id %>">Likes</h2>
+            <button
+              type="button"
+              class="comments-dialog-close"
+              data-close-likes
+              aria-label="Close likes"
+            >&times;</button>
+          </div>
+          <%# NOTE: this thread div is .likes-thread ONLY, not also
+              .comments-dialog-thread — the comments dialog below shares this
+              article and its own .comments-dialog-thread must stay the
+              unique match for `article.querySelector('.comments-dialog-
+              thread')` (feed.js's per-photo lookups, and
+              tests/feed-comment-delete.test.js's own AC5 assertion). The
+              shared visual styling (flex/scroll/padding) is still shared —
+              see .likes-thread in theme.css's selector list next to
+              .comments-dialog-thread, not a duplicated ruleset. %>
+          <div class="likes-thread">
+            <% if (p.likers.length === 0) { %>
+              <p class="muted comments-dialog-empty">No likes yet.</p>
+            <% } %>
+            <% p.likers.forEach(function (liker) { %>
+              <%# data-likes-row is the ONE row-identity hook, present on
+                  EVERY row (server-rendered here, or client-inserted by
+                  feed.js's selfLikesRowNode) — not just the viewer's own.
+                  This is what lets src/public/js/feed.js's updateLikesDialog
+                  find and remove a SERVER-rendered row when the viewer
+                  unlikes a photo they had already liked before page load
+                  (and refuse to duplicate it on a later re-like), issue
+                  #890 AC5. %>
+              <a class="likes-row" href="/u/<%= liker.id %>" data-likes-row="<%= liker.id %>">
+                <% if (liker.avatar_path) { %>
+                  <%# lazy: dialogs start closed, and a well-liked page holds
+                      hundreds of these — don't fetch them at page load. %>
+                  <span class="likes-row-avatar"><img src="/uploads/<%= liker.avatar_path %>" alt="" loading="lazy" decoding="async" /></span>
+                <% } else { %>
+                  <span class="likes-row-avatar" aria-hidden="true"><%= initials(liker.name) || '?' %></span>
+                <% } %>
+                <span class="likes-row-name"><%= liker.name || 'Guest' %></span>
+              </a>
+            <% }); %>
+          </div>
+        </dialog>
 
         <%# Comments dialog (#248 amendment 2026-07-08): a native <dialog>
             opened via showModal() from src/public/js/feed.js. Top-layer

@@ -39,6 +39,12 @@
 //      and the card preview/badge/See-all line are refreshed in place; on
 //      failure (or no fetch support) the plain form POST runs, which is also
 //      the no-JS path. Any other open menu is closed on an outside tap.
+//   6. Likers dialog (issue #890): the "N likes" link opens a matching
+//      <dialog id="likes-dialog-<submissionId>"> the same way (data-open-
+//      likes/data-close-likes, one-dialog-at-a-time via openModalDialog).
+//      On a like-toggle response the "N likes" text/aria-label update in
+//      place, and the signed-in guest's own row is inserted into (or
+//      removed from) that dialog without a reload — see updateLikesDialog.
 'use strict';
 
 (function () {
@@ -73,7 +79,12 @@
   });
 
   // ------------------------------------------------------------------
-  // Like toggle (issue #194) — unchanged behavior.
+  // Like toggle (issue #194). Issue #890 AC5 extends the success handler
+  // below: the "N likes" link (article's only remaining .like-count — the
+  // heart button lost its own count span in #890, plus its own
+  // .likes-link-word span) updates count and pluralization in place, and
+  // the likers dialog's own row set is kept truthful the same place, via
+  // updateLikesDialog below.
   // ------------------------------------------------------------------
   function toggleLike(form) {
     fetch(form.getAttribute('action'), {
@@ -111,6 +122,21 @@
         if (count) {
           count.textContent = String(data.likeCount);
         }
+        // The pluralized word lives in its own .likes-link-word span
+        // (feed.ejs) rather than a bare text node, so it updates the same
+        // simple way the count span above does — no text-node splicing.
+        var likesLink = article.querySelector('.likes-link');
+        if (likesLink) {
+          var likesWord = data.likeCount === 1 ? 'like' : 'likes';
+          var word = likesLink.querySelector('.likes-link-word');
+          if (word) {
+            word.textContent = likesWord;
+          }
+          likesLink.setAttribute(
+            'aria-label',
+            'See who liked this photo — ' + data.likeCount + ' ' + likesWord
+          );
+        }
         var button = form.querySelector('.like-button');
         if (button) {
           button.classList.toggle('like-button-liked', data.liked);
@@ -124,6 +150,15 @@
             void button.offsetWidth;
             button.classList.add('like-button-pop');
           }
+        }
+        // Issue #890 AC5: keep the likers dialog's own row set truthful
+        // without a reload — the signed-in guest's own row goes in on like,
+        // out on unlike. The submission id comes from the form's POST target
+        // (/p/<id>/like), the same route-contract idiom postComment/
+        // deleteComment already use for their own id extraction below.
+        var likeActionMatch = /\/p\/(\d+)\/like/.exec(form.getAttribute('action'));
+        if (likeActionMatch) {
+          updateLikesDialog(likeActionMatch[1], data.liked, selfGuest());
         }
       })
       .catch(function () {
@@ -147,12 +182,143 @@
   }
 
   // ------------------------------------------------------------------
+  // Likers dialog (issue #890): keep the row set truthful after a like
+  // toggle, with no reload and no round trip for the guest's own identity.
+  // ------------------------------------------------------------------
+
+  /**
+   * The signed-in guest's own identity, read once from the .feed root's data
+   * attributes (src/views/feed.ejs, issue #890 AC5). The like-toggle response
+   * carries only { liked, likeCount } (POST /p/:submissionId/like,
+   * community.js) — never guest identity — so this is the sole source for
+   * building or matching their own likers-dialog row client-side. The
+   * initials fallback is likewise read pre-computed (data-guest-initials),
+   * rather than re-implementing src/utils/initials.js's algorithm here in a
+   * second place. Returns null off any page with no .feed root (e.g. a bare
+   * fragment in a test), so callers can no-op rather than throw.
+   */
+  function selfGuest() {
+    var root = document.querySelector('.feed');
+    if (!root) {
+      return null;
+    }
+    return {
+      id: root.getAttribute('data-guest-id'),
+      name: root.getAttribute('data-guest-name') || 'Guest',
+      avatar: root.getAttribute('data-guest-avatar') || '',
+      initialsText: root.getAttribute('data-guest-initials') || '?',
+    };
+  }
+
+  /**
+   * Build the signed-in guest's own likers-dialog row — mirrors the
+   * `.likes-row` markup src/views/feed.ejs renders server-side for every
+   * other liker, from the identity selfGuest() above supplies. data-likes-row
+   * is the SAME row-identity hook feed.ejs stamps on every server-rendered
+   * row (not a client-only marker) — see updateLikesDialog below for why
+   * that single shared hook matters.
+   */
+  function selfLikesRowNode(guest) {
+    var a = document.createElement('a');
+    a.className = 'likes-row';
+    a.setAttribute('href', '/u/' + guest.id);
+    a.setAttribute('data-likes-row', guest.id);
+
+    var avatar = document.createElement('span');
+    avatar.className = 'likes-row-avatar';
+    if (guest.avatar) {
+      var img = document.createElement('img');
+      img.src = '/uploads/' + guest.avatar;
+      img.alt = '';
+      avatar.appendChild(img);
+    } else {
+      avatar.setAttribute('aria-hidden', 'true');
+      avatar.textContent = guest.initialsText;
+    }
+    a.appendChild(avatar);
+
+    var name = document.createElement('span');
+    name.className = 'likes-row-name';
+    name.textContent = guest.name;
+    a.appendChild(name);
+
+    return a;
+  }
+
+  /**
+   * Insert or remove the signed-in guest's own row in a photo's likes
+   * dialog, and keep the "No likes yet." empty state in sync — removed when
+   * the first row goes in, restored when the last one comes out (issue #890
+   * AC5). A no-op when the dialog isn't on the page or guest is null (no
+   * .feed root found).
+   *
+   * The lookup below matches data-likes-row — the ONE row-identity hook
+   * feed.ejs stamps on EVERY row, not a client-only marker distinguishing
+   * "self" rows from server-rendered ones. That single shared hook is load-
+   * bearing: a guest who already liked a photo before this page loaded has
+   * their row rendered server-side with no client-side memory of it — an
+   * unlike must still find and remove THAT row (not skip it for lacking a
+   * client-only marker), and a later re-like must not duplicate it.
+   */
+  function updateLikesDialog(submissionId, liked, guest) {
+    if (!guest) {
+      return;
+    }
+    var dialog = document.getElementById('likes-dialog-' + submissionId);
+    if (!dialog) {
+      return;
+    }
+    var thread = dialog.querySelector('.likes-thread');
+    if (!thread) {
+      return;
+    }
+    var existingRow = thread.querySelector('[data-likes-row="' + guest.id + '"]');
+    if (liked) {
+      if (!existingRow) {
+        var empty = thread.querySelector('.comments-dialog-empty');
+        if (empty && empty.parentNode) {
+          empty.parentNode.removeChild(empty);
+        }
+        thread.insertBefore(selfLikesRowNode(guest), thread.firstChild);
+      }
+    } else if (existingRow && existingRow.parentNode) {
+      existingRow.parentNode.removeChild(existingRow);
+      if (thread.querySelectorAll('.likes-row').length === 0) {
+        var emptyP = document.createElement('p');
+        emptyP.className = 'muted comments-dialog-empty';
+        emptyP.textContent = 'No likes yet.';
+        thread.appendChild(emptyP);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
   // Comments dialog: open / close.
   // ------------------------------------------------------------------
 
   /** The comments <dialog> for a submission id, or null. */
   function dialogFor(submissionId) {
     return document.getElementById('comments-dialog-' + submissionId);
+  }
+
+  /**
+   * Close any other open dialog, then showModal() this one — the shared
+   * one-dialog-at-a-time invariant both the comments dialog and the likes
+   * dialog need (issue #890: they share the `.comments-dialog` shell class
+   * for exactly this reason — see that class's own contract note on the
+   * likes <dialog> in feed.ejs). showModal makes the rest of the page
+   * inert, so a user cannot open a second dialog while one is showing;
+   * closing any stray open dialog first keeps that invariant even for a
+   * programmatic call.
+   */
+  function openModalDialog(dialog) {
+    var alreadyOpen = document.querySelector('dialog.comments-dialog[open]');
+    if (alreadyOpen && alreadyOpen !== dialog && typeof alreadyOpen.close === 'function') {
+      alreadyOpen.close();
+    }
+    if (!dialog.open && typeof dialog.showModal === 'function') {
+      dialog.showModal();
+    }
   }
 
   /**
@@ -179,16 +345,7 @@
     if (!dialog) {
       return;
     }
-    // showModal makes the rest of the page inert, so a user cannot open a
-    // second dialog while one is showing. Closing any stray open dialog
-    // first keeps that invariant even for programmatic calls.
-    var alreadyOpen = document.querySelector('dialog.comments-dialog[open]');
-    if (alreadyOpen && alreadyOpen !== dialog && typeof alreadyOpen.close === 'function') {
-      alreadyOpen.close();
-    }
-    if (!dialog.open && typeof dialog.showModal === 'function') {
-      dialog.showModal();
-    }
+    openModalDialog(dialog);
     var textarea = dialog.querySelector('textarea[name="body"]');
     if (textarea) {
       syncComposer(dialog);
@@ -202,7 +359,24 @@
       openComments(opener.getAttribute('data-open-comments'));
       return;
     }
-    var closer = event.target.closest && event.target.closest('[data-close-comments]');
+    // Likers list (issue #890): "N likes" opens the matching likes dialog —
+    // openModalDialog owns the same one-dialog-at-a-time invariant
+    // openComments above uses.
+    var likesOpener = event.target.closest && event.target.closest('[data-open-likes]');
+    if (likesOpener) {
+      var likesDialog = document.getElementById(
+        'likes-dialog-' + likesOpener.getAttribute('data-open-likes')
+      );
+      if (likesDialog) {
+        openModalDialog(likesDialog);
+      }
+      return;
+    }
+    // Close: the comments dialog's close button (data-close-comments) and
+    // the likes dialog's (data-close-likes) are the identical action on two
+    // different dialog shells, so one branch handles both.
+    var closer =
+      event.target.closest && event.target.closest('[data-close-comments], [data-close-likes]');
     if (closer) {
       var dialog = closer.closest('dialog');
       if (dialog && typeof dialog.close === 'function') {

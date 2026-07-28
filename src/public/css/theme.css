@@ -2240,6 +2240,65 @@ textarea {
   background: rgba(20, 30, 24, 0.62);
   box-shadow: 0 0 0 1.5px var(--place-1);
 }
+
+/* Likers list (issue #890): the "N likes" tap target in the feed action bar
+   and the Instagram-style rows inside the likes dialog. */
+.likes-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.likes-link:hover {
+  text-decoration: underline;
+}
+.likes-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  text-decoration: none;
+  color: var(--color-text);
+}
+/* Not expressed as a modifier over .comments-dialog-avatar (the comment
+   composer's own avatar, ~3135 below): the two differ in every dimension
+   that would matter for a shared base — 36px vs. 32px, a border vs. none,
+   font-weight 600 vs. unset, --color-text-muted vs. --color-primary — and
+   the composer avatar is a bare <img>/<span>, never a wrapping circle around
+   an <img> child the way this row's avatar is (the wrapper is what makes
+   overflow: hidden + the img's own border-radius work together). Basing one
+   on the other would mean overriding every property that differs, which
+   removes no real duplication and risks drifting the owner-approved 36px
+   circle (#890) if the shared base ever changes for the composer's sake.
+   Kept as its own block instead. */
+.likes-row-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--green-50);
+  border: var(--border-hairline);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.likes-row-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.likes-row-name {
+  font-weight: 600;
+}
+
 .gallery-thumb-btn {
   display: block;
   width: 100%;
@@ -2524,14 +2583,31 @@ textarea {
   margin-inline: calc(-1 * var(--gutter));
 }
 /* Re-indent the non-photo rows by the gutter the .feed just broke out of, so
-   text keeps its margin while the photo stays full-bleed (#612). */
+   text keeps its margin while the photo stays full-bleed (#612). The action
+   bar is NOT in this shared list (#890, owner annotation 2026-07-28): the
+   guest feed's action bar sits flush on the photo's own edge line instead —
+   see the two rules below, both keyed off the SAME single hook
+   (.admin-feed-item, admin-photos.ejs) that distinguishes the admin
+   moderation feed's cards from the guest feed's. */
 .feed-by,
 .feed-caption,
-.feed-actionbar,
 .feed-comments,
 .feed-task-line,
 .admin-feed-downline {
   padding-inline: var(--gutter);
+}
+/* Admin moderation feed: unaffected by the guest flush treatment below — its
+   action bar keeps the same gutter indent every other row here gets (#890
+   AC7, "read unchanged"). */
+.admin-feed-item .feed-actionbar {
+  padding-inline: var(--gutter);
+}
+/* Guest feed only (i.e. NOT .admin-feed-item): the action bar itself goes
+   flush against the photo's own edge line, and its like button loses its
+   centered padding so the heart glyph sits flush at that same edge — the
+   heart at the left, the points chip flush at the right (#890 AC7). */
+.feed-item:not(.admin-feed-item) .feed-actionbar {
+  padding-inline: 0;
 }
 /* Kill the mobile tap-flash box (#248 owner visual gate): without this the
    card's controls inherit the browser default -webkit-tap-highlight-color
@@ -2630,7 +2706,7 @@ textarea {
 .feed-actions-left {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-2);
 }
 /* Points is metadata, not an action — right-justified, alone, as the last
    flex child of the action row (design-language rule: actions left,
@@ -2645,8 +2721,10 @@ textarea {
 /* Like + comment buttons: 44px minimum tap target (the old bare like button
    measured 24x21px). The heart is a rounder inline SVG (#248 — the shipped
    &hearts; text glyph read as too pointy): outline sage when not yet liked,
-   solid sage once liked (aria-pressed carries the same state). The count
-   sits beside its glyph, inside the button, not as separate sentence text. */
+   solid sage once liked (aria-pressed carries the same state). The comment
+   count still sits beside its glyph, inside .comment-button; the like count
+   moved OUT of .like-button into the sibling .likes-link (#890) — the heart
+   toggles, the count is a separate tap target that opens the likers list. */
 .like-button,
 .comment-button {
   min-width: 44px;
@@ -2662,6 +2740,19 @@ textarea {
   color: var(--color-primary);
   font-family: var(--font-body);
   font-size: var(--fs-small);
+}
+/* #890 spacing (owner annotation 2026-07-28): the heart glyph sits flush with
+   the photo's left edge — no centered dead-space inside its tap box — and the
+   "N likes" text follows tight. Vertical tap size keeps the 44px minimum.
+   Keyed off the same .admin-feed-item hook as the padding-inline rules
+   above (not a second, independent exclusion on .admin-feed-fav) — one hook
+   decides guest-vs-admin everywhere in this file, so the admin favorite
+   button keeps its padded pill look (#890 AC7) for the same reason its
+   action bar keeps its gutter. */
+.feed-item:not(.admin-feed-item) .feed-actionbar .like-button {
+  min-width: 0;
+  justify-content: flex-start;
+  padding: 0;
 }
 .like-heart {
   width: 24px;
@@ -2845,7 +2936,13 @@ body:has(dialog[open]) {
   cursor: pointer;
   flex-shrink: 0;
 }
-.comments-dialog-thread {
+/* .likes-thread (issue #890) shares this shell — same scroll/padding — but
+   is deliberately a SEPARATE class, not a second class on the same element:
+   a photo's article renders both a comments dialog and a likes dialog, and
+   feed.js/tests both look up "the" .comments-dialog-thread within an article
+   expecting exactly one match. */
+.comments-dialog-thread,
+.likes-thread {
   flex: 1 1 auto;
   overflow-y: auto;
   padding: var(--space-4);
