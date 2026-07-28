@@ -581,9 +581,9 @@ router.post('/p/:submissionId/like', requireGuest, socialRateLimiter, (req, res)
 
   // Snapshot the crowd-favorite placing set BEFORE the toggle mutation
   // (issue #625 AC7): the diff below (scoring.recordCrowdFavoriteChanges)
-  // needs the "before" picture to know exactly which photos THIS one
-  // like/unlike moved — inherently bounded to those photos, never every
-  // photo currently placing.
+  // compares which GUESTS place before vs after (per-guest entry/exit,
+  // issue #895) — inherently bounded to the guests whose placing state
+  // this one like/unlike moved, never every guest currently placing.
   const beforeCrowd = scoring.crowdFavorites();
 
   let liked;

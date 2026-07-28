@@ -172,12 +172,21 @@ const KIND_VIEW = {
     parts: () => [{ text: 'A comment on your photo is ' }, { text: 'back', emphasis: true }],
     href: (ev) => (ev.submission_id != null ? `/p/${ev.submission_id}` : null),
   },
-  // Crowd favorites (issue #625). The stored row carries only guest_id +
-  // submission_id (scoring.recordCrowdFavoriteChanges' single write path) —
-  // rank and points are NEVER stored (a stored rank would be the one thing
-  // here that could go stale the moment a later like/takedown/restore moves
-  // it), so `parts` below reads the CURRENT placing set live from
-  // scoring.crowdFavorites() every time this row renders.
+  // Crowd favorites (issue #625; re-keyed to the owning guest by #895). The
+  // stored row carries guest_id + submission_id (scoring.
+  // recordCrowdFavoriteChanges' single write path) — rank and points are
+  // NEVER stored (a stored rank would be the one thing here that could go
+  // stale the moment a later like/takedown/restore moves it), so `parts`
+  // below reads the CURRENT placing set live from scoring.crowdFavorites()
+  // every time this row renders. Looked up by ev.guest_id, NOT
+  // ev.submission_id (#895 AC5): since #896 a guest's representative photo
+  // can swap to a different one of their own tied submissions while the
+  // guest never leaves the placing set at all — a submission_id lookup would
+  // miss that guest entirely the moment their stored event's photo stops
+  // being their current best, wrongly falling back to the rank-free copy
+  // below even though the guest is still placing right now. Keying by
+  // guest_id instead means the row's rank text tracks the guest's CURRENT
+  // placement regardless of which of their photos currently represents them.
   crowd_favorite: {
     view: 'gold',
     dead: false,
@@ -192,13 +201,13 @@ const KIND_VIEW = {
       // entirely, mirroring feed.js's own deferred require('./scoring')
       // inside slideshowSequence.
       const scoring = require('./scoring');
-      const placing = scoring.crowdFavorites().find((cf) => cf.submission_id === ev.submission_id);
+      const placing = scoring.crowdFavorites().find((cf) => cf.guest_id === ev.guest_id);
       if (!placing) {
-        // The photo has since left the placing set again (a later like or
-        // takedown moved it out between the event being recorded and this
+        // The guest has since left the placing set entirely (a later like or
+        // takedown moved them out between the event being recorded and this
         // render) — degrade to naming it without a stale rank/points rather
         // than showing a number that is no longer true. The corresponding
-        // crowd_favorite_lost row (recorded at the moment it actually left)
+        // crowd_favorite_lost row (recorded at the moment they actually left)
         // is what carries that story; this row just avoids overclaiming.
         return [{ text: 'Your photo is a ' }, { text: 'crowd favorite', emphasis: true }];
       }
@@ -327,7 +336,7 @@ const stmtRecordEvent = db.prepare(
  * event is written where the badge identity is in scope, not re-derived
  * later).
  * @param {number} guestId
- * @param {string} kind - one of the seven stored kinds in KIND_VIEW.
+ * @param {string} kind - one of the stored kinds in KIND_VIEW.
  * @param {{submissionId?: number|null, badgeId?: number|null}} [opts]
  */
 function recordEvent(guestId, kind, opts = {}) {
@@ -397,6 +406,7 @@ const LIKE_EXISTENCE_WHERE = `s.guest_id = ? AND ${VISIBLE_WHERE} AND l.created_
 const stmtStoredEvents = db.prepare(`
   SELECT ne.id            AS id,
          ne.kind           AS kind,
+         ne.guest_id       AS guest_id,
          ne.submission_id  AS submission_id,
          ne.created_at     AS created_at,
          b.code            AS badge_code,

@@ -1105,10 +1105,10 @@ const _setTakenDownAndRecount = db.transaction((submissionId, takenDown, clearRe
   const row = _getSubmissionGuest.get(submissionId);
   if (!row) return undefined;
   // Snapshot the crowd-favorite placing set BEFORE the flag flip (issue
-  // #625 AC7): a takedown/restore can move which photos place (a taken-down
+  // #625 AC7): a takedown/restore can move which guests place (a taken-down
   // photo's likes stop counting; a restore brings them back), and
-  // recordCrowdFavoriteChanges below needs the "before" picture to know
-  // exactly which photos this one flip moved.
+  // recordCrowdFavoriteChanges below diffs per GUEST (entry/exit, issue
+  // #895) — bounded to the guests whose placing state this one flip moved.
   const beforeCrowd = scoring.crowdFavorites();
   _setTakenDown.run(takenDown, submissionId);
   if (clearResubmitted) {
