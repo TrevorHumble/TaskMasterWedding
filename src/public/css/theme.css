@@ -2251,10 +2251,11 @@ textarea {
   box-shadow: none;
   --badge-icon-color: currentColor;
 }
-.tile-victory-badge .badge-medallion-icon {
-  width: 16px;
-  height: 16px;
-}
+/* The 16px glyph sizing for this mark lives beside the base
+   .badge-medallion-icon rule far below: per-surface adaptations sit with
+   the component, and the stag guardrail test slices the first opening of
+   that rule name in this file — a scoped rule (or even the literal text of
+   its opening line) appearing here would hijack that slice. */
 .tile-victory-badge .tile-victory-art {
   width: 16px;
   height: 16px;
@@ -5939,6 +5940,14 @@ body:has(dialog[open]) {
   mask-position: center;
   -webkit-mask-size: contain;
   mask-size: contain;
+}
+/* Gallery victory mark (issue #893): inside the 26px tile disc the masked
+   glyph is a fixed 16px, not the 62% component default. Sits AFTER the base
+   rule above — the stag guardrail slices this file's first opening of the
+   rule name and must land on the component rule, not this adaptation. */
+.tile-victory-badge .badge-medallion-icon {
+  width: 16px;
+  height: 16px;
 }
 /* Empty state: a soft dashed ring, no icon (task has no badge yet / nothing
    picked). */
