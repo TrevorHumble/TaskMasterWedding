@@ -44,6 +44,54 @@
   }
 
   // ------------------------------------------------------------------
+  // The ONE client-side painter for the shared #badge-dialog's
+  // .badge-title/.badge-sub/.badge-sway DOM contract (issue #902 PR review,
+  // major finding 2). Before this, the exact same three-field swap was
+  // hand-written independently in THIS file's own openBadgeDialog (replay,
+  // below) and in src/public/js/badge-moment.js's showQueued (queue
+  // advance) — two places that had to independently agree on which selector
+  // holds which field, with nothing enforcing it. header.ejs's server
+  // render is a separate, third writer of this same contract and stays
+  // that way on purpose (it owns the FIRST paint, before any script has
+  // run); this function is the single owner of every CLIENT-side repaint
+  // after that.
+  //
+  // Exposed as window.paintBadge — the same plain-global convention
+  // src/public/js/csrf.js's window.csrfHeader already uses — since
+  // header.ejs loads badge-moment.js's <script> tag BEFORE this file's
+  // (defer preserves document order), so badge-moment.js cannot `require`
+  // or otherwise capture this function at ITS OWN load time. Reading
+  // window.paintBadge lazily, inside a later click handler, is safe: by the
+  // time any click can happen, every deferred script on the page — this one
+  // included — has already finished running its own top-level setup code.
+  //
+  // @param {HTMLDialogElement} dialog - the #badge-dialog element.
+  // @param {{name: string, description: string, artHtml: string}} badge
+  // ------------------------------------------------------------------
+  function paintBadge(dialog, badge) {
+    var title = dialog.querySelector('.badge-title');
+    var sub = dialog.querySelector('.badge-sub');
+    var stage = dialog.querySelector('.badge-sway');
+    if (title) {
+      title.textContent = badge.name + '!';
+    }
+    if (sub) {
+      sub.textContent = badge.description;
+    }
+    if (stage) {
+      // Server-rendered markup from the SAME shared partials/badge-art.ejs
+      // every other badge display uses (src/services/notifications.js's
+      // renderBadgeArt, delivered on a recap row as data-badge-art-html;
+      // header.ejs's own `include('badge-art', ...)` for the queue list) —
+      // not a hand-composed `<img>` (issue #644 review: a plain `<img>` here
+      // skipped the medallion-ring treatment a task-icon badge gets
+      // everywhere else, contradicting docs/economy-architecture's Rule 5).
+      stage.innerHTML = badge.artHtml;
+    }
+  }
+  window.paintBadge = paintBadge;
+
+  // ------------------------------------------------------------------
   // Badge replay — populate the shared dialog from a recap row's own
   // data-badge-* attributes (rendered by header.ejs's forEach, or built by
   // makeRow() below for a scrolled-in page) and play the same bloom
@@ -54,27 +102,21 @@
     if (!badgeDialog) {
       return;
     }
-    var name = button.getAttribute('data-badge-name') || '';
-    var description = button.getAttribute('data-badge-description') || '';
-    var artHtml = button.getAttribute('data-badge-art-html') || '';
+    paintBadge(badgeDialog, {
+      name: button.getAttribute('data-badge-name') || '',
+      description: button.getAttribute('data-badge-description') || '',
+      artHtml: button.getAttribute('data-badge-art-html') || '',
+    });
 
-    var title = badgeDialog.querySelector('.badge-title');
-    var sub = badgeDialog.querySelector('.badge-sub');
-    var stage = badgeDialog.querySelector('.badge-sway');
-    if (title) {
-      title.textContent = name + '!';
-    }
-    if (sub) {
-      sub.textContent = description;
-    }
-    if (stage) {
-      // Server-rendered markup from the SAME shared partials/badge-art.ejs
-      // every other badge display uses (src/services/notifications.js's
-      // renderBadgeArt, delivered on the row as data-badge-art-html) — not a
-      // hand-composed `<img>` (issue #644 review: a plain `<img>` here
-      // skipped the medallion-ring treatment a task-icon badge gets
-      // everywhere else, contradicting docs/economy-architecture's Rule 5).
-      stage.innerHTML = artHtml;
+    // Issue #902: badge-moment.js's continue-through queue mutates this SAME
+    // shared button's label to "Continue — N more" or "Done" while its own
+    // celebration is running. A replay reusing this dialog after that queue
+    // has run must not inherit whichever label the queue left behind — reset
+    // it to the plain single-badge default every time, since a replay is
+    // never a queue (AC6: "Continue" closes, no count).
+    var continueButton = badgeDialog.querySelector('.badge-continue');
+    if (continueButton) {
+      continueButton.textContent = 'Continue';
     }
 
     badgeDialog.classList.remove('playing');
@@ -143,6 +185,21 @@
       openBadgeDialog(badgeButton);
       return;
     }
+    // Issue #902: this plain close is what a REPLAY's Continue button always
+    // does (AC6 — no queue, no count). On a page where a celebration was ALSO
+    // owed this render, src/public/js/badge-moment.js is loaded and its own
+    // CAPTURE-phase listener decides every '.badge-continue' click first
+    // (stopPropagation), so THIS branch never actually runs there — whether
+    // that script's queue reached its end by walking every queued badge, or
+    // by its own 'close' listener fast-forwarding queueIndex the moment the
+    // dialog closed for any OTHER reason (Escape, any native dismissal — issue #902
+    // PR review, major finding 1: without that listener, a guest who
+    // dismissed mid-queue and then opened a DIFFERENT badge's replay here
+    // could tap Continue and resume the abandoned queue instead of closing).
+    // This branch is what actually runs Continue-closes on a page where
+    // badge-moment.js was never loaded at all (nothing owed this render,
+    // pure replay). See badge-moment.js's own file header for the full
+    // capture-phase-plus-close-listener mechanics.
     var badgeDialog = getBadgeDialog();
     if (badgeDialog && target.closest('#badge-dialog .badge-continue')) {
       badgeDialog.close();

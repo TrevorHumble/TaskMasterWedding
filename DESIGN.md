@@ -1487,7 +1487,10 @@ resolution with `src/services/render-locals.js`'s `resolveBadgeMoment()`, which 
 themselves are unchanged by this move; only their caller is. `BADGE_MOMENT_PRIORITY`, the hard-coded list
 this section's opening paragraph describes retiring from `guest.js`, had a second, independent copy in
 `render-locals.js` (added while #644 and #714 were building in parallel, on separate branches, each
-unaware of the other's retirement) — that copy is deleted by the same merge for the identical reason.
+unaware of the other's retirement) — that copy is deleted by the same merge for the identical reason. **Amended again at merge with #902
+(2026-07-28): `primaryNewBadge` is deleted.** `resolveBadgeMoment` now calls
+`scoring.rankBadgeCandidates(guestId, owedBadgeCodes)` for the whole ordered queue; see "Badge queue:
+the #644 render-time drip becomes a client-driven continue-through celebration (#902)" below.
 
 ## Community guard completeness: stack-derived, not hand-maintained (#574)
 
@@ -2422,3 +2425,119 @@ other.
 **Deliberately not in scope.** The data file (~106 KB at #903 merge time; it grows with the catalog) loads on every `/admin/tasks` view
 with no lazy-load or compression; this is a one-host admin page, not a hundred-guest surface, so the payload
 cost is accepted rather than engineered around. The tag map has no guest-facing consumer.
+
+## Badge queue: the #644 render-time drip becomes a client-driven continue-through celebration (#902)
+
+**Date:** 2026-07-28. **Status:** shipped.
+
+**The problem the guest actually reported.** #894's guest report read "when I get a badge it isn't
+one after another it's every time the page reloads" — the #644 drip design working exactly as built:
+`resolveBadgeMoment` paid ONE owed badge per render and left the rest genuinely owed, so a guest who
+crossed several thresholds at once (or was awarded a badge by a host while mid-session) saw them
+trickle out across unrelated page loads over the following minutes, not as one connected win. #894
+fixed a different bug in the same neighborhood (a transferable-badge flap replaying an
+already-celebrated badge); this issue is the owner's confirmed follow-up on the drip itself.
+
+**The queue replaces the drip; the stamp-at-render contract for the HEAD badge does not change.**
+`resolveBadgeMoment` (`src/services/render-locals.js`) still resolves and stamps exactly one badge —
+the same highest-priority owed badge #714's `compareBadgeMoment` would have picked before this issue —
+at the same moment it always did (render time, never from `attachGuest`, for the same #563-recreation
+reason the #644 ADR above already gives). What changes is everything AFTER that: instead of leaving the
+rest of the owed set untouched for a later, unrelated render to pick up one at a time, this issue
+resolves and orders the WHOLE owed set up front (`scoring.rankBadgeCandidates`, see below) and exposes
+positions 2..K as a `badgeQueue` render local. The dialog (`src/views/partials/header.ejs`,
+`src/public/js/badge-moment.js`) drives the rest client-side, in one sitting: "Continue — N more"
+advances in place (title/description/art swap, the bloom animation replays) until the last badge reads
+"Done" and closes.
+
+**The stamp for a QUEUED badge moves from render-time to a client POST, because "resolved" and "shown"
+are no longer the same instant.** Under the drip, resolving a badge and showing it were the same
+event — a render either surfaced the celebration or it didn't, so stamping at resolve time was
+equivalent to stamping at shown time. Once the whole queue resolves at ONE render but its members are
+shown one Continue tap at a time, possibly seconds or minutes apart (or never, if the guest abandons the
+page), stamping the whole queue at resolve time would celebrate-and-forget badges the guest never
+actually looked at. `POST /badge-moment/celebrated` (`src/routes/guest.js`) is the new stamp site for
+positions 2..K: `src/public/js/badge-moment.js` calls it once per badge, at the exact moment a Continue
+tap reveals it — never before, and (matching `POST /recap/seen`'s existing fire-and-forget posture) never
+retried on failure. The guard against a double-tap, a replayed request, or a badge code naming someone
+else's badge (or one already shown) is the safety net, not the client's good behavior — see
+`markBadgeCelebrated` below for where that guard actually lives. A guest who navigates away or closes the
+tab mid-queue therefore leaves every unshown badge exactly as owed as it was before this issue's
+render — it re-offers itself, correctly ordered, on the guest's next page load.
+
+**`markBadgeCelebrated` — one owner of the stamp AND the "owed" predicate it must never contradict (PR
+review, major finding 3).** The original cut of this route hand-wrote its own `UPDATE ... WHERE guest_id
+= ? AND celebrated_at IS NULL AND badge_id = (SELECT id FROM badges WHERE code = ?)` directly in
+`src/routes/guest.js` — a SECOND, narrower definition of "owed" than `render-locals.js`'s `stmtOwedBadges`
+(the query `resolveBadgeMoment` above actually auto-opens from), missing that query's `EXISTS` half
+entirely (a matching `notification_events` `badge_granted` row — the #644 guard that keeps a
+hand-inserted test fixture, which bypasses `scoring.js`'s real grant paths, from ever auto-opening). Two
+independent "what counts as owed" queries meant a fixture row invisible to the auto-open query could still
+be stamped through the route — route-layer SQL quietly deciding a service-owned question a second way.
+`render-locals.js` now exports `markBadgeCelebrated(guestId, code)`: one module-scope prepared UPDATE
+carrying the identical predicate shape as `stmtOwedBadges` (`celebrated_at IS NULL` AND the same
+correlated `EXISTS` against `notification_events`), returning a boolean. The route's own SQL is gone
+entirely; it just maps `true`/`false` to `204`/`404`, keeping its `400`-on-missing-code, rate limiter, and
+status codes unchanged.
+
+**`window.paintBadge` — one client-side painter for the `.badge-title`/`.badge-sub`/`.badge-sway` DOM
+contract (PR review, major finding 2).** The original cut hand-wrote the identical three-field swap
+independently in THREE places: `header.ejs`'s server render (the first paint), `recap.js`'s own
+`openBadgeDialog` (replay), and `badge-moment.js`'s `showQueued` (queue advance) — three places that had
+to agree on which selector holds which field, with nothing enforcing it. `header.ejs`'s server render
+stays as-is (it is the one SERVER-side owner, before any script has run); `src/public/js/recap.js` now
+defines the one CLIENT-side owner, `paintBadge(dialog, {name, description, artHtml})`, exposed as
+`window.paintBadge` — the same plain-global convention `src/public/js/csrf.js`'s `window.csrfHeader`
+already uses — and both `recap.js`'s `openBadgeDialog` and `badge-moment.js`'s `showQueued` call it rather
+than repainting the three fields by hand. `recap.js` is the right home: it loads on every guest page,
+unconditionally, before any click can happen, while `badge-moment.js` only loads when a celebration is
+owed this render — so `recap.js` is guaranteed to have already defined `window.paintBadge` by the time
+either script's Continue handler actually runs, even though `header.ejs` loads `badge-moment.js`'s
+`<script>` tag first (`defer` only guarantees execution order between the two files, not that a LATER
+click waits for anything — and it doesn't need to).
+
+**`rankBadgeCandidates` — one filter+sort owner shared by the single-winner and whole-queue callers.**
+Building the ordered queue needs the same two steps #714's `primaryNewBadge` already performed (filter
+the guest's held-badge set, which alone carries the `type`/`threshold` the comparator ranks on, down to
+a candidate code set, then sort by `compareBadgeMoment`) — `primaryNewBadge` just discarded every row
+past the winner. Duplicating that filter+sort a second time in `render-locals.js` to get the whole list
+would have left two independent copies of one ranking rule. `scoring.rankBadgeCandidates(guestId, codes)`
+is now the single owner of that step, and `resolveBadgeMoment` calls it directly for the whole ordered
+array. **PR review, minor finding 5:** the original cut of this issue kept `primaryNewBadge` around as a
+one-line wrapper taking `rankBadgeCandidates`'s first result, on the theory that `guest.js`'s
+task-complete modal still called it — but that call site had already been replaced by
+`resolveBadgeMoment` back in #644, so `primaryNewBadge` shipped with no production caller left at all.
+It and its export are deleted; `tests/badge-moment-priority.test.js` (#714) now reproduces the same
+one-line wrapper locally, over the real `rankBadgeCandidates`, so its assertions keep proving the
+identical "single winner, or null" contract. `compareBadgeMoment` is the one entry point from #714 that
+keeps both its existing signature/behavior and a live production caller (inside `rankBadgeCandidates`).
+
+**Continue-button ownership: badge-moment.js takes over from recap.js for the whole page load, the same
+way the owner-approved `?badge-demo=1` mock already did.** The shared `#badge-dialog` also serves
+`src/public/js/recap.js`'s own on-demand REPLAY of an already-celebrated badge (tap a recap row), which
+closes on Continue with no queue and no count (AC6, unchanged). Once a celebration is owed at all,
+`badge-moment.js` registers a CAPTURE-phase `document` listener for `.badge-continue` clicks and calls
+`stopPropagation()` — capture-phase listeners on `document` run before any bubble-phase listener on that
+same node regardless of script load order, which is exactly the guarantee the phase-1 demo's own
+capture listener relied on to "beat" `recap.js`'s plain bubble-phase closer. `badge-moment.js` owns every
+Continue tap for the rest of that page load this way: it advances the queue while one remains, and closes
+the dialog itself once its own `queueIndex` reaches the end of `queueItems` (matching AC4's single-badge
+case, where the queue is empty from the start) — so `recap.js`'s own close-on-Continue handler only ever
+actually runs on a page where `badge-moment.js` was never loaded at all (nothing owed this render, a pure
+replay session).
+
+**PR review, major finding 1 (all three reviews converged on it): `queueIndex` reaching the end was not,
+in fact, guaranteed — a real broken trace.** A guest owed 3 badges who DISMISSES the dialog mid-queue
+(Escape, or any other native dismissal) never fires a click on `.badge-continue`, so `badge-moment.js`'s capture listener
+— the only place `queueIndex` moved — never ran, and `queueIndex` was left wherever it was when the
+dialog closed. A LATER recap-row replay reopening the same dialog and tapping Continue hit that stale,
+still-mid-queue `queueIndex`: it resumed the ABANDONED queue instead of closing — advancing to the next
+badge, posting its stamp, and showing a count (AC6 violated; AC3's "abandon keeps it owed" broken by the
+very tap meant to replay a different badge). The fix is a `dialog.addEventListener('close', ...)` listener
+that forces `queueIndex = queueItems.length` the instant the dialog closes, BY ANY MEANS — not just by
+walking every queued item via Continue. That is what actually makes "a later replay's Continue plainly
+closes" true: exhaustion is now guaranteed on every path the dialog can close by, not assumed from the one
+path (completing the queue) the original cut only handled. `recap.js`'s `openBadgeDialog` was given one
+more, independent fix: reset the Continue button's label back to plain "Continue" every time it opens for
+a replay, since `badge-moment.js` leaves that same shared button reading "Done" (or a stale count) once
+its own queue finishes, and a later replay must never inherit it.
