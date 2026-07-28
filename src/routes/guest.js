@@ -98,8 +98,12 @@ const notifications = require('../services/notifications');
 // it also carries the render-time recap-page attachment. withBadgeMoment is
 // the ONE call site every res.render() in this file (and, via
 // src/routes/community.js's own require of the same module, every
-// res.render() there) passes through.
-const { withBadgeMoment } = require('../services/render-locals');
+// res.render() there) passes through. markBadgeCelebrated (issue #902) is
+// the single owner of "does this stamp request actually apply" — see its own
+// doc comment in that module — called below by POST /badge-moment/celebrated
+// rather than that route hand-writing a second, narrower copy of the owed
+// predicate stmtOwedBadges (same module) already owns.
+const { withBadgeMoment, markBadgeCelebrated } = require('../services/render-locals');
 
 // Submission-intake service (issue #106) — owns the whole submit-or-replace
 // sequence for POST /tasks/:id/submit: task-active check, thumbnail, upsert,
@@ -127,8 +131,8 @@ const MEMORY_DISK_FULL_MESSAGE = 'The gallery is full right now — please tell 
 // for the signed-out case, which requireGuest below would redirect anyway).
 // uploadRateLimiter is SHARED between POST /tasks/:id/submit and POST
 // /me/edit (one combined per-guest budget, config.RATE_LIMIT_UPLOAD_MAX);
-// socialRateLimiter is SHARED between POST /bug-report and POST /recap/seen
-// (issue #644) — one combined budget, config.RATE_LIMIT_SOCIAL_MAX — a
+// socialRateLimiter is SHARED between POST /bug-report, POST /recap/seen
+// (issue #644), and POST /badge-moment/celebrated (issue #902) — one combined budget, config.RATE_LIMIT_SOCIAL_MAX — a
 // SEPARATE instance from the one src/routes/community.js creates for /like +
 // /comments, even though both read the same config value.
 const uploadRateLimiter = createRateLimiter({
@@ -819,8 +823,9 @@ router.get('/tasks/:id', function (req, res) {
   // exactly like one granted anywhere else, so it needs no special-casing
   // here off reward.newBadgeIds. Which ONE of several newly-earned badges
   // gets the modal, when more than one is owed at once, is
-  // scoring.primaryNewBadge's rule to state (issue #714) — resolved by
-  // render-locals.js's resolveBadgeMoment, not re-decided here.
+  // scoring.rankBadgeCandidates's rule to state (issue #714, widened by
+  // #902) — resolved by render-locals.js's resolveBadgeMoment, not
+  // re-decided here.
   let taskComplete = null;
   if (res.locals.taskCompleteReward) {
     const reward = res.locals.taskCompleteReward;
@@ -1346,6 +1351,53 @@ router.post('/me/avatar/delete', uploadRateLimiter, function (req, res) {
 router.post('/recap/seen', socialRateLimiter, function (req, res) {
   notifications.markSeen(res.locals.guest.id);
   res.status(204).end();
+});
+
+// ---------------------------------------------------------------------------
+// POST /badge-moment/celebrated — stamp ONE queued badge's celebrated_at for
+// the signed-in guest (issue #902 plan step 2). render-locals.js's
+// withBadgeMoment already stamps the HEAD of the owed queue at render time,
+// exactly as issue #644 always did; this route is what stamps every OTHER
+// queued badge (positions 2..K), and only when src/public/js/badge-moment.js
+// actually SHOWS one via a Continue tap — never before, and never for the
+// head (badge-moment.js never posts for the badge already on screen at
+// load). AC3's "abandon keeps it owed" therefore falls out of the client's
+// own call discipline (it simply never posts for a badge it never showed),
+// not anything this route enforces itself.
+//
+// The client sends only the badge `code`. The actual guard is
+// render-locals.js's markBadgeCelebrated (issue #902 PR review, major
+// finding 3) — the single owner of "does this stamp request actually apply,"
+// sharing stmtOwedBadges' own owed-predicate shape (celebrated_at IS NULL AND
+// a matching badge_granted event exists) rather than this route hand-writing
+// a second, narrower copy of it. This route's own job ends at mapping that
+// boolean to a status code: a double-tap, a stale/replayed request, a badge
+// code this guest does not (or no longer) hold, or another guest's badge
+// code all come back `false` (nothing genuinely owed matched) and are
+// refused the same way, so there is only one refusal branch, not one per
+// cause.
+// ---------------------------------------------------------------------------
+// socialRateLimiter (shared with POST /bug-report and POST /recap/seen
+// above): a fetch the guest's own browser fires automatically as each
+// queued badge is shown, not a form a guest deliberately fills out, but
+// still a guest-triggered write — the same shape POST /recap/seen's own
+// comment already gives for carrying this limiter.
+router.post('/badge-moment/celebrated', socialRateLimiter, function (req, res) {
+  const guest = res.locals.guest;
+  const code = typeof req.body.code === 'string' ? req.body.code : '';
+  if (!code) {
+    return res.status(400).end();
+  }
+
+  const stamped = markBadgeCelebrated(guest.id, code);
+  if (!stamped) {
+    // Not owed to this guest right now (unknown code, someone else's badge,
+    // or already celebrated) — refuse rather than silently answering 204, so
+    // a client-side bug can never be mistaken for a stamp that actually
+    // happened.
+    return res.status(404).end();
+  }
+  return res.status(204).end();
 });
 
 // ---------------------------------------------------------------------------

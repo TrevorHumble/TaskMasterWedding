@@ -108,6 +108,11 @@
     var _rows = (typeof recapRows !== 'undefined' && recapRows) || [];
     var _hasMore = typeof recapHasMore !== 'undefined' && !!recapHasMore;
     var _moment = (typeof badgeMoment !== 'undefined' && badgeMoment) || null;
+    // The rest of this render's owed celebration queue (issue #902) — every
+    // OTHER badge still owed besides `_moment` (already stamped and shown
+    // above). Always [] when `_moment` is null (nothing owed at all) or when
+    // exactly one badge was owed (AC4's byte-identical single-badge case).
+    var _queue = (typeof badgeQueue !== 'undefined' && Array.isArray(badgeQueue)) ? badgeQueue : [];
   %>
   <% if (_unreadCount > 0) { %>
   <div class="recap-strip" id="recap-strip">
@@ -197,7 +202,33 @@
       <button type="button" class="btn badge-continue">Continue</button>
     </div>
   </dialog>
-  <% if (_moment) { %><script src="/js/badge-moment.js" defer></script><% } %>
+  <% if (_moment) { %>
+  <%# The rest of this render's owed queue (issue #902), for
+      src/public/js/badge-moment.js to read once at load and drive the
+      continue-through flow from — one data-carrying list item per queued
+      badge, the same data-attribute shape this file already gives each
+      recap-row badge button above, so there is one established convention
+      for "how does this app hand a badge's data to client JS", not two.
+      `hidden` (never shown) — this list exists only to carry data, the same
+      role sibling `hidden` elements already play elsewhere in this app
+      (e.g. task.ejs's upload-error paragraph). Each badge's art is rendered
+      HERE, through the SAME partials/badge-art.ejs partial the head badge
+      above and every other badge display in this app renders through (not a
+      second, hand-composed markup path), then handed to the client as
+      data-badge-art-html exactly like a recap row's own data-badge-art-html
+      already is — HTML-escaped by the escaping output tag on the way into
+      the attribute, unescaped by the browser on the way back out when
+      badge-moment.js reads it via getAttribute() and assigns it to
+      .innerHTML. %>
+  <% if (_queue.length > 0) { %>
+  <ul id="badge-queue-data" hidden>
+    <% _queue.forEach(function (b) { %>
+    <li data-badge-code="<%= b.code %>" data-badge-name="<%= b.name %>" data-badge-description="<%= b.description %>" data-badge-art-html="<%= include('badge-art', { badge: b, alt: b.name + ' badge' }) %>"></li>
+    <% }); %>
+  </ul>
+  <% } %>
+  <script src="/js/badge-moment.js" defer></script>
+  <% } %>
   <script src="/js/recap.js" defer></script>
 <% } %>
 

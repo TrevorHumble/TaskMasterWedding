@@ -1280,9 +1280,9 @@ const stmtGuestBadgesFull = db.prepare(
  * art_path, type, threshold, description, awarded_by, points, created_at,
  * pointsLabel }. Used by the section 04 home page, the section 07 public
  * profile (via community.js's re-sorting wrapper), the leaderboard, the
- * section 08 admin guest view, and (issue #714) primaryNewBadge below, which
- * is the reason `threshold` rides along on every row rather than being a
- * second query only that caller runs.
+ * section 08 admin guest view, and (issue #714) rankBadgeCandidates below,
+ * which is the reason `threshold` rides along on every row rather than being
+ * a second query only that caller runs.
  *
  * pointsLabel (issue #487) is the ONE place "show a points suffix only when
  * the award is worth something" is decided: "+<points> pts" when points > 0,
@@ -1379,45 +1379,41 @@ function compareBadgeMoment(a, b) {
 }
 
 /**
- * Resolve which of a submit's newly-earned badge codes the task-complete
- * modal celebrates (issue #714, replacing the retired BADGE_MOMENT_PRIORITY
- * hard-coded list in src/routes/guest.js). Reproduces #255's shipped choice
- * exactly for today's catalog, but reads each candidate's own `type` and
- * `threshold` off the badges table via getGuestBadges/compareBadgeMoment
- * rather than a maintained code list — a new catalog badge is ranked on its
- * own fields the moment it becomes earnable, with no second place to update.
+ * Reduce this guest's FULL held-badge set (getGuestBadges — the only query
+ * that carries the `type`/`threshold` compareBadgeMoment ranks on) down to
+ * just the candidate `codes`, then order what's left by celebration
+ * priority. The single owner of "which of several newly-owed badges wins the
+ * celebration slot, and in what order do the rest follow" (issue #714,
+ * widened by #902): originally written to answer just the single-winner
+ * question for a task-complete submit crossing more than one badge at once
+ * (`ranked[0]`, guest.js's task-complete modal), and reused unchanged by
+ * render-locals.js's resolveBadgeMoment to build the WHOLE owed celebration
+ * queue instead (issue #902 plan step 1) — one owner of "filter held badges
+ * to a candidate set, ranked," not two independent copies of the same
+ * two-step rule.
  *
- * Returns null immediately for an empty or non-array `newBadgeCodes`, before
- * calling getGuestBadges — a no-badge submit is the common case (every
- * ordinary task completion) and must not gain a query the deleted route guard
- * used to skip via its own `if (reward.newBadgeIds.length > 0)` check.
- *
- * `newBadgeCodes` is resolved against the guest's CURRENT held badges, and any
- * code the guest does not hold is silently dropped — the same defensive
- * behaviour the retired route code had (a badge id that no longer resolves is
- * not expected to happen within the same redirect, but degrades to "skip it"
- * rather than throwing).
+ * Returns `[]` immediately for an empty or non-array `codes`, before calling
+ * getGuestBadges — a no-badge submit is the common case (every ordinary task
+ * completion) and must not gain a query the deleted BADGE_MOMENT_PRIORITY
+ * route guard used to skip via its own `if (reward.newBadgeIds.length > 0)`
+ * check (issue #714).
  *
  * @param {number} guestId
- * @param {Array<string>} newBadgeCodes - codes this submit newly earned
- *   (reward.newBadgeIds, src/middleware/session.js's one-shot taskComplete
- *   cookie payload)
- * @returns {object|null} the celebrated badge row (getGuestBadges shape), or
- *   null when there is nothing to celebrate
+ * @param {Array<string>} codes - candidate badge codes to rank. A code the
+ *   guest does not currently hold is silently dropped (not expected to
+ *   happen for a caller resolving codes it just read off this same guest's
+ *   own held/owed rows, but degrades to "skip it" rather than throwing).
+ * @returns {Array<object>} held badges (getGuestBadges shape) matching
+ *   `codes`, ordered by compareBadgeMoment. Empty when nothing matches.
  */
-function primaryNewBadge(guestId, newBadgeCodes) {
-  if (!Array.isArray(newBadgeCodes) || newBadgeCodes.length === 0) {
-    return null;
+function rankBadgeCandidates(guestId, codes) {
+  if (!Array.isArray(codes) || codes.length === 0) {
+    return [];
   }
-
-  const heldBadges = getGuestBadges(guestId);
-  const earnedBadges = heldBadges.filter((b) => newBadgeCodes.includes(b.code));
-  if (earnedBadges.length === 0) {
-    return null;
-  }
-
-  earnedBadges.sort(compareBadgeMoment);
-  return earnedBadges[0];
+  const codeSet = new Set(codes);
+  const matched = getGuestBadges(guestId).filter((b) => codeSet.has(b.code));
+  matched.sort(compareBadgeMoment);
+  return matched;
 }
 
 // ---------------------------------------------------------------------------
@@ -1497,7 +1493,7 @@ module.exports = {
   recordCrowdFavoriteChanges,
   getGuestBadges,
   compareBadgeMoment,
-  primaryNewBadge,
+  rankBadgeCandidates,
   badgeWithHolders,
   recomputeBadges,
   recomputeTransferableBadges,
