@@ -44,6 +44,7 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
   - [Bug-report lifecycle: additive `status` over a `resolved` rebuild, one count owner (#686)](#bug-report-lifecycle-additive-status-over-a-resolved-rebuild-one-count-owner-686)
   - [Crowd favorites: derived not materialized, standard-competition rank, one absorbed ranker (#625)](#crowd-favorites-derived-not-materialized-standard-competition-rank-one-absorbed-ranker-625)
   - [Crowd favorites: per-guest dedupe reverses the no-cap sweep rule (#896)](#crowd-favorites-per-guest-dedupe-reverses-the-no-cap-sweep-rule-896)
+  - [Crowd-favorite events: a per-guest placing-status diff, not a per-photo rank diff (#895)](#crowd-favorite-events-a-per-guest-placing-status-diff-not-a-per-photo-rank-diff-895)
   - [Crowd-favorite crown: a render-time marker, never a stored badge (#788)](#crowd-favorite-crown-a-render-time-marker-never-a-stored-badge-788)
   - [TOPLIKED: the Most Liked crown as a materialized, transferable badge (#817, widened by #821)](#topliked-the-most-liked-crown-as-a-materialized-transferable-badge-817-widened-by-821)
 
@@ -2022,7 +2023,7 @@ cache makes the deferred call free after the first one.
 schema change for this issue. A stored rank would be the one fact here that could go stale — a like arriving
 after the event was recorded could move the photo's rank again before the guest ever opens their recap.
 `KIND_VIEW.crowd_favorite.parts()` reads the CURRENT placing set live from `crowdFavorites()` every time the
-row renders, falling back to a rank-free "crowd favorite" line if the photo has since left the placing set
+row renders, falling back to a rank-free "crowd favorite" line if the guest has since left the placing set
 again (a second `crowd_favorite_lost` event, recorded separately at the moment it actually left, is what
 tells that part of the story). `crowd_favorite` reuses the existing `gold` recap view; `crowd_favorite_lost`
 reuses the existing `loss` view with `dead: true` — no new view-kind glyph or CSS was needed, both were
@@ -2074,9 +2075,41 @@ exactly once, one query regardless of guest count) is unaffected and its test
 **Deploy-transition note (accepted, everyone in prod is a tester until the wedding).** Stored
 `crowd_favorite` recap rows for photos that dedupe out at deploy remain in guests' recaps in the degraded
 rank-free form (`notifications.js`'s `crowd_favorite` fallback), and no `crowd_favorite_lost` fires for them
-retroactively — the diff only runs around live mutations. A representative-photo swap (a guest's second
-photo overtaking their first) can emit a false `crowd_favorite` + `crowd_favorite_lost` pair until #895
-re-keys `recordCrowdFavoriteChanges` by guest instead of by `submission_id`.
+retroactively — the diff only runs around live mutations. The representative-photo-swap false-pair risk this
+note originally flagged is resolved by #895, immediately below.
+
+## Crowd-favorite events: a per-guest placing-status diff, not a per-photo rank diff (#895)
+
+**Date:** 2026-07-27. **Status:** accepted.
+
+**What changed.** `recordCrowdFavoriteChanges()` (`src/services/scoring.js`) diffed the before/after placing
+sets keyed by `submission_id`, so ANY rank move on an already-placing photo — even one caused entirely by a
+_different_ guest's like shifting the standings, or (after #896) a guest's own representative photo swapping
+to a different one of their tied submissions — wrote a fresh `crowd_favorite` row and a fresh unread
+increment, for a fact ("you are a crowd favorite") that had not actually changed for that guest. The diff now
+keys by `guest_id` instead: a `crowd_favorite` event fires only when a guest's own `guest_id` is absent from
+`before` and present in `after` (entry), a `crowd_favorite_lost` event fires only when it is present in
+`before` and absent from `after` (exit), and nothing fires while the guest's `guest_id` appears on both sides
+— regardless of what their numeric rank did in between. `KIND_VIEW.crowd_favorite.parts()`
+(`src/services/notifications.js`) is re-keyed the same way: `stmtStoredEvents` now projects `ne.guest_id`
+alongside the columns it already selected, and the live placing lookup at render time matches on
+`ev.guest_id` rather than `ev.submission_id`, so a stored event whose recorded photo is no longer the guest's
+representative (the #896 swap case) still resolves to that guest's CURRENT rank instead of falling back to
+the rank-free "crowd favorite" copy. Nothing about the recap's `href`/thumbnail behavior changed — a stored
+event still links to the submission it was recorded against, which is issue #866's separate, still-open
+surface.
+
+**Alternative considered — pass the recap owner's `guestId` into `parts()` instead of projecting
+`ne.guest_id`.** Rejected: `parts()` renders one stored ROW, and the row's own `guest_id` is the fact the
+event was recorded about; threading the page-level `guestId` through every `KIND_VIEW` signature would widen
+an interface shared by all stored kinds to serve one kind, and would silently break if a future kind ever
+renders another guest's event in someone's recap. Projecting the column keeps the row self-describing.
+
+**Why this loses no information.** The recap card never stores a rank in the first place (see "Why the recap
+stores only `guest_id` + `submission_id`, never a rank," above) — `KIND_VIEW.crowd_favorite.parts()` always
+read the guest's CURRENT placing state live at render time. Suppressing an event on a rank shuffle or a
+representative swap therefore only suppresses a duplicate NOTIFICATION of an unchanged fact; the existing
+entry row keeps displaying whatever is true right now.
 
 ## Crowd-favorite crown: a render-time marker, never a stored badge (#788)
 

@@ -28,9 +28,14 @@
 //   AC6 — a full like/unlike/takedown/restore cycle leaves guest_badges'
 //         row count unchanged and creates no crowd-favorite catalog row —
 //         nothing is ever materialized for a crowd-favorite placement.
-//   AC7 — entering/moving the placing set records a live crowd_favorite
-//         recap row (current rank/points, never stale); leaving it records
-//         crowd_favorite_lost (no rank cited).
+//   AC7 — SUPERSEDED by issue #895 (2026-07-27): a recap event is now a
+//         per-guest PLACING-STATUS fact, not a per-photo rank fact. Entering
+//         the placing set records a live crowd_favorite recap row (current
+//         rank/points, read by guest_id, never stale even across a #896
+//         representative-photo swap); leaving it entirely records
+//         crowd_favorite_lost (no rank cited); staying in the set — a rank
+//         shuffle from someone else's like, or a swap of which of the
+//         guest's own tied photos represents them — records nothing.
 //   AC8 — leaderboard() calls crowdFavorites() exactly once, issuing exactly
 //         one SQL statement, regardless of guest count.
 //
@@ -468,13 +473,13 @@ describe('AC7: entering/leaving the placing set records a live recap row, never 
     expect(recap.rows.some((r) => r.kind === 'gold')).toBe(true);
   });
 
-  test('a crowd_favorite row whose photo has since left the placing set again renders the rank-free fallback, never a stale number', () => {
+  test('a crowd_favorite row whose guest has since left the placing set again renders the rank-free fallback, never a stale number', () => {
     resetField();
     const owner = makeGuest('Stale Recap Owner');
-    // No likes at all — this photo is NOT currently in the placing set.
+    // No likes at all — this guest is NOT currently in the placing set.
     // Recording the event directly (bypassing recordCrowdFavoriteChanges)
     // simulates the race KIND_VIEW.crowd_favorite.parts()'s fallback guards:
-    // a stored crowd_favorite row whose photo has moved out of the placing
+    // a stored crowd_favorite row whose guest has moved out of the placing
     // set again by the time the recap actually renders it.
     const submissionId = makeSubmission(owner.id);
     notifications.recordEvent(owner.id, 'crowd_favorite', { submissionId });
@@ -485,6 +490,140 @@ describe('AC7: entering/leaving the placing set records a live recap row, never 
     const text = row.parts.map((p) => p.text).join('');
     expect(text).toBe('Your photo is a crowd favorite');
     expect(text).not.toContain('#');
+  });
+});
+
+// Count of stored crowd_favorite/crowd_favorite_lost rows for one guest,
+// read straight off notification_events rather than through getRecap's
+// pagination/checkpoint machinery — the precise thing issue #895's AC1/AC4
+// promise ("no new ... event row is written" / "exactly one new ... event is
+// written") is a row count, not a recap-rendering concern.
+function kindCounts(guestId) {
+  const rows = db
+    .prepare(
+      `SELECT kind, COUNT(*) AS n FROM notification_events
+        WHERE guest_id = ? AND kind IN ('crowd_favorite', 'crowd_favorite_lost')
+        GROUP BY kind`
+    )
+    .all(guestId);
+  const counts = { crowd_favorite: 0, crowd_favorite_lost: 0 };
+  for (const row of rows) {
+    counts[row.kind] = row.n;
+  }
+  return counts;
+}
+
+describe('issue #895: crowd-favorite events are a per-guest placing-status fact, not a per-photo rank fact', () => {
+  test('AC1: a guest who stays placing records nothing when only their numeric rank shifts', () => {
+    resetField();
+    const stable = makeGuest('Shuffle Stable Guest');
+    const mover = makeGuest('Shuffle Mover Guest');
+    const sStable = makeSubmission(stable.id);
+    const sMover = makeSubmission(mover.id);
+    addLikes(sStable, 5); // stable starts at rank 1
+    addLikes(sMover, 3); // mover starts at rank 2
+
+    // Both enter the placing set for the first time.
+    scoring.recordCrowdFavoriteChanges([]);
+    expect(kindCounts(stable.id)).toMatchObject({ crowd_favorite: 1, crowd_favorite_lost: 0 });
+
+    // Mover overtakes stable via a fresh batch of likes on MOVER's photo —
+    // stable never touches their own photo, yet stable's numeric rank shifts
+    // from 1 to 2. Stable stays in the placing set throughout.
+    const before = scoring.crowdFavorites();
+    addLikes(sMover, 3); // mover now at 6 likes, ahead of stable's 5
+    scoring.recordCrowdFavoriteChanges(before);
+
+    const bySub = placingBySubmission();
+    expect(bySub.get(sStable)).toMatchObject({ rank: 2 }); // shifted down from 1
+    expect(bySub.get(sMover)).toMatchObject({ rank: 1 });
+
+    // Still exactly the one entry event from before the shuffle — no new row.
+    expect(kindCounts(stable.id)).toMatchObject({ crowd_favorite: 1, crowd_favorite_lost: 0 });
+  });
+
+  test('AC1 (#896 swap): a representative-photo swap between a guest’s own tied photos records nothing while they stay placing', () => {
+    resetField();
+    const owner = makeGuest('Swap Owner');
+    const rival = makeGuest('Swap Rival');
+    const sFirst = makeSubmission(owner.id);
+    const sSecond = makeSubmission(owner.id);
+    const sRival = makeSubmission(rival.id);
+    addLikes(sFirst, 5); // owner's current best photo -> places at rank 1
+    addLikes(sRival, 3);
+
+    scoring.recordCrowdFavoriteChanges([]); // owner + rival both enter
+    expect(kindCounts(owner.id)).toMatchObject({ crowd_favorite: 1, crowd_favorite_lost: 0 });
+
+    // owner's SECOND photo overtakes their first (6 > 5) — the dedupe
+    // tiebreak now picks sSecond as owner's representative instead of
+    // sFirst, but owner themselves never left the placing set.
+    const before = scoring.crowdFavorites();
+    addLikes(sSecond, 6);
+    scoring.recordCrowdFavoriteChanges(before);
+
+    const ownerPlacing = scoring.crowdFavorites().filter((p) => p.guest_id === owner.id);
+    expect(ownerPlacing.length).toBe(1);
+    expect(ownerPlacing[0].submission_id).toBe(sSecond); // representative swapped
+
+    // Still exactly the one entry event — the swap itself is not news.
+    expect(kindCounts(owner.id)).toMatchObject({ crowd_favorite: 1, crowd_favorite_lost: 0 });
+  });
+
+  test('AC4: a guest who exits and later re-enters the placing set records exactly one new crowd_favorite event', () => {
+    resetField();
+    const owner = makeGuest('Reentry Owner');
+    const rival = makeGuest('Reentry Rival');
+    const submissionId = makeSubmission(owner.id);
+    const rivalSubmission = makeSubmission(rival.id);
+    addLikes(submissionId, 5); // owner places at rank 1
+    addLikes(rivalSubmission, 3);
+
+    scoring.recordCrowdFavoriteChanges([]); // owner + rival both enter
+    expect(kindCounts(owner.id)).toMatchObject({ crowd_favorite: 1, crowd_favorite_lost: 0 });
+
+    // Owner's only placing photo is taken down — they exit the set entirely.
+    // photos.hideSubmission runs its own before/after diff internally (the
+    // same transaction the live takedown route uses), so this is not a
+    // second, redundant recordCrowdFavoriteChanges call.
+    photos.hideSubmission(submissionId);
+    expect(kindCounts(owner.id)).toMatchObject({ crowd_favorite: 1, crowd_favorite_lost: 1 });
+
+    // Restored — owner re-enters the placing set.
+    photos.restoreSubmission(submissionId);
+    expect(kindCounts(owner.id)).toMatchObject({ crowd_favorite: 2, crowd_favorite_lost: 1 });
+  });
+
+  test('AC5: the recap reads the CURRENT rank by owning guest even when the stored event’s submission is no longer the representative', () => {
+    resetField();
+    const owner = makeGuest('Recap Swap Owner');
+    const rival = makeGuest('Recap Swap Rival');
+    const sFirst = makeSubmission(owner.id);
+    const sSecond = makeSubmission(owner.id);
+    const sRival = makeSubmission(rival.id);
+    addLikes(sFirst, 5); // owner places at rank 1 on sFirst
+    addLikes(sRival, 3);
+
+    // The stored event names sFirst — the guest's representative AT THE TIME
+    // it was recorded.
+    notifications.recordEvent(owner.id, 'crowd_favorite', { submissionId: sFirst });
+
+    // sSecond overtakes sFirst — owner's representative swaps, but owner is
+    // still placing (now at rank 1 on sSecond instead).
+    addLikes(sSecond, 7);
+    const ownerPlacing = scoring.crowdFavorites().find((p) => p.guest_id === owner.id);
+    expect(ownerPlacing.submission_id).toBe(sSecond);
+    expect(ownerPlacing.rank).toBe(1);
+
+    // The recap row (looked up by owner.id, not by the stored sFirst) must
+    // still show the guest's CURRENT rank/points, not fall back to the
+    // rank-free copy just because sFirst itself dropped out of the set.
+    const recap = notifications.getRecap(owner.id);
+    const goldRow = recap.rows.find((r) => r.kind === 'gold');
+    expect(goldRow).toBeDefined();
+    const text = goldRow.parts.map((p) => p.text).join('');
+    expect(text).toContain('#1 crowd favorite');
+    expect(text).toContain('+5 pts');
   });
 });
 

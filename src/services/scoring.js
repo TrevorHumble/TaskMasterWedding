@@ -366,7 +366,8 @@ const stmtVisibleLikeCounts = db.prepare(`
  * wording) — but a tie no longer inflates a single guest's own placement
  * count, only the field's.
  * @returns {Array<{submission_id: number, guest_id: number, like_count:
- *   number, rank: number, points: number}>} best rank first.
+ *   number, rank: number, points: number}>} best rank first; at most one
+ *   row per guest_id (#896).
  */
 function crowdFavorites() {
   const rows = stmtVisibleLikeCounts.all();
@@ -427,33 +428,44 @@ function crowdPointsByGuest() {
  * Diff the crowd-favorite placing set BEFORE a mutation (a like toggle, a
  * takedown, or a restore — every caller captures `before` via
  * crowdFavorites() immediately before its own write) against the CURRENT
- * set, and emit exactly one recap event per photo that actually moved (issue
- * #625 AC7): entered or moved rank -> 'crowd_favorite' to the photo's owner;
- * left the placing set entirely -> 'crowd_favorite_lost'. A photo whose rank
- * (and therefore points, since points derive purely from rank) is UNCHANGED
- * emits nothing — the diff is what keeps this bounded to the photos one
- * like/takedown/restore actually touched, not every photo in the placing set
- * on every call (this issue's plan: "inherently bounded to the photos that
- * actually moved"). No stale rank is ever stored: the recap row itself
- * carries only guest_id + submission_id (notifications.recordEvent), and
- * reads the CURRENT rank/points from crowdFavorites() again at render time.
+ * set, KEYED BY GUEST_ID (issue #895, superseding #625 AC7's old
+ * submission-keyed diff): emit exactly one recap event per guest whose
+ * PLACING STATUS actually changed — entered the set -> 'crowd_favorite' to
+ * that guest; left the set entirely -> 'crowd_favorite_lost'. A guest who
+ * remains in the set emits nothing, no matter WHY crowdFavorites() reports
+ * them again: a pure rank shuffle from someone else's like changing nothing
+ * about this guest's own membership, or (since #896) a representative-photo
+ * swap when a guest's own previously-second-best tied photo overtakes their
+ * old best — neither is news, since the guest's placing FACT (in vs. out)
+ * never changed. (#625's original rule — "entered or moved rank" — is what
+ * #895 fixes: a rank move alone is not itself news.) No stale rank is ever
+ * stored: the recap row carries only guest_id + submission_id
+ * (notifications.recordEvent), and reads the CURRENT rank/points from
+ * crowdFavorites() again at render time, keyed by guest_id
+ * (notifications.js's KIND_VIEW.crowd_favorite.parts()) so a later
+ * representative-photo swap can never strand a stored row on a submission_id
+ * that has stopped representing the guest.
  * @param {Array<{submission_id: number, guest_id: number, rank: number}>} before
- *   - the return of crowdFavorites(), captured before the caller's mutation.
+ *   - the return of crowdFavorites(), captured before the caller's mutation;
+ *   at most one row per guest_id (#896).
  */
 function recordCrowdFavoriteChanges(before) {
   const after = crowdFavorites();
-  const beforeBySubmission = new Map(before.map((p) => [p.submission_id, p]));
-  const afterBySubmission = new Map(after.map((p) => [p.submission_id, p]));
+  const beforeByGuest = new Map(before.map((p) => [p.guest_id, p]));
+  const afterByGuest = new Map(after.map((p) => [p.guest_id, p]));
 
-  for (const [submissionId, afterPlacing] of afterBySubmission) {
-    const beforePlacing = beforeBySubmission.get(submissionId);
-    if (!beforePlacing || beforePlacing.rank !== afterPlacing.rank) {
-      notifications.recordEvent(afterPlacing.guest_id, 'crowd_favorite', { submissionId });
+  for (const [guestId, afterPlacing] of afterByGuest) {
+    if (!beforeByGuest.has(guestId)) {
+      notifications.recordEvent(guestId, 'crowd_favorite', {
+        submissionId: afterPlacing.submission_id,
+      });
     }
   }
-  for (const [submissionId, beforePlacing] of beforeBySubmission) {
-    if (!afterBySubmission.has(submissionId)) {
-      notifications.recordEvent(beforePlacing.guest_id, 'crowd_favorite_lost', { submissionId });
+  for (const [guestId, beforePlacing] of beforeByGuest) {
+    if (!afterByGuest.has(guestId)) {
+      notifications.recordEvent(guestId, 'crowd_favorite_lost', {
+        submissionId: beforePlacing.submission_id,
+      });
     }
   }
 }
