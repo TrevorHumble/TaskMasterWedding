@@ -2422,4 +2422,3 @@ other.
 **Deliberately not in scope.** The data file (~106 KB at #903 merge time; it grows with the catalog) loads on every `/admin/tasks` view
 with no lazy-load or compression; this is a one-host admin page, not a hundred-guest surface, so the payload
 cost is accepted rather than engineered around. The tag map has no guest-facing consumer.
->>>>>>> origin/main
