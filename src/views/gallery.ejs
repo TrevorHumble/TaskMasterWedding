@@ -56,8 +56,9 @@
       crownRank's own guard idiom. %>
   <% var crownGoldId = (typeof crownGoldId !== 'undefined') ? crownGoldId : null; %>
 
-  <%# Task-badge victory medal lookup (issue #811): submission_id -> released
-      placement rank (1 is gold), supplied by the route from ONE
+  <%# Task-badge victory medal lookup (issue #811, widened by #893):
+      submission_id -> { rank, badge: { name, art_path } } for every released
+      placement, supplied by the route from ONE
       taskBadges.victoryRankBySubmission() call over guest_badges' released
       ranks. Defaults to an empty lookup when a caller renders this view
       without it, matching crownRank's own guard idiom. %>
@@ -99,8 +100,12 @@
         <% } else if (badgeVictory[p.submission_id]) { %>
           <%# The gallery tile carries no like-count overlay (issue #811): the
               only bottom-left mark a photo wears is its task-badge victory
-              medal, when it has won one. %>
-          <%- include('partials/badge-victory-mark', { rank: badgeVictory[p.submission_id] }) %>
+              medal, when it has won one — rendering the actual badge won
+              (issue #893), not a generic glyph. %>
+          <%- include('partials/badge-victory-mark', {
+                rank: badgeVictory[p.submission_id].rank,
+                badge: badgeVictory[p.submission_id].badge
+              }) %>
         <% } %>
       </a>
     </figure>
