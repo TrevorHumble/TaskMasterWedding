@@ -35,6 +35,22 @@
   var saveBtn = document.getElementById('badge-picker-save');
   var cells = Array.prototype.slice.call(form.querySelectorAll('.badge-picker-cell'));
 
+  // Search text per cell: the display name PLUS every tag from
+  // badge-icon-tags.js (loaded before this file), so typing any related word
+  // ("hangover", "booze", "bride") surfaces the icon, not just its name.
+  // Built once here rather than server-rendered into data attributes — the
+  // tags are pure search data, and one shared map keeps the picker HTML lean.
+  var tagMap = window.BadgeIconTags || {};
+  cells.forEach(function (cell) {
+    var radio = cell.querySelector('.badge-picker-radio');
+    var id = radio ? radio.value : '';
+    var tagText = (tagMap[id] || []).join(' ');
+    cell.setAttribute(
+      'data-search',
+      ((cell.getAttribute('data-name') || '') + ' ' + tagText).toLowerCase()
+    );
+  });
+
   // The display name the host last accepted as auto-filled, so re-picking a
   // different icon updates the name only while the host hasn't typed their own.
   var autoFilledName = '';
@@ -69,7 +85,7 @@
     var q = (search.value || '').trim().toLowerCase();
     var any = false;
     cells.forEach(function (cell) {
-      var match = !q || (cell.getAttribute('data-name') || '').indexOf(q) !== -1;
+      var match = !q || (cell.getAttribute('data-search') || '').indexOf(q) !== -1;
       cell.hidden = !match;
       if (match) any = true;
     });

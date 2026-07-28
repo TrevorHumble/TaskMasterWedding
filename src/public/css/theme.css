@@ -3273,7 +3273,11 @@ body:has(dialog[open]) {
   min-width: 24px;
   height: 24px;
   padding: 0 var(--space-1);
-  border-radius: var(--radius-input);
+  /* Round like the badge medallions beside it (owner call, #891 loop) —
+     the pill token so a two-digit +N relaxes to a pill instead of an oval. */
+  border-radius: var(--radius-pill);
+  /* It's a link now (to the guest's profile) — keep the chip look. */
+  text-decoration: none;
   background: var(--green-50);
   border: var(--border-hairline);
   font-size: var(--fs-small);
@@ -3376,10 +3380,28 @@ body:has(dialog[open]) {
   align-items: center;
   gap: var(--space-3);
   flex: 1;
+  /* min-width: 0 lets this flex child shrink below its content so a long
+     name truncates instead of pushing the row wider than the phone (#891). */
+  min-width: 0;
   text-decoration: none;
   color: var(--color-text);
 }
+.lb-guest .lb-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The avatar keeps its circle when the row squeezes (#891) — only the name
+   gives ground. */
+.lb-guest .lb-avatar,
+.lb-guest .lb-avatar-empty {
+  flex-shrink: 0;
+}
 .lb-guest:hover {
+  text-decoration: none;
+}
+/* Same override for the +N chip link — an underline would slice the pill. */
+.lb-badge-more:hover {
   text-decoration: none;
 }
 .lb-avatar {
@@ -3411,6 +3433,11 @@ body:has(dialog[open]) {
   display: flex;
   gap: var(--space-1);
   flex-shrink: 0;
+  /* A near-cap badge cluster wraps into a second short line rather than
+     overflowing the row on narrow phones (#891). */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 38%;
 }
 /* Each icon is wrapped in an <a href="/badge/:code"> (issue #488). */
 .lb-badges a {
