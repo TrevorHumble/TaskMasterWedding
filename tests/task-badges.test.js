@@ -313,7 +313,7 @@ describe('AC8: createCustomBadge refuses a reserved TASK- code', () => {
 // covers the write path itself and is not duplicated here.
 // ---------------------------------------------------------------------------
 describe('issue #811: victoryRankBySubmission()', () => {
-  it('a released ranking yields the expected submission_id -> rank map; an unranked submission is absent', () => {
+  it('a released ranking yields the expected submission_id -> { rank, badge } map; an unranked submission is absent', () => {
     const taskId = makeTask('Victory lookup task');
     const winner1 = makeGuest('Victory Lookup Winner 1');
     const winner2 = makeGuest('Victory Lookup Winner 2');
@@ -331,8 +331,8 @@ describe('issue #811: victoryRankBySubmission()', () => {
     expect(released).toBeTruthy();
 
     const lookup = taskBadges.victoryRankBySubmission();
-    expect(lookup[rank1Sub]).toBe(1);
-    expect(lookup[rank2Sub]).toBe(2);
+    expect(lookup[rank1Sub].rank).toBe(1);
+    expect(lookup[rank2Sub].rank).toBe(2);
     expect(lookup[unrankedSub]).toBeUndefined();
   });
 
@@ -343,7 +343,7 @@ describe('issue #811: victoryRankBySubmission()', () => {
 
     const released = taskBadges.releaseRanking(taskId, [winningSub]);
     expect(released).toBeTruthy();
-    expect(taskBadges.victoryRankBySubmission()[winningSub]).toBe(1);
+    expect(taskBadges.victoryRankBySubmission()[winningSub].rank).toBe(1);
 
     db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(winningSub);
     // The award row itself survives the takedown (issue #661 AC4) — only the
@@ -355,7 +355,29 @@ describe('issue #811: victoryRankBySubmission()', () => {
     ).toBe(1);
 
     db.prepare('UPDATE submissions SET taken_down = 0 WHERE id = ?').run(winningSub);
-    expect(taskBadges.victoryRankBySubmission()[winningSub]).toBe(1);
+    expect(taskBadges.victoryRankBySubmission()[winningSub].rank).toBe(1);
+  });
+
+  it('issue #893: the lookup carries the actual badge won — name + art_path — from the badges catalog row', () => {
+    const taskId = makeTask('Victory lookup badge-art task');
+    const winner = makeGuest('Victory Lookup Badge-Art Winner');
+    const winningSub = makeSubmission(winner, taskId);
+
+    // Customize the task's badge BEFORE releasing, so the lookup's joined
+    // name/art_path can be asserted against a value distinct from the
+    // lazily-inserted default ('Task Badge' / DEFAULT_RIBBON_ART_PATH) —
+    // proving the join reads the customized badge row, not the lazily-inserted default.
+    taskBadges.setTaskBadge(taskId, {
+      name: 'Cake Smasher',
+      artPath: '/badges/icons/cake.svg',
+    });
+
+    const released = taskBadges.releaseRanking(taskId, [winningSub]);
+    expect(released).toBeTruthy();
+
+    const entry = taskBadges.victoryRankBySubmission()[winningSub];
+    expect(entry.rank).toBe(1);
+    expect(entry.badge).toEqual({ name: 'Cake Smasher', art_path: '/badges/icons/cake.svg' });
   });
 });
 

@@ -2232,13 +2232,33 @@ textarea {
   color: #fff;
   pointer-events: none;
 }
-.tile-victory svg {
-  display: block;
-}
 .tile-victory-gold {
   color: var(--place-1);
   background: rgba(20, 30, 24, 0.62);
   box-shadow: 0 0 0 1.5px var(--place-1);
+}
+/* Issue #893 (owner direction): the mark is the EXACT crown treatment — same
+   dark disc, white glyph, gold-with-ring for the sole winner — only the glyph
+   is the actual badge's icon and the seat is bottom-left. The medallion's
+   white circle/ring is stripped inside the disc; the masked icon takes its
+   fill from currentColor via --badge-icon-color, so .tile-victory's own
+   white/gold color drives it exactly like the crown's SVG. */
+.tile-victory-badge .badge-medallion {
+  width: 100%;
+  height: 100%;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  --badge-icon-color: currentColor;
+}
+.tile-victory-badge .badge-medallion-icon {
+  width: 16px;
+  height: 16px;
+}
+.tile-victory-badge .tile-victory-art {
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 
 /* Likers list (issue #890): the "N likes" tap target in the feed action bar
