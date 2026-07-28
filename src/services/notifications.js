@@ -14,7 +14,13 @@
 // issue): a STORED event (badge_granted/revoked) is PERMANENT — it stays in
 // the recap forever, tinted read/white once its checkpoint passes, so a
 // badge row can still replay its celebration "on demand" long after it was
-// first shown (issue #644 AC1). A DERIVED like-batch is EPHEMERAL — it only
+// first shown (issue #644 AC1). EXCEPTION (issue #894): a badge_granted event
+// that was never celebrated (guest_badges.celebrated_at still NULL) is
+// retracted by retractGrantAnnouncement below when scoring.js's
+// recomputeTransferableBadges revokes the row it announced — the guest never
+// saw that grant, so it is not a real "STORED" fact by this module's own
+// permanence rule; see DESIGN.md's #894 amendment to this ADR. A DERIVED
+// like-batch is EPHEMERAL — it only
 // exists in the list while it has at least one like strictly newer than the
 // guest's checkpoint, and its displayed count is ONLY those new likes, never
 // a lifetime total (AC3's own wording: "5 older likes and 3 new ones still
@@ -343,6 +349,51 @@ function recordEvent(guestId, kind, opts = {}) {
   const submissionId = opts.submissionId != null ? opts.submissionId : null;
   const badgeId = opts.badgeId != null ? opts.badgeId : null;
   stmtRecordEvent.run(guestId, kind, submissionId, badgeId);
+}
+
+const stmtGrantWasAnnounced = db.prepare(
+  `SELECT 1 FROM notification_events WHERE guest_id = ? AND badge_id = ? AND kind = 'badge_granted' LIMIT 1`
+);
+
+/**
+ * Was this guest ever sent a badge_granted event for this badge? Read by
+ * scoring.js's recomputeTransferableBadges (issue #894) to tell a genuine
+ * first grant apart from a re-grant of a badge this guest was already told
+ * about — the identical predicate render-locals.js's stmtOwedBadges keys its
+ * "owed" join on, asked here before deciding whether a re-grant celebrates
+ * again. This module owns the predicate (it owns notification_events and its
+ * `kind` vocabulary) even though the caller lives in scoring.js.
+ * @param {number} guestId
+ * @param {number} badgeId
+ * @returns {boolean}
+ */
+function grantWasAnnounced(guestId, badgeId) {
+  return !!stmtGrantWasAnnounced.get(guestId, badgeId);
+}
+
+const stmtRetractGrantAnnouncement = db.prepare(
+  `DELETE FROM notification_events WHERE guest_id = ? AND badge_id = ? AND kind = 'badge_granted'`
+);
+
+/**
+ * Delete every stored badge_granted event for (guest, badge) — the #894
+ * exception to this module's own "stored events are permanent" rule (see the
+ * file header comment above and DESIGN.md's #894 amendment). This function
+ * does NOT check celebrated_at itself: the caller (scoring.js's
+ * recomputeTransferableBadges, in its revoke branch) is the one place that
+ * already has the guest_badges row in hand and MUST only call this when that
+ * row's celebrated_at is still NULL — i.e. the guest never actually saw this
+ * grant's celebration, so as far as the recap/owed-badge machinery is
+ * concerned the grant never happened. Calling this for an already-celebrated
+ * grant would retract a real, seen announcement, which is never correct.
+ * `notification_events` has no uniqueness constraint, so a pre-existing flap
+ * may have left more than one badge_granted row for this pair behind — this
+ * deletes all of them, not just one.
+ * @param {number} guestId
+ * @param {number} badgeId
+ */
+function retractGrantAnnouncement(guestId, badgeId) {
+  stmtRetractGrantAnnouncement.run(guestId, badgeId);
 }
 
 // ---------------------------------------------------------------------------
@@ -1071,6 +1122,8 @@ function markSeen(guestId) {
 
 module.exports = {
   recordEvent,
+  grantWasAnnounced,
+  retractGrantAnnouncement,
   getRecap,
   getUnreadCount,
   markSeen,

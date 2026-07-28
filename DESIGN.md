@@ -2352,6 +2352,45 @@ left as-is — stored events are permanent by design (`notifications.js`'s own d
 prod today is a disposable tester (the wedding is 2026-08-07). Client-side button-disable guards that would
 stop the extra POSTs from firing at all are `#898`, tracked separately as the visual half of this fix.
 
+## Amendment: a never-celebrated `badge_granted` event is retracted, not permanent (#894)
+
+**Date:** 2026-07-28. **Status:** shipped.
+
+The #644 ADR above states stored `notification_events` rows are permanent — no emitter has ever deleted
+one, and #889's own "deliberately not in scope" note above just leaned on that same permanence to justify
+leaving pre-#889 duplicate rows in place. #894 narrows that rule for exactly one case: a transferable
+badge's `badge_granted` event whose grant the guest never actually saw celebrated.
+
+`recomputeTransferableBadges()` (`src/services/scoring.js`) revokes and re-grants a transferable badge
+(e.g. TOPLIKED) as a pure side effect of ANY guest's like/unlike moving the standings — a guest sitting at
+the rank-5 boundary can flap out and back in from someone else's action alone, with no visit to the site
+of their own. Before #894, every re-grant wrote a second, permanent `badge_granted` event, and
+`render-locals.js`'s `resolveBadgeMoment` treats any `guest_badges` row with `celebrated_at IS NULL` and a
+matching event as owed — so a flapped-back-in guest saw the #255 celebration dialog again on their very
+next render, indefinitely, as standings kept wobbling (the guest-reported bug: "it isn't one after another
+it's every time the page reloads").
+
+**The permanent event log becomes an accurate "this grant was announced" memory, in both directions:**
+
+- **Re-grant of an announced badge is silent.** If a `badge_granted` event already exists for
+  (guest, badge), the restored row is inserted with `celebrated_at` already set (`stmtGrantBadge`'s
+  `alreadyAnnounced` flag) and no second event is written. The guest was already told once; a flap is not news.
+- **A never-announced grant that un-happens is fully retracted.** When a revoke removes a row whose
+  `celebrated_at` is still `NULL` — the guest never rendered a page between the grant and the revoke —
+  its `badge_granted` event is deleted with it (`notifications.retractGrantAnnouncement`). Without this, a
+  flap interleaving between grant and the guest's first render would leave a stale event on file, make a
+  later GENUINE re-grant look already-announced, and silently swallow the guest's first-ever celebration
+  of that badge. `notification_events` has no uniqueness constraint, so this deletes every matching row
+  for the pair, not just one — a pre-existing flap could have left more than one behind.
+
+**Accepted, not engineered around:** a guest may briefly have seen the row in the recap strip before it
+vanishes (the row existed for the seconds between grant and revoke) — the flap window is short and the
+alternative (leaving the stale event standing) loses a real first celebration, which is the worse
+failure. `badge_revoked` emission is unchanged by this issue — its own event-spam and recap-copy
+questions on flap-out predate #894 and stay parked on `#588`. `recomputeBadges()` (the per-guest
+auto/metric path) is untouched: this amendment applies only to `recomputeTransferableBadges()`'s
+grant/revoke pair, since only a transferable badge's holder set is subject to this outside-driven flap.
+
 ## Badge icon search tags: a public client-side data file, not server-rendered attributes (#903)
 
 The admin badge-icon picker's search box (`src/public/js/badge-picker.js`, part of #410) matched only an

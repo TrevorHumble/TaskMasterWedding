@@ -883,9 +883,14 @@ ensureGuestBadgeSubmissionCascade();
  * does, so a badge is celebrated exactly once no matter which page happens
  * to render first (plan step 4). Going forward, every NEW grant — recompute-
  * driven (scoring.js's recomputeBadges/recomputeTransferableBadges) or
- * host-awarded (awardSpecialBadge) — leaves this column NULL by simply never
- * naming it in the INSERT, so a freshly granted badge is owed by
- * construction; nothing here writes it non-NULL at grant time.
+ * host-awarded (awardSpecialBadge) — leaves this column NULL by passing 0
+ * for stmtGrantBadge's alreadyAnnounced flag, so a freshly granted badge is
+ * owed by construction. EXCEPTION (issue #894): recomputeTransferableBadges' grant
+ * branch writes celebrated_at non-NULL at grant time when notifications.
+ * grantWasAnnounced(guestId, badgeId) is true — a re-grant of a transferable
+ * badge this guest was already told about (a flap: revoked and re-granted as
+ * a side effect of another guest's like) restores the row already-celebrated
+ * instead of re-arming the dialog. Every OTHER grant path is unaffected.
  *
  * The backfill is what keeps AC8 honest: without it, EVERY badge a guest
  * already held before this migration ran would read celebrated_at = NULL
