@@ -1083,61 +1083,144 @@ function absThumbPath(thumbPath) {
 // ---------------------------------------------------------------------------
 
 const _getSubmissionGuest = db.prepare('SELECT guest_id FROM submissions WHERE id = ?');
-const _setTakenDown = db.prepare('UPDATE submissions SET taken_down = ? WHERE id = ?');
+// taken_down_by (issue #886) is written in the SAME statement as taken_down,
+// never a separate UPDATE — see the file-level "single writer" comment above:
+// the two columns flip together, in the same transaction, or not at all.
+const _setTakenDown = db.prepare(
+  'UPDATE submissions SET taken_down = ?, taken_down_by = ? WHERE id = ?'
+);
 // Cleared only on restore (issue #190) — see restoreSubmission below. hide
 // leaves resubmitted exactly as it was: a takedown does not, by itself, say
 // anything about whether a resubmit is pending.
 const _clearResubmitted = db.prepare('UPDATE submissions SET resubmitted = 0 WHERE id = ?');
 
+// The only two legal explicit values for hideSubmission's `by` argument
+// (issue #886's "Attribution convention"). NULL is a legitimate STORED value
+// (a legacy or unattributed row) but is never a legal ARGUMENT here — a
+// caller that wants "no attribution" has nothing to ask for, since every
+// call site knows which actor it is.
+const VALID_TAKEN_DOWN_BY = new Set(['admin', 'guest']);
+
+// The SINGLE owner of the Attribution convention's "is this row hidden by
+// the guest who owns it" predicate (issue #886 PR review fix — the rule had
+// been hand-typed independently at more than one call site, in mixed
+// polarity). This codebase already had this exact duplicated-visibility-rule
+// problem once — see src/services/feed.js's own file comment on why
+// taken_down itself has exactly one owner — so the fix here is the same
+// move: one function, consumed everywhere the question is asked, rather than
+// independent copies of `taken_down === 1 && taken_down_by === 'guest'`
+// drifting apart. Deliberately NOT enumerated by caller here (or in
+// isStickyTakedown below): a per-file roster goes stale the moment a new
+// consumer is added or an existing one changes shape — what this comment
+// owns is what the predicate MEANS, not who currently calls it.
+//
+// Written in the SAME direction the Attribution convention requires
+// elsewhere (see hideSubmission's own doc comment): TRUE only when
+// taken_down_by is explicitly 'guest'. A NULL or 'admin' attribution reads
+// false here — sticky, per #190 — even though a NULL row is also hidden.
+// isStickyTakedown below negates this (AND still checks taken_down itself —
+// "not hidden by the guest" alone is not "sticky" for a currently-visible
+// row).
+// @param {{taken_down: 0|1, taken_down_by: 'admin'|'guest'|null}} row
+// @returns {boolean}
+function hiddenByOwningGuest(row) {
+  return row.taken_down === 1 && row.taken_down_by === 'guest';
+}
+
+// The composed sticky-takedown predicate the Attribution convention reduces
+// to: a row that is currently taken down AND was not hidden by the owning
+// guest's own delete. Composes hiddenByOwningGuest above rather than letting
+// a caller re-type the conjunction — a duplicated
+// `taken_down === 1 && !hiddenByOwningGuest(row)` expression hand-typed
+// independently at more than one call site was a PR-review finding on issue
+// #886 (both reviewers): a third attribution value added later that updates
+// only one site would silently let a guest launder a non-guest takedown into
+// their own, reopening the hole AC4 exists to close. Not enumerated by
+// caller here either, for the same reason hiddenByOwningGuest's own comment
+// gives above.
+// @param {{taken_down: 0|1, taken_down_by: 'admin'|'guest'|null}} row
+// @returns {boolean}
+function isStickyTakedown(row) {
+  return row.taken_down === 1 && !hiddenByOwningGuest(row);
+}
+
 /**
- * Flip a submission's taken_down flag and recompute the owning guest's
- * auto-badges, atomically. Returns the guest_id so callers can report success
- * without a second lookup; returns undefined if no such submission exists (so
- * callers can guard on that the same way they guarded a raw UPDATE before).
+ * Flip a submission's taken_down flag (and taken_down_by attribution) and
+ * recompute the owning guest's auto-badges, atomically. Returns the guest_id
+ * so callers can report success without a second lookup; returns undefined
+ * if no such submission exists (so callers can guard on that the same way
+ * they guarded a raw UPDATE before).
  * @param {number} submissionId
  * @param {0|1} takenDown
+ * @param {'admin'|'guest'|null} takenDownBy - the value taken_down_by is set
+ *        to in the same write as takenDown. null on restore (visible rows
+ *        carry no attribution).
  * @param {boolean} clearResubmitted - true only for restore (issue #190): a
  *        restored row is no longer "resubmitted behind a takedown", so the
  *        flag clears in the same transaction as the taken_down flip.
  * @returns {number|undefined} the submission's guest_id, or undefined if not found.
  */
-const _setTakenDownAndRecount = db.transaction((submissionId, takenDown, clearResubmitted) => {
-  const row = _getSubmissionGuest.get(submissionId);
-  if (!row) return undefined;
-  // Snapshot the crowd-favorite placing set BEFORE the flag flip (issue
-  // #625 AC7): a takedown/restore can move which guests place (a taken-down
-  // photo's likes stop counting; a restore brings them back), and
-  // recordCrowdFavoriteChanges below diffs per GUEST (entry/exit, issue
-  // #895) — bounded to the guests whose placing state this one flip moved.
-  const beforeCrowd = scoring.crowdFavorites();
-  _setTakenDown.run(takenDown, submissionId);
-  if (clearResubmitted) {
-    _clearResubmitted.run(submissionId);
+const _setTakenDownAndRecount = db.transaction(
+  (submissionId, takenDown, takenDownBy, clearResubmitted) => {
+    const row = _getSubmissionGuest.get(submissionId);
+    if (!row) return undefined;
+    // Snapshot the crowd-favorite placing set BEFORE the flag flip (issue
+    // #625 AC7): a takedown/restore can move which guests place (a taken-down
+    // photo's likes stop counting; a restore brings them back), and
+    // recordCrowdFavoriteChanges below diffs per GUEST (entry/exit, issue
+    // #895) — bounded to the guests whose placing state this one flip moved.
+    const beforeCrowd = scoring.crowdFavorites();
+    _setTakenDown.run(takenDown, takenDownBy, submissionId);
+    if (clearResubmitted) {
+      _clearResubmitted.run(submissionId);
+    }
+    // One recompute seam runs the per-guest auto/metric pass and the global
+    // transferable pass in order (issue #80) — a takedown/restore can change
+    // who holds a registered transferable badge, not just this guest's own
+    // metric badges. The seam is itself a db.transaction, and better-sqlite3
+    // nests transaction functions via SAVEPOINTs, so calling it from inside
+    // this outer transaction is safe.
+    scoring.recomputeAfterSubmissionChange(row.guest_id);
+    // Emit the crowd-favorite recap diff (issue #625 AC7, per-guest since
+    // #895) — after the flag flip so it sees the CURRENT (post-mutation)
+    // placing set.
+    scoring.recordCrowdFavoriteChanges(beforeCrowd);
+    return row.guest_id;
   }
-  // One recompute seam runs the per-guest auto/metric pass and the global
-  // transferable pass in order (issue #80) — a takedown/restore can change
-  // who holds a registered transferable badge, not just this guest's own
-  // metric badges. The seam is itself a db.transaction, and better-sqlite3
-  // nests transaction functions via SAVEPOINTs, so calling it from inside
-  // this outer transaction is safe.
-  scoring.recomputeAfterSubmissionChange(row.guest_id);
-  // Emit the crowd-favorite recap diff (issue #625 AC7) — after the flag
-  // flip so it sees the CURRENT (post-mutation) placing set.
-  scoring.recordCrowdFavoriteChanges(beforeCrowd);
-  return row.guest_id;
-});
+);
 
 /**
- * Hide a submission (admin photo takedown). Keeps the file on disk for export.
+ * Hide a submission (photo takedown). Keeps the file on disk for export.
  * Recomputes the guest's auto-badges in the same transaction as the flag flip,
  * so a dropped visible-submission count immediately revokes any auto badge
  * whose threshold is no longer met. Leaves resubmitted untouched (issue #190)
  * — hiding a currently-visible photo is never itself a resubmit.
+ *
+ * `by` (issue #886) attributes WHO took it down and is written in the same
+ * transaction as the flag flip. It defaults to 'admin' when omitted — a
+ * compatibility contract, not an accident: both production routes pass the
+ * actor explicitly (src/routes/admin.js 'admin', src/routes/community.js
+ * 'guest'), so the callers still relying on this default are the pre-#886
+ * one-argument call sites, all of them under tests/, which keep their
+ * existing host-moderation semantics unchanged. Only an
+ * EXPLICITLY passed value outside {'admin','guest'} is rejected, and it is
+ * rejected loudly with a TypeError BEFORE any write runs — a caller bug
+ * (typo, stale literal) fails fast at the call site instead of surfacing
+ * three layers down as a SqliteError from the column's own CHECK
+ * constraint. An omitted argument is never rejected: it is `undefined`,
+ * which the default parameter turns into 'admin' before validation ever
+ * sees it.
  * @param {number} submissionId
+ * @param {'admin'|'guest'} [by] - who took the photo down. Defaults to 'admin'.
  * @returns {number|undefined} the submission's guest_id, or undefined if not found.
  */
-function hideSubmission(submissionId) {
-  return _setTakenDownAndRecount(submissionId, 1, false);
+function hideSubmission(submissionId, by = 'admin') {
+  if (!VALID_TAKEN_DOWN_BY.has(by)) {
+    throw new TypeError(
+      `hideSubmission: 'by' must be 'admin' or 'guest' (or omitted), got ${JSON.stringify(by)}`
+    );
+  }
+  return _setTakenDownAndRecount(submissionId, 1, by, false);
 }
 
 /**
@@ -1146,11 +1229,14 @@ function hideSubmission(submissionId) {
  * immediately re-grants any auto badge whose threshold is met again. Also
  * clears resubmitted in that same transaction (issue #190): once the host has
  * restored the row, there is no pending resubmit decision left to flag.
+ * Clears taken_down_by back to NULL (issue #886) in that same transaction,
+ * beside the resubmitted clear — a visible row carries no attribution, the
+ * same rule a fresh submission's insert follows.
  * @param {number} submissionId
  * @returns {number|undefined} the submission's guest_id, or undefined if not found.
  */
 function restoreSubmission(submissionId) {
-  return _setTakenDownAndRecount(submissionId, 0, true);
+  return _setTakenDownAndRecount(submissionId, 0, null, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1379,6 +1465,11 @@ module.exports = {
   // takedown / restore (flag flip + auto-badge recount, atomic; files kept)
   hideSubmission,
   restoreSubmission,
+  // the single owner of the "hidden by the owning guest" predicate (issue
+  // #886 PR review fix), and its composed "is this row sticky" predicate —
+  // callers use these instead of each re-deriving the conjunction.
+  hiddenByOwningGuest,
+  isStickyTakedown,
 
   // destructive helpers
   hardDelete,

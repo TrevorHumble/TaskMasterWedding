@@ -4,10 +4,11 @@
 
   <% if (typeof taskComplete !== 'undefined' && taskComplete) { %>
     <!-- Success card (issue #255): the reward moment for a just-created
-         completion. Supersedes the plain flash for this case — the route
-         (src/routes/guest.js) writes a one-shot taskComplete payload instead
-         of setFlash when result.status === 'created', so res.locals.flash is
-         null here and header.ejs's flash bar does not also render. -->
+         completion, and (issue #886) for a guest-clean-slate replace. The
+         route (src/routes/guest.js) writes a one-shot taskComplete payload
+         instead of setFlash when result.status === 'created' OR
+         result.guestCleanSlateReplace is true, so res.locals.flash is null
+         here and header.ejs's flash bar does not also render. -->
     <%# Issue #650: the lucky treatment. `taskComplete.luckyBonus` is set by
         src/routes/guest.js ONLY when this submission banked the lucky bonus;
         it is absent on every ordinary completion, which is what keeps the
@@ -85,6 +86,24 @@
     + bonus points
   </p>
 
+  <%# A guest who deleted their own photo gets the clean slate back: the task
+      reads exactly as it did before they ever uploaded. The row and the file
+      still exist for the couple's record (Goal D) and the host can still see
+      and restore it — the GUEST just isn't told about a thing they chose to
+      remove. %>
+  <%# This template does NOT derive that rule itself (issue #886 PR review
+      fix, major B) — src/routes/guest.js already resolves it, once, through
+      photos.hiddenByOwningGuest (the single owner of the "is this row hidden
+      by the guest who owns it" predicate, also consumed by submissions.js
+      and community.js), and passes `submission` here already null when that
+      is the case. Every branch below AND the upload-section heading fall
+      through to the never-submitted shape for free, with no local
+      reassignment needed here.
+
+      A host takedown (taken_down_by = 'admin', or an unattributed row) still
+      arrives here non-null and keeps the sticky "with the hosts" branch
+      below — issue #190. %>
+
   <% if (submission && submission.taken_down) { %>
     <!-- Issue #190: a host takedown is sticky. Do not show the photo (not
          required by AC2) and do not present the task as not-done — that is
@@ -93,7 +112,7 @@
       <h2 class="section-title">Your photo is with the hosts</h2>
       <p class="muted">
         Your photo for this task is with the hosts right now. It'll show up again once
-        they take a look — no need to resubmit, but you're welcome to replace it below.
+        they take a look. No need to resubmit, but you're welcome to replace it below.
       </p>
     </section>
   <% } else if (submission) { %>

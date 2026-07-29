@@ -20,7 +20,7 @@
         class="photo-owner-delete-form"
         method="post"
         action="/p/<%= photo.submission_id %>/delete"
-        data-confirm="Take this photo down? It leaves the feed and gallery right away."
+        data-confirm="Delete this photo? It leaves the feed and gallery, and you can't undo this yourself."
       >
         <%- include('csrf-field') %>
         <button type="submit" class="photo-owner-menu-item photo-owner-delete">Delete</button>

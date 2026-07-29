@@ -2315,6 +2315,94 @@ visibly. Not engineered around here: the ~349-file catalog is checked against di
 deleted or renamed on disk post-boot without a matching code change — an operational mistake outside this
 issue's scope, not a runtime input this feature needs to defend against.
 
+## Guest self-delete attribution: one visibility flag plus one attribution column (#886)
+
+**Date:** 2026-07-24. **Status:** accepted.
+
+`submissions.taken_down` recorded THAT a photo was hidden but not WHO hid it, so a guest's own Delete
+(`POST /p/:submissionId/delete`) and a host's takedown (`POST /admin/photos/:id/takedown`) wrote the
+identical row shape. #190's sticky-takedown rule then treated a guest's own delete exactly like a host's —
+correctly refusing to let a resubmit silently reverse it, but for an actor #190 was never written to guard
+against. The consequence: a guest who deleted their own photo and re-uploaded landed on the host's
+"Re-review a resubmitted photo" checklist for a decision the host never needed to make, and the guest's own
+task page kept promising a host review that would never happen.
+
+**Chosen: keep `taken_down` as the single visibility fact, and add one attribution column,
+`taken_down_by TEXT CHECK (... IN ('admin','guest'))`.** This mirrors `guest_badges.awarded_by`
+(`src/db.js:162`, `CHECK (awarded_by IN ('system','admin'))`) — an existing precedent in this codebase for
+"a flag says THAT something happened; a sibling column says WHO did it," rather than inventing a new shape.
+The alternative on the table — two independent boolean flags (`taken_down_by_host` /
+`taken_down_by_guest`) — was rejected: it can represent an incoherent state (both true, or a hidden row with
+neither true) that the CHECK-constrained single column cannot, and every read site would need to decide
+which flag wins when both are set, a question a single attribution value never poses.
+
+**Why a `NULL` attribution reads as a host takedown, never a guest one.** Every gate this issue adds is
+written as "is `taken_down_by` `'guest'`?", never as "is it `'admin'`?" — the single most important choice in
+this design. A legacy row (this issue's own migration backfills every pre-existing hidden row to `'admin'`,
+never derives `'guest'` for one), and any hidden row a future write path adds without setting this column,
+therefore default to STICKY, #190's original protection, rather than silently losing moderation the moment
+someone forgets to attribute a takedown. The unsafe direction — treating `NULL` as `'guest'` by writing every
+gate as "is it NOT `'admin'`?" — would flip that default the wrong way: a bug or omission would silently
+grant self-restore instead of silently preserving host moderation. `tests/rewards.test.js:314-330` raw-UPDATEs
+an existing row to `taken_down = 1` with no attribution, and `tests/oneday-guest-surface.test.js:587-597`
+raw-INSERTs one the same unattributed way — both assert it stays sticky, and this issue leaves both green,
+unedited, as the binding regression check for this direction.
+
+**Why a host takedown wins when both actors hide the same row (AC4).** If a guest calls Delete on a photo the
+host already took down, the row stays attributed to `'admin'` — the guest's delete becomes a no-op on an
+already-hidden row rather than overwriting the attribution to `'guest'`. Without this guard a guest could
+"launder" a host's moderation decision into their own self-delete, silently converting a sticky takedown into
+a non-sticky one and recovering the exact resubmit-reverses-a-takedown hole #190 closed. Host precedence is
+therefore not a tie-break convenience; it is the property that keeps `'guest'` a value only the codebase can
+assert honestly (this row really was hidden by nothing but the owning guest's own choice), never a value a
+guest can talk their way into.
+
+**The cross-service seam this issue introduces: `submissions.js` calling into `photos.js`'s moderation
+writer.** A guest-attributed replace must bring the row back visible, but `submissions.js` is not allowed to
+write `taken_down` itself — `photos.js` documents itself as the SINGLE writer of that column for moderation,
+because its own `_setTakenDownAndRecount` snapshots `scoring.crowdFavorites()` before the flip and emits
+`scoring.recordCrowdFavoriteChanges(beforeCrowd)` after it, in the same transaction. A raw `UPDATE submissions
+SET taken_down = 0` from `submissions.js` would silently skip that emission: a guest who deletes and
+re-uploads a top-liked photo keeps the same row id, so its likes survive and it can retake the top rank, but
+neither that guest's regain nor a displaced guest's loss would ever be written to the recap. So
+`submissions.js` calls `photos.restoreSubmission()` — the existing single-writer seam — instead. The ordering
+constraint this creates (PR review fix, MAJOR A): `restoreSubmission` must run AFTER the replace's own
+transaction (`replaceAndBank`) has committed, not nested inside it, because `restoreSubmission` reaches
+`scoring.recomputeAfterSubmissionChange` unguarded — a throw there used to roll back the whole nested
+transaction, and the outer catch around `replaceAndBank` then deleted the guest's newly-written original and
+thumbnail from disk. The call now runs at the call site, wrapped in the same log-and-swallow shape the
+ordinary per-submit recompute already used: a badge-recount failure costs the guest only the un-hide (the row
+stays visibly taken down, recoverable by a host from `/admin/photos`), never the photo they just replaced.
+
+**Why guest self-restore was deliberately not built.** The owner's approved design (live preview, 2026-07-24)
+is "delete means delete" from the guest's side: no undo control, no notice that a host reviewed anything,
+because none did. A guest recovers the ordinary way — upload again — which the guest-attributed replace path
+now honors by coming back visible immediately (no pending review), and a host can still restore the original
+from `/admin/photos` if the guest wants the exact original file back. Building a guest-facing restore control
+would also have reintroduced a version of the very confusion this issue closes: a guest deciding whether to
+"restore" a photo they just chose to remove is a control with no clear affordance value once the delete
+already reads as final.
+
+**Why `guestCleanSlateReplace` is a boolean beside `status`, not a fourth status value (recorded deviation,
+design-philosophy review).** `submitPhoto`'s `status` union already encodes replace variants
+(`'replaced'` / `'replaced_hidden'`), so the consistent-looking move was a `'replaced_clean_slate'` member.
+Deliberately not done: `status` is consumed by gates that mean "did the replace's DB write land"
+(the lucky-bonus gate, the route's error branches), and a clean-slate replace IS an ordinary `'replaced'`
+at that layer — same write, same banking rule, same failure handling. The clean-slate fact is a
+presentation-only overlay (which flash/success card the guest sees on redirect), and it can be true while
+the un-hide itself failed-and-was-swallowed, a combination a single enum value cannot represent without
+every status consumer learning the new member. The cost accepted with the boolean: a consumer branching on
+`status` alone treats a clean-slate replace as a plain replace — which is exactly the safe default for
+every current consumer.
+
+**Known, accepted gap: `/admin/photos` cannot tell the two takedown reasons apart.** The admin photos grid
+(`src/views/admin-photos.ejs:99,248,297`) renders every `taken_down = 1` row identically — the same "Taken
+down" tile state and the same Restore control, regardless of `taken_down_by`. A host can therefore Restore a
+photo a guest deliberately removed, without any visual cue that it was the guest's own choice rather than the
+host's earlier moderation call. That view is deliberately not on this issue's `Touches` list — the fix is a
+guest-visibility differentiation the AC set never asked for — and the failure mode is recoverable (the guest
+can simply delete it again), so this ships as a named, deferred gap rather than a silent one.
+
 ## Double-submit idempotency: possession-keyed release events, a 30-second bug-report window (#889)
 
 **Date:** 2026-07-27. **Status:** accepted.

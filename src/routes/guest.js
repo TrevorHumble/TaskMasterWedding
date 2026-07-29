@@ -773,9 +773,12 @@ router.get('/tasks/:id', function (req, res) {
   // in that case. These are submissions columns, not tasks columns: they must
   // NOT move onto the tasks SELECT above (that one has no bonus_amount or
   // photo_bonus and would throw "no such column").
+  // taken_down_by (issue #886) is selected alongside taken_down so
+  // task.ejs can branch on WHO hid the row, not just whether it is hidden —
+  // see that view's own comment for the guest-self-delete shape this feeds.
   const submission = db
     .prepare(
-      `SELECT id, photo_path, thumb_path, caption, created_at, taken_down, bonus_amount, photo_bonus
+      `SELECT id, photo_path, thumb_path, caption, created_at, taken_down, taken_down_by, bonus_amount, photo_bonus
          FROM submissions
         WHERE guest_id = ? AND task_id = ?`
     )
@@ -796,11 +799,28 @@ router.get('/tasks/:id', function (req, res) {
   // while submissions exist) is the PRIMARY guard against this ever
   // happening; this fall-through is defence in depth so the guest's own
   // already-completed photo can never itself 404 if that guard is ever
-  // bypassed. A TAKEN-DOWN submission also grants this fall-through (not just
-  // a visible one) — task.ejs renders the #190 "your photo is with the hosts"
+  // bypassed. A HOST-taken-down submission (or an unattributed one — issue
+  // #886's Attribution convention) also grants this fall-through (not just a
+  // visible one) — task.ejs renders the #190 "your photo is with the hosts"
   // state for that row on this same page, and submitPhoto's matching gate
   // (src/services/submissions.js) accepts a resubmit from either state, so
   // this render-side gate must let the guest reach the page in both.
+  //
+  // hasSubmission counts ANY existing row, including a guest-attributed
+  // self-delete (issue #886 PR review fix, minor C — reverting a narrowing
+  // that briefly excluded that case). The premise for excluding it was that
+  // submitPhoto's own isSealed gate would then refuse the upload the guest
+  // reached this page to make — but that premise is false: submitPhoto's
+  // gate is `tasks.isSealed(task, todayIso) && !existing` (src/services/
+  // submissions.js), and `existing` is truthy for a self-deleted row (the
+  // row and both files still exist — issue #886's non-goals list — only the
+  // GUEST no longer sees evidence of it), so the submit is accepted and
+  // returns 'replaced'. Excluding the row here therefore only 404s a guest
+  // off a task their own upload would have worked on — strictly worse than
+  // the pre-#886 behavior. In short: a guest who already submitted keeps
+  // access to a sealed task's detail page, and a self-deleted row still
+  // counts as "already submitted" for that purpose, exactly like a
+  // host-taken-down row does.
   const hasSubmission = !!submission;
   if (tasks.isSealed(task, todayIso) && !hasSubmission) {
     return res.status(404).render('404', { title: 'Not found' });
@@ -848,14 +868,26 @@ router.get('/tasks/:id', function (req, res) {
     };
   }
 
+  // Issue #886 PR review fix (major B): resolve the guest-clean-slate rule
+  // HERE, once, through photos.hiddenByOwningGuest — the single owner of
+  // "is this row hidden by the guest who owns it" — instead of handing
+  // task.ejs the raw row and letting it re-derive `taken_down_by === 'guest'`
+  // itself. A guest
+  // who deleted their own photo gets the clean slate back (issue #886's
+  // approved design): the task page reads exactly as it did before they ever
+  // uploaded. A host takedown (or an unattributed row) still renders the
+  // "with the hosts" state task.ejs owns for a non-null submission.
+  const guestFacingSubmission =
+    submission && photos.hiddenByOwningGuest(submission) ? null : submission;
+
   res.render(
     'task',
     withBadgeMoment(req, res, {
       title: task.title,
       task: task,
       taskBadge: taskBadge, // this task's badge — always present, unlike badgeMoment
-      submission: submission, // null if none yet
-      taskComplete: taskComplete, // null unless a 'created' submit just redirected here; carries both .points and .earned
+      submission: guestFacingSubmission, // null if none yet, OR the guest hid it themselves
+      taskComplete: taskComplete, // null unless a 'created' submit OR a guest-clean-slate replace (issue #886) just redirected here; carries both .points and .earned
       pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/
     })
   );
@@ -958,11 +990,26 @@ router.post('/tasks/:id/submit', uploadRateLimiter, function (req, res) {
     // never gets a flash to also print, avoiding a double-render of the same
     // moment.
     //
+    // guestCleanSlateReplace (issue #886 PR review fix, minor F): a replace
+    // that landed on a row the owning guest had hidden themselves gets the
+    // SAME success-card reward path as 'created', reusing setTaskCompleteReward
+    // and task.ejs's existing "Task complete!" copy verbatim — no new flash
+    // string. The task page just showed this guest the never-submitted shape
+    // (submission nulled per issue #886's approved design — see the
+    // guestFacingSubmission local above), so "Photo replaced!" would tell them
+    // they replaced a photo they were just shown no evidence of; the
+    // first-time-completion experience is the one that actually matches what
+    // they saw.
+    //
     // replaced_hidden (issue #190): the resubmit landed on a still-taken-down
     // row, so it does not go live — tell the guest that plainly rather than
-    // claiming "Photo replaced!" for something that isn't visible yet. These
-    // two statuses keep their existing plain flash (AC4).
-    if (result.status === 'created') {
+    // claiming "Photo replaced!" for something that isn't visible yet.
+    //
+    // Any other 'replaced' (the row was already visible before this submit)
+    // keeps the plain flash (issue #255's AC4 — a different criterion from
+    // issue #886's own AC4, the no-downgrade guard in
+    // src/routes/community.js; qualified here so the two aren't conflated).
+    if (result.status === 'created' || result.guestCleanSlateReplace) {
       setTaskCompleteReward(res, {
         points: result.pointsTotal,
         newBadgeIds: result.newBadgeIds,
@@ -970,12 +1017,15 @@ router.post('/tasks/:id/submit', uploadRateLimiter, function (req, res) {
         // which JSON.stringify simply omits from the cookie payload rather
         // than writing a literal "undefined" (so an ordinary card round-trips
         // through the SAME two-key shape session.js's JSDoc already pinned).
+        // Always undefined for guestCleanSlateReplace too (lucky never banks
+        // on any replace — submissions.js's own banksOnReplace rule), so this
+        // reads no differently than an ordinary card.
         luckyBonus: result.luckyBonus,
       });
     } else if (result.status === 'replaced_hidden') {
       setFlash(res, 'success', 'Photo received — it will appear once the hosts approve it.');
     } else {
-      // status === 'replaced'
+      // status === 'replaced', and NOT a guest clean-slate replace.
       setFlash(res, 'success', 'Photo replaced!');
     }
     return res.redirect('/tasks/' + taskId);

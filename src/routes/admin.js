@@ -2580,10 +2580,13 @@ router.get('/photos', (req, res) => {
 // single writer of taken_down for moderation: it flips the flag and recomputes
 // the guest's auto-badges in one transaction, so a hidden photo can never keep
 // counting toward points or auto-badges even for an instant. Reachable from
-// the give-a-badge dialog's moderate control (issue #259 AC7).
+// the give-a-badge dialog's moderate control (issue #259 AC7). Passes 'admin'
+// explicitly (issue #886) — a host takedown is always attributed to 'admin',
+// never left to the default, so this route reads the same regardless of
+// whether hideSubmission's default ever changes.
 router.post('/photos/:id/takedown', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const guestId = photos.hideSubmission(id);
+  const guestId = photos.hideSubmission(id, 'admin');
   if (guestId === undefined) {
     return redirectToPhotos(req, res, 'Submission not found.', id);
   }
