@@ -27,6 +27,14 @@ const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 const TEST_MEMORY_RATE_MAX = 3;
 process.env.MEMORY_RATE_MAX = String(TEST_MEMORY_RATE_MAX);
 
+// Issue #857: pinned to 1 so the upload-slot test below can exhaust the whole
+// semaphore with a single manual acquire(). Every other test in this file
+// awaits one POST /memories at a time (no concurrent, unawaited requests
+// anywhere in this file), so a limit of 1 never queues them and changes
+// nothing about their behavior.
+const TEST_MAX_CONCURRENT_UPLOADS = 1;
+process.env.MAX_CONCURRENT_UPLOADS = String(TEST_MAX_CONCURRENT_UPLOADS);
+
 let app;
 let db;
 let config;
@@ -35,6 +43,7 @@ let scoring;
 let badges;
 let rateLimit;
 let tasksSvc;
+let uploadSemaphore;
 let validJpeg;
 
 beforeAll(async () => {
@@ -54,6 +63,12 @@ beforeAll(async () => {
   badges = require('../src/services/badges');
   rateLimit = require('../src/services/rate-limit');
   tasksSvc = require('../src/services/tasks');
+  // Required here, not at module scope (see this file's header REQUIRE ORDER
+  // note): upload-concurrency.js requires ../../config, and config.js reads
+  // DATA_DIR/DB_PATH from the environment at module scope -- requiring it
+  // before loadApp() would cache config against the wrong data dir, exactly
+  // the hazard the REQUIRE ORDER note forbids.
+  ({ uploadSemaphore } = require('../src/utils/upload-concurrency'));
 });
 
 function insertGuest(name) {
@@ -628,5 +643,65 @@ describe('all-fail batch does not report success', () => {
     const page = await agent.get('/memories/new');
     expect(page.text).not.toContain('Shared! They&#39;re in the gallery.');
     expect(page.text).toContain("Sorry, we couldn't save those photos.".replace("'", '&#39;'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #857 — POST /memories shares the withUploadSlot concurrency gate with
+// POST /tasks/:id/submit (src/routes/guest.js:925), so a burst of memory
+// batches can't drive more concurrent sharp thumbnail pipelines than
+// MAX_CONCURRENT_UPLOADS allows. This file pins MAX_CONCURRENT_UPLOADS to 1
+// (see TEST_MAX_CONCURRENT_UPLOADS above), so a single manual acquire() on
+// the shared uploadSemaphore is enough to exhaust it.
+// ---------------------------------------------------------------------------
+describe('issue #857: POST /memories waits for an upload slot', () => {
+  it('does not run submitMemoryBatch while the slot is held, and completes once it frees', async () => {
+    const { guestId, token } = insertGuest('Upload Slot Guest');
+    const agent = await agentFor(token);
+
+    // Captured before the slot is held: the batch's FIRST write is its thumb
+    // (submitMemoryBatch runs makeThumb before inserting rows), so an
+    // unchanged thumb count proves the batch had not even STARTED while the
+    // slot was held -- a strictly earlier signal than the row count alone,
+    // which only proves it had not finished.
+    const thumbsBefore = countFiles(config.THUMBS_DIR);
+
+    // Hold the only slot ourselves before the request ever reaches the route.
+    await uploadSemaphore.acquire();
+
+    let response;
+    let requestErr;
+    const pending = postMemoryBatch(agent, 1)
+      .then((res) => {
+        response = res;
+      })
+      .catch((err) => {
+        requestErr = err;
+      });
+
+    try {
+      // Give the request time to clear multer, the CSRF check, and the
+      // rate-limit/disk-space guards -- everything withUploadSlot runs
+      // AFTER -- and reach the slot wait. With the slot held, submitMemoryBatch
+      // cannot have run no matter how long this waits: that is the guarantee
+      // under test, not a timing race.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(memoryRowCount(guestId)).toBe(0);
+      expect(countFiles(config.THUMBS_DIR)).toBe(thumbsBefore);
+    } finally {
+      // Always release, even if an assertion above throws -- uploadSemaphore
+      // is a module-level singleton shared by every other test in this file;
+      // a leaked slot would hang every upload test that runs after this one.
+      uploadSemaphore.release();
+      // And always drain the in-flight request before leaving the test, even
+      // on the assertion-failure path: with vitest retry enabled, a straggler
+      // request racing the retried attempt for the same singleton semaphore
+      // would make the retry's failure unreadable.
+      await pending;
+    }
+    expect(requestErr).toBeUndefined();
+    expect([301, 302, 303]).toContain(response.status);
+    expect(response.headers.location).toBe('/gallery');
+    expect(memoryRowCount(guestId)).toBe(1);
   });
 });

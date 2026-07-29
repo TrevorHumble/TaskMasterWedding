@@ -34,8 +34,9 @@ const { assertCsrf, rejectCsrf } = require('../middleware/csrf');
 // IP fallback when signed out" rule, shared with community.js.
 const { createRateLimiter, guestOrIpKey } = require('../middleware/rate-limit');
 
-// withUploadSlot (issue #311 AC3) bounds how many concurrent submitPhoto
-// calls run their heavy thumbnail+DB-write pipeline at once -- see
+// withUploadSlot (issue #311 AC3, extended to memory batches by #857) bounds
+// how many concurrent submitPhoto / submitMemoryBatch calls run their heavy
+// thumbnail+DB-write pipeline at once -- see
 // src/utils/upload-concurrency.js's file comment for why.
 const { withUploadSlot } = require('../utils/upload-concurrency');
 
@@ -1110,13 +1111,24 @@ router.post('/memories', function (req, res, next) {
     // Persist the batch. Wrapped so a thrown error routes to the Express error
     // handler (next(err)) rather than becoming an unhandled promise rejection
     // that hangs the request (plan step 9b).
+    //
+    // Issue #857: also run through withUploadSlot, the same concurrency gate
+    // POST /tasks/:id/submit uses (see the comment above that route and
+    // src/utils/upload-concurrency.js). submitMemoryBatch runs the identical
+    // sharp thumbnail pipeline up to 10 times per batch (sequentially, so one
+    // slot per batch is the right granularity -- see submissions.js), and
+    // without this gate a burst of guests sharing memories at once could
+    // drive far more concurrent sharp work than MAX_CONCURRENT_UPLOADS was
+    // sized to bound.
     let result;
     try {
-      result = await submissions.submitMemoryBatch({
-        guestId: guest.id,
-        files: files,
-        caption: req.body.caption,
-      });
+      result = await withUploadSlot(() =>
+        submissions.submitMemoryBatch({
+          guestId: guest.id,
+          files: files,
+          caption: req.body.caption,
+        })
+      );
     } catch (batchErr) {
       return next(batchErr);
     }
