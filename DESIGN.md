@@ -1123,13 +1123,16 @@ follow-up review pass also found and removed four rules from this same block (`.
 favor of the full-width `.stat-nudge` cell — dead CSS with zero consumers in any view, deleted rather
 than left to rot.
 
-**CSRF deviation from the issue plan (recorded, #769).** The issue's implementation plan called the
-manual-toggle POST "CSRF-protected." This app carries no CSRF middleware or token anywhere
-(`grep -rni csrf src` returns nothing) — `POST /admin/checklist/:id/toggle` matches the same
-session-cookie-only protection every other admin POST route already uses (`POST /admin/bugs/:id/track`,
-`POST /admin/guests/:id/badge`, etc.), which is consistent with existing prior art but is not actually
-CSRF protection. The gap is real and app-wide, not specific to this issue's one new route; it is tracked
-separately as #769 rather than being invented ad hoc inside this issue's narrow Touches.
+**CSRF deviation from the issue plan (recorded, #769, resolved by #284).** The issue's implementation plan
+called the manual-toggle POST "CSRF-protected." At the time this issue shipped, the app carried no CSRF
+middleware or token anywhere — `POST /admin/checklist/:id/toggle` matched the same session-cookie-only
+protection every other admin POST route used then (`POST /admin/bugs/:id/track`, `POST /admin/guests/:id/badge`,
+etc.), which was consistent with existing prior art but was not actually CSRF protection. That gap was
+app-wide, not specific to this issue's one new route, and was tracked separately as #769 rather than being
+invented ad hoc inside this issue's narrow Touches. App-wide CSRF protection was subsequently implemented
+under #284 (see "CSRF tokens and security headers: implemented (#284)" above) — `POST
+/admin/checklist/:id/toggle` is now CSRF-gated the same as every other admin POST route, along with every
+other admin and guest POST route in the app.
 
 ## Memory-day bonus: event-local day math in JS, leaderboard's JS re-sort (#656)
 
