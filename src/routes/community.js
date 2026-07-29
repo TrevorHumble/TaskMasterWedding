@@ -828,6 +828,23 @@ router.post('/p/:submissionId/caption', requireGuest, (req, res) => {
 // couple's export and a host can still restore it (Goal D, Goal C) — a
 // guest cannot unilaterally erase the couple's record, only hide their own
 // contribution from the feed/gallery/scoring.
+//
+// Attribution (issue #886): this route is the ONLY place that ever passes
+// 'guest' to hideSubmission — the admin takedown route (src/routes/admin.js)
+// passes 'admin' explicitly too, so neither caller relies on hideSubmission's
+// default anymore (only a handful of pre-#886 tests still omit the
+// argument — see photos.js's own hideSubmission doc comment). No-downgrade
+// guard (AC4): a guest cannot launder a host takedown into their own by
+// deleting a row the host already hid. The predicate below is
+// photos.isStickyTakedown — the single owner of "is this row already taken
+// down by someone other than the owning guest" (issue #886 PR re-check
+// fix), also consumed by submissions.js. If the row is already taken_down
+// and sticky (including a NULL attribution, per the Attribution convention
+// — an unattributed row is read as a host takedown), this handler makes no
+// write at all: the row is already hidden, and attribution must stay
+// whatever it already was. hideSubmission only runs for a currently-visible
+// row or a row this same guest already self-deleted, so it can never
+// overwrite an 'admin'/NULL attribution with 'guest'.
 // ---------------------------------------------------------------------------
 router.post('/p/:submissionId/delete', requireGuest, (req, res) => {
   const submissionId = parseInt(req.params.submissionId, 10);
@@ -835,7 +852,9 @@ router.post('/p/:submissionId/delete', requireGuest, (req, res) => {
     return res.status(404).render('404', { title: 'Not found' });
   }
 
-  const row = db.prepare('SELECT id, guest_id FROM submissions WHERE id = ?').get(submissionId);
+  const row = db
+    .prepare('SELECT id, guest_id, taken_down, taken_down_by FROM submissions WHERE id = ?')
+    .get(submissionId);
   if (!row) {
     return res.status(404).render('404', { title: 'Not found' });
   }
@@ -851,7 +870,9 @@ router.post('/p/:submissionId/delete', requireGuest, (req, res) => {
     });
   }
 
-  photos.hideSubmission(submissionId);
+  if (!photos.isStickyTakedown(row)) {
+    photos.hideSubmission(submissionId, 'guest');
+  }
 
   return res.redirect('/feed');
 });

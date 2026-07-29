@@ -68,8 +68,12 @@ const stmtActiveTask = db.prepare(
 // column would read `undefined` and never bank on a replace (undefined !==
 // 0 is always true, but undefined is also never a safe value to reason
 // "already banked" from).
+//
+// taken_down_by (issue #886) is read alongside taken_down so the replace
+// branch below can tell WHO hid the row apart from THAT it is hidden — see
+// photos.isStickyTakedown and the Attribution convention it implements.
 const stmtExistingSubmission = db.prepare(
-  'SELECT id, photo_path, thumb_path, taken_down, bonus_amount FROM submissions WHERE guest_id = ? AND task_id = ?'
+  'SELECT id, photo_path, thumb_path, taken_down, taken_down_by, bonus_amount FROM submissions WHERE guest_id = ? AND task_id = ?'
 );
 
 // Sticky-takedown replace (issue #190): deliberately does NOT touch
@@ -78,6 +82,11 @@ const stmtExistingSubmission = db.prepare(
 // admin's takedown. Whatever taken_down was before the replace, it still is
 // after; only resubmitted (set by stmtMarkResubmitted below, conditionally)
 // records that a new photo is waiting behind a still-hidden row.
+//
+// Issue #886 narrows WHICH takedowns this applies to: a HOST takedown is
+// still sticky (unchanged), but a row the owning GUEST hid themselves is
+// not — see photos.isStickyTakedown and replaceAndBank's own comment for how
+// the guest-attributed case comes back visible instead.
 const stmtReplaceSubmission = db.prepare(
   `UPDATE submissions
       SET photo_path = ?, thumb_path = ?, caption = ?,
@@ -103,15 +112,28 @@ const stmtBankBonus = db.prepare(
   `UPDATE submissions SET bonus_amount = ?, bonus_reason = ? WHERE id = ?`
 );
 
+// The Attribution convention (issue #886, binding — see that issue's own
+// "Attribution convention" section): the sticky branch (#190) fires whenever
+// the existing row is taken down and its taken_down_by is anything OTHER
+// than 'guest' — written in that direction, never as a test for '=== admin',
+// so a legacy or otherwise-unattributed row (taken_down_by IS NULL) stays
+// sticky by default rather than silently losing moderation. Only a row this
+// codebase has explicitly attributed to the OWNING guest's own delete
+// (src/routes/community.js's POST /p/:submissionId/delete) is non-sticky.
+// photos.isStickyTakedown (PR re-check fix) is the single owner of that
+// conjunction now — this file no longer carries its own local copy; see that
+// function's own doc comment in src/services/photos.js for why the
+// composition lives there.
+
 // Replace + (conditional) bank + (conditional) resubmitted-mark as ONE
-// atomic unit (issue #753 review fix). Before this, stmtReplaceSubmission
-// ran and committed the new photo_path on its own, uncoordinated with
+// atomic unit (issue #753 review fix). Before this, stmtReplaceSubmission ran
+// and committed the new photo_path on its own, uncoordinated with
 // stmtBankBonus a few lines later -- if stmtBankBonus threw (e.g. a legacy
 // row whose special_bonus was NULL despite its special_date being set,
 // binding NULL into bonus_amount's NOT NULL column), the guest was told the
-// save failed while the DB already held the new photo, and the superseded-
-// file cleanup below (which runs only after this whole block) never ran, so
-// the OLD file also leaked. Wrapping all three writes in one
+// save failed while the DB already held the new photo, and the
+// superseded-file cleanup below (which runs only after this whole block)
+// never ran, so the OLD file also leaked. Wrapping every write in one
 // db.transaction() means a throw from any of them rolls the DB back to the
 // old photo_path/thumb_path/bonus_amount/resubmitted values, so "told
 // failed" and "the database row is unchanged" stay consistent with each
@@ -120,14 +142,28 @@ const stmtBankBonus = db.prepare(
 // transaction ever runs, and a SQL rollback has no way to touch them -- the
 // call site below is responsible for deleting THOSE two files on a throw
 // from here, so a rolled-back DB and a pair of leaked orphan files can never
-// happen together. better-sqlite3 transactions are synchronous and nest
-// fine inside the async submitPhoto function below -- nothing here awaits.
+// happen together. better-sqlite3 transactions are synchronous and nest fine
+// inside the async submitPhoto function below -- nothing here awaits.
+//
+// Issue #886's un-hide is DELIBERATELY NOT part of this transaction (PR
+// review fix, MAJOR A) — it used to call photos.restoreSubmission(existing.id)
+// as this transaction's last write, but restoreSubmission reaches
+// scoring.recomputeAfterSubmissionChange and scoring.recordCrowdFavoriteChanges
+// UNGUARDED, so a throw from either of those rolled back this ENTIRE
+// transaction, and the catch around replaceAndBank at the call site below
+// then deleted the guest's just-written new original + thumbnail from disk —
+// the exact "a badge recount must never cost the guest their photo" failure
+// this file's own submitPhoto doc comment already guards against for the
+// ORDINARY per-submit recompute (see the try/catch around
+// scoring.recomputeAfterSubmissionChange in submitPhoto below). The un-hide
+// now runs at the call site, AFTER this transaction has committed, wrapped in
+// the identical log-and-swallow shape — see that call site's own comment.
 const replaceAndBank = db.transaction((photoPath, thumbPath, cap, existing, bankArgs) => {
   stmtReplaceSubmission.run(photoPath, thumbPath, cap, existing.id);
   if (bankArgs) {
     stmtBankBonus.run(bankArgs.bonusAmount, bankArgs.bonusReason, existing.id);
   }
-  if (existing.taken_down === 1) {
+  if (photos.isStickyTakedown(existing)) {
     stmtMarkResubmitted.run(existing.id);
   }
 });
@@ -206,11 +242,18 @@ function normalizeCaption(caption) {
  *      original is deleted and the call returns 'thumb_failed'.
  *   3. The caption is normalized (see normalizeCaption).
  *   4. An existing (guestId, taskId) row is replaced in place — preserving
- *      its id AND its current taken_down value (issue #190: a host takedown
- *      is sticky across a resubmit; it no longer self-restores) — or a new
- *      row is inserted. When the replaced row was taken_down, resubmitted is
- *      also set so /admin/photos can flag it for a moderation decision.
- *      Old files are deleted only once the DB write has committed, and only
+ *      its id and, for a HOST takedown or an unattributed row (issue #190,
+ *      narrowed by #886's Attribution convention), its current taken_down
+ *      value: it is sticky across a resubmit and no longer self-restores.
+ *      A row the owning GUEST took down themselves (taken_down_by ===
+ *      'guest') is the one exception — it comes back visible on a replace,
+ *      per the owner-approved "delete means delete" design (issue #886),
+ *      via a GUARDED un-hide that runs after the replace itself has
+ *      committed (PR review fix, MAJOR A) — a badge-recount failure there is
+ *      logged and swallowed, never allowed to cost the guest the photo just
+ *      saved — or a new row is inserted. When the replaced row stays sticky,
+ *      resubmitted is also set so /admin/photos can flag it for a
+ *      moderation decision. Old files are deleted only once the DB write has committed, and only
  *      when their filename actually changed; deletion failures are logged
  *      and ignored, because a leftover file is harmless but losing the new
  *      submission is not.
@@ -286,11 +329,25 @@ function normalizeCaption(caption) {
  *        below) is a separate, pre-existing seam — derived internally from
  *        `eventDays.eventLocalDateString(...)`, not reachable through this
  *        parameter, and unaffected by it.
- * @returns {Promise<{status: 'created'|'replaced'|'replaced_hidden'|'task_inactive'|'thumb_failed', submissionId?: number, newBadgeIds?: string[], pointsTotal?: number, luckyBonus?: number}>}
+ * @returns {Promise<{status: 'created'|'replaced'|'replaced_hidden'|'task_inactive'|'thumb_failed', submissionId?: number, newBadgeIds?: string[], pointsTotal?: number, luckyBonus?: number, guestCleanSlateReplace?: boolean}>}
  *   luckyBonus (issue #650) is the banked lucky amount, present only when
  *   status is 'created' AND the presently-paying rule is lucky — `undefined`
  *   for every ordinary completion and for any replace (lucky never banks on
  *   a replace; see banksOnReplace on tasks.js's SPECIAL_RULES lucky entry).
+ *   guestCleanSlateReplace (issue #886 PR review fix) is true only when
+ *   status is 'replaced', the row this replace landed on was hidden by the
+ *   OWNING GUEST's own delete, AND the guarded un-hide (photos.restoreSubmission)
+ *   actually returned — the one 'replaced' case src/routes/guest.js treats as
+ *   a first-time completion for the reward shown on redirect (issue #886's
+ *   approved "delete means delete" design: the guest sees the SAME success
+ *   experience a fresh completion produces, never a "Photo replaced!" flash
+ *   for something they were just shown no evidence of). It is set to `true`
+ *   ONLY after that call has succeeded (PR re-check fix) — never ahead of it
+ *   — so a swallowed un-hide failure can never report a reward for a row
+ *   that is still, in fact, hidden. `false` for 'created' and
+ *   'replaced_hidden' (present on the returned object, just false); absent
+ *   (`undefined`) for 'task_inactive'/'thumb_failed', whose early returns
+ *   never include the key at all.
  */
 async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
   // Only nullish (absent/undefined, or explicit null) means "use the real
@@ -384,6 +441,13 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
 
   let status;
   let submissionId;
+  // Issue #886 PR review fix (minor F): true only when this replace landed
+  // on a row the owning guest had hidden themselves — the one case where the
+  // guest-facing reward on redirect should read as a first-time completion
+  // (the "clean slate" design), not the plain "Photo replaced!" flash. Stays
+  // false for every other path, including a fresh insert, so the route below
+  // can check it unconditionally without also checking `existing`.
+  let guestCleanSlateReplace = false;
   if (existing) {
     submissionId = existing.id;
 
@@ -448,11 +512,59 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
       throw err;
     }
 
-    if (existing.taken_down === 1) {
-      // Sticky takedown (issue #190): the row stays hidden. Mark it
-      // resubmitted so the host sees a decision waiting on /admin/photos.
+    // Issue #886's un-hide, GUARDED and OUTSIDE replaceAndBank's transaction
+    // (PR review fix, MAJOR A). replaceAndBank above has already committed by
+    // this point, so the guest's new photo_path/thumb_path/bonus are safely
+    // on the DB row and the superseded-file cleanup below can run regardless
+    // of what happens next. A row the owning GUEST hid themselves comes back
+    // visible now, through the single writer (photos.restoreSubmission) —
+    // never a raw column clear here (see photos.js:1075-1082's "single
+    // writer" invariant: a raw clear would silently skip the crowd-favorite
+    // recap emission _setTakenDownAndRecount folds into that same write).
+    // restoreSubmission reaches scoring.recomputeAfterSubmissionChange and
+    // scoring.recordCrowdFavoriteChanges UNGUARDED, so this call is wrapped
+    // the same log-and-swallow way the ordinary per-submit recompute below
+    // is: a badge recount going wrong must never cost the guest the
+    // submission just recorded above.
+    //
+    // guestCleanSlateReplace is set to `true` ONLY after restoreSubmission has
+    // actually returned (PR re-check fix) — never assigned ahead of the try,
+    // and never inside the catch. Assigning it before the call was itself a
+    // bug: a swallowed restoreSubmission failure still left this function
+    // reporting 'replaced' with guestCleanSlateReplace: true, and
+    // src/routes/guest.js reads that flag to fire the one-shot "Task
+    // complete!" success card — so the guest would see a completion
+    // celebration for a photo that, at that exact moment, was still hidden
+    // and absent from the feed and gallery. The real degradation on a
+    // swallowed failure is more modest than "as if this replace had landed on
+    // a host takedown" (a host takedown returns 'replaced_hidden' with its
+    // own flash): the replace itself is saved (photo_path/thumb_path/bonus
+    // already committed by replaceAndBank above), the row simply stays
+    // taken_down, no success card fires (guestCleanSlateReplace stays false,
+    // so the branch below falls through to 'replaced' and the plain "Photo
+    // replaced!" flash), and a host can still restore it from
+    // /admin/photos.
+    if (photos.hiddenByOwningGuest(existing)) {
+      try {
+        photos.restoreSubmission(existing.id);
+        guestCleanSlateReplace = true;
+      } catch (err) {
+        console.error('restoreSubmission (guest self-delete un-hide) failed:', err);
+      }
+    }
+
+    if (photos.isStickyTakedown(existing)) {
+      // Sticky takedown (issue #190, narrowed by #886 to a HOST takedown or
+      // an unattributed row): the row stays hidden. Mark it resubmitted so
+      // the host sees a decision waiting on /admin/photos.
       status = 'replaced_hidden';
     } else {
+      // Either the row was already visible, or (issue #886) it was hidden by
+      // the owning guest's own delete and the guarded un-hide above brought
+      // it back visible — an ordinary 'replaced' either way. (On the rare
+      // throw-and-swallow path above, the row is still technically hidden in
+      // the DB even though this reports 'replaced' — see that block's own
+      // comment for why that is the intended, recoverable degradation.)
       status = 'replaced';
     }
 
@@ -528,17 +640,25 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
   const pointsTotal = scoring.getPoints(guestId);
 
   // luckyBonus (issue #650 plan step 4) is surfaced only for a genuine
-  // 'created' completion — the only status src/routes/guest.js ever turns
-  // into a one-shot success-card reward (setTaskCompleteReward is called for
-  // 'created' alone). Gating on status here, not just on luckyActive, matters
-  // because luckyActive alone would read true on a REPLACE too whenever
-  // lucky is presently paying (banksOnReplace: false only stops the actual
-  // bank, not `paying` itself from answering true) — this field must report
-  // what was ACTUALLY banked, never what bonusForTask() merely says is
-  // theoretically active right now.
+  // 'created' completion. setTaskCompleteReward is NO LONGER called for
+  // 'created' alone (issue #886 added a second trigger, guestCleanSlateReplace
+  // — see src/routes/guest.js), so `status === 'created'` is not "the only
+  // status that reaches the success card" anymore. It is still the right
+  // gate for THIS field specifically, though — do not read this correction as
+  // license to drop the `status === 'created'` half below: lucky never banks
+  // on any replace (banksOnReplace: false on tasks.js's SPECIAL_RULES lucky
+  // entry), guestCleanSlateReplace included, so a guest-clean-slate replace
+  // can never be the presently-banked lucky win and this field has nothing to
+  // report on that path even though it also reaches the card. Gating on
+  // status here, not just on luckyActive, still matters independently:
+  // luckyActive alone would read true on ANY replace whenever lucky is
+  // presently paying (banksOnReplace: false only stops the actual bank, not
+  // `paying` itself from answering true) — this field must report what was
+  // ACTUALLY banked, never what bonusForTask() merely says is theoretically
+  // active right now.
   const luckyBonus = status === 'created' && luckyActive ? bonusDecision.amount : undefined;
 
-  return { status, submissionId, newBadgeIds, pointsTotal, luckyBonus };
+  return { status, submissionId, newBadgeIds, pointsTotal, luckyBonus, guestCleanSlateReplace };
 }
 
 /**

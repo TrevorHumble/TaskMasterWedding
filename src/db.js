@@ -1381,6 +1381,80 @@ function ensureResubmittedColumn() {
 // module-load code before any other module's `require('../db')` call returns.
 ensureResubmittedColumn();
 
+// --- Guarded migration: submissions.taken_down_by (issue #886) ---
+/**
+ * Add submissions.taken_down_by if it is not already present.
+ *
+ * Same guard shape as ensureResubmittedColumn above: the submissions CREATE
+ * TABLE deliberately omits taken_down_by, so it is absent on BOTH a fresh DB
+ * and an existing pre-#886 app.db; ALTER TABLE ... ADD COLUMN adds it on the
+ * first boot, gated on PRAGMA table_info so a repeat call (or a later boot)
+ * is a no-op and never throws "duplicate column".
+ *
+ * Attribution convention (binding — issue #886's own "Attribution
+ * convention" section). taken_down_by is NULL when a row is visible
+ * (taken_down = 0). When taken_down = 1:
+ *   - 'guest' — the owning guest took it down themselves (src/routes/
+ *     community.js's POST /p/:submissionId/delete). Only this value is
+ *     non-sticky: src/services/submissions.js lets a guest's own resubmit
+ *     onto a 'guest'-attributed row come back visible.
+ *   - 'admin' — a host took it down (src/routes/admin.js's POST
+ *     /photos/:id/takedown). Sticky, per #190.
+ *   - NULL    — treated EXACTLY as 'admin'. A hidden row with no attribution
+ *     is read as a host takedown, never a guest one. Every gate this issue
+ *     adds is written as "is it 'guest'?", never as "is it 'admin'?" — so a
+ *     legacy row, or a row a future write path adds without setting this
+ *     column, stays sticky by default instead of silently losing moderation.
+ *
+ * Backfill (AC7): every row already hidden (taken_down = 1) at migration
+ * time is set to 'admin' in the SAME guarded block — conservative, because
+ * every takedown that predates this column was written before the guest/host
+ * distinction existed, so it is treated as a host takedown. A visible row
+ * (taken_down = 0) is left NULL, matching a fresh insert's implicit default.
+ * Runs once, inside the ALTER TABLE guard, so a later boot against an
+ * already-migrated database never re-touches a row a guest or host has since
+ * taken down or restored.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureTakenDownByColumn() {
+  const cols = db.prepare(`PRAGMA table_info(submissions)`).all();
+  if (!cols.some((col) => col.name === 'taken_down_by')) {
+    // Both statements run as ONE transaction (PR review fix, minor D) — two
+    // separate db.exec() calls left a crash landing between them able to
+    // leave the column present with the backfill permanently skipped: a
+    // later boot's PRAGMA table_info guard above would see the column
+    // already exists and never re-run the UPDATE, silently leaving every
+    // pre-#886 hidden row with taken_down_by NULL forever (read as a host
+    // takedown per the Attribution convention, so not unsafe, but AC7's
+    // "every row already hidden backfills to 'admin'" promise would be
+    // broken). Matches the other multi-statement migrations in this file
+    // (e.g. ensureTaskIdNullable above).
+    const migrate = db.transaction(() => {
+      db.exec(
+        `ALTER TABLE submissions ADD COLUMN taken_down_by TEXT
+           CHECK (taken_down_by IS NULL OR taken_down_by IN ('admin','guest'))`
+      );
+      db.exec(`UPDATE submissions SET taken_down_by = 'admin' WHERE taken_down = 1`);
+    });
+    migrate();
+  }
+}
+
+// Run once at module load, before photos.js/submissions.js/community.js/
+// admin.js/guest.js prepare any statement that reads/writes taken_down_by —
+// db.js fully evaluates this module-load code before any other module's
+// `require('../db')` call returns. Must run AFTER ensureTaskIdNullable()
+// above (PR review fix, minor E — the real constraint, not "matches
+// convention"): that function rebuilds `submissions` from an explicit
+// column-copy list, so a taken_down_by column added before it runs would be
+// silently DROPPED on any database still needing that rebuild — the same
+// reasoning ensureSubmissionsBonusColumns' own comment states for the
+// identical hazard. Ordered after ensureResubmittedColumn() only because that
+// migration was introduced first in this file, not because either migration
+// depends on the other's column.
+ensureTakenDownByColumn();
+
 // --- Guarded migration: retire guests.avatar_point_awarded (issue #716) ---
 /**
  * Fold the one-time banked starter point back into the derived rule, then
@@ -1779,6 +1853,7 @@ module.exports = {
   AUTO_METRIC_BADGE_POINTS,
   ensureAutoMetricBadgePointsBackfilled,
   ensureResubmittedColumn,
+  ensureTakenDownByColumn,
   ensureAvatarPointAwardedRetired,
   ensureGuestBadgeCelebratedAtColumn,
   ensureRecapCheckedAtColumn,

@@ -253,8 +253,8 @@ describe('AC2: nothing about a lucky task is guest-visible before its first win'
 // ---------------------------------------------------------------------------
 // AC3: a re-upload (soft-takedown replace) is refused the bonus.
 // ---------------------------------------------------------------------------
-describe("AC3: a guest's own soft-takedown replace never banks the lucky bonus", () => {
-  it('a guest who already had a submission before the lucky day, deletes it, and re-uploads on the lucky day banks nothing', async () => {
+describe('AC3: a takedown-then-replace on a lucky day never banks the lucky bonus', () => {
+  it('a guest whose photo a HOST took down before the lucky day, then re-uploads it on the lucky day, banks nothing (status: replaced_hidden)', async () => {
     const taskId = insertTask({ title: 'AC3 Task', worth: 1 });
     const guest = insertGuest();
 
@@ -276,10 +276,13 @@ describe("AC3: a guest's own soft-takedown replace never banks the lucky bonus",
       taskId
     );
 
-    // The guest's own soft takedown (photos.hideSubmission), then a re-upload
-    // on the lucky day — a replace, never a fresh insert.
+    // A HOST takedown (photos.hideSubmission(id, 'admin') — issue #886
+    // requires an explicit 'admin' here now that hideSubmission
+    // distinguishes who hid the row; this test covers the sticky HOST path,
+    // not the guest self-delete path, which has its own sibling case below),
+    // then a re-upload on the lucky day — a replace, never a fresh insert.
     const subId = getSubmission(guest.id, taskId).id;
-    photos.hideSubmission(subId);
+    photos.hideSubmission(subId, 'admin');
 
     const second = writeOriginal(`ac3-second-${crypto.randomUUID()}.jpg`);
     const replaced = await submissions.submitPhoto({
@@ -294,6 +297,57 @@ describe("AC3: a guest's own soft-takedown replace never banks the lucky bonus",
     const row = getSubmission(guest.id, taskId);
     expect(row.bonus_amount).toBe(0);
     expect(row.bonus_reason).toBeNull();
+  });
+
+  // Issue #886 sibling case: converting the test above to an explicit
+  // 'admin' takedown left the GUEST self-delete -> re-upload path with no
+  // lucky-bonus coverage at all. src/services/submissions.js names this
+  // exact path in prose (the banksOnThisReplace comment) as the lucky-bonus
+  // gaming path the owner refused — a guest must not be able to bank the
+  // lucky bonus by deleting and re-uploading their own already-submitted
+  // photo on a task that becomes lucky today. Unlike the host-takedown case above, a
+  // guest-attributed replace takes the ORDINARY path (banksOnReplace: false
+  // still refuses the bonus, and the row itself comes back visible rather
+  // than staying hidden) — status is 'replaced', not 'replaced_hidden'.
+  it('a guest who deletes their OWN already-submitted photo and re-uploads on the lucky day still banks nothing (status: replaced)', async () => {
+    const taskId = insertTask({ title: 'AC3 Guest-Attributed Task', worth: 1 });
+    const guest = insertGuest();
+
+    const first = writeOriginal(`ac3-guest-first-${crypto.randomUUID()}.jpg`);
+    const created = await submissions.submitPhoto({
+      guestId: guest.id,
+      taskId,
+      file: first,
+      caption: '',
+    });
+    expect(created.status).toBe('created');
+
+    // The host now makes it today's lucky task.
+    db.prepare(`UPDATE tasks SET lucky_date = ?, lucky_bonus = ? WHERE id = ?`).run(
+      FIXED_TODAY,
+      3,
+      taskId
+    );
+
+    // The guest's OWN delete, attributed to 'guest' — not a host takedown.
+    const subId = getSubmission(guest.id, taskId).id;
+    photos.hideSubmission(subId, 'guest');
+
+    const second = writeOriginal(`ac3-guest-second-${crypto.randomUUID()}.jpg`);
+    const replaced = await submissions.submitPhoto({
+      guestId: guest.id,
+      taskId,
+      file: second,
+      caption: '',
+    });
+    expect(replaced.status).toBe('replaced');
+    expect(replaced.luckyBonus).toBeUndefined();
+
+    const row = getSubmission(guest.id, taskId);
+    expect(row.bonus_amount).toBe(0);
+    expect(row.bonus_reason).toBeNull();
+    expect(row.taken_down).toBe(0);
+    expect(row.taken_down_by).toBeNull();
   });
 
   it('a REPLACED (not created) submission never renders the lucky success card, even on a task that is presently lucky', async () => {
