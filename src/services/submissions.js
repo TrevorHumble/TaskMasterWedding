@@ -112,18 +112,9 @@ const stmtBankBonus = db.prepare(
   `UPDATE submissions SET bonus_amount = ?, bonus_reason = ? WHERE id = ?`
 );
 
-// The Attribution convention (issue #886, binding — see that issue's own
-// "Attribution convention" section): the sticky branch (#190) fires whenever
-// the existing row is taken down and its taken_down_by is anything OTHER
-// than 'guest' — written in that direction, never as a test for '=== admin',
-// so a legacy or otherwise-unattributed row (taken_down_by IS NULL) stays
-// sticky by default rather than silently losing moderation. Only a row this
-// codebase has explicitly attributed to the OWNING guest's own delete
-// (src/routes/community.js's POST /p/:submissionId/delete) is non-sticky.
-// photos.isStickyTakedown (PR re-check fix) is the single owner of that
-// conjunction now — this file no longer carries its own local copy; see that
-// function's own doc comment in src/services/photos.js for why the
-// composition lives there.
+// Takedown attribution (issue #886): this file never inspects taken_down_by
+// itself — photos.isStickyTakedown / photos.hiddenByOwningGuest own the
+// convention (see their doc comments in src/services/photos.js).
 
 // Replace + (conditional) bank + (conditional) resubmitted-mark as ONE
 // atomic unit (issue #753 review fix). Before this, stmtReplaceSubmission ran
@@ -451,6 +442,19 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
   if (existing) {
     submissionId = existing.id;
 
+    // Issue #886 PR review fix (minor 1): `existing` was read BEFORE the
+    // awaited makeThumb above — tens to hundreds of ms for a phone photo —
+    // and the takedown attribution can legitimately move in that window (a
+    // host taking this exact photo down from /admin/photos mid-upload).
+    // Deciding the un-hide below from the stale snapshot would silently
+    // reverse that host takedown — the exact reversal #190 exists to
+    // prevent. Re-read once here; everything from this line to the end of
+    // the branch is synchronous (better-sqlite3), so `fresh` cannot go
+    // stale again. The || fallback covers only a row hard-deleted in that
+    // same window, where keeping the stale snapshot preserves the
+    // pre-#886 failure shape (the UPDATE simply matches no row).
+    const fresh = stmtExistingSubmission.get(guestId, taskId) || existing;
+
     // coalescedBonus decides whether THIS replace should also bank a bonus:
     // only when bonusDecision names one (the task is presently paying) AND
     // the existing row has not already banked one (existing.bonus_amount ===
@@ -484,7 +488,7 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
     // becomes lucky today would bank the lucky bonus on their re-upload —
     // exactly the gaming path the owner named and criterion 3 refuses.
     const banksOnThisReplace =
-      bonusDecision && bonusDecision.banksOnReplace !== false && existing.bonus_amount === 0;
+      bonusDecision && bonusDecision.banksOnReplace !== false && fresh.bonus_amount === 0;
     const coalescedBonus = banksOnThisReplace ? bonusDecision.amount : null;
     const bankArgs =
       coalescedBonus !== null
@@ -505,7 +509,7 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
     // before rethrowing, or a failed replace would leak the new upload to
     // DATA_DIR forever with nothing left pointing at it.
     try {
-      replaceAndBank(photoPath, thumbPath, cap, existing, bankArgs);
+      replaceAndBank(photoPath, thumbPath, cap, fresh, bankArgs);
     } catch (err) {
       photos.deleteOriginalFile(photoPath);
       photos.deleteThumbFile(thumbPath);
@@ -518,9 +522,10 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
     // on the DB row and the superseded-file cleanup below can run regardless
     // of what happens next. A row the owning GUEST hid themselves comes back
     // visible now, through the single writer (photos.restoreSubmission) —
-    // never a raw column clear here (see photos.js:1075-1082's "single
-    // writer" invariant: a raw clear would silently skip the crowd-favorite
-    // recap emission _setTakenDownAndRecount folds into that same write).
+    // never a raw column clear here (see the "single writer" invariant
+    // documented above photos.js's _setTakenDownAndRecount: a raw clear
+    // would silently skip the crowd-favorite recap emission that
+    // transaction folds into the same write).
     // restoreSubmission reaches scoring.recomputeAfterSubmissionChange and
     // scoring.recordCrowdFavoriteChanges UNGUARDED, so this call is wrapped
     // the same log-and-swallow way the ordinary per-submit recompute below
@@ -544,16 +549,16 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
     // so the branch below falls through to 'replaced' and the plain "Photo
     // replaced!" flash), and a host can still restore it from
     // /admin/photos.
-    if (photos.hiddenByOwningGuest(existing)) {
+    if (photos.hiddenByOwningGuest(fresh)) {
       try {
-        photos.restoreSubmission(existing.id);
+        photos.restoreSubmission(fresh.id);
         guestCleanSlateReplace = true;
       } catch (err) {
         console.error('restoreSubmission (guest self-delete un-hide) failed:', err);
       }
     }
 
-    if (photos.isStickyTakedown(existing)) {
+    if (photos.isStickyTakedown(fresh)) {
       // Sticky takedown (issue #190, narrowed by #886 to a HOST takedown or
       // an unattributed row): the row stays hidden. Mark it resubmitted so
       // the host sees a decision waiting on /admin/photos.
@@ -573,11 +578,11 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
     // leftover file on disk is harmless, but this must never undo the write
     // above.
     try {
-      if (existing.photo_path && existing.photo_path !== photoPath) {
-        photos.deleteOriginalFile(existing.photo_path);
+      if (fresh.photo_path && fresh.photo_path !== photoPath) {
+        photos.deleteOriginalFile(fresh.photo_path);
       }
-      if (existing.thumb_path && existing.thumb_path !== thumbPath) {
-        photos.deleteThumbFile(existing.thumb_path);
+      if (fresh.thumb_path && fresh.thumb_path !== thumbPath) {
+        photos.deleteThumbFile(fresh.thumb_path);
       }
     } catch (err) {
       console.error('superseded-file cleanup failed:', err);

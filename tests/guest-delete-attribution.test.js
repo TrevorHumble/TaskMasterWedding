@@ -606,10 +606,10 @@ describe('AC7: an existing (pre-#886) database migrates taken_down_by correctly 
     const cols = migratedDb.prepare('PRAGMA table_info(submissions)').all();
     expect(cols.filter((c) => c.name === 'taken_down_by')).toHaveLength(1);
 
-    // Idempotent end-to-end too: the backfilled row is untouched by the
-    // repeat run (it was already re-set to 'admin' by the CHECK test above,
-    // so this also confirms the guard never re-derives from taken_down on a
-    // later boot).
+    // Idempotent end-to-end too: the backfilled row has been untouched since
+    // the migration's own backfill (the CHECK test above only ever writes
+    // visibleRowId), so this confirms the repeat run neither re-derives from
+    // taken_down nor clears the attribution on a later boot.
     expect(
       migratedDb.prepare('SELECT taken_down_by FROM submissions WHERE id = ?').get(hiddenRowId)
         .taken_down_by

@@ -2380,6 +2380,18 @@ would also have reintroduced a version of the very confusion this issue closes: 
 "restore" a photo they just chose to remove is a control with no clear affordance value once the delete
 already reads as final.
 
+**Why `guestCleanSlateReplace` is a boolean beside `status`, not a fourth status value (recorded deviation,
+design-philosophy review).** `submitPhoto`'s `status` union already encodes replace variants
+(`'replaced'` / `'replaced_hidden'`), so the consistent-looking move was a `'replaced_clean_slate'` member.
+Deliberately not done: `status` is consumed by gates that mean "did the replace's DB write land"
+(the lucky-bonus gate, the route's error branches), and a clean-slate replace IS an ordinary `'replaced'`
+at that layer — same write, same banking rule, same failure handling. The clean-slate fact is a
+presentation-only overlay (which flash/success card the guest sees on redirect), and it can be true while
+the un-hide itself failed-and-was-swallowed, a combination a single enum value cannot represent without
+every status consumer learning the new member. The cost accepted with the boolean: a consumer branching on
+`status` alone treats a clean-slate replace as a plain replace — which is exactly the safe default for
+every current consumer.
+
 **Known, accepted gap: `/admin/photos` cannot tell the two takedown reasons apart.** The admin photos grid
 (`src/views/admin-photos.ejs:99,248,297`) renders every `taken_down = 1` row identically — the same "Taken
 down" tile state and the same Restore control, regardless of `taken_down_by`. A host can therefore Restore a

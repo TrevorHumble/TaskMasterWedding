@@ -1198,13 +1198,11 @@ const _setTakenDownAndRecount = db.transaction(
  *
  * `by` (issue #886) attributes WHO took it down and is written in the same
  * transaction as the flag flip. It defaults to 'admin' when omitted — a
- * compatibility contract, not an accident: the admin takedown route
- * (src/routes/admin.js) now passes 'admin' explicitly, so the callers still
- * relying on this default are exactly the 13 pre-#886 one-argument test call
- * sites outside tests/lucky-task.test.js (spread across 9 files — e.g.
- * tests/submission-lifecycle.test.js, tests/photo-access.test.js,
- * tests/crowd-favorites.test.js), which keep their existing host-moderation
- * semantics unchanged. Only an
+ * compatibility contract, not an accident: both production routes pass the
+ * actor explicitly (src/routes/admin.js 'admin', src/routes/community.js
+ * 'guest'), so the callers still relying on this default are the pre-#886
+ * one-argument call sites, all of them under tests/, which keep their
+ * existing host-moderation semantics unchanged. Only an
  * EXPLICITLY passed value outside {'admin','guest'} is rejected, and it is
  * rejected loudly with a TypeError BEFORE any write runs — a caller bug
  * (typo, stale literal) fails fast at the call site instead of surfacing
