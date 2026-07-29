@@ -26,6 +26,17 @@
 //         tests/self-like-block.test.js — this file adds the client-side
 //         behavior #788 introduces on top of it (feed.js's nopeLike branch).
 //
+// Issue #896 (2026-07-27): scoring.crowdFavorites() now dedupes to at most
+// one placing photo per guest (their best), reversing #625 AC3's old
+// "no-cap sweep" rule. Every fixture below that used to seed several placing
+// photos from ONE owner (a ladder to exercise ranks 1-5, or a tie to
+// exercise the #811 AC4 gold-withholding rule) now spans DIFFERENT guests
+// instead — a same-owner ladder/tie would otherwise collapse to just that
+// owner's single best photo, no longer exercising the surface it was meant
+// to. See the "issue #896" describe block later in this file for the
+// reported-bug regression (twenty of one guest's own tied photos render
+// exactly one crown, not twenty).
+//
 // Seeding style mirrors tests/crowd-favorites.test.js (memory submissions —
 // task_id NULL — so a guest may hold any number without the
 // UNIQUE(guest_id, task_id) collision a shared task would risk).
@@ -173,18 +184,27 @@ function feedCardCrown(text, submissionId) {
 describe('AC1/AC3/AC4: the crown on every surface reads ONE crowdFavorites() call, rank-correct and consistent', () => {
   it('gallery, feed, and public profile all render the identical rank/gold state, with exactly one crowd-favorite query per request', async () => {
     resetField();
-    const owner = makeGuest('Crown Owner');
-    const s1 = makeSubmission(owner.id);
+    // Five DIFFERENT guests (issue #896 dedupes to one photo per guest,
+    // before ranking) so ranks 1-5 are all genuinely occupied — a
+    // single-owner ladder would collapse to just the owner's best photo.
+    const owner1 = makeGuest('Crown Owner 1');
+    const s1 = makeSubmission(owner1.id);
     addLikes(s1, 5); // rank 1 -> gold
-    const s2 = makeSubmission(owner.id);
+    const owner2 = makeGuest('Crown Owner 2');
+    const s2 = makeSubmission(owner2.id);
     addLikes(s2, 4); // rank 2 -> white
-    const s3 = makeSubmission(owner.id);
+    const owner3 = makeGuest('Crown Owner 3');
+    const s3 = makeSubmission(owner3.id);
     addLikes(s3, 3); // rank 3 -> white
-    const s4 = makeSubmission(owner.id);
+    const owner4 = makeGuest('Crown Owner 4');
+    const s4 = makeSubmission(owner4.id);
     addLikes(s4, 2); // rank 4 -> white
-    const s5 = makeSubmission(owner.id);
+    const owner5 = makeGuest('Crown Owner 5');
+    const s5 = makeSubmission(owner5.id);
     addLikes(s5, 1); // rank 5 -> white
-    const s6 = makeSubmission(owner.id); // 0 likes -> never places, no crown
+    // owner1's SECOND photo, 0 likes: excluded by like_count > 0 before
+    // dedupe even runs, and would be deduped out behind s1 either way.
+    const s6 = makeSubmission(owner1.id);
 
     // Sanity: the derived set itself really does place s1-s5 and exclude s6,
     // at the ranks this test's expectations below assume.
@@ -193,7 +213,9 @@ describe('AC1/AC3/AC4: the crown on every surface reads ONE crowdFavorites() cal
     expect(placingBySubmission.get(s5)).toMatchObject({ rank: 5 });
     expect(placingBySubmission.has(s6)).toBe(false);
 
-    const agent = signInGuest(app, owner.token);
+    // Gallery and feed are site-wide (every guest's photos), so signing in
+    // as owner1 is just a session requirement, not a scope on what renders.
+    const agent = signInGuest(app, owner1.token);
 
     // Gallery and feed have no OTHER caller of crowdFavorites() in the same
     // request, so their crown wiring's one call is the request's only one.
@@ -204,19 +226,6 @@ describe('AC1/AC3/AC4: the crown on every surface reads ONE crowdFavorites() cal
     const feed = await getCounted(agent, '/feed');
     expect(feed.res.status).toBe(200);
     expect(feed.queryCount).toBe(1);
-
-    // The profile route is the one place a SECOND, unrelated caller already
-    // exists: scoring.getPoints(guestId) (pre-#788, for the profile's own
-    // points header) sums crowdPointsByGuest(), which itself calls
-    // crowdFavorites() once for the total-points term — a different purpose
-    // than the crown. crownRankLookup() adds exactly one MORE call on top of
-    // that pre-existing one; it is not a second call for the SAME crown
-    // purpose (AC1's "no second like-count query" is about the crown
-    // feature never re-deriving its own ranking, not about eliminating an
-    // unrelated pre-existing caller in the same request).
-    const profile = await getCounted(agent, '/u/' + owner.id);
-    expect(profile.res.status).toBe(200);
-    expect(profile.queryCount).toBe(2);
 
     const expected = {
       [s1]: 'gold',
@@ -229,13 +238,26 @@ describe('AC1/AC3/AC4: the crown on every surface reads ONE crowdFavorites() cal
     for (const [id, state] of Object.entries(expected)) {
       expect(galleryTileCrown(gallery.res.text, id)).toBe(state);
       expect(feedCardCrown(feed.res.text, id)).toBe(state);
-      expect(profileTileCrown(profile.res.text, id)).toBe(state);
     }
 
-    // Exactly one gold crown renders on each page — the aggregate mirror of
-    // the per-tile assertions above.
+    // Exactly one gold crown renders on gallery/feed — the aggregate mirror
+    // of the per-tile assertions above.
     expect((gallery.res.text.match(/cf-crown-gold/g) || []).length).toBe(1);
     expect((feed.res.text.match(/cf-crown-gold/g) || []).length).toBe(1);
+
+    // The public profile route only ever shows ONE guest's own photos
+    // (feed.guestPhotos), so it can no longer exercise ranks 2-5 in the same
+    // page since #896 caps a guest at one placing photo — it still needs
+    // separate coverage for its gold/no-crown states, and for the SECOND,
+    // unrelated crowdFavorites() call scoring.getPoints -> crowdPointsByGuest
+    // already makes on that route (pre-#788, for the profile's own points
+    // header): crownRankLookup() adds exactly one MORE call on top of that
+    // pre-existing one, so the total is 2, not 1.
+    const profile = await getCounted(agent, '/u/' + owner1.id);
+    expect(profile.res.status).toBe(200);
+    expect(profile.queryCount).toBe(2);
+    expect(profileTileCrown(profile.res.text, s1)).toBe('gold');
+    expect(profileTileCrown(profile.res.text, s6)).toBeNull();
     expect((profile.res.text.match(/cf-crown-gold/g) || []).length).toBe(1);
   });
 
@@ -270,28 +292,38 @@ describe('AC1/AC3/AC4: the crown on every surface reads ONE crowdFavorites() cal
 // checked on all three crown surfaces.
 // ---------------------------------------------------------------------------
 describe('#811 AC4: a tie at rank 1 renders zero gold crowns; AC5: a lone champion still renders exactly one', () => {
-  it('two photos tied at the top like count both render white on every surface', async () => {
+  it('two DIFFERENT guests tied at the top like count both render white on every surface', async () => {
     resetField();
-    const owner = makeGuest('Tie Owner');
-    const tie1 = makeSubmission(owner.id);
+    // Issue #896: two photos from the SAME owner could no longer both place
+    // at all (dedupe keeps only the owner's best), so the tie that used to
+    // invert AC4's guarantee must now come from two DIFFERENT guests — the
+    // only shape left that can still place two photos at once.
+    const ownerA = makeGuest('Tie Owner A');
+    const tie1 = makeSubmission(ownerA.id);
     addLikes(tie1, 5);
-    const tie2 = makeSubmission(owner.id);
+    const ownerB = makeGuest('Tie Owner B');
+    const tie2 = makeSubmission(ownerB.id);
     addLikes(tie2, 5); // same like count as tie1 -> both share rank 1
 
-    // Sanity: the derived set really does tie tie1/tie2 at rank 1 — if this
-    // ever failed the assertions below would be testing the wrong scenario.
+    // Sanity: the derived set really does tie tie1/tie2 at rank 1, one per
+    // guest — if this ever failed the assertions below would be testing the
+    // wrong scenario.
     const placingBySubmission = new Map(scoring.crowdFavorites().map((p) => [p.submission_id, p]));
-    expect(placingBySubmission.get(tie1)).toMatchObject({ rank: 1 });
-    expect(placingBySubmission.get(tie2)).toMatchObject({ rank: 1 });
+    expect(placingBySubmission.get(tie1)).toMatchObject({ rank: 1, guest_id: ownerA.id });
+    expect(placingBySubmission.get(tie2)).toMatchObject({ rank: 1, guest_id: ownerB.id });
 
-    const agent = signInGuest(app, owner.token);
+    const agent = signInGuest(app, ownerA.token);
 
     const gallery = await agent.get('/gallery');
     const feed = await agent.get('/feed');
-    const profile = await agent.get('/u/' + owner.id);
+    // Each guest's own profile shows only their own tied photo (feed.guestPhotos
+    // scopes to one guest_id), so both must be checked to cover both tiles.
+    const profileA = await agent.get('/u/' + ownerA.id);
+    const profileB = await agent.get('/u/' + ownerB.id);
     expect(gallery.status).toBe(200);
     expect(feed.status).toBe(200);
-    expect(profile.status).toBe(200);
+    expect(profileA.status).toBe(200);
+    expect(profileB.status).toBe(200);
 
     // Both tied photos still wear a crown, but neither is gold, on every
     // surface — this is what would fail if gold were (wrongly) painted onto
@@ -300,28 +332,33 @@ describe('#811 AC4: a tie at rank 1 renders zero gold crowns; AC5: a lone champi
     expect(galleryTileCrown(gallery.text, tie2)).toBe('white');
     expect(feedCardCrown(feed.text, tie1)).toBe('white');
     expect(feedCardCrown(feed.text, tie2)).toBe('white');
-    expect(profileTileCrown(profile.text, tie1)).toBe('white');
-    expect(profileTileCrown(profile.text, tie2)).toBe('white');
+    expect(profileTileCrown(profileA.text, tie1)).toBe('white');
+    expect(profileTileCrown(profileB.text, tie2)).toBe('white');
 
-    // Zero gold crowns anywhere on the page while the tie holds.
+    // Zero gold crowns anywhere on any page while the tie holds.
     expect((gallery.text.match(/cf-crown-gold/g) || []).length).toBe(0);
     expect((feed.text.match(/cf-crown-gold/g) || []).length).toBe(0);
-    expect((profile.text.match(/cf-crown-gold/g) || []).length).toBe(0);
+    expect((profileA.text.match(/cf-crown-gold/g) || []).length).toBe(0);
+    expect((profileB.text.match(/cf-crown-gold/g) || []).length).toBe(0);
   });
 
   it('a lone champion (distinct like counts) still renders exactly one gold crown on every surface', async () => {
     resetField();
-    const owner = makeGuest('Lone Champion Owner');
-    const champion = makeSubmission(owner.id);
+    // Issue #896: champion and runnerUp must be DIFFERENT guests — same
+    // owner would dedupe runnerUp out of the placing set entirely (no crown
+    // at all, not just non-gold), which is not what this test is checking.
+    const championOwner = makeGuest('Lone Champion Owner');
+    const champion = makeSubmission(championOwner.id);
     addLikes(champion, 5);
-    const runnerUp = makeSubmission(owner.id);
+    const runnerUpOwner = makeGuest('Runner Up Owner');
+    const runnerUp = makeSubmission(runnerUpOwner.id);
     addLikes(runnerUp, 3);
 
-    const agent = signInGuest(app, owner.token);
+    const agent = signInGuest(app, championOwner.token);
 
     const gallery = await agent.get('/gallery');
     const feed = await agent.get('/feed');
-    const profile = await agent.get('/u/' + owner.id);
+    const profile = await agent.get('/u/' + championOwner.id);
 
     expect(galleryTileCrown(gallery.text, champion)).toBe('gold');
     expect(galleryTileCrown(gallery.text, runnerUp)).toBe('white');
@@ -331,6 +368,39 @@ describe('#811 AC4: a tie at rank 1 renders zero gold crowns; AC5: a lone champi
     expect((gallery.text.match(/cf-crown-gold/g) || []).length).toBe(1);
     expect((feed.text.match(/cf-crown-gold/g) || []).length).toBe(1);
     expect((profile.text.match(/cf-crown-gold/g) || []).length).toBe(1);
+  });
+});
+
+describe("issue #896 AC1/AC6: the reported bug — 20 of one guest's own tied photos render exactly one crown", () => {
+  it('twenty photos owned by one guest, all tied at the same like count, render exactly one gold crown', async () => {
+    resetField();
+    const owner = makeGuest('Reported Bug Crown Owner');
+    const submissionIds = [];
+    for (let i = 0; i < 20; i++) {
+      const s = makeSubmission(owner.id);
+      addLikes(s, 3);
+      submissionIds.push(s);
+    }
+
+    const agent = signInGuest(app, owner.token);
+    const gallery = await agent.get('/gallery');
+    const feed = await agent.get('/feed');
+    const profile = await agent.get('/u/' + owner.id);
+    expect(gallery.status).toBe(200);
+    expect(feed.status).toBe(200);
+    expect(profile.status).toBe(200);
+
+    // Exactly one of the twenty tied photos wears the gold crown, on every
+    // surface; the other 19 wear no crown at all (deduped out of the
+    // placing set entirely — the exact bug this issue reports and fixes).
+    expect((gallery.text.match(/cf-crown-gold/g) || []).length).toBe(1);
+    expect((feed.text.match(/cf-crown-gold/g) || []).length).toBe(1);
+    expect((profile.text.match(/cf-crown-gold/g) || []).length).toBe(1);
+
+    expect(galleryTileCrown(gallery.text, submissionIds[0])).toBe('gold');
+    for (let i = 1; i < submissionIds.length; i++) {
+      expect(galleryTileCrown(gallery.text, submissionIds[i])).toBeNull();
+    }
   });
 });
 
@@ -425,7 +495,10 @@ describe('AC5: a blocked self-like (403) plays "nope" client-side and records no
       const form = doc.querySelector('.like-form[action="/p/' + submissionId + '/like"]');
       expect(form).not.toBeNull();
       const button = form.querySelector('.like-button');
-      const countEl = form.querySelector('.like-count');
+      // Issue #890 moved the count span out of the like form into the
+      // sibling .likes-link button — both live under the same article, but
+      // no longer under the same <form>.
+      const countEl = form.closest('article').querySelector('.like-count');
       const countBefore = countEl.textContent;
 
       expect(button.classList.contains('like-button-nope')).toBe(false);

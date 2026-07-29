@@ -3,21 +3,32 @@
 // retiring src/routes/guest.js's hard-coded BADGE_MOMENT_PRIORITY list. Covers:
 //   AC1 — GARDEN (auto, threshold 15) outranks COMPLETIONIST (metric,
 //         threshold null) when both are newly earned on the same submit,
-//         reproducing #255's shipped choice, via scoring.primaryNewBadge.
+//         reproducing #255's shipped choice, via scoring.rankBadgeCandidates.
 //   AC2 — a type='auto' threshold=20 badge outranks GARDEN (threshold 15):
 //         resolution reads threshold, not a code list.
 //   AC3 — scoring.compareBadgeMoment orders an unlisted type ('mystery')
 //         last and a listed one ('special') first, with a finite result
 //         (no NaN) — exercised on synthetic objects only, since a real
 //         'mystery' row would violate the badges.type CHECK constraint.
-//   AC4 — primaryNewBadge returns null for an empty newBadgeCodes array and
-//         for a list naming only codes the guest does not hold. (AC4's
-//         render half — no badge-dialog markup — is covered by
-//         tests/rewards.test.js's AC1.)
+//   AC4 — primaryNewBadge (this file's own local helper below) returns null
+//         for an empty newBadgeCodes array and for a list naming only codes
+//         the guest does not hold. (AC4's render half — no badge-dialog
+//         markup — is covered by tests/rewards.test.js's AC1.)
 //   AC5 — two badges tied on type AND threshold order by code ascending
 //         (ALPHA before ZEBRA) — also on the comparator, because
-//         primaryNewBadge's own input is already code-sorted by SQL and so
-//         cannot distinguish a comparator that omits this key.
+//         rankBadgeCandidates's own input is already code-sorted by SQL and
+//         so cannot distinguish a comparator that omits this key.
+//
+// Issue #902 PR review, minor finding 5: scoring.js's own primaryNewBadge
+// (the #714 single-winner wrapper this file originally exercised directly)
+// was deleted as a dead public export once render-locals.js's
+// resolveBadgeMoment moved to calling scoring.rankBadgeCandidates directly
+// for the whole owed queue, leaving primaryNewBadge with no production
+// caller left at all. This file's own `primaryNewBadge` below reproduces the
+// exact one-line wrapper locally (`rankBadgeCandidates(...)[0] || null`) so
+// every assertion's INTENT is unchanged — same inputs, same "first ranked
+// result, or null" contract — while exercising the real, still-exported
+// rankBadgeCandidates rather than a function that no longer exists.
 //
 // REQUIRE ORDER: config / db / services are required only AFTER loadApp()
 // sets DATA_DIR / DB_PATH, matching tests/rewards.test.js.
@@ -34,6 +45,15 @@ beforeAll(() => {
   db = loaded.db;
   scoring = require('../src/services/scoring');
 });
+
+// See the file header's issue #902 note: reproduces the deleted
+// scoring.primaryNewBadge one-line wrapper locally, over the real
+// scoring.rankBadgeCandidates, so this file's assertions keep testing the
+// same "single winner, or null" contract #714 shipped.
+function primaryNewBadge(guestId, codes) {
+  const ranked = scoring.rankBadgeCandidates(guestId, codes);
+  return ranked.length > 0 ? ranked[0] : null;
+}
 
 function insertGuest() {
   return db
@@ -78,7 +98,7 @@ it('AC1: GARDEN (auto) outranks COMPLETIONIST (metric) when both are newly earne
   grantBadge(guestId, 'GARDEN');
   grantBadge(guestId, 'COMPLETIONIST');
 
-  const primary = scoring.primaryNewBadge(guestId, ['GARDEN', 'COMPLETIONIST']);
+  const primary = primaryNewBadge(guestId, ['GARDEN', 'COMPLETIONIST']);
   expect(primary).not.toBeNull();
   expect(primary.code).toBe('GARDEN');
 });
@@ -92,7 +112,7 @@ it('AC2: a type=auto threshold=20 badge outranks GARDEN (threshold 15) — read 
   insertAutoBadge('TESTHI20', 20);
   grantBadge(guestId, 'TESTHI20');
 
-  const primary = scoring.primaryNewBadge(guestId, ['GARDEN', 'TESTHI20']);
+  const primary = primaryNewBadge(guestId, ['GARDEN', 'TESTHI20']);
   expect(primary).not.toBeNull();
   expect(primary.code).toBe('TESTHI20');
 });
@@ -139,12 +159,12 @@ it('AC3: compareBadgeMoment orders a listed type before an unlisted one, with a 
 it('AC4: primaryNewBadge returns null for an empty list, and for a list of codes the guest does not hold', () => {
   const guestId = insertGuest();
 
-  expect(scoring.primaryNewBadge(guestId, [])).toBeNull();
-  expect(scoring.primaryNewBadge(guestId, ['GARDEN'])).toBeNull(); // guest holds nothing yet
+  expect(primaryNewBadge(guestId, [])).toBeNull();
+  expect(primaryNewBadge(guestId, ['GARDEN'])).toBeNull(); // guest holds nothing yet
 
   grantBadge(guestId, 'GARDEN');
   // GARDEN is held, but not named in newBadgeCodes — still null.
-  expect(scoring.primaryNewBadge(guestId, ['COMPLETIONIST'])).toBeNull();
+  expect(primaryNewBadge(guestId, ['COMPLETIONIST'])).toBeNull();
 });
 
 // ---------------------------------------------------------------------------

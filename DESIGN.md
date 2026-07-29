@@ -43,8 +43,11 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
   - [Rank & award: a separate page, one-badge-system consolidation, client-side-only draft state (#661)](#rank-award-a-separate-page-one-badge-system-consolidation-client-side-only-draft-state-661)
   - [Bug-report lifecycle: additive `status` over a `resolved` rebuild, one count owner (#686)](#bug-report-lifecycle-additive-status-over-a-resolved-rebuild-one-count-owner-686)
   - [Crowd favorites: derived not materialized, standard-competition rank, one absorbed ranker (#625)](#crowd-favorites-derived-not-materialized-standard-competition-rank-one-absorbed-ranker-625)
+  - [Crowd favorites: per-guest dedupe reverses the no-cap sweep rule (#896)](#crowd-favorites-per-guest-dedupe-reverses-the-no-cap-sweep-rule-896)
+  - [Crowd-favorite events: a per-guest placing-status diff, not a per-photo rank diff (#895)](#crowd-favorite-events-a-per-guest-placing-status-diff-not-a-per-photo-rank-diff-895)
   - [Crowd-favorite crown: a render-time marker, never a stored badge (#788)](#crowd-favorite-crown-a-render-time-marker-never-a-stored-badge-788)
   - [TOPLIKED: the Most Liked crown as a materialized, transferable badge (#817, widened by #821)](#topliked-the-most-liked-crown-as-a-materialized-transferable-badge-817-widened-by-821)
+  - [Badge icon search tags: a public client-side data file, not server-rendered attributes (#903)](#badge-icon-search-tags-a-public-client-side-data-file-not-server-rendered-attributes-903)
 
 **Retired governance history** — the AI-review pipeline's own evolution. Most of this machinery no
 longer runs (see the teardown ADR); it is kept as a record of what was tried and why. A few entries
@@ -1484,7 +1487,10 @@ resolution with `src/services/render-locals.js`'s `resolveBadgeMoment()`, which 
 themselves are unchanged by this move; only their caller is. `BADGE_MOMENT_PRIORITY`, the hard-coded list
 this section's opening paragraph describes retiring from `guest.js`, had a second, independent copy in
 `render-locals.js` (added while #644 and #714 were building in parallel, on separate branches, each
-unaware of the other's retirement) — that copy is deleted by the same merge for the identical reason.
+unaware of the other's retirement) — that copy is deleted by the same merge for the identical reason. **Amended again at merge with #902
+(2026-07-28): `primaryNewBadge` is deleted.** `resolveBadgeMoment` now calls
+`scoring.rankBadgeCandidates(guestId, owedBadgeCodes)` for the whole ordered queue; see "Badge queue:
+the #644 render-time drip becomes a client-driven continue-through celebration (#902)" below.
 
 ## Community guard completeness: stack-derived, not hand-maintained (#574)
 
@@ -1853,7 +1859,8 @@ restated guarantee of that pre-existing rule against a ranked award specifically
 the award row itself is untouched by a takedown, only its contribution to `getPoints`/`leaderboard` moves.
 
 **The recap event reads rank live, never snapshots it.** `releaseRanking` emits one `badge_granted`
-`notifications.recordEvent` per WINNING GUEST (not per placement — a same-guest collapse still notifies
+`notifications.recordEvent` per WINNING GUEST — narrowed to NEWLY-winning guests by #889, see
+"Double-submit idempotency: possession-keyed release events" below — (not per placement — a same-guest collapse still notifies
 once), carrying that guest's pinned `submission_id`. `notifications.js`'s `stmtStoredEvents` gained a `gb`
 `LEFT JOIN guest_badges` (keyed on the stored event's own `(guest_id, badge_id)` pair — `UNIQUE(guest_id,
 badge_id)` means this can never fan a stored event out into more than one row) so `KIND_VIEW.badge_granted`
@@ -1933,7 +1940,12 @@ approved.
 this app grants is a single per-guest fact — a guest either holds BLOOM or does not — so one row per
 (guest, badge) is the right shape. A crowd-favorite placement is not that shape: issue #625's own no-cap
 sweep rule (AC3) lets one guest hold three placing photos at once and collect 5+4+3=12 points, which is
-three DISTINCT placements for the SAME guest against the SAME hypothetical badge. Materializing that as
+three DISTINCT placements for the SAME guest against the SAME hypothetical badge. [Superseded 2026-07-27
+by #896's per-guest dedupe — see "Crowd favorites: per-guest dedupe reverses the no-cap sweep rule
+(#896)" below; the derived-not-materialized conclusion still holds, for a different reason — the
+placing photo itself changes read-to-read as likes move, so a stored row would go stale; see
+`src/services/scoring.js`'s crowd-favorites section comment.]
+Materializing that as
 `guest_badges` rows would either violate the UNIQUE constraint (one row per guest per badge, no room for
 a second placing photo) or force a schema change (a `submission_id` column added to a table three other
 badge kinds already write without one). `src/services/scoring.js`'s `crowdFavorites()` sidesteps the
@@ -2016,7 +2028,7 @@ cache makes the deferred call free after the first one.
 schema change for this issue. A stored rank would be the one fact here that could go stale — a like arriving
 after the event was recorded could move the photo's rank again before the guest ever opens their recap.
 `KIND_VIEW.crowd_favorite.parts()` reads the CURRENT placing set live from `crowdFavorites()` every time the
-row renders, falling back to a rank-free "crowd favorite" line if the photo has since left the placing set
+row renders, falling back to a rank-free "crowd favorite" line if the guest has since left the placing set
 again (a second `crowd_favorite_lost` event, recorded separately at the moment it actually left, is what
 tells that part of the story). `crowd_favorite` reuses the existing `gold` recap view; `crowd_favorite_lost`
 reuses the existing `loss` view with `dead: true` — no new view-kind glyph or CSS was needed, both were
@@ -2027,6 +2039,82 @@ exactly one owner, `src/services/scoring.js`; every reader (`getPoints`, `leader
 `feed.slideshowSequence`, `notifications.js`'s recap copy) reads points off `crowdFavorites()`'s own output
 rather than re-deriving the mapping. The standard-competition ranking ALGORITHM itself has exactly one
 owner, `src/services/rank.js`'s `standardRank` — `scoring.crowdFavorites()` is its only caller today.
+
+## Crowd favorites: per-guest dedupe reverses the no-cap sweep rule (#896)
+
+**Date:** 2026-07-27. **Status:** accepted.
+
+**What changed.** `crowdFavorites()` (`src/services/scoring.js`) now reduces `stmtVisibleLikeCounts`'s rows
+to at most ONE row per `guest_id` — that guest's best (highest `like_count`, then lowest `submission_id`,
+the query's own existing tiebreak order) — BEFORE `rank.standardRank` runs, for both tied and distinct
+like-counts alike. This reverses #625 AC3's "no-cap sweep" rule entirely: a guest can now hold at most one
+of the five paying crowd-favorite slots, no matter how many of their own photos are liked.
+
+**Why the old rule broke.** #625 AC3 deliberately let one guest sweep several placing slots at once — "a
+guest sweeping the 3 highest distinct like counts places at ranks 1/2/3 and collects 5+4+3=12 — no cap" —
+reasoning that a guest who genuinely earned several well-liked photos should collect for all of them. In
+practice this let one guest with many photos (a habitual poster, or one photo re-liked by friends across
+many near-duplicates) occupy EVERY crowd-favorite slot: with 20 photos tied at the top like-count, all 20
+rank 1, all 20 wear a crown (never gold — `rank1Count > 1` nulls `crownGoldId`, `src/routes/community.js`),
+and the guest collects 100 points from a single popularity spike. The owner filed this from the app itself
+(`#897`, bug report, 2026-07-26): "Someone can win best pic for 20 of their own tied for first photo." The
+mechanic no longer resembles a crowd vote once one guest's own back-catalog can fill every seat; it stops
+recognizing DIFFERENT people's best work, which is the whole point of a "crowd favorite."
+
+**Why dedupe-then-rank, not a post-rank cap.** Capping the placing set to N distinct guests AFTER ranking
+would still let a guest's second-best photo silently steal the boundary slot from a different guest's only
+photo, and would complicate `CROWD_FAVORITE_POINTS[rank - 1]`'s straight index lookup (a capped array no
+longer lines up 1:1 with `rank`). Deduping BEFORE ranking sidesteps both: `rank.standardRank` never sees a
+guest's second photo at all, so every downstream consumer — `crowdPointsByGuest`, the crown
+(`crownRankState`), the slideshow's Most Liked opener, the recap diff (`recordCrowdFavoriteChanges`) —
+keeps working unchanged, because the shape of `crowdFavorites()`'s return value did not change, only which
+rows can appear in it.
+
+**Why the dedupe stays inside the single AC8 query.** `stmtVisibleLikeCounts` already orders
+`like_count DESC, submission_id ASC` for `rank.standardRank`'s own tiebreak needs (#625). That same order
+makes "first row seen for a `guest_id`" exactly equal to "that guest's best photo" — a single JS pass over
+the rows already fetched, no second SQL statement, no re-sort. AC8 (leaderboard calling `crowdFavorites()`
+exactly once, one query regardless of guest count) is unaffected and its test
+(`tests/crowd-favorites.test.js`'s AC8 block) passes unmodified.
+
+**Deploy-transition note (accepted, everyone in prod is a tester until the wedding).** Stored
+`crowd_favorite` recap rows for photos that dedupe out at deploy remain in guests' recaps in the degraded
+rank-free form (`notifications.js`'s `crowd_favorite` fallback), and no `crowd_favorite_lost` fires for them
+retroactively — the diff only runs around live mutations. The representative-photo-swap false-pair risk this
+note originally flagged is resolved by #895, immediately below.
+
+## Crowd-favorite events: a per-guest placing-status diff, not a per-photo rank diff (#895)
+
+**Date:** 2026-07-27. **Status:** accepted.
+
+**What changed.** `recordCrowdFavoriteChanges()` (`src/services/scoring.js`) diffed the before/after placing
+sets keyed by `submission_id`, so ANY rank move on an already-placing photo — even one caused entirely by a
+_different_ guest's like shifting the standings, or (after #896) a guest's own representative photo swapping
+to a different one of their tied submissions — wrote a fresh `crowd_favorite` row and a fresh unread
+increment, for a fact ("you are a crowd favorite") that had not actually changed for that guest. The diff now
+keys by `guest_id` instead: a `crowd_favorite` event fires only when a guest's own `guest_id` is absent from
+`before` and present in `after` (entry), a `crowd_favorite_lost` event fires only when it is present in
+`before` and absent from `after` (exit), and nothing fires while the guest's `guest_id` appears on both sides
+— regardless of what their numeric rank did in between. `KIND_VIEW.crowd_favorite.parts()`
+(`src/services/notifications.js`) is re-keyed the same way: `stmtStoredEvents` now projects `ne.guest_id`
+alongside the columns it already selected, and the live placing lookup at render time matches on
+`ev.guest_id` rather than `ev.submission_id`, so a stored event whose recorded photo is no longer the guest's
+representative (the #896 swap case) still resolves to that guest's CURRENT rank instead of falling back to
+the rank-free "crowd favorite" copy. Nothing about the recap's `href`/thumbnail behavior changed — a stored
+event still links to the submission it was recorded against, which is issue #866's separate, still-open
+surface.
+
+**Alternative considered — pass the recap owner's `guestId` into `parts()` instead of projecting
+`ne.guest_id`.** Rejected: `parts()` renders one stored ROW, and the row's own `guest_id` is the fact the
+event was recorded about; threading the page-level `guestId` through every `KIND_VIEW` signature would widen
+an interface shared by all stored kinds to serve one kind, and would silently break if a future kind ever
+renders another guest's event in someone's recap. Projecting the column keeps the row self-describing.
+
+**Why this loses no information.** The recap card never stores a rank in the first place (see "Why the recap
+stores only `guest_id` + `submission_id`, never a rank," above) — `KIND_VIEW.crowd_favorite.parts()` always
+read the guest's CURRENT placing state live at render time. Suppressing an event on a rank shuffle or a
+representative swap therefore only suppresses a duplicate NOTIFICATION of an unchanged fact; the existing
+entry row keeps displaying whatever is true right now.
 
 ## Crowd-favorite crown: a render-time marker, never a stored badge (#788)
 
@@ -2299,3 +2387,233 @@ photo a guest deliberately removed, without any visual cue that it was the guest
 host's earlier moderation call. That view is deliberately not on this issue's `Touches` list — the fix is a
 guest-visibility differentiation the AC set never asked for — and the failure mode is recoverable (the guest
 can simply delete it again), so this ships as a named, deferred gap rather than a silent one.
+
+## Double-submit idempotency: possession-keyed release events, a 30-second bug-report window (#889)
+
+**Date:** 2026-07-27. **Status:** accepted.
+
+Two spamming reports from the owner traced to the same shape of bug: a button click that fires more than
+once (double-tap, a slow response re-tapped, a browser resubmit-on-refresh) had no server-side floor, so
+each extra POST produced its own extra side effect — a second `bug_reports` row, or a second `badge_granted`
+recap event and a re-opened celebration dialog for a badge the guest already had. `releaseRanking`
+(`src/services/task-badges.js`) was already idempotent on WHICH `guest_badges` rows exist (the delete-then-
+upsert #661 already built), but not on the two things layered on top of that write: the recap event, and the
+`celebrated_at` stamp the delete silently wiped and the upsert never restored.
+
+**Release & Award: keyed on ranked possession, not on the POST.** `releaseRanking` now reads the badge's
+existing `rank IS NOT NULL` holders (guest_id -> celebrated_at) before the delete that #661 already runs,
+mirroring `scoring.js`'s `awardSpecialBadge` — an `INSERT OR IGNORE`-gated event on a real state
+change, not a per-call one. A winner who was already in that captured set (the same guest re-released,
+whether at an identical rank or a changed one) gets their prior `celebrated_at` written back after the
+upsert and no event; a winner NOT in that set — genuinely new to the badge — gets the normal grant: one
+event, `celebrated_at` left NULL. A double-clicked or re-posted release now produces at most one recap row
+and one celebration per guest, no matter how many times the identical (or a re-ranked) winner list is
+POSTed. This is possession-keyed on purpose, not POST-keyed: re-releasing the SAME winner list twice and
+re-releasing a CHANGED list that still contains that winner both count as "already held it" — a rank or
+points change alone is not a new grant, since the recap renders rank live off the current row
+(`notifications.js`'s own `KIND_VIEW.badge_granted`) and would otherwise read as duplicate, byte-identical
+noise.
+
+**`/bug-report`: a 30-second same-guest, same-stored-body window.** The existing `socialRateLimiter` throttles
+abuse volume; it does nothing about one guest's own accidental double-tap landing as two rows with identical
+text seconds apart (the owner's own report reproduced exactly this). `POST /bug-report` now checks, before
+the INSERT, for a `bug_reports` row from the same guest whose STORED body (the same trimmed + truncated-to-
+`BUG_REPORT_BODY_MAX` string the INSERT itself writes) matches and was created within the last 30 seconds
+(`created_at >= datetime('now', '-N seconds')` with the window bound as a parameter, compared directly against the column's own `datetime('now')`
+storage shape — no JS-side clock parsing needed). A match skips the INSERT and returns the identical success
+response, so a spammed button reads as one filed report, not several. The window is a resubmit guard, not a
+report cap: a distinct body, a different guest, or the same wording filed again minutes later all record
+normally — 30 seconds covers a double-tap or a refresh-resubmit without suppressing a deliberate repeat
+report.
+
+**Deliberately not in scope.** `notification_events` rows already duplicated by PRE-#889 double-clicks are
+left as-is — stored events are permanent by design (`notifications.js`'s own doc comment) and every guest in
+prod today is a disposable tester (the wedding is 2026-08-07). Client-side button-disable guards that would
+stop the extra POSTs from firing at all are `#898`, tracked separately as the visual half of this fix.
+
+## Amendment: a never-celebrated `badge_granted` event is retracted, not permanent (#894)
+
+**Date:** 2026-07-28. **Status:** shipped.
+
+The #644 ADR above states stored `notification_events` rows are permanent — no emitter has ever deleted
+one, and #889's own "deliberately not in scope" note above just leaned on that same permanence to justify
+leaving pre-#889 duplicate rows in place. #894 narrows that rule for exactly one case: a transferable
+badge's `badge_granted` event whose grant the guest never actually saw celebrated.
+
+`recomputeTransferableBadges()` (`src/services/scoring.js`) revokes and re-grants a transferable badge
+(e.g. TOPLIKED) as a pure side effect of ANY guest's like/unlike moving the standings — a guest sitting at
+the rank-5 boundary can flap out and back in from someone else's action alone, with no visit to the site
+of their own. Before #894, every re-grant wrote a second, permanent `badge_granted` event, and
+`render-locals.js`'s `resolveBadgeMoment` treats any `guest_badges` row with `celebrated_at IS NULL` and a
+matching event as owed — so a flapped-back-in guest saw the #255 celebration dialog again on their very
+next render, indefinitely, as standings kept wobbling (the guest-reported bug: "it isn't one after another
+it's every time the page reloads").
+
+**The permanent event log becomes an accurate "this grant was announced" memory, in both directions:**
+
+- **Re-grant of an announced badge is silent.** If a `badge_granted` event already exists for
+  (guest, badge), the restored row is inserted with `celebrated_at` already set (`stmtGrantBadge`'s
+  `alreadyAnnounced` flag) and no second event is written. The guest was already told once; a flap is not news.
+- **A never-announced grant that un-happens is fully retracted.** When a revoke removes a row whose
+  `celebrated_at` is still `NULL` — the guest never rendered a page between the grant and the revoke —
+  its `badge_granted` event is deleted with it (`notifications.retractGrantAnnouncement`). Without this, a
+  flap interleaving between grant and the guest's first render would leave a stale event on file, make a
+  later GENUINE re-grant look already-announced, and silently swallow the guest's first-ever celebration
+  of that badge. `notification_events` has no uniqueness constraint, so this deletes every matching row
+  for the pair, not just one — a pre-existing flap could have left more than one behind.
+
+**Accepted, not engineered around:** a guest may briefly have seen the row in the recap strip before it
+vanishes (the row existed for the seconds between grant and revoke) — the flap window is short and the
+alternative (leaving the stale event standing) loses a real first celebration, which is the worse
+failure. `badge_revoked` emission is unchanged by this issue — its own event-spam and recap-copy
+questions on flap-out predate #894 and stay parked on `#588`. `recomputeBadges()` (the per-guest
+auto/metric path) is untouched: this amendment applies only to `recomputeTransferableBadges()`'s
+grant/revoke pair, since only a transferable badge's holder set is subject to this outside-driven flap.
+
+## Badge icon search tags: a public client-side data file, not server-rendered attributes (#903)
+
+The admin badge-icon picker's search box (`src/public/js/badge-picker.js`, part of #410) matched only an
+icon's display name — a host had to already know the catalog called it "Rough Morning" rather than typing
+the word that actually came to mind ("hangover"). Fixing that needed a much richer set of search words per
+icon (15+ synonyms/categories/related terms) than the one-line `name` the catalog (`src/services/
+badge-icons.js`) already carries.
+
+That tag data lives in its own bundled script, `src/public/js/badge-icon-tags.js` — `window.BadgeIconTags`,
+a plain id-to-tag-array map, loaded before `badge-picker.js` in `src/views/admin-tasks.ejs` (the same
+data-before-consumer script ordering the file already documents for `badge-icon-mask.js`). Two alternatives
+were passed over: server-rendering the tags into a `data-tags` attribute per grid cell would repeat the whole
+tag corpus once per admin page load for no benefit (the tags never change per-request and add nothing a
+static asset can't serve, cached, instead); and exporting the map from `badge-icons.js` itself would hand a
+server-only module a client-search concern it has no other reason to know about. Keeping it a separate
+public data file means the search stays entirely client-side (`applyFilter` matches the query as a substring
+of a per-cell `data-search` string built once at init from name + tags), and one shared map keeps every
+grid cell's own HTML lean — no per-cell tag markup to render or diff.
+
+The catalog and the tag map are two independently-edited artifacts describing the same id set, so nothing
+stops them drifting apart (a new catalog icon shipped with no tags, a renamed id left orphaned in the tag
+map, a hand-typed tag that isn't actually lowercase). `tests/badge-icon-tags.test.js` is the drift guard:
+it evaluates the real data file's source with `new Function('window', src)` (no jsdom needed — the file has
+no other DOM dependency) and asserts its key set matches `badge-icons.js`'s `listIcons()` exactly, every
+entry carries at least 15 well-formed tags, and every word of every display name shows up in that icon's own
+tags — binding the two files together the same way a foreign key would, without either module importing the
+other.
+
+**Deliberately not in scope.** The data file (~106 KB at #903 merge time; it grows with the catalog) loads on every `/admin/tasks` view
+with no lazy-load or compression; this is a one-host admin page, not a hundred-guest surface, so the payload
+cost is accepted rather than engineered around. The tag map has no guest-facing consumer.
+
+## Badge queue: the #644 render-time drip becomes a client-driven continue-through celebration (#902)
+
+**Date:** 2026-07-28. **Status:** shipped.
+
+**The problem the guest actually reported.** #894's guest report read "when I get a badge it isn't
+one after another it's every time the page reloads" — the #644 drip design working exactly as built:
+`resolveBadgeMoment` paid ONE owed badge per render and left the rest genuinely owed, so a guest who
+crossed several thresholds at once (or was awarded a badge by a host while mid-session) saw them
+trickle out across unrelated page loads over the following minutes, not as one connected win. #894
+fixed a different bug in the same neighborhood (a transferable-badge flap replaying an
+already-celebrated badge); this issue is the owner's confirmed follow-up on the drip itself.
+
+**The queue replaces the drip; the stamp-at-render contract for the HEAD badge does not change.**
+`resolveBadgeMoment` (`src/services/render-locals.js`) still resolves and stamps exactly one badge —
+the same highest-priority owed badge #714's `compareBadgeMoment` would have picked before this issue —
+at the same moment it always did (render time, never from `attachGuest`, for the same #563-recreation
+reason the #644 ADR above already gives). What changes is everything AFTER that: instead of leaving the
+rest of the owed set untouched for a later, unrelated render to pick up one at a time, this issue
+resolves and orders the WHOLE owed set up front (`scoring.rankBadgeCandidates`, see below) and exposes
+positions 2..K as a `badgeQueue` render local. The dialog (`src/views/partials/header.ejs`,
+`src/public/js/badge-moment.js`) drives the rest client-side, in one sitting: "Continue — N more"
+advances in place (title/description/art swap, the bloom animation replays) until the last badge reads
+"Done" and closes.
+
+**The stamp for a QUEUED badge moves from render-time to a client POST, because "resolved" and "shown"
+are no longer the same instant.** Under the drip, resolving a badge and showing it were the same
+event — a render either surfaced the celebration or it didn't, so stamping at resolve time was
+equivalent to stamping at shown time. Once the whole queue resolves at ONE render but its members are
+shown one Continue tap at a time, possibly seconds or minutes apart (or never, if the guest abandons the
+page), stamping the whole queue at resolve time would celebrate-and-forget badges the guest never
+actually looked at. `POST /badge-moment/celebrated` (`src/routes/guest.js`) is the new stamp site for
+positions 2..K: `src/public/js/badge-moment.js` calls it once per badge, at the exact moment a Continue
+tap reveals it — never before, and (matching `POST /recap/seen`'s existing fire-and-forget posture) never
+retried on failure. The guard against a double-tap, a replayed request, or a badge code naming someone
+else's badge (or one already shown) is the safety net, not the client's good behavior — see
+`markBadgeCelebrated` below for where that guard actually lives. A guest who navigates away or closes the
+tab mid-queue therefore leaves every unshown badge exactly as owed as it was before this issue's
+render — it re-offers itself, correctly ordered, on the guest's next page load.
+
+**`markBadgeCelebrated` — one owner of the stamp AND the "owed" predicate it must never contradict (PR
+review, major finding 3).** The original cut of this route hand-wrote its own `UPDATE ... WHERE guest_id
+= ? AND celebrated_at IS NULL AND badge_id = (SELECT id FROM badges WHERE code = ?)` directly in
+`src/routes/guest.js` — a SECOND, narrower definition of "owed" than `render-locals.js`'s `stmtOwedBadges`
+(the query `resolveBadgeMoment` above actually auto-opens from), missing that query's `EXISTS` half
+entirely (a matching `notification_events` `badge_granted` row — the #644 guard that keeps a
+hand-inserted test fixture, which bypasses `scoring.js`'s real grant paths, from ever auto-opening). Two
+independent "what counts as owed" queries meant a fixture row invisible to the auto-open query could still
+be stamped through the route — route-layer SQL quietly deciding a service-owned question a second way.
+`render-locals.js` now exports `markBadgeCelebrated(guestId, code)`: one module-scope prepared UPDATE
+carrying the identical predicate shape as `stmtOwedBadges` (`celebrated_at IS NULL` AND the same
+correlated `EXISTS` against `notification_events`), returning a boolean. The route's own SQL is gone
+entirely; it just maps `true`/`false` to `204`/`404`, keeping its `400`-on-missing-code, rate limiter, and
+status codes unchanged.
+
+**`window.paintBadge` — one client-side painter for the `.badge-title`/`.badge-sub`/`.badge-sway` DOM
+contract (PR review, major finding 2).** The original cut hand-wrote the identical three-field swap
+independently in THREE places: `header.ejs`'s server render (the first paint), `recap.js`'s own
+`openBadgeDialog` (replay), and `badge-moment.js`'s `showQueued` (queue advance) — three places that had
+to agree on which selector holds which field, with nothing enforcing it. `header.ejs`'s server render
+stays as-is (it is the one SERVER-side owner, before any script has run); `src/public/js/recap.js` now
+defines the one CLIENT-side owner, `paintBadge(dialog, {name, description, artHtml})`, exposed as
+`window.paintBadge` — the same plain-global convention `src/public/js/csrf.js`'s `window.csrfHeader`
+already uses — and both `recap.js`'s `openBadgeDialog` and `badge-moment.js`'s `showQueued` call it rather
+than repainting the three fields by hand. `recap.js` is the right home: it loads on every guest page,
+unconditionally, before any click can happen, while `badge-moment.js` only loads when a celebration is
+owed this render — so `recap.js` is guaranteed to have already defined `window.paintBadge` by the time
+either script's Continue handler actually runs, even though `header.ejs` loads `badge-moment.js`'s
+`<script>` tag first (`defer` only guarantees execution order between the two files, not that a LATER
+click waits for anything — and it doesn't need to).
+
+**`rankBadgeCandidates` — one filter+sort owner shared by the single-winner and whole-queue callers.**
+Building the ordered queue needs the same two steps #714's `primaryNewBadge` already performed (filter
+the guest's held-badge set, which alone carries the `type`/`threshold` the comparator ranks on, down to
+a candidate code set, then sort by `compareBadgeMoment`) — `primaryNewBadge` just discarded every row
+past the winner. Duplicating that filter+sort a second time in `render-locals.js` to get the whole list
+would have left two independent copies of one ranking rule. `scoring.rankBadgeCandidates(guestId, codes)`
+is now the single owner of that step, and `resolveBadgeMoment` calls it directly for the whole ordered
+array. **PR review, minor finding 5:** the original cut of this issue kept `primaryNewBadge` around as a
+one-line wrapper taking `rankBadgeCandidates`'s first result, on the theory that `guest.js`'s
+task-complete modal still called it — but that call site had already been replaced by
+`resolveBadgeMoment` back in #644, so `primaryNewBadge` shipped with no production caller left at all.
+It and its export are deleted; `tests/badge-moment-priority.test.js` (#714) now reproduces the same
+one-line wrapper locally, over the real `rankBadgeCandidates`, so its assertions keep proving the
+identical "single winner, or null" contract. `compareBadgeMoment` is the one entry point from #714 that
+keeps both its existing signature/behavior and a live production caller (inside `rankBadgeCandidates`).
+
+**Continue-button ownership: badge-moment.js takes over from recap.js for the whole page load, the same
+way the owner-approved `?badge-demo=1` mock already did.** The shared `#badge-dialog` also serves
+`src/public/js/recap.js`'s own on-demand REPLAY of an already-celebrated badge (tap a recap row), which
+closes on Continue with no queue and no count (AC6, unchanged). Once a celebration is owed at all,
+`badge-moment.js` registers a CAPTURE-phase `document` listener for `.badge-continue` clicks and calls
+`stopPropagation()` — capture-phase listeners on `document` run before any bubble-phase listener on that
+same node regardless of script load order, which is exactly the guarantee the phase-1 demo's own
+capture listener relied on to "beat" `recap.js`'s plain bubble-phase closer. `badge-moment.js` owns every
+Continue tap for the rest of that page load this way: it advances the queue while one remains, and closes
+the dialog itself once its own `queueIndex` reaches the end of `queueItems` (matching AC4's single-badge
+case, where the queue is empty from the start) — so `recap.js`'s own close-on-Continue handler only ever
+actually runs on a page where `badge-moment.js` was never loaded at all (nothing owed this render, a pure
+replay session).
+
+**PR review, major finding 1 (all three reviews converged on it): `queueIndex` reaching the end was not,
+in fact, guaranteed — a real broken trace.** A guest owed 3 badges who DISMISSES the dialog mid-queue
+(Escape, or any other native dismissal) never fires a click on `.badge-continue`, so `badge-moment.js`'s capture listener
+— the only place `queueIndex` moved — never ran, and `queueIndex` was left wherever it was when the
+dialog closed. A LATER recap-row replay reopening the same dialog and tapping Continue hit that stale,
+still-mid-queue `queueIndex`: it resumed the ABANDONED queue instead of closing — advancing to the next
+badge, posting its stamp, and showing a count (AC6 violated; AC3's "abandon keeps it owed" broken by the
+very tap meant to replay a different badge). The fix is a `dialog.addEventListener('close', ...)` listener
+that forces `queueIndex = queueItems.length` the instant the dialog closes, BY ANY MEANS — not just by
+walking every queued item via Continue. That is what actually makes "a later replay's Continue plainly
+closes" true: exhaustion is now guaranteed on every path the dialog can close by, not assumed from the one
+path (completing the queue) the original cut only handled. `recap.js`'s `openBadgeDialog` was given one
+more, independent fix: reset the Continue button's label back to plain "Continue" every time it opens for
+a replay, since `badge-moment.js` leaves that same shared button reading "Done" (or a stale count) once
+its own queue finishes, and a later replay must never inherit it.

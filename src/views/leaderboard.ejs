@@ -93,7 +93,10 @@
               </a>
             <% }); %>
             <% if (r.badges.length > badgeCap) { %>
-              <span class="lb-badge-more">+<%= r.badges.length - badgeCap %></span>
+              <%# The hidden-badges chip leads somewhere: the guest's profile
+                  shows their full badge case (owner call, #891 loop). %>
+              <a class="lb-badge-more" href="/u/<%= r.id %>"
+                 title="See all of <%= r.name || 'this guest' %>'s badges">+<%= r.badges.length - badgeCap %></a>
             <% } %>
           </span>
 

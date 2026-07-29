@@ -289,18 +289,22 @@ function memoryDayCountsByGuest(timezone) {
 }
 
 // ---------------------------------------------------------------------------
-// Crowd favorites (issue #625): the crowd's likes vote on the weekend's best
-// photos, fully derived — no `guest_badges` row is ever written for a
-// crowd-favorite placement. Binding rationale: `guest_badges` carries
-// `CONSTRAINT uq_gb UNIQUE (guest_id, badge_id)` (src/db.js), so a guest
-// sweeping two paying photo slots could never hold two rows for the same
-// badge — materializing would break the no-cap sweep rule (AC3) or force a
-// schema change. crowdFavorites() below is the ONLY place "who is a crowd
-// favorite, at what rank, worth how much" is decided; every reader
-// (getPoints, leaderboard, feed.slideshowSequence's Most Liked opener,
-// notifications.js's crowd_favorite/crowd_favorite_lost recap rows) reads
-// this same live answer rather than a stored copy that could go stale the
-// moment a like/takedown/restore moves it.
+// Crowd favorites (issue #625, per-guest dedupe reversal #896): the crowd's
+// likes vote on the weekend's best photos, fully derived — no `guest_badges`
+// row is ever written for a crowd-favorite placement. Binding rationale:
+// `guest_badges` carries `CONSTRAINT uq_gb UNIQUE (guest_id, badge_id)`
+// (src/db.js), so materializing a crowd-favorite placement as a row on that
+// table would still need a `submission_id` column no other badge kind
+// carries, purely to identify WHICH of a guest's photos earned the row —
+// even though #896 now guarantees at most one placing photo per guest, that
+// photo can change from one read to the next as likes/takedowns move the
+// standings, and a stored row would go stale exactly like every other
+// derived scoring term in this file. crowdFavorites() below is the ONLY
+// place "who is a crowd favorite, at what rank, worth how much" is decided;
+// every reader (getPoints, leaderboard, feed.slideshowSequence's Most Liked
+// opener, notifications.js's crowd_favorite/crowd_favorite_lost recap rows)
+// reads this same live answer rather than a stored copy that could go stale
+// the moment a like/takedown/restore moves it.
 // ---------------------------------------------------------------------------
 
 // Rank -> points, index by (rank - 1). Ranks 1-5 place; a photo at rank 6 or
@@ -334,36 +338,66 @@ const stmtVisibleLikeCounts = db.prepare(`
 /**
  * The crowd-favorite placing set, live, from ONE query (issue #625 AC8: the
  * leaderboard's caller must be able to call this exactly once regardless of
- * guest count). Standard-competition ranking (rank.standardRank, deliberately
- * NOT the leaderboard's dense rank, #626): a tie shares a rank and the next
- * distinct like count skips to `1 + <count of photos ranked above it>`, so a
- * big tie for a spot CONSUMES the ranks beneath it — the rule that keeps the
- * paying set bounded near 5 regardless of party scale (a 60-photo tail all
- * sitting at 1 like never all place, unlike dense ranking, which has no such
- * bound). Ranks 1-5 place, paying CROWD_FAVORITE_POINTS[rank - 1]; a photo
- * ranked 6th or worse, or sitting at 0 likes (excluded by
- * stmtVisibleLikeCounts before ranking even runs), never appears in the
- * returned array. A single tier that itself holds 5+ photos (a big top tie)
- * can still place more than 5 photos — that is correct: they genuinely tied
- * for most-liked (issue #625's own wording).
+ * guest count). Issue #896 reversed #625 AC3's old "no-cap sweep" rule: each
+ * guest now appears AT MOST ONCE in the placing set, represented by their
+ * single BEST visible liked photo (highest like_count, then lowest
+ * submission_id tiebreak). stmtVisibleLikeCounts is already ordered
+ * `like_count DESC, submission_id ASC`, so that order makes the FIRST row
+ * seen for a given guest_id exactly that guest's best photo — the dedupe
+ * below is a single pass keeping only first-seen guest_ids, no second query
+ * and no re-sort. Dedupe happens BEFORE ranking, so a guest who used to sweep
+ * several of the top spots with their own photos now consumes only the one
+ * rank their best photo earns; nobody else's rank shifts as a result except
+ * by that guest's other photos simply not being counted.
+ *
+ * Standard-competition ranking (rank.standardRank, deliberately NOT the
+ * leaderboard's dense rank, #626) then runs over the DEDUPED list: a tie
+ * shares a rank and the next distinct like count skips to `1 + <count of
+ * photos ranked above it>`, so a big tie for a spot CONSUMES the ranks
+ * beneath it — the rule that keeps the paying set bounded near 5 regardless
+ * of party scale (a 60-photo tail all sitting at 1 like never all place,
+ * unlike dense ranking, which has no such bound). Ranks 1-5 place, paying
+ * CROWD_FAVORITE_POINTS[rank - 1]; a photo ranked 6th or worse, sitting at 0
+ * likes (excluded by stmtVisibleLikeCounts before ranking even runs), or
+ * deduped out as a non-best photo of a guest who already placed, never
+ * appears in the returned array. A single tier that itself holds 5+
+ * DIFFERENT guests' best photos (a big top tie) can still place more than 5
+ * — that is correct: they genuinely tied for most-liked (issue #625's own
+ * wording) — but a tie no longer inflates a single guest's own placement
+ * count, only the field's.
  * @returns {Array<{submission_id: number, guest_id: number, like_count:
- *   number, rank: number, points: number}>} best rank first.
+ *   number, rank: number, points: number}>} best rank first; at most one
+ *   row per guest_id (#896).
  */
 function crowdFavorites() {
   const rows = stmtVisibleLikeCounts.all();
-  const { ranks } = rank.standardRank(rows, (row) => row.like_count);
+
+  // Keep only each guest's first-seen row — their best photo, since rows
+  // arrive ordered like_count DESC, submission_id ASC (issue #896).
+  const seenGuestIds = new Set();
+  const bestPerGuest = [];
+  for (const row of rows) {
+    if (seenGuestIds.has(row.guest_id)) {
+      continue;
+    }
+    seenGuestIds.add(row.guest_id);
+    bestPerGuest.push(row);
+  }
+
+  const { ranks } = rank.standardRank(bestPerGuest, (row) => row.like_count);
   const placing = [];
-  for (let i = 0; i < rows.length; i++) {
+  for (let i = 0; i < bestPerGuest.length; i++) {
     if (ranks[i] > CROWD_FAVORITE_POINTS.length) {
-      // Ranks only ever increase as i advances (rows are sorted DESC by
-      // like_count), so once one row's rank exceeds the paying cutoff every
-      // row after it does too — safe to stop scanning early.
+      // Ranks only ever increase as i advances (bestPerGuest is still sorted
+      // DESC by like_count — dedupe drops rows, it never reorders them), so
+      // once one row's rank exceeds the paying cutoff every row after it
+      // does too — safe to stop scanning early.
       break;
     }
     placing.push({
-      submission_id: rows[i].submission_id,
-      guest_id: rows[i].guest_id,
-      like_count: rows[i].like_count,
+      submission_id: bestPerGuest[i].submission_id,
+      guest_id: bestPerGuest[i].guest_id,
+      like_count: bestPerGuest[i].like_count,
       rank: ranks[i],
       points: CROWD_FAVORITE_POINTS[ranks[i] - 1],
     });
@@ -375,10 +409,11 @@ function crowdFavorites() {
  * Each guest's total crowd-favorite points, folded from ONE crowdFavorites()
  * call into a Map — the all-guests generalization getPoints/leaderboard both
  * need, built the same way memoryDayCountsByGuest generalizes
- * memoryDayCount for the same two callers (issue #656's pattern). A guest
- * who owns more than one placing photo sweeps every one of them (issue #625
- * AC3's no-cap rule: three placing photos at ranks 1/2/3 sum 5+4+3=12) — this
- * is a plain per-guest sum, no cap applied anywhere.
+ * memoryDayCount for the same two callers (issue #656's pattern). Since issue
+ * #896, crowdFavorites() already guarantees at most one placing entry per
+ * guest_id, so this is a plain per-guest sum over an input that can add at
+ * most one term per guest — the Map's value is always exactly that guest's
+ * single placing photo's points, never a sweep total.
  * @returns {Map<number, number>} guestId -> total crowd-favorite points.
  */
 function crowdPointsByGuest() {
@@ -393,33 +428,44 @@ function crowdPointsByGuest() {
  * Diff the crowd-favorite placing set BEFORE a mutation (a like toggle, a
  * takedown, or a restore — every caller captures `before` via
  * crowdFavorites() immediately before its own write) against the CURRENT
- * set, and emit exactly one recap event per photo that actually moved (issue
- * #625 AC7): entered or moved rank -> 'crowd_favorite' to the photo's owner;
- * left the placing set entirely -> 'crowd_favorite_lost'. A photo whose rank
- * (and therefore points, since points derive purely from rank) is UNCHANGED
- * emits nothing — the diff is what keeps this bounded to the photos one
- * like/takedown/restore actually touched, not every photo in the placing set
- * on every call (this issue's plan: "inherently bounded to the photos that
- * actually moved"). No stale rank is ever stored: the recap row itself
- * carries only guest_id + submission_id (notifications.recordEvent), and
- * reads the CURRENT rank/points from crowdFavorites() again at render time.
+ * set, KEYED BY GUEST_ID (issue #895, superseding #625 AC7's old
+ * submission-keyed diff): emit exactly one recap event per guest whose
+ * PLACING STATUS actually changed — entered the set -> 'crowd_favorite' to
+ * that guest; left the set entirely -> 'crowd_favorite_lost'. A guest who
+ * remains in the set emits nothing, no matter WHY crowdFavorites() reports
+ * them again: a pure rank shuffle from someone else's like changing nothing
+ * about this guest's own membership, or (since #896) a representative-photo
+ * swap when a guest's own previously-second-best tied photo overtakes their
+ * old best — neither is news, since the guest's placing FACT (in vs. out)
+ * never changed. (#625's original rule — "entered or moved rank" — is what
+ * #895 fixes: a rank move alone is not itself news.) No stale rank is ever
+ * stored: the recap row carries only guest_id + submission_id
+ * (notifications.recordEvent), and reads the CURRENT rank/points from
+ * crowdFavorites() again at render time, keyed by guest_id
+ * (notifications.js's KIND_VIEW.crowd_favorite.parts()) so a later
+ * representative-photo swap can never strand a stored row on a submission_id
+ * that has stopped representing the guest.
  * @param {Array<{submission_id: number, guest_id: number, rank: number}>} before
- *   - the return of crowdFavorites(), captured before the caller's mutation.
+ *   - the return of crowdFavorites(), captured before the caller's mutation;
+ *   at most one row per guest_id (#896).
  */
 function recordCrowdFavoriteChanges(before) {
   const after = crowdFavorites();
-  const beforeBySubmission = new Map(before.map((p) => [p.submission_id, p]));
-  const afterBySubmission = new Map(after.map((p) => [p.submission_id, p]));
+  const beforeByGuest = new Map(before.map((p) => [p.guest_id, p]));
+  const afterByGuest = new Map(after.map((p) => [p.guest_id, p]));
 
-  for (const [submissionId, afterPlacing] of afterBySubmission) {
-    const beforePlacing = beforeBySubmission.get(submissionId);
-    if (!beforePlacing || beforePlacing.rank !== afterPlacing.rank) {
-      notifications.recordEvent(afterPlacing.guest_id, 'crowd_favorite', { submissionId });
+  for (const [guestId, afterPlacing] of afterByGuest) {
+    if (!beforeByGuest.has(guestId)) {
+      notifications.recordEvent(guestId, 'crowd_favorite', {
+        submissionId: afterPlacing.submission_id,
+      });
     }
   }
-  for (const [submissionId, beforePlacing] of beforeBySubmission) {
-    if (!afterBySubmission.has(submissionId)) {
-      notifications.recordEvent(beforePlacing.guest_id, 'crowd_favorite_lost', { submissionId });
+  for (const [guestId, beforePlacing] of beforeByGuest) {
+    if (!afterByGuest.has(guestId)) {
+      notifications.recordEvent(guestId, 'crowd_favorite_lost', {
+        submissionId: beforePlacing.submission_id,
+      });
     }
   }
 }
@@ -466,13 +512,75 @@ const stmtGuestBadge = db.prepare('SELECT * FROM guest_badges WHERE guest_id = ?
 // or admin-special badge stays a display-only award. Whatever is written
 // here is exactly what stmtAwardPointsSum/leaderboard later sum on read; no
 // other statement in this file writes guest_badges.points for a system/
-// admin grant.
+// admin grant — this remains the ONE statement that does so, issue #894
+// included (see the `alreadyAnnounced` param below, not a second INSERT).
+//
+// `alreadyAnnounced` (0 or 1, issue #894) is the ONLY thing that varies
+// celebrated_at at grant time: 1 stamps celebrated_at = now in the same
+// INSERT (a transferable re-grant of a badge notifications.grantWasAnnounced
+// says this guest was already told about — see recomputeTransferableBadges'
+// grant branch below); every other call site passes 0, leaving celebrated_at
+// NULL (omitted from the CASE's ELSE, so SQLite's column default — no
+// default, hence NULL — applies exactly as it did before this column had a
+// writer here at all).
 const stmtGrantBadge = db.prepare(
-  'INSERT OR IGNORE INTO guest_badges (guest_id, badge_id, awarded_by, points) VALUES (?, ?, ?, ?)'
+  `INSERT OR IGNORE INTO guest_badges (guest_id, badge_id, awarded_by, points, celebrated_at)
+   VALUES (?, ?, ?, ?, CASE WHEN ? = 1 THEN datetime('now') ELSE NULL END)`
 );
 
 // Remove a specific badge from a guest.
 const stmtRevokeBadge = db.prepare('DELETE FROM guest_badges WHERE guest_id = ? AND badge_id = ?');
+
+/**
+ * Revoke one guest's SYSTEM-granted transferable badge, used only by
+ * recomputeTransferableBadges' holder-set diff below. Retracts the badge's
+ * badge_granted announcement FIRST, before the row it describes is deleted,
+ * if — and only if — the guest never actually saw it celebrated (issue #894:
+ * the module boundary is deliberate here — notifications.js owns
+ * notification_events and its `kind` vocabulary, so scoring.js asks it to
+ * retract rather than deleting the row itself). A celebrated row is left
+ * alone: that announcement already happened and stands. badge_revoked itself
+ * is always emitted, unchanged by #894 (issue #644 AC4: the guest_badges row
+ * this deletes is the only record the badge was ever held).
+ * @param {number} guestId
+ * @param {{id: number}} badge - a badges catalog row.
+ */
+function revokeBadgeRetractingUnannounced(guestId, badge) {
+  // existingRow is guaranteed to exist here, not merely likely: guestId came
+  // from existingSystemHolders, read from the SAME guest_badges table (by
+  // badge_id + awarded_by = 'system', a broader predicate this per-guest
+  // lookup narrows under UNIQUE(guest_id, badge_id)) moments earlier inside
+  // this SAME db.transaction, and better-sqlite3 is fully synchronous /
+  // single-threaded — no concurrent write can have deleted it in between.
+  const existingRow = stmtGuestBadge.get(guestId, badge.id);
+  if (existingRow.celebrated_at === null) {
+    notifications.retractGrantAnnouncement(guestId, badge.id);
+  }
+  stmtRevokeBadge.run(guestId, badge.id);
+  notifications.recordEvent(guestId, 'badge_revoked', { badgeId: badge.id });
+}
+
+/**
+ * Grant one guest a transferable badge — SYSTEM-awarded, points = 0 (issue
+ * #709: transferable badges stay display-only) — used only by
+ * recomputeTransferableBadges' holder-set diff below. If notifications.
+ * grantWasAnnounced says this guest was already told about this badge (a
+ * flap: revoked and re-granted as a side effect of another guest's like,
+ * issue #894), the row is restored already-celebrated (the `1` flag to
+ * stmtGrantBadge) and no second badge_granted event is written; otherwise
+ * this is a genuine first grant (or one whose never-celebrated prior event
+ * revokeBadgeRetractingUnannounced just retracted) and gets announced
+ * normally.
+ * @param {number} guestId
+ * @param {{id: number}} badge - a badges catalog row.
+ */
+function grantBadgeAnnouncingOnce(guestId, badge) {
+  const alreadyAnnounced = notifications.grantWasAnnounced(guestId, badge.id);
+  stmtGrantBadge.run(guestId, badge.id, 'system', 0, alreadyAnnounced ? 1 : 0);
+  if (!alreadyAnnounced) {
+    notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
+  }
+}
 
 // All badges of a given type (used by recomputeTransferableBadges to walk
 // every 'transferable' catalog row without hard-coding a code list here).
@@ -542,13 +650,15 @@ function getCompletedCount(guestId) {
  *     currently holds (issue #709 — the point derives on read from holding
  *     the badge row, and leaves automatically when recomputeBadges revokes
  *     it), and 0 for a transferable/admin-special grant.
- *   + the DERIVED crowd-favorite term (issue #625): crowdPointsByGuest()'s
- *     total over every VISIBLE photo currently in this guest's placing set
- *     (standard-competition rank 1-5 among all liked photos, memories
- *     included). Read fresh on every call, like the memory-day term above —
- *     a guest sweeping several placing photos collects every one (no cap,
- *     AC3), and a photo that drops out of the placing set loses its points
- *     on the very next read, with no separate bookkeeping (AC4).
+ *   + the DERIVED crowd-favorite term (issue #625, per-guest dedupe #896):
+ *     crowdPointsByGuest()'s total for this guest's single BEST liked photo
+ *     currently in the placing set (standard-competition rank 1-5 among all
+ *     liked photos, memories included, deduped one-per-guest before
+ *     ranking). Read fresh on every call, like the memory-day term above —
+ *     a guest can hold at most one placing photo, and a photo that drops out
+ *     of the placing set (or is overtaken by that guest's OWN better photo)
+ *     loses its points on the very next read, with no separate bookkeeping
+ *     (AC4).
  * bonus_points is stored clamped at >= 0, photo_bonus is a non-negative
  * admin-set absolute value, worth is clamped 1-3 by the tasks table's own
  * CHECK constraint, and award points are coerced non-negative at write time
@@ -620,11 +730,13 @@ const recomputeBadges = db.transaction((guestId) => {
       // for as long as the guest holds it; revocation below deletes the
       // row, so the point leaves with no separate scoring step.
       if (!has) {
-        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS);
+        // Flag 0 — celebrated_at stays NULL (issue #894's flag param is only
+        // ever 1 for recomputeTransferableBadges' announced-re-grant path
+        // above; every per-guest auto/metric grant is a plain first grant).
+        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS, 0);
         // Issue #644: emit right beside the grant, where the badge identity
-        // is already in scope — celebrated_at starts NULL by construction
-        // (never named in the INSERT above), so this badge is "owed" the
-        // instant this row exists.
+        // is already in scope — celebrated_at starts NULL (the 0 flag just
+        // above), so this badge is "owed" the instant this row exists.
         notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
       }
     } else {
@@ -656,7 +768,8 @@ const recomputeBadges = db.transaction((guestId) => {
       // metric badge (e.g. COMPLETIONIST) is worth +1 for as long as the
       // guest holds it (issue #709).
       if (!has) {
-        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS);
+        // Flag 0 — see the auto-badge branch above for why this is always 0 here.
+        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS, 0);
         notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
       }
     } else if (has && has.awarded_by === 'system') {
@@ -698,23 +811,17 @@ const recomputeTransferableBadges = db.transaction(() => {
       stmtSystemHoldersOfBadge.all(badge.id).map((row) => row.guest_id)
     );
 
+    // Plain set diff — a guest who dropped out of the current holder set is
+    // revoked, one who newly entered it is granted. Issue #894's
+    // announcement-memory rule lives inside the two helpers above, not here.
     for (const guestId of existingSystemHolders) {
       if (!currentHolders.has(guestId)) {
-        stmtRevokeBadge.run(guestId, badge.id);
-        // Issue #644 AC4 — same reasoning as recomputeBadges' revoke
-        // branches: the guest_badges row this DELETE removes is the only
-        // record the badge was ever held, so the event is emitted right
-        // here, where the badge identity is in scope.
-        notifications.recordEvent(guestId, 'badge_revoked', { badgeId: badge.id });
+        revokeBadgeRetractingUnannounced(guestId, badge);
       }
     }
     for (const guestId of currentHolders) {
       if (!existingSystemHolders.has(guestId)) {
-        // Transferable badges are NOT auto/metric (issue #709) — they stay
-        // display-only, so this grant carries points = 0, unchanged from
-        // before #709.
-        stmtGrantBadge.run(guestId, badge.id, 'system', 0);
-        notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
+        grantBadgeAnnouncingOnce(guestId, badge);
       }
     }
   }
@@ -807,8 +914,10 @@ function awardSpecialBadge(guestId, code) {
   }
   // ADMIN_AWARDABLE_TYPES is 'special'/'custom' only — never auto/metric
   // (issue #709) — so this grant carries points = 0, unchanged from before
-  // #709.
-  const info = stmtGrantBadge.run(guestId, badge.id, 'admin', 0);
+  // #709. Flag 0 (issue #894's flag is only ever 1 for
+  // recomputeTransferableBadges' announced-re-grant path) — a host award is
+  // always a plain grant, celebrated_at stays NULL.
+  const info = stmtGrantBadge.run(guestId, badge.id, 'admin', 0, 0);
   // Issue #644 AC5: stmtGrantBadge is INSERT OR IGNORE, so a host re-awarding
   // a badge the guest already holds (or a double-submitted award form) is a
   // real possibility — info.changes is 0 for that no-op INSERT, and only a
@@ -1171,9 +1280,9 @@ const stmtGuestBadgesFull = db.prepare(
  * art_path, type, threshold, description, awarded_by, points, created_at,
  * pointsLabel }. Used by the section 04 home page, the section 07 public
  * profile (via community.js's re-sorting wrapper), the leaderboard, the
- * section 08 admin guest view, and (issue #714) primaryNewBadge below, which
- * is the reason `threshold` rides along on every row rather than being a
- * second query only that caller runs.
+ * section 08 admin guest view, and (issue #714) rankBadgeCandidates below,
+ * which is the reason `threshold` rides along on every row rather than being
+ * a second query only that caller runs.
  *
  * pointsLabel (issue #487) is the ONE place "show a points suffix only when
  * the award is worth something" is decided: "+<points> pts" when points > 0,
@@ -1270,45 +1379,41 @@ function compareBadgeMoment(a, b) {
 }
 
 /**
- * Resolve which of a submit's newly-earned badge codes the task-complete
- * modal celebrates (issue #714, replacing the retired BADGE_MOMENT_PRIORITY
- * hard-coded list in src/routes/guest.js). Reproduces #255's shipped choice
- * exactly for today's catalog, but reads each candidate's own `type` and
- * `threshold` off the badges table via getGuestBadges/compareBadgeMoment
- * rather than a maintained code list — a new catalog badge is ranked on its
- * own fields the moment it becomes earnable, with no second place to update.
+ * Reduce this guest's FULL held-badge set (getGuestBadges — the only query
+ * that carries the `type`/`threshold` compareBadgeMoment ranks on) down to
+ * just the candidate `codes`, then order what's left by celebration
+ * priority. The single owner of "which of several newly-owed badges wins the
+ * celebration slot, and in what order do the rest follow" (issue #714,
+ * widened by #902): originally written to answer just the single-winner
+ * question for a task-complete submit crossing more than one badge at once
+ * (`ranked[0]`, guest.js's task-complete modal), and reused unchanged by
+ * render-locals.js's resolveBadgeMoment to build the WHOLE owed celebration
+ * queue instead (issue #902 plan step 1) — one owner of "filter held badges
+ * to a candidate set, ranked," not two independent copies of the same
+ * two-step rule.
  *
- * Returns null immediately for an empty or non-array `newBadgeCodes`, before
- * calling getGuestBadges — a no-badge submit is the common case (every
- * ordinary task completion) and must not gain a query the deleted route guard
- * used to skip via its own `if (reward.newBadgeIds.length > 0)` check.
- *
- * `newBadgeCodes` is resolved against the guest's CURRENT held badges, and any
- * code the guest does not hold is silently dropped — the same defensive
- * behaviour the retired route code had (a badge id that no longer resolves is
- * not expected to happen within the same redirect, but degrades to "skip it"
- * rather than throwing).
+ * Returns `[]` immediately for an empty or non-array `codes`, before calling
+ * getGuestBadges — a no-badge submit is the common case (every ordinary task
+ * completion) and must not gain a query the deleted BADGE_MOMENT_PRIORITY
+ * route guard used to skip via its own `if (reward.newBadgeIds.length > 0)`
+ * check (issue #714).
  *
  * @param {number} guestId
- * @param {Array<string>} newBadgeCodes - codes this submit newly earned
- *   (reward.newBadgeIds, src/middleware/session.js's one-shot taskComplete
- *   cookie payload)
- * @returns {object|null} the celebrated badge row (getGuestBadges shape), or
- *   null when there is nothing to celebrate
+ * @param {Array<string>} codes - candidate badge codes to rank. A code the
+ *   guest does not currently hold is silently dropped (not expected to
+ *   happen for a caller resolving codes it just read off this same guest's
+ *   own held/owed rows, but degrades to "skip it" rather than throwing).
+ * @returns {Array<object>} held badges (getGuestBadges shape) matching
+ *   `codes`, ordered by compareBadgeMoment. Empty when nothing matches.
  */
-function primaryNewBadge(guestId, newBadgeCodes) {
-  if (!Array.isArray(newBadgeCodes) || newBadgeCodes.length === 0) {
-    return null;
+function rankBadgeCandidates(guestId, codes) {
+  if (!Array.isArray(codes) || codes.length === 0) {
+    return [];
   }
-
-  const heldBadges = getGuestBadges(guestId);
-  const earnedBadges = heldBadges.filter((b) => newBadgeCodes.includes(b.code));
-  if (earnedBadges.length === 0) {
-    return null;
-  }
-
-  earnedBadges.sort(compareBadgeMoment);
-  return earnedBadges[0];
+  const codeSet = new Set(codes);
+  const matched = getGuestBadges(guestId).filter((b) => codeSet.has(b.code));
+  matched.sort(compareBadgeMoment);
+  return matched;
 }
 
 // ---------------------------------------------------------------------------
@@ -1388,7 +1493,7 @@ module.exports = {
   recordCrowdFavoriteChanges,
   getGuestBadges,
   compareBadgeMoment,
-  primaryNewBadge,
+  rankBadgeCandidates,
   badgeWithHolders,
   recomputeBadges,
   recomputeTransferableBadges,

@@ -405,17 +405,28 @@ function currentRanking(taskId) {
 // taken-down winner's medal off the wall; the award ROW itself survives a
 // takedown (see releaseRanking's own doc comment on AC4), so this is a
 // display-time visibility filter, not a data change.
+//
+// INNER-joins `badges` (issue #893): the tile mark must render the badge the
+// guest actually won — its own name and art_path — instead of a generic
+// glyph, so this single statement carries both fields alongside the rank
+// rather than a second per-tile lookup. INNER (not LEFT) is safe here: every
+// guest_badges row's badge_id is a real FK into badges (foreign_keys=ON —
+// src/db.js), so a ranked award can never point at a badge that doesn't
+// exist.
 const stmtVictoryRanks = db.prepare(`
-  SELECT gb.submission_id AS sid, gb.rank AS rank
+  SELECT gb.submission_id AS sid, gb.rank AS rank, b.name AS badge_name, b.art_path AS badge_art_path
     FROM guest_badges gb
     JOIN submissions s ON s.id = gb.submission_id
+    JOIN badges b ON b.id = gb.badge_id
    WHERE gb.rank IS NOT NULL AND s.taken_down = 0
 `);
 
 /**
  * Every currently-visible ranked submission, re-keyed from the released
- * `guest_badges` rows to a plain `{ [submission_id]: rank }` object — the
- * gallery tile's single render-time lookup (issue #811 AC2/AC3), mirroring
+ * `guest_badges` rows to a plain
+ * `{ [submission_id]: { rank, badge: { name, art_path } } }` object — the
+ * gallery tile's single render-time lookup (issue #811 AC2/AC3; widened by
+ * issue #893 to carry the actual badge won, not just its rank), mirroring
  * community.js's crownRankState() re-key-array-to-object shape for the
  * crowd-favorite crown. A guest holds at most one submission per task
  * (`submissions` carries `UNIQUE(guest_id, task_id)`) and a release pins
@@ -427,12 +438,18 @@ const stmtVictoryRanks = db.prepare(`
  * request from a route the same way crownRankState() calls
  * scoring.crowdFavorites() once.
  *
- * @returns {Object<number, number>} submission_id -> rank (1 is best)
+ * @returns {Object<number, {rank: number, badge: {name: string, art_path: string}}>}
+ *   submission_id -> { rank (1 is best), badge (the badge actually won) }
  */
 function victoryRankBySubmission() {
   const lookup = {};
   for (const row of stmtVictoryRanks.all()) {
-    lookup[row.sid] = row.rank;
+    lookup[row.sid] = {
+      rank: row.rank,
+      // Through toTaskBadgeView so the tile's badge object can never drift
+      // from the one view shape every other badge surface renders.
+      badge: toTaskBadgeView({ name: row.badge_name, art_path: row.badge_art_path }),
+    };
   }
   return lookup;
 }
@@ -449,6 +466,25 @@ const stmtSubmissionForRanking = db.prepare(
 // awardTaskBadge call from some other caller) is left untouched.
 const stmtDeleteRankedAwards = db.prepare(
   'DELETE FROM guest_badges WHERE badge_id = ? AND rank IS NOT NULL'
+);
+
+// Issue #889: who already held a RANKED award of this badge, and their
+// celebration stamp, read BEFORE stmtDeleteRankedAwards destroys the row.
+// Scoped to `rank IS NOT NULL` — the exact same scope as the delete above —
+// so this is precisely "who is about to lose a row in this release", the
+// possession set releaseRanking re-grants against instead of re-notifying
+// (the scoring.js awardSpecialBadge pattern: only a guest who did NOT already hold the
+// badge gets a fresh event).
+const stmtRankedHoldersForBadge = db.prepare(
+  'SELECT guest_id, celebrated_at FROM guest_badges WHERE badge_id = ? AND rank IS NOT NULL'
+);
+
+// Restores a re-released winner's PRIOR celebrated_at after the
+// delete-then-upsert cycle above leaves it NULL (issue #889 AC1/AC2) — a
+// guest who already celebrated this badge must not have the full-screen
+// celebration dialog reopen just because the ranking was re-posted.
+const stmtRestoreCelebratedAt = db.prepare(
+  'UPDATE guest_badges SET celebrated_at = ? WHERE guest_id = ? AND badge_id = ?'
 );
 
 // Explicit UPSERT (issue #661's own callout: the existing stmtInsertAward
@@ -540,7 +576,7 @@ function foldRankedPlacements(resolved) {
  * placement — never two rows tripping guest_badges' UNIQUE(guest_id,
  * badge_id).
  *
- * Emits one 'badge_granted' recap event per WINNING GUEST (issue #644's
+ * Emits one 'badge_granted' recap event per NEWLY-WINNING GUEST (issue #644's
  * recordEvent, not per placement — a same-guest collapse still notifies
  * once), carrying that guest's pinned submission so the recap can link to
  * the winning photo (src/services/notifications.js's KIND_VIEW.badge_granted
@@ -549,6 +585,17 @@ function foldRankedPlacements(resolved) {
  * failure inside recordEvent would abort the whole transaction rather than
  * silently lose an award, but recordEvent itself has no failure mode beyond
  * the same DB the rest of this function already writes to.
+ *
+ * Re-release is possession-keyed (issue #889, the scoring.js awardSpecialBadge
+ * pattern): a winner who already held a RANKED award of this badge — read by
+ * stmtRankedHoldersForBadge before the delete, scoped to `rank IS NOT NULL`
+ * exactly like the delete itself — gets their prior `celebrated_at` restored
+ * and NO new event, even if their rank or points changed. Only a guest not
+ * in that prior-holder set (a genuinely new winner) gets the normal grant:
+ * one event, `celebrated_at` left NULL, one celebration. This is what stops
+ * a double-clicked or re-posted release from producing duplicate recap rows
+ * (AC1) or re-opening the celebration dialog for an already-celebrated badge
+ * (AC2).
  *
  * @param {number} taskId
  * @param {Array<number>} submissionIds - ordered 1st..Kth, 1 <= length <= 5
@@ -587,14 +634,31 @@ const releaseRanking = db.transaction((taskId, submissionIds) => {
   // doc comment for why this collapse lives in its own pure function.
   const byGuest = foldRankedPlacements(resolved);
 
+  // Issue #889: capture who already held a RANKED award of this badge, and
+  // their celebration stamp, BEFORE the delete below wipes both out. This is
+  // the possession set a re-release checks winners against, below.
+  const priorHolders = new Map(
+    stmtRankedHoldersForBadge.all(badge.id).map((row) => [row.guest_id, row.celebrated_at])
+  );
+
   stmtDeleteRankedAwards.run(badge.id);
 
   for (const [guestId, award] of byGuest) {
     stmtUpsertRankedAward.run(guestId, badge.id, award.points, award.submissionId, award.rank);
-    notifications.recordEvent(guestId, 'badge_granted', {
-      badgeId: badge.id,
-      submissionId: award.submissionId,
-    });
+    if (priorHolders.has(guestId)) {
+      // Re-release of a badge this guest already held (AC1: an identical
+      // replay; AC2: rank/points changed but possession didn't) — restore
+      // their celebration stamp instead of leaving the fresh insert's NULL,
+      // and emit no duplicate event.
+      stmtRestoreCelebratedAt.run(priorHolders.get(guestId), guestId, badge.id);
+    } else {
+      // A guest newly gaining this badge's ranked award — celebrated_at is
+      // still NULL from the insert above, so they get the normal grant.
+      notifications.recordEvent(guestId, 'badge_granted', {
+        badgeId: badge.id,
+        submissionId: award.submissionId,
+      });
+    }
   }
 
   markTaskBadgeAwarded(taskId);

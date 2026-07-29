@@ -382,3 +382,80 @@ describe('AC5 (#686): GET /admin/bugs renders the approved three-state layout', 
     expect(res.text).toContain('No open bug reports.');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #889 AC3/AC4: a same-guest, same-STORED-FORM (trimmed + truncated)
+// resubmit within 30 seconds is treated as a double-tap/refresh replay, not a
+// new report — no second row, same success response. Dedupe is keyed on
+// guest + stored body + the 30-second window ONLY: a different body, a
+// different guest, or the same body outside the window all record normally.
+// ---------------------------------------------------------------------------
+describe('Issue #889 AC3/AC4: duplicate-submit guard on /bug-report', () => {
+  test('AC3: the same stored-form body posted twice by the same guest inserts only one row, and the resubmit still looks like a success', async () => {
+    resetTables();
+    insertGuest('dup-token', 'Reporter Dup');
+    const agent = await signedInAgent('dup-token');
+
+    // Leading/trailing whitespace differs on the wire but collapses to the
+    // SAME stored form ("Gallery is broken") both times — the dedupe check
+    // is against what actually lands in the row, not the raw POST body.
+    const first = await agent.post('/bug-report').send({ body: '  Gallery is broken  ' });
+    expect(first.status).toBe(302);
+    expect(first.headers.location).toBe('/');
+
+    const second = await agent.post('/bug-report').send({ body: 'Gallery is broken' });
+    expect(second.status).toBe(302);
+    expect(second.headers.location).toBe('/');
+
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bug_reports').get().n).toBe(1);
+
+    // The suppressed resubmit still redirects through the normal thank-you
+    // flash — a guest spamming the button sees no different a response.
+    const follow = await agent.get('/');
+    expect(follow.text).toContain('Thanks — the Wedding Masters have been told.');
+  });
+
+  test('AC4: two DISTINCT stored-form bodies from the same guest both record', async () => {
+    resetTables();
+    insertGuest('distinct-token', 'Reporter Distinct');
+    const agent = await signedInAgent('distinct-token');
+
+    await agent.post('/bug-report').send({ body: 'First distinct report' });
+    await agent.post('/bug-report').send({ body: 'Second distinct report' });
+
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bug_reports').get().n).toBe(2);
+  });
+
+  test('the identical body from a DIFFERENT guest is never suppressed (dedupe is same-guest only)', async () => {
+    resetTables();
+    insertGuest('dup-guest-a', 'Reporter A');
+    insertGuest('dup-guest-b', 'Reporter B');
+    const agentA = await signedInAgent('dup-guest-a');
+    const agentB = await signedInAgent('dup-guest-b');
+
+    await agentA.post('/bug-report').send({ body: 'Shared wording' });
+    await agentB.post('/bug-report').send({ body: 'Shared wording' });
+
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bug_reports').get().n).toBe(2);
+  });
+
+  test('the identical body from the same guest OUTSIDE the 30-second window records a second row (dedupe is not a standing report cap)', async () => {
+    resetTables();
+    const guestId = insertGuest('stale-dup-token', 'Reporter Stale');
+    // Read the window boundary from the DB's own clock (not Date.now()) so
+    // this assertion cannot drift from whatever clock the app's SQL runs
+    // against.
+    const staleTimestamp = db.prepare("SELECT datetime('now', '-5 minutes') AS t").get().t;
+    insertBugReport(guestId, {
+      body: 'Same wording, filed a while ago',
+      page: '/x',
+      status: 'open',
+      createdAt: staleTimestamp,
+    });
+    const agent = await signedInAgent('stale-dup-token');
+
+    await agent.post('/bug-report').send({ body: 'Same wording, filed a while ago' });
+
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bug_reports').get().n).toBe(2);
+  });
+});

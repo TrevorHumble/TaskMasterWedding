@@ -235,6 +235,7 @@ describe('#811 AC1/AC2: victory medals replace the like-count overlay', () => {
   let likedNoRankThumb;
   let rank1Thumb;
   let rank2Thumb;
+  let iconRank1Thumb;
 
   beforeAll(() => {
     taskBadges = require('../src/services/task-badges');
@@ -293,6 +294,32 @@ describe('#811 AC1/AC2: victory medals replace the like-count overlay', () => {
 
     const released = taskBadges.releaseRanking(rankedTaskId, [rank1Id, rank2Id]);
     expect(released).toBeTruthy();
+
+    // Issue #893 AC2: a SECOND ranked task whose badge is customized to a
+    // bundled catalog icon — the OTHER art_path branch badge-art.ejs renders
+    // (the masked <span>, not the composed <img> the default-ribbon badge
+    // above exercises). One rank-1 winner is enough to cover the icon branch
+    // at the gold treatment.
+    const iconRankedTaskId = db
+      .prepare(`INSERT INTO tasks (title) VALUES (?)`)
+      .run('Victory task (icon-ranked)').lastInsertRowid;
+    taskBadges.setTaskBadge(iconRankedTaskId, {
+      name: 'Cake Champion',
+      artPath: '/badges/icons/cake.svg',
+    });
+    const iconWinnerId = db
+      .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
+      .run('victory-icon-winner', 'Victory Icon Winner').lastInsertRowid;
+    iconRank1Thumb = 'victory-icon-rank1-t.jpg';
+    const iconRank1Id = db
+      .prepare(
+        `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+         VALUES (?, ?, 'victory-icon-rank1.jpg', ?, 0)`
+      )
+      .run(iconWinnerId, iconRankedTaskId, iconRank1Thumb).lastInsertRowid;
+
+    const iconReleased = taskBadges.releaseRanking(iconRankedTaskId, [iconRank1Id]);
+    expect(iconReleased).toBeTruthy();
   });
 
   it('AC1: no tile on the page carries the retired like-count overlay', async () => {
@@ -317,6 +344,41 @@ describe('#811 AC1/AC2: victory medals replace the like-count overlay', () => {
     const second = tileChunk(res.text, rank2Thumb);
     expect(second).toContain('tile-victory');
     expect(second).not.toContain('tile-victory-gold');
+  });
+
+  // Issue #893: the tile mark must render the ACTUAL badge won — its own
+  // art_path — not a generic glyph. Both art_path branches partials/badge-art
+  // can take are covered: a composed/system art_path (the default ribbon,
+  // rank1Thumb's un-customized badge) renders as a plain <img>; a bundled
+  // catalog icon (iconRank1Thumb's customized badge) renders as the masked
+  // <span> inked via --badge-icon-color: currentColor.
+  it("AC3: rank 1 with a composed-art badge carries that badge's own art_path at 16px, un-recolored, gold ring intact", async () => {
+    const res = await agent.get('/gallery');
+    const chunk = tileChunk(res.text, rank1Thumb);
+
+    expect(chunk).toContain('tile-victory-gold');
+    expect(chunk).toContain('tile-victory-badge');
+    expect(chunk).toContain('class="tile-victory-art"');
+    expect(chunk).toContain('src="' + taskBadges.DEFAULT_RIBBON_ART_PATH + '"');
+    expect(chunk).toContain('width="16"');
+    expect(chunk).toContain('height="16"');
+    // Default (un-customized) task badge name — accepted per issue #893: it
+    // still identifies the win class even though it is the generic name.
+    expect(chunk).toContain('aria-label="Task Badge winner — first place"');
+  });
+
+  it('AC2: rank 1 with a bundled-icon badge wears the masked icon, inked via currentColor, gold ring intact', async () => {
+    const res = await agent.get('/gallery');
+    const chunk = tileChunk(res.text, iconRank1Thumb);
+
+    expect(chunk).toContain('tile-victory-gold');
+    expect(chunk).toContain('tile-victory-badge');
+    expect(chunk).toContain('badge-medallion');
+    // EJS's <%= %> HTML-escapes the mask style's single quotes (badge-art.ejs's
+    // own doc comment) — the browser decodes them back before CSS parses the
+    // attribute, but the raw response text still carries the entity form.
+    expect(chunk).toContain('--icon-src: url(&#39;/badges/icons/cake.svg&#39;)');
+    expect(chunk).toContain('aria-label="Cake Champion winner — first place"');
   });
 });
 

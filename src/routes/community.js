@@ -278,6 +278,52 @@ function attachComments(photos) {
 }
 
 /**
+ * Attach a `likers` array to each photo in place, in one grouped query rather
+ * than one query per photo — mirrors attachComments above. Loaded only for
+ * the submission ids the feed already handed us — those rows are already
+ * visible because they came from feed.feedWindow(), which owns the
+ * taken_down = 0 rule on submissions. Unlike a comment, a like row carries no
+ * separate moderation flag of its own, so no COMMENT_VISIBLE_WHERE-style
+ * extra clause is needed here. Newest like first (issue #890 AC1, the
+ * Instagram-style likers dialog) — the like row's own id is the tiebreak for
+ * two likes recorded in the same second, kept DESC (not attachComments'
+ * oldest-first ASC/ASC) so the tiebreak never fights the newest-first
+ * direction. Photos with zero likes get [], not undefined, so the view never
+ * has to branch on a missing field (issue #890 AC3's "No likes yet." empty
+ * state).
+ */
+function attachLikers(photos) {
+  if (photos.length === 0) {
+    return photos;
+  }
+  const placeholders = photos.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT l.submission_id AS submission_id,
+              g.id            AS id,
+              g.name          AS name,
+              g.avatar_path   AS avatar_path
+         FROM likes l
+         JOIN guests g ON g.id = l.guest_id
+        WHERE l.submission_id IN (${placeholders})
+        ORDER BY l.created_at DESC, l.id DESC`
+    )
+    .all(...photos.map((p) => p.submission_id));
+
+  const likersById = new Map();
+  for (const row of rows) {
+    if (!likersById.has(row.submission_id)) {
+      likersById.set(row.submission_id, []);
+    }
+    likersById.get(row.submission_id).push(row);
+  }
+  for (const p of photos) {
+    p.likers = likersById.get(p.submission_id) || [];
+  }
+  return photos;
+}
+
+/**
  * How many visible comments a submission has — the count the feed's badge and
  * the "See all <N> comments" line render. Composes COMMENT_VISIBLE_WHERE so it
  * can never disagree with the thread attachComments builds from the same rule.
@@ -471,8 +517,8 @@ router.get('/gallery', (req, res) => {
 // to land on even though the page is bounded), and the browser's native
 // fragment anchoring scrolls to it on load (no JS). A missing or stale ?from
 // falls back to the newest page. like_count arrives on each row from the
-// feed query itself; comments, per-photo points, and the viewer's own liked
-// state are attached per-window here.
+// feed query itself; comments, likers (issue #890), per-photo points, and
+// the viewer's own liked state are attached per-window here.
 // ---------------------------------------------------------------------------
 router.get('/feed', (req, res) => {
   const fromParam = parseInt(req.query.from, 10);
@@ -480,7 +526,7 @@ router.get('/feed', (req, res) => {
 
   const window = feed.feedWindow(fromId);
   const photos = attachViewerLikes(
-    attachComments(attachPhotoPoints(window.photos)),
+    attachLikers(attachComments(attachPhotoPoints(window.photos))),
     req.guest ? req.guest.id : null
   );
 
@@ -581,9 +627,9 @@ router.post('/p/:submissionId/like', requireGuest, socialRateLimiter, (req, res)
 
   // Snapshot the crowd-favorite placing set BEFORE the toggle mutation
   // (issue #625 AC7): the diff below (scoring.recordCrowdFavoriteChanges)
-  // needs the "before" picture to know exactly which photos THIS one
-  // like/unlike moved — inherently bounded to those photos, never every
-  // photo currently placing.
+  // compares which GUESTS place before vs after (per-guest entry/exit,
+  // issue #895) — inherently bounded to the guests whose placing state
+  // this one like/unlike moved, never every guest currently placing.
   const beforeCrowd = scoring.crowdFavorites();
 
   let liked;

@@ -14,7 +14,13 @@
 // issue): a STORED event (badge_granted/revoked) is PERMANENT — it stays in
 // the recap forever, tinted read/white once its checkpoint passes, so a
 // badge row can still replay its celebration "on demand" long after it was
-// first shown (issue #644 AC1). A DERIVED like-batch is EPHEMERAL — it only
+// first shown (issue #644 AC1). EXCEPTION (issue #894): a badge_granted event
+// that was never celebrated (guest_badges.celebrated_at still NULL) is
+// retracted by retractGrantAnnouncement below when scoring.js's
+// recomputeTransferableBadges revokes the row it announced — the guest never
+// saw that grant, so it is not a real "STORED" fact by this module's own
+// permanence rule; see DESIGN.md's #894 amendment to this ADR. A DERIVED
+// like-batch is EPHEMERAL — it only
 // exists in the list while it has at least one like strictly newer than the
 // guest's checkpoint, and its displayed count is ONLY those new likes, never
 // a lifetime total (AC3's own wording: "5 older likes and 3 new ones still
@@ -172,12 +178,21 @@ const KIND_VIEW = {
     parts: () => [{ text: 'A comment on your photo is ' }, { text: 'back', emphasis: true }],
     href: (ev) => (ev.submission_id != null ? `/p/${ev.submission_id}` : null),
   },
-  // Crowd favorites (issue #625). The stored row carries only guest_id +
-  // submission_id (scoring.recordCrowdFavoriteChanges' single write path) —
-  // rank and points are NEVER stored (a stored rank would be the one thing
-  // here that could go stale the moment a later like/takedown/restore moves
-  // it), so `parts` below reads the CURRENT placing set live from
-  // scoring.crowdFavorites() every time this row renders.
+  // Crowd favorites (issue #625; re-keyed to the owning guest by #895). The
+  // stored row carries guest_id + submission_id (scoring.
+  // recordCrowdFavoriteChanges' single write path) — rank and points are
+  // NEVER stored (a stored rank would be the one thing here that could go
+  // stale the moment a later like/takedown/restore moves it), so `parts`
+  // below reads the CURRENT placing set live from scoring.crowdFavorites()
+  // every time this row renders. Looked up by ev.guest_id, NOT
+  // ev.submission_id (#895 AC5): since #896 a guest's representative photo
+  // can swap to a different one of their own tied submissions while the
+  // guest never leaves the placing set at all — a submission_id lookup would
+  // miss that guest entirely the moment their stored event's photo stops
+  // being their current best, wrongly falling back to the rank-free copy
+  // below even though the guest is still placing right now. Keying by
+  // guest_id instead means the row's rank text tracks the guest's CURRENT
+  // placement regardless of which of their photos currently represents them.
   crowd_favorite: {
     view: 'gold',
     dead: false,
@@ -192,13 +207,13 @@ const KIND_VIEW = {
       // entirely, mirroring feed.js's own deferred require('./scoring')
       // inside slideshowSequence.
       const scoring = require('./scoring');
-      const placing = scoring.crowdFavorites().find((cf) => cf.submission_id === ev.submission_id);
+      const placing = scoring.crowdFavorites().find((cf) => cf.guest_id === ev.guest_id);
       if (!placing) {
-        // The photo has since left the placing set again (a later like or
-        // takedown moved it out between the event being recorded and this
+        // The guest has since left the placing set entirely (a later like or
+        // takedown moved them out between the event being recorded and this
         // render) — degrade to naming it without a stale rank/points rather
         // than showing a number that is no longer true. The corresponding
-        // crowd_favorite_lost row (recorded at the moment it actually left)
+        // crowd_favorite_lost row (recorded at the moment they actually left)
         // is what carries that story; this row just avoids overclaiming.
         return [{ text: 'Your photo is a ' }, { text: 'crowd favorite', emphasis: true }];
       }
@@ -327,13 +342,58 @@ const stmtRecordEvent = db.prepare(
  * event is written where the badge identity is in scope, not re-derived
  * later).
  * @param {number} guestId
- * @param {string} kind - one of the seven stored kinds in KIND_VIEW.
+ * @param {string} kind - one of the stored kinds in KIND_VIEW.
  * @param {{submissionId?: number|null, badgeId?: number|null}} [opts]
  */
 function recordEvent(guestId, kind, opts = {}) {
   const submissionId = opts.submissionId != null ? opts.submissionId : null;
   const badgeId = opts.badgeId != null ? opts.badgeId : null;
   stmtRecordEvent.run(guestId, kind, submissionId, badgeId);
+}
+
+const stmtGrantWasAnnounced = db.prepare(
+  `SELECT 1 FROM notification_events WHERE guest_id = ? AND badge_id = ? AND kind = 'badge_granted' LIMIT 1`
+);
+
+/**
+ * Was this guest ever sent a badge_granted event for this badge? Read by
+ * scoring.js's recomputeTransferableBadges (issue #894) to tell a genuine
+ * first grant apart from a re-grant of a badge this guest was already told
+ * about — the identical predicate render-locals.js's stmtOwedBadges keys its
+ * "owed" join on, asked here before deciding whether a re-grant celebrates
+ * again. This module owns the predicate (it owns notification_events and its
+ * `kind` vocabulary) even though the caller lives in scoring.js.
+ * @param {number} guestId
+ * @param {number} badgeId
+ * @returns {boolean}
+ */
+function grantWasAnnounced(guestId, badgeId) {
+  return !!stmtGrantWasAnnounced.get(guestId, badgeId);
+}
+
+const stmtRetractGrantAnnouncement = db.prepare(
+  `DELETE FROM notification_events WHERE guest_id = ? AND badge_id = ? AND kind = 'badge_granted'`
+);
+
+/**
+ * Delete every stored badge_granted event for (guest, badge) — the #894
+ * exception to this module's own "stored events are permanent" rule (see the
+ * file header comment above and DESIGN.md's #894 amendment). This function
+ * does NOT check celebrated_at itself: the caller (scoring.js's
+ * recomputeTransferableBadges, in its revoke branch) is the one place that
+ * already has the guest_badges row in hand and MUST only call this when that
+ * row's celebrated_at is still NULL — i.e. the guest never actually saw this
+ * grant's celebration, so as far as the recap/owed-badge machinery is
+ * concerned the grant never happened. Calling this for an already-celebrated
+ * grant would retract a real, seen announcement, which is never correct.
+ * `notification_events` has no uniqueness constraint, so a pre-existing flap
+ * may have left more than one badge_granted row for this pair behind — this
+ * deletes all of them, not just one.
+ * @param {number} guestId
+ * @param {number} badgeId
+ */
+function retractGrantAnnouncement(guestId, badgeId) {
+  stmtRetractGrantAnnouncement.run(guestId, badgeId);
 }
 
 // ---------------------------------------------------------------------------
@@ -397,6 +457,7 @@ const LIKE_EXISTENCE_WHERE = `s.guest_id = ? AND ${VISIBLE_WHERE} AND l.created_
 const stmtStoredEvents = db.prepare(`
   SELECT ne.id            AS id,
          ne.kind           AS kind,
+         ne.guest_id       AS guest_id,
          ne.submission_id  AS submission_id,
          ne.created_at     AS created_at,
          b.code            AS badge_code,
@@ -1061,6 +1122,8 @@ function markSeen(guestId) {
 
 module.exports = {
   recordEvent,
+  grantWasAnnounced,
+  retractGrantAnnouncement,
   getRecap,
   getUnreadCount,
   markSeen,
