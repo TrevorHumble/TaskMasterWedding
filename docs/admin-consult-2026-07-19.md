@@ -256,7 +256,7 @@ late (its rows read #682/#686/#661 state), #662 right after #646. #682 does NOT 
 17. #490 tile medals — **OPEN** · 18. #489 leaderboard badges — **OPEN** · 19. #469 prizes — **OPEN**
 18. #647 Couple's Heart — **OPEN** · 21. #666 host role — **OPEN** · 22. #669 photos pagination — **OPEN**
 19. #656 memories points — **CLOSED, shipped** · 24. #527 live task search — **CLOSED, shipped** · 25. #340 edit own comments — **OPEN**
-20. #284 security headers/CSRF — **OPEN** (deliberately deferred to post-wedding, see `DESIGN.md` § "CSRF tokens and security headers") · 27. #539 empty-DB drill — **OPEN** · 28. #292 load-test drill — **OPEN**
+20. #284 security headers/CSRF — **CLOSED, shipped** (built ahead of the original post-wedding deferral, see `DESIGN.md` § "CSRF tokens and security headers: implemented (#284)") · 27. #539 empty-DB drill — **OPEN** · 28. #292 load-test drill — **OPEN**
 
 If green and time remains: #649 flash — **CLOSED, shipped**, #650 lucky — **CLOSED, shipped**,
 #648 first-to-finish — **CLOSED, shipped**, #651 duels — **OPEN**, #253 friends circle — **OPEN**,
