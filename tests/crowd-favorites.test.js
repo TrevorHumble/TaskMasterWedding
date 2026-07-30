@@ -450,6 +450,11 @@ describe('AC7: entering/leaving the placing set records a live recap row, never 
     const goldText = goldRow.parts.map((p) => p.text).join('');
     expect(goldText).toContain('#1 crowd favorite');
     expect(goldText).toContain('+5 pts');
+    // The row's own identity (its stored event key), captured BEFORE the
+    // takedown — permanence (below) is asserted against THIS key, not
+    // against "some row still has kind gold" (issue #866 flips that
+    // presentation the moment the guest drops out of the placing set).
+    const goldRowKey = goldRow.key;
 
     // A takedown (photos.hideSubmission — the second emit path) drops the
     // photo out of the placing set entirely.
@@ -468,9 +473,19 @@ describe('AC7: entering/leaving the placing set records a live recap row, never 
     expect(lossRow.dead).toBe(true);
     expect(lossRow.href).toBeNull();
 
-    // STORED events are permanent (issue #644 design) — the earlier gold row
-    // is still present alongside the new loss row, not replaced by it.
-    expect(recap.rows.some((r) => r.kind === 'gold')).toBe(true);
+    // STORED events are permanent (issue #644 design) — the earlier
+    // crowd_favorite row is still present alongside the new
+    // crowd_favorite_lost row, not replaced by it. Permanence means
+    // EXISTENCE, not styling (issue #866): the guest no longer places (their
+    // only photo was just taken down), so this same row now presents as the
+    // dead+loss composite rather than gold — that recolor is the fix, not a
+    // regression of "stored events never disappear."
+    const survivingGoldEventRow = recap.rows.find((r) => r.key === goldRowKey);
+    expect(survivingGoldEventRow).toBeDefined();
+    expect(survivingGoldEventRow.kind).toBe('loss');
+    expect(survivingGoldEventRow.dead).toBe(true);
+    expect(survivingGoldEventRow.href).toBeNull();
+    expect(survivingGoldEventRow.thumb).toBeNull();
   });
 
   test('a crowd_favorite row whose guest has since left the placing set again renders the rank-free fallback, never a stale number', () => {

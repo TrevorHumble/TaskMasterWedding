@@ -14,6 +14,22 @@
 // AC8 — neither existing nor brand-new guests flood or starve across the
 //       migration.
 //
+// Issue #866 — a taken-down submission never leaves a stored row's link/
+// thumbnail dead/broken; the row stays (stored events are permanent) but
+// goes inert or re-points, by kind (see notifications.js's storedRows()):
+//   AC1  — every non-badge kind whose guest no longer places (or has no
+//          placing concept at all) goes dead+loss, href/thumb null — a
+//          crowd_favorite the guest has since dropped out of, the
+//          crowd_favorite_lost row itself, and a #783 moderation kind
+//          (seeded directly via recordEvent, no live emitter yet).
+//   AC1b — crowd_favorite re-points at the guest's CURRENT representative
+//          photo when they still place via a different one.
+//   AC2  — badge_granted keeps its replay button (href/thumb null, not
+//          dead) — the guest still holds the badge.
+//   AC3  — the unread-count/list invariant holds with taken-down
+//          submissions present.
+//   AC4  — a visible submission's row is unaffected (regression).
+//
 // AC8's "existing database" half needs a table that genuinely predates this
 // issue (missing guests.recap_checked_at / guest_badges.celebrated_at), the
 // same standalone technique tests/avatar-point-migration.test.js uses: lay
@@ -715,6 +731,200 @@ describe('AC7: zero-event state', () => {
     expect(home.text).not.toContain('class="recap-strip"');
     expect(home.text).not.toContain('class="notifications-entry-count"');
     expect(home.text).toContain('Nothing yet');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #866 — a taken-down submission never leaves a stored row's link dead
+// or its thumbnail broken. See the file header comment above for the AC map.
+// ---------------------------------------------------------------------------
+describe('issue #866: taken-down submissions never leave a dead link/broken thumb', () => {
+  it('AC1: a crowd_favorite row whose guest drops out entirely, and its crowd_favorite_lost sibling, both go dead+loss with no thumb', () => {
+    const owner = insertGuest('866 AC1 Owner');
+    const taskC = insertTask('866 AC1 task');
+    const subC = insertSubmission(owner.id, taskC);
+    const liker = insertGuest('866 AC1 Liker');
+
+    const beforeEntry = scoring.crowdFavorites();
+    likeAs(liker.id, subC);
+    scoring.recordCrowdFavoriteChanges(beforeEntry); // owner enters, via subC
+
+    const crowdFavoriteEventId = db
+      .prepare(`SELECT id FROM notification_events WHERE guest_id = ? AND kind = 'crowd_favorite'`)
+      .get(owner.id).id;
+
+    // owner's only submission taken down — owner leaves the placing set
+    // entirely, minting crowd_favorite_lost (photos.hideSubmission runs the
+    // real recordCrowdFavoriteChanges path, same as production).
+    photos.hideSubmission(subC);
+
+    const recap = notifications.getRecap(owner.id);
+
+    // The ORIGINAL crowd_favorite row: no longer placing, so it is demoted
+    // to the same dead+loss composite as crowd_favorite_lost — not left
+    // gold with a dead link to the now-hidden photo.
+    const crowdFavoriteRow = recap.rows.find((r) => r.key === `event-${crowdFavoriteEventId}`);
+    expect(crowdFavoriteRow).toBeDefined();
+    expect(crowdFavoriteRow.kind).toBe('loss');
+    expect(crowdFavoriteRow.dead).toBe(true);
+    expect(crowdFavoriteRow.href).toBeNull();
+    expect(crowdFavoriteRow.thumb).toBeNull();
+    // KIND_GLYPH[view] (notifications.js's storedRows) is what stops this
+    // demoted row from rendering the full-gold crowd-favorite heart once it
+    // is muted to loss — pin the actual glyph markup, not just `kind`, since
+    // `kind` alone doesn't prove the glyph field was recomputed off the
+    // post-override view. 'M8.5 12h7' is the loss glyph's own path data,
+    // absent from every other KIND_GLYPH entry (badge/photo/gold/announce).
+    expect(crowdFavoriteRow.glyph).toContain('M8.5 12h7');
+
+    // The crowd_favorite_lost row itself: this is the bug's live case — it
+    // was ALREADY dead+loss, but its thumb used to be the taken-down
+    // photo's (broken) thumb_path. Now null.
+    const lostRow = recap.rows.find((r) => partsText(r.parts).includes('dropped out'));
+    expect(lostRow).toBeDefined();
+    expect(lostRow.dead).toBe(true);
+    expect(lostRow.href).toBeNull();
+    expect(lostRow.thumb).toBeNull();
+  });
+
+  it('AC1: a #783 moderation kind with no live emitter yet (comment_hidden, seeded directly) goes dead+loss once its submission is taken down', () => {
+    const guest = insertGuest('866 AC1 Moderation Guest');
+    const taskD = insertTask('866 AC1 moderation task');
+    const subD = insertSubmission(guest.id, taskD);
+
+    // No route emits comment_hidden yet (#783 is open) — seed it directly,
+    // exactly as the issue's AC1 calls for.
+    notifications.recordEvent(guest.id, 'comment_hidden', { submissionId: subD });
+    db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(subD);
+
+    const row = notifications
+      .getRecap(guest.id)
+      .rows.find((r) => partsText(r.parts).includes('removed by the hosts'));
+    expect(row).toBeDefined();
+    expect(row.kind).toBe('loss');
+    expect(row.dead).toBe(true);
+    expect(row.href).toBeNull();
+    expect(row.thumb).toBeNull();
+  });
+
+  it('AC1b: a crowd_favorite row re-points at the guest’s current representative photo when a takedown of the named photo leaves them still placing', () => {
+    const owner = insertGuest('866 AC1b Owner');
+    const taskA = insertTask('866 AC1b task A');
+    const taskB = insertTask('866 AC1b task B');
+    const subA = insertSubmission(owner.id, taskA);
+    const subB = insertSubmission(owner.id, taskB);
+    const likerA = insertGuest('866 AC1b Liker A');
+    const likerB1 = insertGuest('866 AC1b Liker B1');
+    const likerB2 = insertGuest('866 AC1b Liker B2');
+
+    // subA gets the guest's ONE like first — owner enters the placing set
+    // represented by subA, minting the stored crowd_favorite row this test
+    // tracks.
+    const beforeEntry = scoring.crowdFavorites();
+    likeAs(likerA.id, subA);
+    scoring.recordCrowdFavoriteChanges(beforeEntry);
+
+    const crowdFavoriteEventId = db
+      .prepare(`SELECT id FROM notification_events WHERE guest_id = ? AND kind = 'crowd_favorite'`)
+      .get(owner.id).id;
+    const storedBefore = notifications
+      .getRecap(owner.id)
+      .rows.find((r) => r.key === `event-${crowdFavoriteEventId}`);
+    expect(storedBefore.href).toBe(`/p/${subA}`);
+
+    // subB overtakes subA (2 likes > 1) — the #896 representative swap:
+    // owner stays placing throughout, no new event, but subB is now their
+    // current best photo.
+    const beforeSwap = scoring.crowdFavorites();
+    likeAs(likerB1.id, subB);
+    likeAs(likerB2.id, subB);
+    scoring.recordCrowdFavoriteChanges(beforeSwap);
+    const nowPlacing = scoring.crowdFavorites().find((p) => p.guest_id === owner.id);
+    expect(nowPlacing.submission_id).toBe(subB);
+
+    // Take down subA — the photo the STORED event names, not the guest's
+    // current representative. Owner still places (via subB), so no
+    // crowd_favorite_lost is minted.
+    photos.hideSubmission(subA);
+
+    const recap = notifications.getRecap(owner.id);
+    const row = recap.rows.find((r) => r.key === `event-${crowdFavoriteEventId}`);
+    expect(row).toBeDefined();
+    expect(row.kind).toBe('gold');
+    expect(row.dead).toBe(false);
+    expect(row.href).toBe(`/p/${subB}`);
+    const subBThumb = db.prepare('SELECT thumb_path FROM submissions WHERE id = ?').get(subB);
+    expect(row.thumb).toBe(subBThumb.thumb_path);
+    expect(recap.rows.some((r) => partsText(r.parts).includes('dropped out'))).toBe(false);
+  });
+
+  it('AC2: a ranked badge_granted row keeps its replay button (badge data intact, href/thumb null, not dead) once its winning submission is taken down', () => {
+    const guest = insertGuest('866 AC2 Guest');
+    const taskId = insertTask('866 AC2 ranked task');
+    const subId = insertSubmission(guest.id, taskId);
+    const taskBadges = require('../src/services/task-badges');
+
+    const released = taskBadges.releaseRanking(taskId, [subId]);
+    expect(released).toBeTruthy();
+
+    db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(subId);
+
+    const row = notifications
+      .getRecap(guest.id)
+      .rows.find((r) => r.kind === 'badge' && partsText(r.parts).includes('You placed 1st'));
+    expect(row).toBeDefined();
+    expect(row.kind).toBe('badge');
+    expect(row.dead).toBe(false);
+    expect(row.href).toBeNull();
+    expect(row.thumb).toBeNull();
+    expect(row.badge).toBeTruthy();
+    expect(row.badgeArtHtml).toBeTruthy();
+    expect(partsText(row.parts)).toContain('You placed 1st');
+  });
+
+  it('AC3: the unread-count/list invariant holds with taken-down submissions in the mix', () => {
+    const guest = insertGuest('866 AC3 Guest');
+    backdateGuest(guest.id, '2020-01-01 00:00:00');
+    const taskE = insertTask('866 AC3 task');
+    const subE = insertSubmission(guest.id, taskE);
+    const liker = insertGuest('866 AC3 Liker');
+
+    const beforeEntry = scoring.crowdFavorites();
+    likeAs(liker.id, subE);
+    scoring.recordCrowdFavoriteChanges(beforeEntry);
+    photos.hideSubmission(subE); // exits the placing set -> crowd_favorite_lost too
+
+    const { rows, hasMore } = notifications.getRecap(guest.id);
+    expect(hasMore).toBe(false); // fits one page, per this AC's own precondition
+    expect(notifications.getUnreadCount(guest.id)).toBe(rows.length);
+  });
+
+  it('AC4: a visible submission’s stored rows are unaffected (regression)', () => {
+    const guest = insertGuest('866 AC4 Guest');
+    const taskId = insertTask('866 AC4 ranked task');
+    const subId = insertSubmission(guest.id, taskId);
+    const liker = insertGuest('866 AC4 Liker');
+    const taskBadges = require('../src/services/task-badges');
+
+    taskBadges.releaseRanking(taskId, [subId]);
+    const beforeEntry = scoring.crowdFavorites();
+    likeAs(liker.id, subId);
+    scoring.recordCrowdFavoriteChanges(beforeEntry);
+
+    const recap = notifications.getRecap(guest.id);
+    const badgeRow = recap.rows.find((r) => r.kind === 'badge');
+    expect(badgeRow.dead).toBe(false);
+    expect(badgeRow.href).toBe(`/p/${subId}`);
+    expect(badgeRow.thumb).toBe(
+      db.prepare('SELECT thumb_path FROM submissions WHERE id = ?').get(subId).thumb_path
+    );
+
+    const goldRow = recap.rows.find((r) => r.kind === 'gold');
+    expect(goldRow.dead).toBe(false);
+    expect(goldRow.href).toBe(`/p/${subId}`);
+    expect(goldRow.thumb).toBe(
+      db.prepare('SELECT thumb_path FROM submissions WHERE id = ?').get(subId).thumb_path
+    );
   });
 });
 

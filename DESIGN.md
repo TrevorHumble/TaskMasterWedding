@@ -2553,6 +2553,70 @@ questions on flap-out predate #894 and stay parked on `#588`. `recomputeBadges()
 auto/metric path) is untouched: this amendment applies only to `recomputeTransferableBadges()`'s
 grant/revoke pair, since only a transferable badge's holder set is subject to this outside-driven flap.
 
+## Amendment: a taken-down submission never leaves a dead link or broken thumb (#866)
+
+**Date:** 2026-07-30. **Status:** shipped.
+
+The #644 ADR above states stored `notification_events` rows are permanent, and `stmtStoredEvents`
+(`src/services/notifications.js`) has never filtered on the joined submission's visibility — unlike the
+DERIVED comment/like sources beside it, which compose `feed.VISIBLE_WHERE`. So a submission taken down
+(by a host, or by the guest themself) after its stored event was written left that row's `/p/<id>` link
+permanently 404ing and its thumbnail permanently broken, for as long as the row exists — which, per the
+permanence rule above, is forever.
+
+**Why not filter the row out.** `EVENT_EXISTENCE_WHERE` (`ne.guest_id = ?`) is shared, unmodified, between
+`stmtStoredEvents` (the list) and `stmtUnreadEventCount` (the chip) — the source-registry pattern the
+#644 ADR's own review established, so the two can never disagree about which rows exist. Appending a
+visibility predicate to that shared constant would either throw "no such column" at
+`stmtUnreadEventCount`'s own `db.prepare()` time (that statement has no `submissions` join to hang the
+predicate off), or — filtering only the list's own query instead — make the chip count rows the list never
+renders. Marking a row dead touches neither statement's WHERE, so the invariant holds structurally rather
+than by convention.
+
+**Three outcomes, not one, because "taken down" doesn't mean the same thing for every stored kind:**
+
+- **`badge_granted`:** the guest still holds the badge — `recomputeAfterSubmissionChange` runs only the
+  auto/metric and transferable passes on a takedown; `releaseRanking`'s ranked award is never re-run, so a
+  takedown cannot revoke it. Only `href`/`thumb` go null; the row stays the celebration-replay button
+  (badge data and `badgeArtHtml` untouched).
+- **`crowd_favorite` whose guest still places:** `crowd_favorite` is a per-guest fact, not a per-photo one
+  (`scoring.crowdFavorites()` dedupes to one row per guest, their single best photo — #896). Taking down
+  the ONE photo a stored event happened to name does not necessarily end the guest's placement; if
+  `crowdFavorites()` still lists them, the row re-points `href`/`thumb` at their CURRENT representative
+  photo instead of demoting a placement they still hold. The representative's thumbnail is a second,
+  narrow lookup (`stmtSubmissionThumb`, keyed on the survivor's own `submission_id`) since
+  `crowdFavorites()`'s return shape carries no `thumb_path`.
+- **Everything else** (every other submission-bearing kind, and a `crowd_favorite` whose guest no longer
+  places): `dead: true`, `href`/`thumb` null, `kind: 'loss'` — the identical composite already shipped and
+  approved for `crowd_favorite_lost`/`badge_removed`, so no new CSS or view branch is needed.
+
+**Keyed solely on `submission_taken_down`** (`s.taken_down`, newly joined into `stmtStoredEvents`), never
+re-checking `submission_id != null` alongside it: a stored event's `submission_id` is either null or points
+at a live row (`ON DELETE CASCADE` on `notification_events.submission_id`, `src/db.js`), so
+`submission_taken_down` is already falsy for every event with no submission at all — a separate
+"missing join" branch would be unreachable and untestable.
+
+**`scoring.crowdFavorites()` is resolved at most once per `storedRows()` call**, memoized rather than
+re-run per row — it used to be called once per `crowd_favorite` row inside that kind's own `parts()`
+closure; that closure now takes the memoized accessor instead of calling scoring itself, and the takedown
+re-point branch shares the same memoized result. `storedRows()` runs on every guest recap render, so this
+was worth hoisting rather than adding a second per-row full scan.
+
+**Deliberately left alone, not missed:** a muted `crowd_favorite` row (the no-longer-placing case) keeps
+its present-tense copy beside the `crowd_favorite_lost` row the same takedown mints — read together they
+read as history; a richer treatment is a taste call for the owner to raise at a preview, not decided here.
+The two #783 restore kinds (`photo_restore`, `comment_restored`) would, under the generic `loss` branch,
+render "back up" copy in muted loss styling if their submission is taken down again after a restore —
+copy contradicting treatment. Accepted for now: no route emits these yet (`recordEvent` is a public
+export; tests reach them through it), and #783 is the right place to pick those kinds' own takedown
+treatment.
+
+The takedown code itself needs no defensive branch to cover that gap in the meantime, either: each kind's
+`takenDown` (`KIND_VIEW.photo_restore`/`comment_restored`'s is the shared `LOSS`) runs unconditionally
+whenever `storedRows()` reads `submission_taken_down` true, in that same synchronous read — the identical
+same-turn/CASCADE discipline the missing-join omission above already relies on, not a second guarantee
+argued separately.
+
 ## Badge icon search tags: a public client-side data file, not server-rendered attributes (#903)
 
 The admin badge-icon picker's search box (`src/public/js/badge-picker.js`, part of #410) matched only an
