@@ -135,12 +135,27 @@ const HEIC_OVERSIZE_MESSAGE =
 // iOS/Android "Files" picker (and some third-party browsers) send a real
 // HEIC under that generic mimetype rather than image/heic — see
 // `looksLikeHeic` and `resolveUploadedFile`, which do the real, signature-
-// based decision once the file's bytes are available.
-const HEIC_CANDIDATE_MIMES = new Set(['image/heic', 'image/heif', 'application/octet-stream']);
+// based decision once the file's bytes are available. `image/heic-sequence`
+// and `image/heif-sequence` (issue #933) are the mimetypes Live Photos /
+// HEIC burst sequences declare via the iOS/Android "Files" picker — see
+// HEIC_FTYP_BRANDS' `hevc`/`hevx` entries below for the brands those
+// containers actually carry.
+const HEIC_CANDIDATE_MIMES = new Set([
+  'image/heic',
+  'image/heif',
+  'image/heic-sequence',
+  'image/heif-sequence',
+  'application/octet-stream',
+]);
 
 // ISO-BMFF `ftyp` box major brands used by real HEIC/HEIF files. See
 // `looksLikeHeic` below for how these are read from a file's leading bytes.
-const HEIC_FTYP_BRANDS = new Set(['heic', 'heix', 'heif', 'mif1', 'msf1']);
+// `hevc`/`hevx` (issue #933) are the brands an `image/heic-sequence`
+// container carries (node_modules/heic-decode/lib.js:13-20) — admitting that
+// mimetype in HEIC_CANDIDATE_MIMES without also admitting its brands here
+// would let the file past fileFilter only for looksLikeHeic to reject it
+// after a full disk write.
+const HEIC_FTYP_BRANDS = new Set(['heic', 'heix', 'heif', 'hevc', 'hevx', 'mif1', 'msf1']);
 
 // Maximum decoded pixel area (width * height) we will attempt to convert from
 // HEIC. This is a SECURITY cap against a HEIC "pixel bomb": heic-decode
@@ -323,6 +338,59 @@ function looksLikeHeic(buffer) {
   if (!buffer || buffer.length < 12) return false;
   if (buffer.toString('ascii', 4, 8) !== 'ftyp') return false;
   return HEIC_FTYP_BRANDS.has(buffer.toString('ascii', 8, 12));
+}
+
+// Magic-byte signatures for the three real image formats this app stores
+// as-is (never HEIC — that is converted, handled separately above). Each
+// `test` reads only the leading bytes already available in
+// resolveUploadedFile's 12-byte header buffer (issue #933): JPEG needs 3,
+// PNG needs 8, WebP needs bytes 0-3 and 8-11 (all within the first 12).
+// Order is irrelevant — the three signatures cannot collide with each other
+// or with a HEIC ftyp box.
+const IMAGE_SNIFFERS = [
+  {
+    mimetype: 'image/jpeg',
+    test: (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  },
+  {
+    mimetype: 'image/png',
+    test: (b) => b.length >= 8 && b.toString('hex', 0, 8) === '89504e470d0a1a0a',
+  },
+  {
+    mimetype: 'image/webp',
+    test: (b) =>
+      b.length >= 12 &&
+      b.toString('ascii', 0, 4) === 'RIFF' &&
+      b.toString('ascii', 8, 12) === 'WEBP',
+  },
+];
+
+/**
+ * Sniff whether a buffer's leading bytes are a real JPEG, PNG, or WebP file
+ * — NOT by declared mimetype. This is `looksLikeHeic`'s sniff-the-bytes
+ * approach applied to the three formats we store untouched, for the case a
+ * real image arrives under a generic declared type (issue #933):
+ * `application/octet-stream` is the case that matters in practice — Android
+ * SAF content pickers (Drive, Files, some WebViews), and the HTML multipart
+ * algorithm itself whenever `File.type` is empty, both send that generic
+ * type for a real photo. `resolveUploadedFile` calls this ONLY when the
+ * declared mimetype does not already map via ALLOWED_MIME_TO_EXT and the
+ * bytes did not sniff as HEIC — a file that already declares an allowed
+ * mimetype is trusted as today (sniffing every upload is separate scope; see
+ * the issue's non-goals).
+ *
+ * @param {Buffer} buffer - at least the file's first 12 bytes.
+ * @returns {{mimetype: string}|null} the mimetype to re-type the file as
+ *          (the caller derives the extension via ALLOWED_MIME_TO_EXT, the
+ *          one place that mapping lives), or null if the bytes match none of
+ *          the three (a genuinely disallowed file, e.g. a PDF).
+ */
+function sniffImageType(buffer) {
+  if (!buffer) return null;
+  for (const sniffer of IMAGE_SNIFFERS) {
+    if (sniffer.test(buffer)) return { mimetype: sniffer.mimetype };
+  }
+  return null;
 }
 
 /**
@@ -631,17 +699,22 @@ function convertHeicToJpeg(buffer) {
  *   - Not HEIC, and the declared mimetype IS a real allowed type
  *     (jpeg/png/webp) -> nothing to do; diskStorage's filename() already gave
  *     it the right extension and the file is correctly stored.
- *   - Not HEIC, and the declared mimetype is NOT a real allowed type (the
- *     octet-stream / HEIC-candidate that turned out to be a lie or a
- *     corrupt/unsupported file) is rejected here with the same BAD_IMAGE_TYPE
- *     shape fileFilter uses.
+ *   - Not HEIC, declared mimetype not allowed, but the bytes sniff as
+ *     jpeg/png/webp (sniffImageType) -> rename to the sniffed extension and
+ *     re-type file.mimetype; kept, not rejected.
+ *   - Not HEIC, and the declared mimetype is NOT a real allowed type AND the
+ *     bytes do not sniff as jpeg/png/webp either (the octet-stream /
+ *     HEIC-candidate that turned out to be a lie or a corrupt/unsupported
+ *     file) is rejected here with the same BAD_IMAGE_TYPE shape fileFilter
+ *     uses.
  *
  * Deletes the file itself on rejection/conversion-failure; does NOT clean up
  * any OTHER file in a multi-file batch — callers with more than one file
  * (uploadMemoryBatch) are responsible for that.
  *
  * @param {{filename: string, path: string, mimetype: string}} file - multer's
- *        disk-storage descriptor; mutated in place on a HEIC conversion.
+ *        disk-storage descriptor; mutated in place on a HEIC conversion or a
+ *        sniff re-type.
  * @param {number|null|undefined} guestId - the uploading guest (from
  *        res.locals.guest.id). Used ONLY to charge the per-guest HEIC-decode
  *        rate limit, and only when the file actually sniffs as HEIC.
@@ -701,6 +774,33 @@ async function resolveUploadedFile(file, guestId) {
       if (ALLOWED_MIME_TO_EXT[file.mimetype]) {
         return; // already a real, correctly-stored jpeg/png/webp — nothing to do
       }
+
+      // The declared type didn't map directly (a HEIC candidate that turned
+      // out not to be HEIC — almost always application/octet-stream). Before
+      // rejecting outright, sniff the same 12-byte header for a real
+      // jpeg/png/webp signature (issue #933): Android SAF pickers, and the
+      // HTML multipart algorithm itself when `File.type` is empty, both hand
+      // over a genuine photo under this generic type. On a match, RENAME
+      // (not copy — the bytes are already correct, only the provisional
+      // `.heic` disk name and the declared mimetype are wrong) the stored
+      // file to a properly-extensioned name and re-type file.mimetype,
+      // mirroring the HEIC conversion branch below so a route/thumbnailer
+      // reading req.file afterward sees a consistent, correctly-named file.
+      const sniffed = sniffImageType(header.subarray(0, headerBytesRead));
+      if (sniffed) {
+        const newName = randomFilename(ALLOWED_MIME_TO_EXT[sniffed.mimetype]);
+        const newPath = path.join(UPLOADS_DIR, newName);
+        fs.renameSync(safePath, newPath);
+        file.filename = newName;
+        file.path = newPath;
+        file.mimetype = sniffed.mimetype;
+        return;
+      }
+
+      // No signature matched (jpeg/png/webp/heic all ruled out) — a
+      // genuinely disallowed file (e.g. a PDF) that only reached here by
+      // declaring a HEIC-candidate mimetype. The gate does not widen to
+      // arbitrary bytes.
       fs.unlinkSync(safePath);
       const err = new Error(DISALLOWED_TYPE_MESSAGE);
       err.code = 'BAD_IMAGE_TYPE';
