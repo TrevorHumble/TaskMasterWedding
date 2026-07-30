@@ -2184,8 +2184,8 @@ alongside the columns it already selected, and the live placing lookup at render
 `ev.guest_id` rather than `ev.submission_id`, so a stored event whose recorded photo is no longer the guest's
 representative (the #896 swap case) still resolves to that guest's CURRENT rank instead of falling back to
 the rank-free "crowd favorite" copy. Nothing about the recap's `href`/thumbnail behavior changed — a stored
-event still links to the submission it was recorded against, which is issue #866's separate, still-open
-surface.
+event still links to the submission it was recorded against, which was issue #866's separate surface
+(since built and merged; see the #866 amendment below).
 
 **Alternative considered — pass the recap owner's `guestId` into `parts()` instead of projecting
 `ne.guest_id`.** Rejected: `parts()` renders one stored ROW, and the row's own `guest_id` is the fact the
@@ -2812,3 +2812,74 @@ the same CSS-guardrail-regex workaround `tests/leaderboard-overflow.test.js` alr
 `touch-action`/`flex-wrap` source-text assertions. The pixel-level proof (the class alone renders the
 panel `display: flex` on a `:has()`-less engine) happened in the owner's phase-1 visual-approval loop,
 not in this suite.
+
+## Static photo caching: content-immutable filenames license a 7-day pinned cache (#937)
+
+**Date:** 2026-07-30. **Status:** shipped.
+
+**The problem.** `/uploads` and `/thumbs` (`src/app.js`) were mounted with no `express.static` options,
+so every response carried the framework default `Cache-Control: public, max-age=0` — a guest's phone
+re-validates every already-seen photo on every gallery scroll. Each revalidation first passes through the
+synchronous better-sqlite3 takedown query in `blockTakenDownOriginal`/`blockTakenDownThumb`
+(`src/services/photos.js`) before a 304 can even be answered, on the same main JS thread the upload
+pipeline's 6-slot semaphore is trying to protect. A hundred guests scrolling one gallery multiplies into
+thousands of blocking round-trips competing with in-flight uploads.
+
+**The filename invariant that licenses `immutable`.** A stored name is `<16 hex>-<ms timestamp>.<ext>`
+under both `/uploads` and `/thumbs`, and the bytes under a given name never change once written: takedown
+hides or deletes a row, it never rewrites the file in place, and a re-save always mints a fresh random
+name. `/uploads` has a second tenant beyond submission originals — guest **avatars** — and the same
+invariant holds for them: `saveAvatar` (`src/services/photos.js`) writes a new random filename per save
+and updates `guests.avatar_path` to point at it; it never overwrites bytes under an old avatar's name.
+Both tenants of `/uploads`, and everything under `/thumbs`, are therefore safe to mark `immutable` —
+a client that has fetched a name once never needs to ask again for that same name.
+
+**Why 604800 seconds (7 days), not longer or shorter.** The takedown guard still blocks every _new_
+fetch immediately and unconditionally — nothing about this change touches that. What a 7-day `max-age`
+adds is that a phone which already cached a photo before it was taken down keeps rendering its own copy,
+without asking the server, for up to 7 days, on any surface that still emits that URL. Shorter would
+re-open the revalidation flood mid-wedding-weekend, exactly when it matters most; longer would stretch
+the takedown residual (below) past the point the owner accepted. Seven days covers the full wedding
+weekend for performance while guaranteeing every phone converges to a takedown within a week.
+
+**Dependency: #866 (merged, PR #946, commit `5a4d851`, 2026-07-30).** Before #866, a taken-down photo's
+`/p/<id>` link could still be re-emitted from a guest's stored recap row, so a cached copy plus a
+still-live link would have compounded into a durable-looking dead-photo experience. #866 made every
+stored-event surface stop emitting a taken-down submission's `href`/`thumb` (see the #866 ADR above), so
+by the time this issue shipped, no in-app surface renders a taken-down photo's URL. This issue was
+sequenced to depend on and ship after #866 for that reason.
+
+**The residual, accepted as-is.** With #866 landed, the only way a guest's phone still shows a
+taken-down photo is a direct URL they browsed to and cached _before_ the takedown, revisited manually
+(bookmark, browser history, a screenshot-shared link) within the 7-day window — one phone, one guest,
+capped at 7 days, never renderable from any in-app link. The export/keepsake pipeline reads the server's
+files directly, never a phone's cache, so the kept record is unaffected by this residual.
+
+**Why `public` is the safe directive here — an assumption, not a given.** This deployment terminates
+TLS at the reverse proxy (§ "Hosted deployment" records that termination); no CDN is deployed today and
+none is planned for the event, so no shared/intermediary cache sits in the request path. `public` on an HTTP response
+normally permits ANY shared cache — a corporate proxy, a CDN edge — to store and reuse it, but with none
+of those in the request path, "public" resolves to "cacheable by the requesting device" in practice. A
+future deployment that adds a CDN or drops to plain HTTP through a shared proxy must revisit this
+directive before shipping — `public` would then mean what it actually says.
+
+**The admin-bypass and 404 branches get their own directives, not `immutable`'s.** The two guard
+middlewares set `Cache-Control` themselves, one line each, before passing through — `express.static`'s
+underlying `send()` only sets `Cache-Control` when the response doesn't already carry one, so a value
+set upstream in the guard survives untouched to the client:
+
+- **Admin bypass** (`isAdminRequest(req)` branch, both guards): `private, no-cache`. An admin's bypassed
+  view can include a taken-down file — that response must never be marked publicly cacheable, but the
+  host's own bodiless-304 revalidation flow (useful on the moderation gallery, which re-fetches the same
+  thumbnails repeatedly) still works under `no-cache` (revalidate-before-reuse), unlike `no-store` (never
+  cache at all).
+- **404 branches** (both the stage-1 allowlist rejection and the stage-2 takedown 404): `no-store`. A
+  takedown 404 must never be cached as a negative, or a later restore would have to fight a stale cached
+  404 on top of the takedown guard already re-allowing the file. Because the stage-1 allowlist check runs
+  _before_ the admin-bypass check in both guards, a malformed/non-matching filename 404s — with
+  `no-store` — for an admin requester exactly the same as for a guest; the bypass only ever reaches
+  stage 2 (the DB takedown check), never stage 1.
+
+No new middleware was added: `STATIC_PHOTO_OPTS` is passed directly as `express.static`'s second
+argument in `src/app.js`, and the guards' existing single functions grew one `res.set()` line each per
+branch — the same shape the #191 admin bypass already used.

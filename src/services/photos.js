@@ -1658,22 +1658,34 @@ function blockTakenDownOriginal(req, res, next) {
   try {
     name = path.basename(decodeURIComponent(req.path));
   } catch {
+    res.set('Cache-Control', 'no-store');
     return res.sendStatus(404);
   }
 
   // Stage 1: allowlist check — reject anything that is not a real stored name.
+  // Fires before the admin bypass below, so it 404s admin traffic too — a
+  // malformed name is never a real stored file, admin or not (issue #937).
   if (!ORIGINAL_RE.test(name)) {
+    res.set('Cache-Control', 'no-store');
     return res.sendStatus(404);
   }
 
   // Admin bypass: an admin session sees taken-down files too (issue #191).
+  // Cache-Control set here (issue #937) so the response is never marked
+  // publicly cacheable — an admin's bypassed view of a possibly-taken-down
+  // file must not sit in a shared/public cache, though the host's own
+  // bodiless-304 revalidation still works under 'no-cache'. express.static's
+  // send() only sets Cache-Control when the response doesn't already carry
+  // one, so this survives through to the client.
   if (isAdminRequest(req)) {
+    res.set('Cache-Control', 'private, no-cache');
     return next();
   }
 
   // Stage 2: takedown check (case-insensitive).
   const row = _isTakenDownOriginal.get(name);
   if (row) {
+    res.set('Cache-Control', 'no-store');
     return res.sendStatus(404);
   }
 
@@ -1690,22 +1702,29 @@ function blockTakenDownThumb(req, res, next) {
   try {
     name = path.basename(decodeURIComponent(req.path));
   } catch {
+    res.set('Cache-Control', 'no-store');
     return res.sendStatus(404);
   }
 
-  // Stage 1: allowlist check.
+  // Stage 1: allowlist check. Fires before the admin bypass below, so it
+  // 404s admin traffic too (issue #937 — see blockTakenDownOriginal above).
   if (!THUMB_RE.test(name)) {
+    res.set('Cache-Control', 'no-store');
     return res.sendStatus(404);
   }
 
   // Admin bypass: an admin session sees taken-down files too (issue #191).
+  // Cache-Control set here (issue #937) — same rationale as
+  // blockTakenDownOriginal above.
   if (isAdminRequest(req)) {
+    res.set('Cache-Control', 'private, no-cache');
     return next();
   }
 
   // Stage 2: takedown check (case-insensitive).
   const row = _isTakenDownThumb.get(name);
   if (row) {
+    res.set('Cache-Control', 'no-store');
     return res.sendStatus(404);
   }
 
