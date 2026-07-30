@@ -2544,3 +2544,39 @@ path (completing the queue) the original cut only handled. `recap.js`'s `openBad
 more, independent fix: reset the Continue button's label back to plain "Continue" every time it opens for
 a replay, since `badge-moment.js` leaves that same shared button reading "Done" (or a stale count) once
 its own queue finishes, and a later replay must never inherit it.
+
+## Flash mobile launch: accordion visibility moved to a single JS-class owner (#918)
+
+**Date:** 2026-07-29. **Status:** shipped (phase-2).
+
+**The problem.** The owner reported flash launch working on desktop but not from his phone over the
+stag weekend. A read of the whole tap-to-Save chain found no single smoking gun — no mouse-only event,
+no viewport branch — but four independent mobile hazards, all traced to #763's flash partial: the
+accordion's only visibility owner was a CSS `:has()` selector (fails closed on an engine without it, at
+both the mode-panel and the "Pick a time" sub-panel level), no `touch-action: manipulation` on the
+dialog (iOS reads fast +/- taps on the minutes stepper as double-tap-zoom), a blocked native submit is
+silent on iOS Safari (no validation bubble), and two chip rows had no `flex-wrap` and overflowed narrow
+phones. None of the four is provable as _the_ exact failure without the owner's phone in hand, so the
+fix is a hardening bundle, not a single-mechanism patch — each piece is independently correct and cheap
+regardless of which one (or more) was the actual culprit.
+
+**Accordion visibility has exactly one owner now: the class, set by `syncSpecialPanels()`.** The first
+cut of this fix ADDED class-based rules beside the `:has()` originals as a fallback mirror; the
+design-philosophy review rejected that as duplicated ownership of one visibility rule (two
+independently-written statements — a `:has()` selector and a JS conditional — that a future edit could
+change on one side and miss on the other). The `:has()` visibility rules were deleted instead:
+`.special-active` on `.special-option-group` and `.flash-later-active` on `.flash-start-field`
+(`syncSpecialPanels()`, `src/public/js/admin-tasks.js`) are the sole owners at both accordion levels.
+The first-paint property `:has()` provided costs nothing to give up, because the task dialogs are only
+ever shown by the same script that sets the classes — `openEdit()` and `resetCreate()` both run
+`syncSpecialPanels()` before `showModal()`, and it re-runs on every mode/Starts change. A saved flash
+task's edit popup therefore shows its panel open the moment it appears, on every engine, `:has()` or
+not.
+
+**Why a JS unit test proves the class fact but not the pixel.** jsdom has no CSS layout engine, so
+`tests/admin-tasks-script.test.js`'s new cases (issue #918) assert the DOM fact the CSS depends on —
+which element carries which class, and when (tap-time AND dialog-open-time) — the same limitation and
+the same CSS-guardrail-regex workaround `tests/leaderboard-overflow.test.js` already established for
+`touch-action`/`flex-wrap` source-text assertions. The pixel-level proof (the class alone renders the
+panel `display: flex` on a `:has()`-less engine) happened in the owner's phase-1 visual-approval loop,
+not in this suite.

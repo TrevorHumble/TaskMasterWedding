@@ -99,6 +99,13 @@
       </button>
       <input type="hidden" name="badge_icon" id="task-create-badge-icon-value" value="" />
       <input type="hidden" name="badge_name" id="task-create-badge-name-value" value="" />
+      <%# Hidden until a native constraint-validation failure blocks Create
+          (issue #918) -- admin-tasks.js's attachValidationNote() reveals it,
+          because iOS Safari shows no validation bubble and the submit
+          otherwise fails silently on a phone. %>
+      <p class="form-error dialog-validation-note" hidden>
+        Something needs fixing &mdash; check the highlighted field.
+      </p>
       <footer class="task-dialog-foot task-dialog-foot-split">
         <button type="button" class="btn btn-ghost" data-wizard-back>&larr; Back</button>
         <button type="submit" class="btn btn-primary" id="task-create-submit" disabled>Create task</button>

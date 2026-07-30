@@ -112,6 +112,13 @@
     </fieldset>
 
     <footer class="task-dialog-foot task-dialog-foot-stacked">
+      <%# Hidden until a native constraint-validation failure blocks Save
+          (issue #918) -- admin-tasks.js's attachValidationNote() reveals it,
+          because iOS Safari shows no validation bubble and Save otherwise
+          fails silently on a phone. %>
+      <p class="form-error dialog-validation-note" hidden>
+        Something above needs fixing &mdash; check the highlighted field.
+      </p>
       <button type="submit" class="btn btn-primary btn-block">Save</button>
       <div class="task-dialog-foot-split">
         <button type="button" class="btn btn-danger task-dialog-delete" data-delete-task>Delete</button>
