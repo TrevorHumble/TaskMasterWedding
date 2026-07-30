@@ -48,6 +48,7 @@ let withUploadSlot;
 let uploadSemaphore;
 let avatarSemaphore;
 let withAvatarSlot;
+let withBoundedSlot;
 
 beforeAll(() => {
   const loaded = loadApp();
@@ -62,6 +63,7 @@ beforeAll(() => {
     uploadSemaphore,
     avatarSemaphore,
     withAvatarSlot,
+    withBoundedSlot,
   } = require('../src/utils/upload-concurrency'));
 });
 
@@ -148,6 +150,29 @@ describe('Semaphore', () => {
     const sem = new Semaphore(-5);
     expect(sem.limit).toBe(1);
   });
+
+  it('occupancy is active holders plus queued waiters, tracking both as they change', async () => {
+    const sem = new Semaphore(1);
+    expect(sem.occupancy).toBe(0);
+
+    await sem.acquire();
+    expect(sem.occupancy).toBe(1); // one active holder, nothing queued
+
+    let secondAcquired = false;
+    const secondAcquire = sem.acquire().then(() => {
+      secondAcquired = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(secondAcquired).toBe(false);
+    expect(sem.occupancy).toBe(2); // 1 active + 1 queued
+
+    sem.release(); // ownership transfers straight to the queued waiter
+    await secondAcquire;
+    expect(sem.occupancy).toBe(1); // still 1 active, queue now empty
+
+    sem.release();
+    expect(sem.occupancy).toBe(0);
+  });
 });
 
 describe('withUploadSlot', () => {
@@ -164,6 +189,206 @@ describe('withUploadSlot', () => {
   it("returns the wrapped function's resolved value on success", async () => {
     const value = await withUploadSlot(() => Promise.resolve('the actual value'));
     expect(value).toBe('the actual value');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withBoundedSlot — the shared "ceiling check -> acquire -> timeout-recode ->
+// run -> release" primitive both withAvatarSlot (above/below, 'pending' mode)
+// and src/services/photos.js's HEIC decode gate ('occupancy' mode) are thin
+// callers of (issue #930 round-2 review: those two gates had independently
+// hand-rolled the identical shape and drifted apart). withAvatarSlot's own
+// suites already exercise 'pending' mode end-to-end through real avatar
+// saves; 'occupancy' mode is exercised end-to-end too, through the HEIC
+// suites (tests/heic-conversion.test.js, tests/heic-decode-pending-cap.test.js)
+// via photos.heicDecodeSemaphore -- but neither drives withBoundedSlot
+// directly as a UNIT, against a throwaway Semaphore, isolated from any real
+// upload pipeline. These do.
+// ---------------------------------------------------------------------------
+describe('withBoundedSlot', () => {
+  function codedError(message, code) {
+    return Object.assign(new Error(message), { code });
+  }
+
+  it('occupancy mode: rejects immediately once semaphore.occupancy is at the limit, without ever touching acquire()', async () => {
+    const sem = new Semaphore(1);
+    await sem.acquire(); // occupancy = 1 (one active holder), at the test's limit of 1
+    let fnRan = false;
+
+    await expect(
+      withBoundedSlot(
+        sem,
+        {
+          limitKind: 'occupancy',
+          limit: 1,
+          waitMs: 1000,
+          busyError: () => codedError('busy', 'TEST_BUSY'),
+          timeoutError: (waitErr) =>
+            codedError('timeout', 'TEST_TIMEOUT_' + (waitErr && waitErr.name)),
+        },
+        () => {
+          fnRan = true;
+          return Promise.resolve('should never run');
+        }
+      )
+    ).rejects.toMatchObject({ code: 'TEST_BUSY' });
+
+    // Rejected purely on the depth check -- fn never ran, and the semaphore
+    // is exactly as it was (no slot was ever requested for this call).
+    expect(fnRan).toBe(false);
+    expect(sem.occupancy).toBe(1);
+
+    sem.release();
+    expect(sem.occupancy).toBe(0);
+  });
+
+  it('occupancy mode: admits and runs fn once occupancy is below the limit, releasing the slot on completion', async () => {
+    const sem = new Semaphore(2);
+
+    const value = await withBoundedSlot(
+      sem,
+      {
+        limitKind: 'occupancy',
+        limit: 2,
+        waitMs: 1000,
+        busyError: () => codedError('busy', 'TEST_BUSY'),
+        timeoutError: () => codedError('timeout', 'TEST_TIMEOUT'),
+      },
+      () => Promise.resolve('ran')
+    );
+
+    expect(value).toBe('ran');
+    expect(sem.occupancy).toBe(0); // released -- no leak on the success path
+  });
+
+  it('occupancy mode: releases even when fn throws', async () => {
+    const sem = new Semaphore(2);
+
+    await expect(
+      withBoundedSlot(
+        sem,
+        {
+          limitKind: 'occupancy',
+          limit: 2,
+          waitMs: 1000,
+          busyError: () => codedError('busy', 'TEST_BUSY'),
+          timeoutError: () => codedError('timeout', 'TEST_TIMEOUT'),
+        },
+        () => Promise.reject(new Error('boom'))
+      )
+    ).rejects.toThrow('boom');
+
+    expect(sem.occupancy).toBe(0); // released -- no leak on the throw path
+  });
+
+  it("occupancy mode: a wait admitted under the ceiling but stuck queued behind the Semaphore's own capacity is re-coded via timeoutError on expiry, with no slot leak", async () => {
+    const sem = new Semaphore(1); // this Semaphore's OWN concurrency cap is 1
+    await sem.acquire(); // hold the only real slot -- occupancy = 1
+
+    // withBoundedSlot's ceiling (2) is ABOVE the Semaphore's own capacity (1)
+    // -- exactly the production shape (MAX_PENDING_HEIC_DECODES=12 vs a
+    // capacity-1 heicDecodeSemaphore): the depth check admits (1 < 2), but
+    // the underlying acquire() still queues because the one real slot is
+    // held, so this exercises the WAIT-TIMEOUT path, not the depth-check one.
+    let fnRan = false;
+    await expect(
+      withBoundedSlot(
+        sem,
+        {
+          limitKind: 'occupancy',
+          limit: 2,
+          waitMs: 50,
+          busyError: () => codedError('busy', 'TEST_BUSY'),
+          timeoutError: (waitErr) => codedError('timeout: ' + waitErr.name, 'TEST_TIMEOUT'),
+        },
+        () => {
+          fnRan = true;
+          return Promise.resolve('should never run');
+        }
+      )
+    ).rejects.toMatchObject({ code: 'TEST_TIMEOUT' });
+
+    expect(fnRan).toBe(false);
+    // No slot leak: the expired wait never held a slot, so occupancy is
+    // exactly what it was before it ever queued (the one real holder only).
+    expect(sem.occupancy).toBe(1);
+
+    sem.release();
+    expect(sem.occupancy).toBe(0);
+  });
+
+  it('rethrows a non-timeout acquire() rejection unrecoded (does not mislabel it via timeoutError)', async () => {
+    const sem = new Semaphore(1);
+    const controller = new AbortController();
+    controller.abort(new Error('caller cancelled, not a timeout'));
+
+    // A pre-aborted signal makes acquire() reject synchronously with that
+    // exact reason, whose .name is NOT 'TimeoutError' -- withBoundedSlot must
+    // rethrow it as-is rather than pass it through timeoutError.
+    const originalAcquire = sem.acquire.bind(sem);
+    sem.acquire = () => originalAcquire({ signal: controller.signal });
+
+    let timeoutErrorCalled = false;
+    await expect(
+      withBoundedSlot(
+        sem,
+        {
+          limitKind: 'occupancy',
+          limit: 1,
+          waitMs: 1000,
+          busyError: () => codedError('busy', 'TEST_BUSY'),
+          timeoutError: () => {
+            timeoutErrorCalled = true;
+            return codedError('timeout', 'TEST_TIMEOUT');
+          },
+        },
+        () => Promise.resolve('should never run')
+      )
+    ).rejects.toThrow('caller cancelled, not a timeout');
+
+    expect(timeoutErrorCalled).toBe(false);
+  });
+
+  it('pending mode: rejects immediately once semaphore.pending is at the limit, reading .pending not .occupancy', async () => {
+    const sem = new Semaphore(1);
+    await sem.acquire(); // one active holder -- occupancy = 1, pending = 0
+    const filler = withBoundedSlot(
+      sem,
+      {
+        limitKind: 'pending',
+        limit: 1,
+        waitMs: 1000,
+        busyError: () => codedError('busy', 'TEST_BUSY'),
+        timeoutError: () => codedError('timeout', 'TEST_TIMEOUT'),
+      },
+      () => Promise.resolve('filler')
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sem.pending).toBe(1); // filler is queued -- pending is now at the limit
+
+    // The DISCRIMINATING assertion is the filler's admission above (:367):
+    // pending was 0 at its depth check, so 'pending' mode admitted it —
+    // occupancy mode would have read 1 (the active holder) >= limit 1 and
+    // refused it. This second caller is then rejected in either mode
+    // (pending 1 >= 1, occupancy 2 >= 1), so it proves the busy path, not
+    // the mode split.
+    await expect(
+      withBoundedSlot(
+        sem,
+        {
+          limitKind: 'pending',
+          limit: 1,
+          waitMs: 1000,
+          busyError: () => codedError('busy', 'TEST_BUSY'),
+          timeoutError: () => codedError('timeout', 'TEST_TIMEOUT'),
+        },
+        () => Promise.resolve('should never run')
+      )
+    ).rejects.toMatchObject({ code: 'TEST_BUSY' });
+
+    sem.release(); // frees the held slot straight to the queued filler
+    await filler;
+    expect(sem.occupancy).toBe(0);
   });
 });
 

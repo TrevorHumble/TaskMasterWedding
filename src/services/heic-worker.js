@@ -34,8 +34,8 @@
 // (the JPEG bytes, transferred, not copied); on an over-cap image it posts
 // { ok: false, oversize: true, width, height }; on any other failure it posts
 // { ok: false, message: <string> }. photos.js (decodeHeicInWorker) spawns one
-// of these per decode, serialized behind heicDecodeChain so at most one runs at
-// a time, and always terminates it.
+// of these per decode, serialized behind heicDecodeSemaphore (issue #930) so at
+// most one runs at a time, and always terminates it.
 //
 // JPEG encoding matches heic-convert exactly (jpeg-js at Math.floor(quality*100)
 // — see node_modules/heic-convert/formats-node.js), so the stored output is
