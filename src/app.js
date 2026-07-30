@@ -218,8 +218,25 @@ app.use((req, res, next) => {
 //    /thumbs  -> data/thumbs  (thumbnails)
 // ---------------------------------------------------------------------------
 app.use(express.static(config.PUBLIC_DIR));
-app.use(config.UPLOADS_URL_BASE, photos.blockTakenDownOriginal, express.static(config.UPLOADS_DIR));
-app.use('/thumbs', photos.blockTakenDownThumb, express.static(config.THUMBS_DIR));
+// /uploads and /thumbs get a pinned 7-day immutable cache (issue #937): stored
+// filenames are content-immutable (a name's bytes never change once written —
+// moderation deletes/blocks rather than rewrites, a re-save mints a fresh
+// name), so a guest's phone can trust its cache without revalidating every
+// scroll. See DESIGN.md's static-caching note for why 7 days and the accepted
+// takedown residual. The guard middlewares below override this default with
+// 'private, no-cache' on the admin-bypass branch and 'no-store' on a 404, so
+// this maxAge only ever reaches a guest's successful, non-taken-down fetch.
+const STATIC_PHOTO_OPTS = { maxAge: '7d', immutable: true };
+app.use(
+  config.UPLOADS_URL_BASE,
+  photos.blockTakenDownOriginal,
+  express.static(config.UPLOADS_DIR, STATIC_PHOTO_OPTS)
+);
+app.use(
+  '/thumbs',
+  photos.blockTakenDownThumb,
+  express.static(config.THUMBS_DIR, STATIC_PHOTO_OPTS)
+);
 
 // ---------------------------------------------------------------------------
 // 4a. Liveness probe. Placed before maintenance mode (4b) and attachGuest (5)
