@@ -501,6 +501,44 @@ router.get('/tasks', function (req, res) {
     const flashActive = bonusDecision !== null && bonusDecision.reason === tasks.BONUS_REASON_FLASH;
     const flashWindowVal = tasks.flashWindow(t);
     const flashBonus = flashActive ? bonusDecision.amount : 0;
+    // Missed bonus (FOMO): a bonus this guest can no longer earn — a flash whose
+    // window closed, or a one-day challenge whose day has passed. Read off
+    // tasks.missedBonusForTask(), the single owner of "did a bonus slip away
+    // here, and how much was it", so this route never re-derives "expired" per
+    // special type (the same discipline flashActive follows for bonusForTask).
+    // Gated on amount > 0: a legacy row carrying a date with a NULL bonus never
+    // had anything to miss, and must not render "+0".
+    //
+    // NOT mutually exclusive with the live markers by construction (issue #926
+    // review fix, MAJOR M3 — correcting a false claim this comment used to
+    // make). isToday/locked are derived here from tasks.isSealed/isOnDay
+    // directly, while missedBonusForTask() independently walks each rule's OWN
+    // `missed` predicate, which does not consult whether that rule is
+    // presently "spoken for" (findSpecialRule's separate question). A task
+    // whose special_date has already passed but which ALSO carries a live or
+    // scheduled flash window is spoken-for by 'flash' (daily's own spokenFor
+    // is false once its date has passed) while STILL matching daily's
+    // `missed` predicate — so flashActive and a raw missedBonusForTask()
+    // result can both be true on the SAME row at once (host-reachable: arm a
+    // flash on a task whose day already passed, or let a flash expire on a
+    // task dated today). The two markers say opposite things ("worth more
+    // right now" vs. "you missed this"), so exactly one must win. That
+    // precedence is decided HERE, once — live beats missed — rather than left
+    // for the view's price-column else-if order to (accidentally) also
+    // decide: without this gate the row could carry the `task-bonus-missed`
+    // class from this flag while its price column rendered the LIVE
+    // treatment (isToday/flashActive checked first in the partial's else-if
+    // chain), two owners of one precedence disagreeing on the same row. Lucky
+    // deliberately reports no miss regardless (it wears no live marker
+    // either; see its SPECIAL_RULES entry).
+    //
+    // This flag feeds both todoTasks and doneTasks below (both are filtered
+    // FROM this same mapped array) — but the missed marker only ever RENDERS
+    // on a todo row (task-todo-row.ejs is not used for done rows), so a done
+    // row simply carries an unused, harmless bonusMissed value.
+    const missedDecision = tasks.missedBonusForTask(t, clock);
+    const bonusMissed =
+      !isToday && !flashActive && missedDecision !== null && missedDecision.amount > 0;
     return Object.assign({}, t, {
       badge: taskBadges.toTaskBadgeView(badge),
       locked: locked,
@@ -511,6 +549,8 @@ router.get('/tasks', function (req, res) {
       flashEndsAt: flashActive ? new Date(flashWindowVal.endMs).toISOString() : null,
       flashBonus: flashBonus,
       flashTotalMs: flashActive ? flashWindowVal.totalMs : null,
+      bonusMissed: bonusMissed,
+      bonusMissedAmount: bonusMissed ? missedDecision.amount : 0,
     });
   });
 

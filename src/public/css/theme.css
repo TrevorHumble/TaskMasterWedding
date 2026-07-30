@@ -1323,28 +1323,79 @@ a.stat:hover {
   height: 24px;
   border-radius: 50%;
 }
+/* Two-row grid, not a flex line: the badge, body, and price share the top row,
+   and the earn-pitch takes a full-width bottom row spanning UNDER the badge and
+   price gutters as well. That full width is what keeps the pitch on one line at
+   phone widths — squeezed into the body column beside the price it wrapped. A
+   row with no earn-pitch (locked, starter, share-a-memory) simply leaves the
+   bottom row unoccupied and collapses to zero height. A row with no leading
+   badge/thumb element EITHER (the starter and share-a-memory rows — .task-body
+   is their first child there) is handled by the .task-link > .task-body:first-child
+   rule below, which spans .task-body across the empty badge column too — left
+   alone, the grid still reserves that column's gap even with nothing sized to
+   fill the column itself, indenting the row's text by the gap width with no
+   content to justify it (issue #926 review fix, MINOR m5). With that rule in
+   place these rows are flush left, same as before the grid rewrite. */
 .task-link {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  grid-template-areas:
+    'badge body points chevron'
+    'earn  earn earn   earn';
   align-items: center;
-  gap: var(--space-4);
+  gap: 0 var(--space-3);
   padding: var(--space-4) var(--space-3);
   text-decoration: none;
   color: inherit;
 }
+/* See the .task-link comment above: a row with no badge/thumb element leading
+   it has .task-body as .task-link's literal first child, and would otherwise
+   sit indented by the empty badge column's gap. Spanning it across both
+   columns removes that gap. The locked row (.task-link-locked, further down)
+   is unaffected — it re-declares display:flex, which ignores grid-column
+   entirely, and its own .task-body is never the first child there regardless
+   (task-lock-wrap leads it).
+
+   Grid placement convention for this row (issue #926 re-check, nit N2): every
+   task-row child declares its own grid-area inside its OWN rule block — there
+   is no shared placement group, so deleting a class's block can never orphan a
+   placement declaration elsewhere. */
+.task-link > .task-body:first-child {
+  grid-column: badge-start / body-end;
+}
 .task-link:hover {
   text-decoration: none;
 }
-/* Chevron affordance on every row: the whole row is one link. */
+/* Chevron affordance on every row: the whole row is one link. Explicitly placed
+   in the grid's own chevron cell (see .task-link): on a full row auto-placement
+   happens to land it in the same cell, but a row missing a price tag would
+   auto-flow the chevron into the empty points cell — explicit placement keeps
+   it in its own column regardless of which siblings a row variant renders. */
 .task-link::after {
   content: '\203A'; /* › */
+  grid-area: chevron;
+  /* flex kept alongside grid-area: the locked row carries BOTH .task-link and
+     .task-link-locked, and the latter re-declares display:flex — so this
+     pseudo-element is a flex item there and a grid item everywhere else. Each
+     context ignores the other's property. */
   flex: 0 0 auto;
   font-size: var(--fs-h3);
   color: var(--color-text-muted);
 }
 .task-body {
+  grid-area: body;
+  /* min-width: 0 lets the body column shrink so long titles/descriptions
+     cannot push the row wider than the column on narrow screens (a GRID
+     property here — .task-link is display:grid). flex: 1 1 auto right below
+     it is a DIFFERENT property for a DIFFERENT context (issue #926 review
+     fix, MAJOR — regression): .task-link-locked (further down) re-declares
+     display:flex for the locked row alone, and in THAT context .task-body is
+     the flex item that has to grow to push "+? pts ›" flush right. Grid
+     ignores flex, flex ignores grid-area/min-width's grid meaning (min-width
+     itself is a normal box property both contexts honor) — so one rule can
+     safely carry both declarations; each display mode simply reads the
+     property it understands and ignores the other. */
   flex: 1 1 auto;
-  /* min-width: 0 lets the flex body shrink so long titles/descriptions
-     cannot push the row wider than the column on narrow screens. */
   min-width: 0;
 }
 .task-title-text {
@@ -1354,6 +1405,7 @@ a.stat:hover {
   font-weight: 600;
 }
 .task-points {
+  grid-area: points;
   flex: 0 0 auto;
   font-size: 12px;
   font-weight: 600;
@@ -1368,37 +1420,69 @@ a.stat:hover {
   font-size: 16px;
   font-weight: 700;
 }
-/* Earnable-badge line (issue #486): the badge the guest earns for this task,
-   shown before the photo is taken. Reuses the shared .badge-art frame (the
-   fixed-size class admin-tasks.ejs already uses for the same badge data) so
-   every badge render on the site shares one sizing rule instead of a raw
-   uncontrolled <img>; scoped narrower here (24px) to fit the task row at
-   phone width alongside the title/description without pushing the layout. */
-.task-earnable-badge {
+/* The earnable badge as the row's leading anchor: the reward is the reason to
+   play, so its art leads the row at 52px instead of riding a caption line at
+   24px. Fixed size, never shrinks — the body column beside it absorbs every
+   width change instead. flex: 0 0 auto carried no weight here even before
+   the grid rewrite made this a grid item outright (grid ignores flex) — see
+   n1, issue #926 review fix. */
+.task-badge-lead {
+  grid-area: badge;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  margin-top: var(--space-1);
 }
-.task-earnable-badge .badge-art {
-  width: 24px;
-  height: 24px;
+.task-badge-lead .badge-art,
+.task-badge-lead .badge-medallion {
+  width: 52px;
+  height: 52px;
   flex-shrink: 0;
 }
-/* Issue #410 phase-2: a task badge here now renders through the medallion
-   component; match .badge-art's 24px sizing above. */
-.task-earnable-badge .badge-medallion {
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
+.task-badge-lead .badge-medallion {
   border-width: 1px;
   box-shadow:
     inset 0 0 0 1px var(--white),
     inset 0 0 0 2px var(--green-300);
 }
+/* One line, always. The caption is three spans — fixed lead, badge name, fixed
+   tail — laid out as a nowrap flex line where ONLY the name (the one
+   variable-width part) may shrink and ellipsize. Guests see the identical
+   sentence shape on every row; a long custom badge name shortens with an
+   ellipsis instead of wrapping this row taller than its neighbors. The gaps
+   stand in for the word spaces the flex items no longer share. Markup lives
+   in src/views/partials/task-earn-pitch.ejs (issue #926 review fix, MAJOR) —
+   the single owner both guest views include rather than each carrying its
+   own copy of this structure; see that partial's own header comment. */
 .task-earnable-copy {
-  font-size: var(--fs-small);
+  grid-area: earn;
+  display: flex;
+  /* The earn-pitch row spans task-link's full width, but .task-earnable-copy
+     is still itself a flex line one level down — min-width: 0 lets IT shrink
+     narrower than its children's natural (unwrapped) width too, which is
+     what actually gives task-earnable-name's ellipsis rule below room to
+     engage before the line would otherwise overflow. */
+  min-width: 0;
+  gap: 0.3em;
+  margin-top: 2px;
+  white-space: nowrap;
+  /* One notch below --fs-small (owner wording, 2026-07-29: the full "Best
+     photos earn [name] + bonus points" sentence stays). At --fs-small the
+     fixed words alone leave ~84px for the name on a 375px phone, so even
+     ten-character default names ellipsized; at eyebrow size every stock name
+     fits whole and only genuinely long custom names shorten. */
+  font-size: var(--fs-eyebrow);
   color: var(--color-text-muted);
+}
+.task-earnable-lead,
+.task-earnable-tail {
+  flex: 0 0 auto;
+}
+.task-earnable-name {
+  flex: 0 1 auto;
+  min-width: 2ch; /* never vanish entirely — at least a hint of the name survives */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--color-primary);
 }
 
 /* ---- One-day-only challenge rows (issue #624) ---- */
@@ -1446,6 +1530,10 @@ a.stat:hover {
   color: var(--color-text-muted);
 }
 .task-points-locked {
+  /* grid-area is inert on the locked row itself (.task-link-locked is flex)
+     but keeps this class placement-complete should a grid row ever carry it —
+     same own-block placement convention as every other task-row child. */
+  grid-area: points;
   flex: 0 0 auto;
   font-size: 12px;
   font-weight: 600;
@@ -1531,15 +1619,19 @@ a.stat:hover {
   background: var(--place-1);
   color: var(--place-1-ink);
 }
-/* Feature-neutral shape for a "raised" price tag -- struck-through base worth
-   stacked above the live total. Shared by the Today Only row AND the flash
-   marker (issue #762): carries layout and ink only, no gold of its own, so
-   it must NOT be named after either one feature (review fix -- an earlier
-   name, task-points-today, invited a future reader to add `color:
+/* Feature-neutral column-flex shape shared by two DIFFERENT price-tag states
+   (issue #926 review note): a live raised total (Today Only / an active
+   flash — one line, no struck base; the pill above the title is the sole
+   "worth more now" signal, owner ruling 2026-07-29) and a missed-bonus row
+   (two lines: .task-points-lost struck above the still-earnable base — see
+   that class below). This rule supplies layout and ink only, no gold of its
+   own, so it must NOT be named after either feature (review fix -- an
+   earlier name, task-points-today, invited a future reader to add `color:
    var(--place-1)` here since the rule sits right after the Today Only block
    above, which would silently paint every flash price tag gold too and
    break the ember/gold separation the owner explicitly asked for). */
 .task-points-raised {
+  grid-area: points;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -1550,11 +1642,6 @@ a.stat:hover {
      instance but the near-black PAGE GROUND on stag, so inking with it directly
      rendered the raised total black on black there (#878). */
   color: var(--color-ink-strong);
-}
-.task-points-was {
-  font-weight: 600;
-  color: var(--color-text-muted);
-  text-decoration: line-through;
 }
 
 /* ---- Flash marker (issue #762) ----
@@ -1646,6 +1733,16 @@ a.stat:hover {
   opacity: 0.5;
 }
 
+/* ---- Flash MISSED (FOMO) ----
+   Quiet variant: an otherwise ordinary row carries the miss on ONE signal —
+   the lost bonus, greyed and struck through, above the base points that are
+   still there to bank. No ember pill, no cooled title. */
+.task-points-lost {
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .task-flash-drain .task-flash-flag {
     transition: none;
@@ -1656,6 +1753,7 @@ a.stat:hover {
    thumbnail with a small sage check-badge overlapping its corner. No pills,
    no placeholder squares. */
 .task-thumb-wrap {
+  grid-area: badge;
   position: relative;
   flex: 0 0 auto;
   width: 40px;
@@ -6162,7 +6260,8 @@ body:has(dialog[open]) {
 /* ===========================================================
    Admin Tasks redesign (#682) — WYSIWYG card list, edit popup,
    step-through create. Reuses the guest task-card look
-   (.task-title-text/.task-earnable-copy/.task-points/.badge-medallion)
+   (.task-title-text/.task-points/.badge-medallion — no admin view emits
+   .task-earnable-copy, the guest-only earn-pitch line)
    and the shared design tokens.
    =========================================================== */
 

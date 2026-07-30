@@ -37,6 +37,7 @@ let tasksSvc;
 
 const FIXED_TODAY = '2026-08-07';
 const TOMORROW = '2026-08-08';
+const YESTERDAY = '2026-08-06'; // strictly before FIXED_TODAY — a passed challenge day
 
 beforeAll(() => {
   const loaded = loadApp();
@@ -189,6 +190,96 @@ describe('criterion 1: only an active flash carries a marker; a scheduled one is
 });
 
 // ---------------------------------------------------------------------------
+// Issue #926 AC1: an expired flash's window is CLOSED, not scheduled/active --
+// the row stays playable and ordinary in every respect except a quiet
+// missed-bonus marker in the price column. No pill, no countdown, no tint.
+// ---------------------------------------------------------------------------
+describe('issue #926 AC1: an expired flash carries the missed-bonus marker, not a live pill', () => {
+  test('task-bonus-missed, a struck +N bonus over the still-earnable base, no flash pill, no countdown, no row tint', async () => {
+    resetTables();
+    const guest = insertGuest();
+    const expiredStart = new Date(Date.now() - 20 * 60000).toISOString(); // started 20 min ago
+    insertTask({
+      title: 'Expired Flash Task',
+      worth: 2,
+      flashStartAt: expiredStart,
+      flashMinutes: 10, // window ended 10 min ago
+      flashBonus: 3,
+      sortOrder: 1,
+    });
+
+    const agent = await signedInAgent(guest.token);
+    const res = await agent.get('/tasks');
+    expect(res.status).toBe(200);
+
+    const { row } = isolateRow(res.text, 'Expired Flash Task');
+
+    expect(row).toContain('task-bonus-missed');
+    expect(row).toContain('task-points-lost');
+    expect(row).toContain('>+3 bonus<');
+    expect(row).toContain('+2 pts'); // still-earnable base worth, un-struck
+
+    // No live flash pill, no countdown clock, no raised-total struck base,
+    // and no --flash background tint (task-flash/task-flash-drain classes).
+    expect(row).not.toContain('task-flash-flag');
+    expect(row).not.toContain('task-flash-bolt');
+    expect(row).not.toContain('data-ends-at');
+    expect(row).not.toContain('task-flash task-flash-drain');
+    expect(row).not.toContain('+3 pts right now');
+    expect(row).not.toContain('task-points-was');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #926 review fix, MAJOR M3: a live marker and a raw missed-bonus
+// result can co-occur on one row (a task whose special_date has already
+// passed but which is ALSO armed with a live/scheduled flash window --
+// host-reachable, since flash and one-day-only are independent fields with
+// no pairing constraint between them). Before this fix the outer <li> class
+// list and the price-column render decision were two separate owners of
+// "is this row missed" and could disagree: the class said missed while the
+// visible price column rendered the live flash treatment. The route now
+// gates bonusMissed itself on `!isToday && !flashActive`, so live always
+// wins and the two can never again disagree.
+// ---------------------------------------------------------------------------
+describe('issue #926 review fix, MAJOR M3: a live flash beats a stale past special_date -- no missed marker leaks through', () => {
+  test('a task with BOTH a past special_date and a currently-active flash renders the live flash treatment only', async () => {
+    resetTables();
+    const guest = insertGuest();
+    suppressAnnouncementsForGuest(db, guest.id);
+    const activeStart = new Date(Date.now() - 60000).toISOString(); // active right now
+    insertTask({
+      title: 'Stale Date Live Flash Task',
+      worth: 2,
+      specialDate: YESTERDAY,
+      specialBonus: 2, // this alone WOULD be a missed 'oneday' bonus if flash weren't live
+      flashStartAt: activeStart,
+      flashMinutes: 10,
+      flashBonus: 3,
+      sortOrder: 1,
+    });
+
+    const agent = await signedInAgent(guest.token);
+    const res = await agent.get('/tasks');
+    expect(res.status).toBe(200);
+
+    const { row } = isolateRow(res.text, 'Stale Date Live Flash Task');
+
+    // The live flash treatment renders...
+    expect(row).toContain('task-flash-flag');
+    expect(row).toContain('task-flash task-flash-drain');
+    expect(row).toContain('+3 pts right now');
+    expect(row).toContain('+5 pts'); // worth 2 + flash bonus 3
+
+    // ...and NOTHING about the stale past special_date's missed bonus leaks
+    // through -- neither the row class nor the price column.
+    expect(row).not.toContain('task-bonus-missed');
+    expect(row).not.toContain('task-points-lost');
+    expect(row).not.toContain('bonus<'); // no "+2 bonus" struck figure anywhere
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Criterion 2: one marker per row, and it is the one that will actually pay.
 // ---------------------------------------------------------------------------
 describe('criterion 2: a task both dated today and flash-active renders exactly one marker -- the daily one', () => {
@@ -223,8 +314,9 @@ describe('criterion 2: a task both dated today and flash-active renders exactly 
 
     // The price tag pays what bonusForTask() actually banks: worth 1 +
     // daily's special_bonus 2 = 3 -- never worth + flash's bonus (1 + 3 = 4).
-    expect(row).toContain('task-points-was');
-    expect(row).toContain('>+1<');
+    // No struck-through base beside it (owner ruling 2026-07-29, issue #926):
+    // the pill above the title is the sole "worth more now" signal.
+    expect(row).not.toContain('task-points-was');
     expect(row).toContain('+3 pts');
     expect(row).not.toContain('+4 pts');
   });
@@ -326,8 +418,9 @@ describe('review fix: flashActive/flashBonus are read from tasks.bonusForTask, n
     expect(row).toContain('task-flash-flag');
     expect(row).toContain('+7 pts right now'); // bonusDecision.amount, not the column's 2
     expect(row).not.toContain('+2 pts right now');
-    expect(row).toContain('task-points-was');
-    expect(row).toContain('>+1<');
+    // No struck-through base (owner ruling 2026-07-29, issue #926) -- the
+    // raised total alone must follow bonusForTask's amount.
+    expect(row).not.toContain('task-points-was');
     expect(row).toContain('+8 pts'); // worth 1 + bonusDecision.amount 7
     expect(row).not.toContain('+3 pts'); // worth 1 + the column's flash_bonus 2 -- must not appear
   });
@@ -364,9 +457,9 @@ describe('criterion 3: the active marker carries the approved classes, copy, clo
     expect(row).toContain('+3 pts right now');
     expect(row).toMatch(/task-flash-clock">\d{1,2}:\d{2}(:\d{2})?</);
 
-    // Price tag: struck-through base worth, then worth + flash_bonus.
-    expect(row).toContain('task-points-was');
-    expect(row).toContain('>+2<');
+    // Price tag: raised total alone, no struck-through base (owner ruling
+    // 2026-07-29, issue #926) -- the pill is the sole "worth more now" signal.
+    expect(row).not.toContain('task-points-was');
     expect(row).toContain('+5 pts');
 
     // A Today Only row's own gold treatment is untouched by this marker's

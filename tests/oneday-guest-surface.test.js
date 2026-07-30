@@ -160,9 +160,10 @@ describe('AC1: a sealed challenge renders only lock/countdown/+? pts, no title/d
     expect(row).toContain('Unlocks in');
     expect(row).toContain('+? pts');
     expect(row).toContain('task-lock-icon');
-    // No day label, no description, no earnable-badge line.
+    // No day label, no description, no leading badge art, no earn-pitch line.
     expect(row).not.toContain('task-desc');
-    expect(row).not.toContain('task-earnable-badge');
+    expect(row).not.toContain('task-earnable-copy');
+    expect(row).not.toContain('task-badge-lead');
     expect(row).not.toContain('task-title-text');
     // Not a link — the detail page 404s until its day.
     expect(row).not.toMatch(/<a\b/);
@@ -408,8 +409,9 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
 
     expect(row).toContain('task-today-flag');
     expect(row).toContain('+3 pts Today Only');
-    expect(row).toContain('task-points-was');
-    expect(row).toContain('>+2<'); // struck-through base worth
+    // No struck-through base beside it (owner ruling 2026-07-29, issue #926):
+    // the gold pill above the title is the sole "worth more now" signal.
+    expect(row).not.toContain('task-points-was');
     expect(row).toContain('+5 pts'); // worth + bonus total
 
     // Sorts above the sealed (locked) row.
@@ -418,7 +420,7 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
     expect(todayIdx).toBeLessThan(lockedIdx);
   });
 
-  test('a challenge whose day has passed renders as an ordinary row: no flag, no struck price, no priority position', async () => {
+  test('issue #926 AC2: a challenge whose day has passed keeps the missed-bonus shape -- struck bonus over the still-earnable base, no flag, no priority position', async () => {
     resetTables();
     const guest = insertGuest({ avatarSet: false }); // starter row present, to prove no priority placement
     const ordinaryId = insertTask({ title: 'Zzz Ordinary Task', worth: 1, sortOrder: 999 });
@@ -442,20 +444,61 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
 
     expect(row).not.toContain('task-today-flag');
     expect(row).not.toContain('task-points-was');
-    expect(row).toContain('+2 pts'); // base worth only, no bonus
+    // The SAME single treatment #926 AC1 gives an expired flash -- a struck
+    // "+N bonus" over the still-earnable base, not a variant.
+    expect(row).toContain('task-bonus-missed');
+    expect(row).toContain('task-points-lost');
+    expect(row).toContain('>+3 bonus<');
+    expect(row).toContain('+2 pts'); // base worth only, un-struck
 
     // Takes no priority position: it renders in host sort_order among the
     // ordinary tasks, i.e. AFTER the lower-sort_order ordinary task even
     // though sort_order alone would put it first — because tasks.ejs's
     // specialRank() (issue #762 review fix -- the single owner of both
     // membership and order, replacing the old onedayPriority/specialPriority
-    // flag) ranks it at the shared ORDINARY_RANK floor, it lands in
-    // ordinaryTodo, sorted after priorityTodo/starter. Concretely: it must
-    // not appear before the starter row (this guest has no avatar, so the
-    // starter row renders first).
+    // flag) has no entry for a missed bonus, so it lands at the shared
+    // ORDINARY_RANK floor in ordinaryTodo, sorted after priorityTodo/starter.
+    // Concretely: it must not appear before the starter row (this guest has
+    // no avatar, so the starter row renders first).
     const starterIdx = res.text.indexOf('Upload your profile photo');
     expect(starterIdx).toBeGreaterThan(-1);
     expect(starterIdx).toBeLessThan(passedIdx);
+  });
+
+  test('issue #926 AC7 table row 4: a passed challenge with a NULL special_bonus (legacy row) renders no missed marker', async () => {
+    resetTables();
+    const guest = insertGuest();
+    // chk_special_pairing blocks a normal INSERT of this shape; simulate the
+    // documented legacy row the same way the NULL-bonus on-day test below
+    // does (issue #753 review fix background).
+    db.pragma('ignore_check_constraints = ON');
+    let taskId;
+    try {
+      taskId = db
+        .prepare(
+          `INSERT INTO tasks (title, worth, special_mode, special_date, special_bonus, sort_order)
+           VALUES (?, ?, 'oneday', ?, NULL, 1)`
+        )
+        .run('Legacy Passed No-Bonus Challenge', 2, YESTERDAY).lastInsertRowid;
+    } finally {
+      db.pragma('ignore_check_constraints = OFF');
+    }
+
+    const agent = await signedInAgent(guest.token);
+    const res = await agent.get('/tasks');
+    expect(res.status).toBe(200);
+
+    const idx = res.text.indexOf('Legacy Passed No-Bonus Challenge');
+    expect(idx).toBeGreaterThan(-1);
+    const rowStart = res.text.lastIndexOf('<li class="task-row', idx);
+    const row = res.text.slice(rowStart, res.text.indexOf('</li>', rowStart));
+    // A legacy row with a date and no bonus never had anything to miss --
+    // amount coalesces to 0, so bonusMissed (gated on amount > 0) is false.
+    expect(row).not.toContain('task-bonus-missed');
+    expect(row).not.toContain('task-points-lost');
+    expect(row).not.toContain('task-today-flag');
+    expect(row).toContain('+2 pt'); // base worth only
+    void taskId;
   });
 
   test('a challenge dated today with a NULL special_bonus (legacy row) renders as an ordinary row, never "+null"/"+NaN"', async () => {

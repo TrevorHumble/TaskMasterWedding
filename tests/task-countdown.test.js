@@ -93,6 +93,15 @@ function loadTaskCountdown(bodyHtml) {
  * (`.task-flash-flag[data-ends-at]`, `flag.closest('.task-row')`,
  * `row.querySelector('.task-points[data-base-label]')`) to exercise the
  * real code paths -- issue #762 criteria 5-6.
+ *
+ * The price tag carries the raised total ALONE (issue #926, owner ruling
+ * 2026-07-29): a live flash row no longer emits a struck-through
+ * `.task-points-was` base beside it -- the pill's own clock is the sole
+ * "worth more now" signal now. data-base-label still feeds
+ * task-countdown.js's ended branch below, which sets the price tag's
+ * textContent wholesale (see paintFlash's ended branch), so this fixture
+ * carrying no struck-base CHILD does not change what the ended-branch
+ * assertions in criterion 6 below observe.
  * @param {{id: number, endsAtIso: string, totalMs: number, worth: number, flashBonus: number}} opts
  * @returns {string}
  */
@@ -121,9 +130,6 @@ function flashRowMarkup({ id, endsAtIso, totalMs, worth, flashBonus }) {
     '<span class="task-points task-points-raised" data-base-label="+' +
     worth +
     ' pt">' +
-    '<span class="task-points-was">+' +
-    worth +
-    '</span>' +
     '+' +
     (worth + flashBonus) +
     ' pts' +

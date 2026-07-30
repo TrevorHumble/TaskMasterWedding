@@ -640,6 +640,19 @@ const SPECIAL_RULES = [
     coalesceNullAmount: true,
     spokenFor: (row, clock) => isSealed(row, clock.todayIso) || isOnDay(row, clock.todayIso),
     paying: (row, clock) => isOnDay(row, clock.todayIso),
+    // The window has CLOSED and can never pay again: this challenge's day is
+    // strictly in the past. isRealDateString (not the shape-only
+    // isValidDateString — issue #926 review fix, MINOR m1) guards
+    // special_date before the string compare: it is a free-form column that
+    // can hold anything, including a regex-shaped-but-impossible date like
+    // '2026-13-45', which isSealed/isOnDay's own plain string compare would
+    // not reject either. clock.todayIso is NOT re-checked here (also #926
+    // review fix, m1): missedBonusForTask(), this predicate's only caller,
+    // already throws on an invalid todayIso before ever walking SPECIAL_RULES
+    // (see that function's own doc comment) — re-validating it a second time
+    // here would be dead code.
+    missed: (row, clock) =>
+      !!(row && isRealDateString(row.special_date) && row.special_date < clock.todayIso),
   },
   {
     kind: SPECIAL_FLASH,
@@ -657,6 +670,11 @@ const SPECIAL_RULES = [
       return state === FLASH_SCHEDULED || state === FLASH_ACTIVE;
     },
     paying: (row, clock) => flashState(row, clock.nowMs) === FLASH_ACTIVE,
+    // The window has CLOSED and can never pay again. FLASH_EXPIRED implies
+    // flashWindow() answered non-null, which in turn implies flash_bonus is an
+    // integer in [FLASH_MIN_BONUS, FLASH_MAX_BONUS] — so missedBonusForTask
+    // can read the column below without a further range guard.
+    missed: (row, clock) => flashState(row, clock.nowMs) === FLASH_EXPIRED,
   },
   {
     kind: SPECIAL_LUCKY,
@@ -686,6 +704,12 @@ const SPECIAL_RULES = [
     // legacy/raced row matching two rules, unreachable through the UI once
     // the setter guard (src/routes/admin.js) refuses the pair, but the safe
     // slot regardless.
+    // Deliberately NO `missed` predicate (unlike daily and flash above): lucky
+    // wears no guest-visible marker while it is live, so it must not grow one
+    // after the fact either — a "you missed +N" mark on a passed lucky day
+    // would retroactively reveal which task was the lucky one, which is exactly
+    // the secrecy #650's AC2 exists to protect. missedBonusForTask() treats a
+    // rule with no `missed` as never-missed.
     spokenFor: (row, clock) => !!(row && row.lucky_date && row.lucky_date >= clock.todayIso),
     paying: (row, clock) =>
       !!(
@@ -697,6 +721,25 @@ const SPECIAL_RULES = [
       ),
   },
 ];
+
+/**
+ * Validate a clock's `nowMs` up front, before any SPECIAL_RULES walk. Extracted
+ * so findSpecialRule() and missedBonusForTask() — the two functions that walk
+ * that list — cannot drift apart on what a valid clock is. Deliberately checks
+ * `nowMs` ONLY: `todayIso` is validated by isSealed()/isOnDay() at the point of
+ * use, and hoisting that check here would start throwing for flash-only callers
+ * that legitimately pass no todayIso.
+ *
+ * @param {{nowMs: number}} clock
+ * @param {string} caller - name used in the thrown message.
+ */
+function assertClock(clock, caller) {
+  if (!clock || !Number.isFinite(clock.nowMs)) {
+    throw new Error(
+      `${caller}: clock.nowMs must be epoch milliseconds, got ${JSON.stringify(clock && clock.nowMs)}`
+    );
+  }
+}
 
 /**
  * The first rule in SPECIAL_RULES that currently owns `taskRow`, or null if
@@ -723,11 +766,7 @@ const SPECIAL_RULES = [
  * @returns {{kind: string, bonusColumn: string, reason: string, spokenFor: Function, paying: Function}|null}
  */
 function findSpecialRule(taskRow, clock) {
-  if (!clock || !Number.isFinite(clock.nowMs)) {
-    throw new Error(
-      `findSpecialRule: clock.nowMs must be epoch milliseconds, got ${JSON.stringify(clock && clock.nowMs)}`
-    );
-  }
+  assertClock(clock, 'findSpecialRule');
   return SPECIAL_RULES.find((rule) => rule.spokenFor(taskRow, clock)) || null;
 }
 
@@ -759,6 +798,33 @@ function whatSpecial(taskRow, clock) {
 }
 
 /**
+ * The ONE owner of "how much does `rule` bank on `taskRow`, and what reason
+ * goes beside it" (issue #926 review fix, MAJOR M2) — the {reason, amount}
+ * shaping bonusForTask() and missedBonusForTask() both need once they have
+ * already decided WHICH rule applies (this helper does not decide that; it
+ * takes the already-matched `rule` as a parameter). `reason` is null whenever
+ * `amount` coalesces to 0: a legacy 'daily' row (special_date set,
+ * special_bonus still NULL — see coalesceNullAmount above) coalesces to
+ * amount 0, and a reason sitting next to that 0 would tell a later reader
+ * (bonus_reason has no reader anywhere in the tree yet, but is read by
+ * literal, not derived) that a rule paid out when nothing was banked.
+ *
+ * See bonusForTask's own doc comment below for the defect class this
+ * collapses: this exact shaping used to be typed out twice, once in
+ * bonusForTask and once in missedBonusForTask, with nothing enforcing the two
+ * copies agreed.
+ *
+ * @param {{bonusColumn: string, reason: string, coalesceNullAmount?: boolean}} rule
+ * @param {object} taskRow
+ * @returns {{reason: string|null, amount: number}}
+ */
+function bonusAmountFor(rule, taskRow) {
+  const raw = taskRow[rule.bonusColumn];
+  const amount = rule.coalesceNullAmount ? (raw ?? 0) : raw;
+  return { reason: amount > 0 ? rule.reason : null, amount };
+}
+
+/**
  * The banking descriptor for whichever rule is presently paying on
  * `taskRow` (issue #761 review fix) — the single place that maps a paying
  * rule to the column it pays from and the bonus_reason literal it writes,
@@ -784,18 +850,18 @@ function whatSpecial(taskRow, clock) {
  * one that is off-day and out-of-window, or one that is sealed/scheduled
  * but not yet in its own paying instant.
  *
- * `reason` is null whenever `amount` coalesces to 0 (issue #761 review fix)
- * — this function, not its callers, owns "no reason beside a zero amount":
- * a legacy 'daily' row (special_date set, special_bonus still NULL
- * — see coalesceNullAmount above) coalesces to amount 0, and a reason
- * sitting next to that 0 would tell a later reader (bonus_reason has no
- * reader anywhere in the tree yet, but is read by literal, not derived) that
- * a rule paid out when nothing was banked. Before this fix, BOTH consumers
- * (src/services/submissions.js's insert and replace branches) independently
- * re-applied an `amount > 0 ? rule.reason : null` guard around this same
- * return value — two call sites carrying one rule, with nothing stopping a
- * third consumer from forgetting it and writing the exact reason-beside-zero
- * state both branches' comments forbade.
+ * The {reason, amount} shaping is bonusAmountFor()'s job now, not this
+ * function's own (issue #926 review fix, MAJOR M2 — see that helper's doc
+ * comment above). Before this fix, BOTH consumers (src/services/
+ * submissions.js's insert and replace branches) independently re-applied an
+ * `amount > 0 ? rule.reason : null` guard around this same return value — two
+ * call sites carrying one rule, with nothing stopping a THIRD consumer from
+ * forgetting it and writing the exact reason-beside-zero state both branches'
+ * comments forbade. That third consumer arrived: missedBonusForTask() below
+ * (issue #926) shipped its own copy of this exact `raw`/`coalesceNullAmount`/
+ * `reason` shaping instead of reusing this function's — the SAME defect class
+ * landing a second time, caught in review and collapsed into bonusAmountFor()
+ * above, which both functions now call.
  *
  * `banksOnReplace` is passed through UNCHANGED from the matched rule (issue
  * #650 plan step 2) -- never defaulted here. Daily and flash omit the key
@@ -816,9 +882,72 @@ function bonusForTask(taskRow, clock) {
   if (!rule || !rule.paying(taskRow, clock)) {
     return null;
   }
-  const raw = taskRow[rule.bonusColumn];
-  const amount = rule.coalesceNullAmount ? (raw ?? 0) : raw;
-  return { reason: amount > 0 ? rule.reason : null, amount, banksOnReplace: rule.banksOnReplace };
+  return { ...bonusAmountFor(rule, taskRow), banksOnReplace: rule.banksOnReplace };
+}
+
+/**
+ * The bonus a guest can no longer earn on `taskRow`: the descriptor for a rule
+ * whose window has CLOSED, or null if none has. The read-side counterpart to
+ * bonusForTask() above, and the ONE owner of "did a bonus slip away here, and
+ * how much was it" — the guest surface renders a struck-through figure from
+ * this rather than each caller re-deriving "expired" per special type.
+ *
+ * Deliberately NOT routed through findSpecialRule: that walk stops at the first
+ * rule which is spoken for, and a rule whose window has closed is by definition
+ * no longer spoken for (an expired flash's `spokenFor` is false; a past-dated
+ * challenge is neither sealed nor on-day), so findSpecialRule returns null for
+ * exactly the rows this function exists to answer for. It walks SPECIAL_RULES
+ * in the same declared order instead, which keeps the precedence identical to
+ * the live path's: a row matching both a passed challenge day and an expired
+ * flash reports the DAILY miss, the same way 'daily' wins the live tie.
+ *
+ * A rule with no `missed` predicate is never missed — see the lucky entry's own
+ * comment for why it declines one.
+ *
+ * Amount handling is IDENTICAL to bonusForTask's, not merely similar — both
+ * call the shared bonusAmountFor() helper (issue #926 review fix, MAJOR M2;
+ * see bonusForTask's own doc comment above for the defect class this
+ * collapses) rather than each carrying its own copy of the raw-column-read /
+ * coalesceNullAmount / reason-beside-zero shaping. `reason` is null beside a
+ * zero amount so a caller can never render "you missed +0". A caller wanting
+ * a yes/no answer checks `missedBonusForTask(...) !== null` — but should gate
+ * its MARKER on `amount > 0`, since a legacy row with a date and no bonus
+ * never had anything to miss.
+ *
+ * `clock.todayIso` is validated here too (issue #926 plan step 1), unlike
+ * bonusForTask/whatSpecial above — this function's own `'daily'` walk used to
+ * check `isValidDateString(clock.todayIso)` INSIDE that rule's `missed`
+ * predicate and just answer "not missed" (silently falling through to the
+ * next rule) for a missing or malformed `todayIso`, which would let every
+ * passed daily challenge quietly lose its marker with no error anywhere —
+ * the caller would never learn its clock was built wrong. The sibling live
+ * walk already refuses to guess here: isSealed()/isOnDay() both throw on an
+ * invalid `todayIso` rather than silently reporting "not sealed" — two
+ * owners of adjacent rules must not disagree about invalid input. Checked
+ * only in THIS function, not hoisted into assertClock(): assertClock is also
+ * findSpecialRule's guard, and findSpecialRule's flash-only callers
+ * legitimately pass no `todayIso` at all (flash's own spokenFor/paying never
+ * read it) — forcing it there would start throwing for a caller that was
+ * never wrong.
+ *
+ * @param {object} taskRow
+ * @param {{todayIso: string, nowMs: number}} clock - see whatSpecial above.
+ * @returns {{reason: string|null, amount: number}|null}
+ */
+function missedBonusForTask(taskRow, clock) {
+  assertClock(clock, 'missedBonusForTask');
+  if (!isValidDateString(clock && clock.todayIso)) {
+    throw new Error(
+      `missedBonusForTask: clock.todayIso must be YYYY-MM-DD, got ${JSON.stringify(clock && clock.todayIso)}`
+    );
+  }
+  for (const rule of SPECIAL_RULES) {
+    if (typeof rule.missed !== 'function' || !rule.missed(taskRow, clock)) {
+      continue;
+    }
+    return bonusAmountFor(rule, taskRow);
+  }
+  return null;
 }
 
 /**
@@ -937,6 +1066,7 @@ module.exports = {
   isValidFlashInstant,
   flashWindow,
   flashState,
+  missedBonusForTask,
   whatSpecial,
   bonusForTask,
 };
