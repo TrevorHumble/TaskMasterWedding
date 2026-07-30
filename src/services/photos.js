@@ -58,6 +58,7 @@ const { db } = require('../db');
 const scoring = require('./scoring');
 const rateLimit = require('./rate-limit');
 const { isAdminRequest } = require('../middleware/session');
+const { withAvatarSlot, AVATAR_GATE_CODES } = require('../utils/upload-concurrency');
 
 // ---------------------------------------------------------------------------
 // Constants. This file is the ONE place the photo-pipeline limits live, so the
@@ -1082,7 +1083,21 @@ const _setGuestAvatar = db.prepare('UPDATE guests SET avatar_path = ? WHERE id =
  * Persist an avatar that arrived as an in-memory Buffer.
  * @param {Buffer} buffer - the raw uploaded bytes (req.file.buffer via uploadAvatar)
  * @param {number} guestId - the guest to attach the avatar to
- * @returns {Promise<string>} the stored avatar filename (also written to guests.avatar_path)
+ * @returns {Promise<string|null>} the stored avatar filename (also written to
+ *   guests.avatar_path), or null when the issue #929 avatar concurrency gate
+ *   (withAvatarSlot) rejected this save with AVATAR_QUEUE_BUSY or
+ *   AVATAR_SLOT_TIMEOUT. A gate rejection costs the guest nothing but the
+ *   avatar itself (they can add one later from their profile), so it is
+ *   deliberately NOT thrown here -- every other caller in this file that
+ *   ever runs concurrently with saveAvatar (a task submit, a memory batch)
+ *   must never be dragged down by one guest's avatar losing a race for a
+ *   slot. Every OTHER failure (a corrupt/undecodable image, a HEIC decode
+ *   error, an over-cap HEIC) still throws, unchanged. Callers treat a null
+ *   return as "no avatar this time": src/routes/guest.js's POST /me/edit
+ *   flashes the existing "could not save" copy but keeps guest.avatar_path
+ *   unchanged and still persists the rest of that save (name/PIN/socials);
+ *   POST /join's trySaveAvatar already treats "no avatar" as a no-op via its
+ *   existing null/no-file handling, so it needs no change.
  *
  * Notes:
  *  - We normalize to JPEG so an oddly-encoded avatar is viewable in any browser.
@@ -1128,11 +1143,31 @@ async function saveAvatar(buffer, guestId) {
   const name = randomFilename('.jpg'); // avatars are always normalized to .jpg
   const absAvatar = path.join(UPLOADS_DIR, name);
 
-  await sharp(sourceBuffer)
-    .rotate() // honor EXIF orientation
-    .resize({ width: 512, height: 512, fit: 'cover', position: 'attention' })
-    .jpeg({ quality: 82 })
-    .toFile(absAvatar);
+  // Issue #929: only the sharp crop below runs inside the avatar concurrency
+  // gate -- the HEIC conversion above (if any) stays OUTSIDE it, since that
+  // decode already has its own process-wide serialization, pixel cap, and
+  // per-guest rate limit. Holding a gate slot across the HEIC decode chain
+  // would stall the unrelated, patient task-submit/memory-batch waiters on
+  // the shared upload semaphore behind one guest's avatar -- see
+  // src/utils/upload-concurrency.js's module header for the full rationale.
+  try {
+    await withAvatarSlot(() =>
+      sharp(sourceBuffer)
+        .rotate() // honor EXIF orientation
+        .resize({ width: 512, height: 512, fit: 'cover', position: 'attention' })
+        .jpeg({ quality: 82 })
+        .toFile(absAvatar)
+    );
+  } catch (gateErr) {
+    // A gate rejection (AVATAR_QUEUE_BUSY/AVATAR_SLOT_TIMEOUT) is "no avatar
+    // this time," not a hard failure -- see this function's own doc comment.
+    // Anything else (a sharp failure on a genuinely bad sourceBuffer) still
+    // throws, unchanged.
+    if (gateErr && AVATAR_GATE_CODES.has(gateErr.code)) {
+      return null;
+    }
+    throw gateErr;
+  }
 
   _setGuestAvatar.run(name, guestId);
   return name;

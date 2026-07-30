@@ -27,11 +27,33 @@
 
 const fs = require('fs');
 const request = require('supertest');
+const sharp = require('sharp');
 const { loadApp } = require('./helpers/testApp');
+
+// Issue #929 AC2/AC4 (below): AVATAR_CONCURRENCY pinned to 1 and
+// AVATAR_SLOT_WAIT_MS pinned to a few seconds -- set BEFORE loadApp() (which
+// requires config) so config.AVATAR_CONCURRENCY/AVATAR_SLOT_WAIT_MS pick
+// these up. Lets a test hold the avatar gate's only slot itself and
+// deterministically drive a "briefly queued, then released in time" case
+// (AC2) and a "queue already at the cap" case (AC4). Pinning
+// AVATAR_CONCURRENCY=1 does not change this file's EXISTING #187 AC1/AC2
+// tests below -- nothing else in this file holds the avatar slot, so those
+// corrupt/non-image uploads still acquire it immediately, run (and fail
+// inside sharp, or never reach sharp), and release, exactly as before.
+//
+// Saved before the module-scope overwrite (matching
+// tests/upload-concurrency.test.js's restoreEnvVar discipline) and restored
+// in afterAll, so this file never leaves a pinned value behind for whichever
+// test file the runner loads next in the same process.
+const SAVED_AVATAR_CONCURRENCY = process.env.AVATAR_CONCURRENCY;
+const SAVED_AVATAR_SLOT_WAIT_MS = process.env.AVATAR_SLOT_WAIT_MS;
+process.env.AVATAR_CONCURRENCY = '1';
+process.env.AVATAR_SLOT_WAIT_MS = '3000';
 
 let app;
 let db;
 let config;
+let avatarSemaphore;
 
 beforeAll(() => {
   const loaded = loadApp();
@@ -40,6 +62,20 @@ beforeAll(() => {
 
   // Required AFTER loadApp() so config resolves against the temp DATA_DIR.
   config = require('../config');
+  ({ avatarSemaphore } = require('../src/utils/upload-concurrency'));
+});
+
+afterAll(() => {
+  if (SAVED_AVATAR_CONCURRENCY === undefined) {
+    delete process.env.AVATAR_CONCURRENCY;
+  } else {
+    process.env.AVATAR_CONCURRENCY = SAVED_AVATAR_CONCURRENCY;
+  }
+  if (SAVED_AVATAR_SLOT_WAIT_MS === undefined) {
+    delete process.env.AVATAR_SLOT_WAIT_MS;
+  } else {
+    process.env.AVATAR_SLOT_WAIT_MS = SAVED_AVATAR_SLOT_WAIT_MS;
+  }
 });
 
 const CORRUPT_JPEG = Buffer.from('this is not a real jpeg');
@@ -109,5 +145,132 @@ describe('AC2: non-image types are silently dropped, nothing written to disk', (
     // The process is alive and the next guest can still sign up (same session).
     const home = await agent.get('/');
     expect(home.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #929 — avatar processing has no concurrency bound. AC2 and AC4 are
+// both join-flow cases: a guest's avatar queues briefly behind the (test-
+// pinned AVATAR_CONCURRENCY=1) gate held by another save. AC2's queue clears
+// in time and the avatar is saved; AC4's queue is already full and the save
+// fails fast -- either way POST /join itself must succeed (this file's #187
+// header already established that a rejected/failed avatar is never a
+// signup error).
+// ---------------------------------------------------------------------------
+
+describe('Issue #929 AC2: a briefly-held avatar gate does not block signup -- a short wait is invisible', () => {
+  it('join succeeds after queuing for the gate, and the avatar is saved once it frees', async () => {
+    const makeJpeg = await sharp({
+      create: { width: 8, height: 8, channels: 3, background: { r: 50, g: 140, b: 90 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    // Hold the only avatar slot ourselves (AVATAR_CONCURRENCY=1, pinned
+    // above) before the request ever reaches photos.saveAvatar.
+    await avatarSemaphore.acquire();
+
+    let released = false;
+    const releaseTimer = setTimeout(() => {
+      released = true;
+      avatarSemaphore.release();
+    }, 150); // well inside the 3000ms AVATAR_SLOT_WAIT_MS pinned above
+
+    try {
+      const agent = request.agent(app);
+      const res = await agent
+        .post('/join')
+        .field('name', 'Gate Wait Guest')
+        .field('contact', 'gate-wait-ac2-929@example.com')
+        .field('pin', '1111')
+        .attach('avatar', makeJpeg, { filename: 'me.jpg', contentType: 'image/jpeg' });
+
+      // The timed release must have already fired by the time the request
+      // resolves -- otherwise this proves nothing about "a short wait is
+      // invisible" (it would just mean the slot was never actually contended).
+      expect(released).toBe(true);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe('/how-to-play');
+
+      const row = db
+        .prepare('SELECT avatar_path FROM guests WHERE contact = ?')
+        .get('gate-wait-ac2-929@example.com');
+      expect(row).toBeTruthy();
+      expect(row.avatar_path).toMatch(/\.jpg$/);
+    } finally {
+      clearTimeout(releaseTimer);
+      // Belt-and-braces: if an assertion above threw before the timer fired,
+      // make sure the slot we manually acquired is not leaked into later
+      // tests in this file.
+      if (!released) {
+        avatarSemaphore.release();
+      }
+    }
+  });
+});
+
+describe('Issue #929 AC4: a full avatar wait queue fails fast, and the join still succeeds', () => {
+  it('avatar save fails fast; join still succeeds with guests.avatar_path null', async () => {
+    const makeJpeg = await sharp({
+      create: { width: 8, height: 8, channels: 3, background: { r: 200, g: 60, b: 60 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    // Hold the only avatar slot (AVATAR_CONCURRENCY=1) ourselves.
+    await avatarSemaphore.acquire();
+
+    // Fill the wait queue to config.MAX_PENDING_AVATAR_WAITERS with manual
+    // waiters that stay queued until we drain them below -- this drives the
+    // gate's queue.length to exactly the cap that makes withAvatarSlot's
+    // depth check trip.
+    const fillerAcquires = [];
+    for (let i = 0; i < config.MAX_PENDING_AVATAR_WAITERS; i++) {
+      fillerAcquires.push(avatarSemaphore.acquire());
+    }
+    // Give the queued fillers a turn to actually register before checking.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(avatarSemaphore.pending).toBe(config.MAX_PENDING_AVATAR_WAITERS);
+
+    try {
+      const agent = request.agent(app);
+      const res = await agent
+        .post('/join')
+        .field('name', 'Busy Gate Guest')
+        .field('contact', 'busy-gate-ac4-929@example.com')
+        .field('pin', '2222')
+        .attach('avatar', makeJpeg, { filename: 'me.jpg', contentType: 'image/jpeg' });
+
+      // Signup itself is unaffected by the avatar gate being full (issue
+      // #929's non-goals: a silent, deliberate skip, not a signup error).
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe('/how-to-play');
+
+      // The guest is still signed in -- a full avatar gate must not cost the
+      // signup its session cookie either.
+      const cookies = [].concat(res.headers['set-cookie'] || []);
+      expect(cookies.some((c) => c.startsWith('gsid='))).toBe(true);
+
+      const row = db
+        .prepare('SELECT name, avatar_path, onboarded FROM guests WHERE contact = ?')
+        .get('busy-gate-ac4-929@example.com');
+      expect(row).toBeTruthy();
+      expect(row.avatar_path).toBeNull();
+      expect(row.onboarded).toBe(0);
+
+      // The queue was never touched by the rejected save -- it fails BEFORE
+      // ever joining the queue.
+      expect(avatarSemaphore.pending).toBe(config.MAX_PENDING_AVATAR_WAITERS);
+    } finally {
+      // Drain everything we queued so later tests in this file see a
+      // resting gate (active 0, queue empty), regardless of whether an
+      // assertion above threw.
+      avatarSemaphore.release(); // hands our held slot to the first filler
+      await Promise.all(fillerAcquires.map((p) => p.then(() => avatarSemaphore.release())));
+    }
+
+    expect(avatarSemaphore.active).toBe(0);
+    expect(avatarSemaphore.pending).toBe(0);
   });
 });
