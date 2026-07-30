@@ -1281,6 +1281,56 @@ arithmetic a second time in the route would let the clock and the fill disagree 
 shape changes. The "no SQL-fragment counterpart" claim in the #761 point (2) still holds for both
 functions — neither ships one, for the same reason stated there.
 
+## Missed-bonus FOMO: one meaning for a struck-through price, lucky excluded (#926)
+
+**Date:** 2026-07-29. **Status:** landed with #926 — phase-1 pixels owner-approved live on a
+seeded preview; the code in this section is mid-pipeline (adversarial review) as of this writing,
+not yet merged.
+
+**A struck-through figure means exactly one thing.** Before this issue, a struck-through base worth
+appeared on a LIVE special row (Today Only / an active flash — "worth more right now"). Adding a second,
+opposite meaning for the identical mark — "you missed this, it's gone" — on an expired row would have
+made the strike-through ambiguous the instant a guest saw both states in one scroll. The owner's ruling
+collapses this to one meaning: a struck-through figure on the guest list means a bonus that EXPIRED, full
+stop. Live rows (`isToday`/`flashActive`) dropped their struck base entirely — the price column now shows
+only the raised total, and the pill above the title (the gold Today Only flag, the ember flash pill) is
+the sole "worth more now" signal for a still-open window. The missed state reuses
+`.task-points-raised`'s column-flex layout for its own stack (`.task-points-lost` struck above the
+still-earnable `+worth pts`), but nothing else about the live and missed treatments overlaps — the CSS
+comment on `.task-points-raised` (`src/public/css/theme.css`) says so explicitly now, so a future reader
+does not reintroduce the old "struck base, then live total" shape by pattern-matching the wrong
+neighboring rule.
+
+**Flash and one-day challenge share the ONE missed rule, not two.** `tasks.missedBonusForTask(taskRow,
+clock)` (`src/services/tasks.js`) walks the SAME ordered `SPECIAL_RULES` list `bonusForTask`/`whatSpecial`
+already walk (see the #761 entry above), each rule now also carrying a `missed` predicate beside its
+existing `spokenFor`/`paying`. A row that is BOTH a passed one-day challenge and an expired flash
+therefore reports the 'daily' miss — the identical precedence the live path already gives 'daily' over
+'flash', for the same reason: one ordered list, one walk, so the live and missed questions can never
+independently drift apart on which rule owns a given row. `src/routes/guest.js` derives
+`bonusMissed`/`bonusMissedAmount` from this single function alone, gated on `amount > 0` (a legacy
+one-day row carrying a date with a NULL `special_bonus` never had anything to miss, and must not render
+"+0 bonus"), and never re-derives "expired" per special type.
+
+**`clock.todayIso` is now validated where `clock.nowMs` already was.** Before this issue,
+`missedBonusForTask`'s only clock check was `nowMs` (via the shared `assertClock`); an invalid `todayIso`
+fell through to the 'daily' rule's own `missed` predicate, which merely gated on `isValidDateString` and
+silently answered "not missed" — the exact silent-wrong-answer shape `isSealed()`/`isOnDay()` already
+refuse to allow for the SAME parameter on the live path. The fix adds an explicit `todayIso` check inside
+`missedBonusForTask` itself, throwing before any rule is walked — deliberately NOT hoisted into the shared
+`assertClock`, because `assertClock` is also `findSpecialRule`'s guard, and `findSpecialRule`'s flash-only
+callers legitimately pass no `todayIso` at all (flash's own `spokenFor`/`paying` never read it); forcing
+the check there would start throwing for a caller that was never wrong.
+
+**Lucky stays invisible, on purpose.** `SPECIAL_RULES`'s `lucky` entry carries no `missed` predicate at
+all — `missedBonusForTask` treats a rule with no `missed` key as never-missed, structurally, not via a
+special case inside the function. Lucky wears no live marker while its day is open (that secrecy is
+#650 AC2's whole point: naming which task is lucky would let a guest game the guess), so growing a
+posthumous "+N bonus, missed" mark on a passed lucky day would out it just as effectively as a live
+marker would. The omission from the rule table IS the guard — the alternative (special-casing lucky
+inside `missedBonusForTask` to force a `null` result) would duplicate, a second way, the exact "no marker
+for lucky" fact the missing `missed` key already states for free.
+
 ## Recap: derived events vs. written events, and the badge-moment stamp (#644)
 
 **Date:** 2026-07-22. **Status:** shipped.
