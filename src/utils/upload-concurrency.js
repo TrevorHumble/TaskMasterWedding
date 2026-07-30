@@ -37,9 +37,9 @@
 //   2. Head-of-line inversion. src/services/photos.js's saveAvatar runs the
 //      (process-wide-serialized) HEIC decode BEFORE the sharp crop this gate
 //      wraps. An avatar holding a SHARED slot while parked on that decode
-//      chain would stall task-submit/memory-batch waiters behind it -- a
-//      guest's task photo delayed by someone's avatar, an inversion that
-//      does not exist today and must not be introduced by sharing the gate.
+//      would stall task-submit/memory-batch waiters behind it -- a guest's
+//      task photo delayed by someone's avatar, an inversion that does not
+//      exist today and must not be introduced by sharing the gate.
 //
 // Avatar semantics are therefore also different: uploadSemaphore's callers
 // queue patiently forever (losing an upload is never acceptable); an avatar
@@ -91,10 +91,80 @@ async function withUploadSlot(fn) {
 const avatarSemaphore = new Semaphore(config.AVATAR_CONCURRENCY);
 
 /**
+ * Run `fn` inside a semaphore-backed bounded slot -- the ONE owner of the
+ * "reject fast on depth, else wait-with-timeout, then run and release" shape
+ * both withAvatarSlot below and src/services/photos.js's HEIC decode gate
+ * need (issue #930 round-2 review: those two gates had independently
+ * hand-rolled the identical shape and drifted apart -- this is the single
+ * place that shape now lives).
+ *
+ * Depth check and `semaphore.acquire()` run in ONE synchronous turn (no
+ * `await` between them) -- an async gap there would open a check-then-enqueue
+ * race that could admit a caller past `limit`. A caller whose wait is
+ * rejected or times out never held a slot (Semaphore.acquire splices an
+ * aborted queue entry out by identity -- see semaphore.js), so that path
+ * never releases; only a successful acquire enters the try/finally that
+ * guarantees release.
+ *
+ * @template T
+ * @param {import('./semaphore').Semaphore} semaphore
+ * @param {{
+ *   limitKind: 'occupancy'|'pending',
+ *   limit: number,
+ *   waitMs: number,
+ *   busyError: () => Error,
+ *   timeoutError: (waitErr: Error) => Error,
+ * }} opts - `limitKind` picks which depth reading the ceiling check reads:
+ *   'occupancy' (`semaphore.occupancy` -- active holders count toward the
+ *   cap too, the HEIC decode gate's shape) or 'pending' (`semaphore.pending`
+ *   -- only queued waiters count, the avatar gate's shape). `busyError()`
+ *   builds the error thrown when the depth check itself fails (no slot ever
+ *   touched). `timeoutError(waitErr)` re-codes ONLY a genuine
+ *   AbortSignal.timeout expiry (`waitErr.name === 'TimeoutError'`); any other
+ *   rejection from `acquire()` is rethrown as-is, unrecoded.
+ * @param {() => Promise<T>} fn - runs only once a slot is actually granted.
+ * @returns {Promise<T>}
+ */
+async function withBoundedSlot(semaphore, opts, fn) {
+  const { limitKind, limit, waitMs, busyError, timeoutError } = opts;
+  let depth;
+  if (limitKind === 'pending') {
+    depth = semaphore.pending;
+  } else if (limitKind === 'occupancy') {
+    depth = semaphore.occupancy;
+  } else {
+    // An unknown kind must fail loudly, not silently pick a mode — a typo'd
+    // 'queued' quietly gating on occupancy would miscount by the active
+    // holder and reject every caller at limit === capacity.
+    throw new Error('withBoundedSlot: unknown limitKind ' + limitKind);
+  }
+  if (depth >= limit) {
+    throw busyError();
+  }
+
+  try {
+    await semaphore.acquire({ signal: AbortSignal.timeout(waitMs) });
+  } catch (waitErr) {
+    if (!waitErr || waitErr.name !== 'TimeoutError') {
+      throw waitErr;
+    }
+    throw timeoutError(waitErr);
+  }
+
+  try {
+    return await fn();
+  } finally {
+    semaphore.release();
+  }
+}
+
+/**
  * Run `fn` (a zero-argument function returning a Promise) inside the avatar
  * concurrency gate: fail fast when the wait queue is already deep, otherwise
  * wait up to config.AVATAR_SLOT_WAIT_MS for a free slot, run `fn`, and always
- * release the slot afterward.
+ * release the slot afterward. A thin call through withBoundedSlot above --
+ * this function owns only the avatar-specific SEMANTICS (which depth reading
+ * gates it, its two error codes/messages), not the gate mechanics.
  *
  * Avatar semantics are "skip, never stall" (issue #929): losing an avatar
  * costs the guest nothing (they can add one from their profile later), while
@@ -120,45 +190,41 @@ const avatarSemaphore = new Semaphore(config.AVATAR_CONCURRENCY);
  *     "Semaphore.acquire's JSDoc describes cancellation via AbortSignal but
  *     never promises abort is the ONLY rejection reason").
  *
- * A rejected/timed-out wait never held a slot (Semaphore.acquire splices an
- * aborted queue entry out by identity -- see semaphore.js), so neither
- * failure path releases; only a successful acquire enters the try/finally
- * that guarantees release.
+ * config.MAX_PENDING_AVATAR_WAITERS/AVATAR_SLOT_WAIT_MS are read fresh from
+ * config on every call (not bound once at module load, unlike
+ * AVATAR_CONCURRENCY which sizes avatarSemaphore itself) -- see the module
+ * header's "Config-binding split" note above.
  * @template T
  * @param {() => Promise<T>} fn
  * @returns {Promise<T>}
  */
 async function withAvatarSlot(fn) {
-  if (avatarSemaphore.pending >= config.MAX_PENDING_AVATAR_WAITERS) {
-    // Diagnostic only -- no guest ever sees this string (saveAvatar's caller
-    // maps this .code to a guest-safe outcome; see photos.js's saveAvatar).
-    const err = new Error('avatar gate: wait queue at MAX_PENDING_AVATAR_WAITERS');
-    err.code = 'AVATAR_QUEUE_BUSY';
-    throw err;
-  }
-
-  try {
-    await avatarSemaphore.acquire({ signal: AbortSignal.timeout(config.AVATAR_SLOT_WAIT_MS) });
-  } catch (waitErr) {
-    // Only a genuine timeout (AbortSignal.timeout's own abort reason always
-    // carries this name) is re-coded into AVATAR_SLOT_TIMEOUT -- anything
-    // else acquire() might reject with is rethrown as-is rather than
-    // mislabeled. See this function's own doc comment above.
-    if (!waitErr || waitErr.name !== 'TimeoutError') {
-      throw waitErr;
-    }
-    // Diagnostic only -- no guest ever sees this string (see the QUEUE_BUSY
-    // comment above).
-    const err = new Error('avatar gate: no slot within AVATAR_SLOT_WAIT_MS', { cause: waitErr });
-    err.code = 'AVATAR_SLOT_TIMEOUT';
-    throw err;
-  }
-
-  try {
-    return await fn();
-  } finally {
-    avatarSemaphore.release();
-  }
+  return withBoundedSlot(
+    avatarSemaphore,
+    {
+      limitKind: 'pending',
+      limit: config.MAX_PENDING_AVATAR_WAITERS,
+      waitMs: config.AVATAR_SLOT_WAIT_MS,
+      busyError: () => {
+        // Diagnostic only -- no guest ever sees this string (saveAvatar's
+        // caller maps this .code to a guest-safe outcome; see photos.js's
+        // saveAvatar).
+        const err = new Error('avatar gate: wait queue at MAX_PENDING_AVATAR_WAITERS');
+        err.code = 'AVATAR_QUEUE_BUSY';
+        return err;
+      },
+      timeoutError: (waitErr) => {
+        // Diagnostic only -- no guest ever sees this string (see the
+        // QUEUE_BUSY comment above).
+        const err = new Error('avatar gate: no slot within AVATAR_SLOT_WAIT_MS', {
+          cause: waitErr,
+        });
+        err.code = 'AVATAR_SLOT_TIMEOUT';
+        return err;
+      },
+    },
+    fn
+  );
 }
 
 // The gate's two rejection codes, owned HERE beside the throw sites so a
@@ -174,4 +240,9 @@ module.exports = {
   avatarSemaphore,
   withAvatarSlot,
   AVATAR_GATE_CODES,
+
+  // The shared bounded-slot primitive (issue #930 round-2 review) --
+  // exported so src/services/photos.js's HEIC decode gate can be a thin
+  // caller too, same as withAvatarSlot above.
+  withBoundedSlot,
 };

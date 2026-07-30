@@ -58,7 +58,12 @@ const { db } = require('../db');
 const scoring = require('./scoring');
 const rateLimit = require('./rate-limit');
 const { isAdminRequest } = require('../middleware/session');
-const { withAvatarSlot, AVATAR_GATE_CODES } = require('../utils/upload-concurrency');
+const {
+  withAvatarSlot,
+  AVATAR_GATE_CODES,
+  withBoundedSlot,
+} = require('../utils/upload-concurrency');
+const { Semaphore } = require('../utils/semaphore');
 
 // ---------------------------------------------------------------------------
 // Constants. This file is the ONE place the photo-pipeline limits live, so the
@@ -185,7 +190,7 @@ const HEIC_FTYP_BRANDS = new Set(['heic', 'heix', 'heif', 'hevc', 'hevx', 'mif1'
 // 100 megapixels: comfortably above any default-camera phone HEIC (a 48 MP
 // iPhone ProRAW frame, a 50 MP flagship, a 12 MP standard shot) with headroom,
 // while a 100 MP RGBA decode is ~400 MB — the largest single transient the
-// one-decode-at-a-time gate (heicDecodeChain) permits, keeping well under the
+// one-decode-at-a-time gate (heicDecodeSemaphore) permits, keeping well under the
 // ~2 GB host alongside Node + SQLite + sharp. Deliberately TIGHTER than sharp's
 // default limitInputPixels (~268 MP ≈ 1.07 GB RGBA) AND than libheif's own
 // default max (~1 gigapixel), which this host cannot safely absorb. Overridable
@@ -485,30 +490,37 @@ function assertHeicDecodeAllowed(guestId) {
   }
 }
 
-// Serializes HEIC decodes to at MOST ONE concurrent decode (module-level
-// promise chain, not a counting semaphore — this app never needs more than
-// one in flight). The decode itself runs in a worker thread (see
-// decodeHeicInWorker / heic-worker.js), so this chain bounds how many WORKERS
+// Serializes HEIC decodes to at MOST ONE concurrent decode (issue #930:
+// replaces the hand-rolled heicDecodeChain promise chain + pendingHeicDecodes
+// counter this comment used to describe, with the repo's existing, audited
+// Semaphore primitive — src/utils/semaphore.js, the same primitive
+// withUploadSlot/withAvatarSlot already standardize on,
+// src/utils/upload-concurrency.js). The decode itself runs in a worker thread
+// (see decodeHeicInWorker / heic-worker.js), so this bounds how many WORKERS
 // run at once to one: a single decode transiently wants a few hundred MB of
 // raw frame, and letting a reception-night burst of iPhone HEIC uploads stack
 // up concurrent worker decodes could OOM the small (~2 GB) host this app is
 // sized for. See DESIGN.md's convert-at-intake decision record for the number
 // and the hosting context.
-let heicDecodeChain = Promise.resolve();
-
-// Count of PENDING (queued + in-flight) HEIC decodes across ALL guests. Each
-// pending decode pins its ~15 MB source buffer in the main process until its
-// turn (the buffer is captured both in the queued chain closure and in the
-// awaiting resolveUploadedFile/saveAvatar frame). heicDecodeChain serializes
-// decodes to one-at-a-time but does NOT bound the queue DEPTH, so without this
-// counter a flood of hang-crafted HEICs (draining slowly against the 20s
-// timeout) could grow the queue and its held buffers without bound and OOM the
-// ~2 GB host. convertHeicToJpeg admits a decode only while this is below
-// config.MAX_PENDING_HEIC_DECODES, incrementing on admission and decrementing
-// on settle (either outcome) so held memory is capped at
-// MAX_PENDING_HEIC_DECODES x MAX_UPLOAD_BYTES. See DESIGN.md's convert-at-intake
-// record.
-let pendingHeicDecodes = 0;
+//
+// The Semaphore's FIFO wait queue supports AbortSignal cancellation with
+// identity-splice removal (semaphore.js's own comment on the splice at queue
+// removal): a cancelled waiter is spliced out by identity, never tombstoned,
+// so a slot can never leak and no separate counter needs a manual decrement —
+// this is what makes the HEIC_QUEUE_WAIT_MS wait bound in convertHeicToJpeg
+// below safe. Total occupancy (queued + in-flight) across ALL guests is
+// `heicDecodeSemaphore.occupancy`; convertHeicToJpeg (via
+// src/utils/upload-concurrency.js's withBoundedSlot) admits a decode only
+// while that is below config.MAX_PENDING_HEIC_DECODES — see DESIGN.md's
+// "Global pending-decode cap and admission" entry for the honest held-memory
+// arithmetic this ceiling is sized against (it differs by caller kind: a
+// disk caller's queued wait is cheap, an avatar caller's is not).
+//
+// Exported below (module.exports) so tests can observe .active/.pending/
+// .occupancy directly — the same "import the live singleton" pattern
+// tests/memories.test.js uses for src/utils/upload-concurrency.js's
+// uploadSemaphore.
+const heicDecodeSemaphore = new Semaphore(1);
 
 // Absolute path to the worker module, resolved once. __dirname is this file's
 // directory (src/services), and heic-worker.js is a sibling. HEIC_WORKER_PATH
@@ -526,11 +538,12 @@ const HEIC_WORKER_PATH = process.env.HEIC_WORKER_PATH
 // pathological HEVC bitstream that drives libheif into a non-terminating or
 // extreme-slow decode. Without a timeout the worker would post no message and
 // never exit, so decodeHeicInWorker would never settle — and because
-// heicDecodeChain (the single global serialization point) advances only on
-// settle, EVERY subsequent HEIC upload would queue behind a promise that never
-// resolves: a process-wide denial of the HEIC path (the iPhone default) until
-// a restart. This bound turns that hang into a per-request failure that also
-// frees the chain for the next upload. 20s: a legitimate large HEIC decodes in
+// heicDecodeSemaphore (the single global serialization point) only advances
+// past a held slot on release, EVERY subsequent HEIC upload would queue
+// behind a decode that never settles: a process-wide denial of the HEIC path
+// (the iPhone default) until a restart. This bound turns that hang into a
+// per-request failure that also frees the slot for the next upload. 20s: a
+// legitimate large HEIC decodes in
 // ~1-3s, so this is generous headroom for a slow host while still bounding a
 // hang to something a guest and the event loop can absorb. Overridable via
 // HEIC_DECODE_TIMEOUT_MS (read once at load) so tests can drive the timeout
@@ -549,7 +562,7 @@ const HEIC_DECODE_TIMEOUT_MS = Number(process.env.HEIC_DECODE_TIMEOUT_MS) || 200
  *
  * Bounded by HEIC_DECODE_TIMEOUT_MS: a decode that never completes (a
  * pathological bitstream that hangs libheif) is force-failed and the worker
- * terminated, so it cannot wedge heicDecodeChain for every later upload.
+ * terminated, so it cannot wedge heicDecodeSemaphore for every later upload.
  *
  * Always terminates the worker (success or failure or timeout) so none leak.
  * Any failure — a worker 'error', a decode error posted back, an exit before a
@@ -622,59 +635,155 @@ function decodeHeicInWorker(buffer) {
 }
 
 /**
- * Convert a HEIC/HEIF buffer to a JPEG buffer, queued behind any decode
- * already in flight (see heicDecodeChain above). Rejects an oversized HEIC by
- * its declared dimensions first (assertHeicPixelsWithinCap) so a pixel bomb
- * never reaches the allocating decoder — and that check runs on the MAIN thread
- * before a worker is ever spawned, so an oversized upload costs no worker.
- * @param {Buffer} buffer - real HEIC/HEIF bytes (caller has already run
- *        looksLikeHeic and confirmed it).
- * @returns {Promise<Buffer>} JPEG-encoded bytes.
- * @throws {Error} synchronously with .code 'BAD_IMAGE_TYPE' if the declared
- *         pixel area exceeds MAX_HEIC_PIXELS or cannot be read; or with .code
- *         'HEIC_RATE_LIMITED' if the global pending-decode cap is reached.
+ * Build the guest-safe HEIC_RATE_LIMITED error convertHeicToJpeg throws both
+ * at admission (ceiling reached) and at wait-expiry (HEIC_QUEUE_WAIT_MS
+ * elapsed) — single owner of that error's shape so the two throw sites (and
+ * any future one) cannot drift apart in code/message.
+ * @returns {Error}
  */
-function convertHeicToJpeg(buffer) {
-  // SECURITY: bound the decoder's raw-frame allocation by the file's declared
-  // dimensions BEFORE queueing the decode — a throw here happens synchronously,
-  // on the main thread, before any worker is spawned (see MAX_HEIC_PIXELS).
-  // Every HEIC entry point funnels through this function, so this one call site
-  // guards all of them (task submission, memory batch, avatar).
-  assertHeicPixelsWithinCap(buffer);
+function heicRateLimitedError() {
+  const err = new Error(HEIC_RATE_LIMIT_MESSAGE);
+  err.code = 'HEIC_RATE_LIMITED';
+  return err;
+}
 
-  // SECURITY: bound total held decode memory. Reject BEFORE the buffer is pinned
-  // onto the chain if the global pending-decode cap is reached, so an over-cap
-  // upload adds nothing to held memory. This throw happens before the increment
-  // below, so a rejected decode never touches the counter (no leak). Both this
-  // GLOBAL cap and the upstream PER-GUEST assertHeicDecodeAllowed check apply
-  // (memory bound AND per-guest fairness); the per-guest check runs first, in
-  // resolveUploadedFile/saveAvatar, so it never reaches here when over-quota.
-  if (pendingHeicDecodes >= config.MAX_PENDING_HEIC_DECODES) {
-    const err = new Error(HEIC_RATE_LIMIT_MESSAGE);
-    err.code = 'HEIC_RATE_LIMITED';
+/**
+ * Stage-1 pixel-bomb check: read whatever dimensions the SNIFF PREFIX (not
+ * the full file) exposes, and report whether stage 2 (the full-buffer check,
+ * after the buffer is actually available) is still needed. This is a "does
+ * stage 2 still need to run" verdict, not an admission decision — a `true`
+ * return does not mean the HEIC is admitted, only that this stage alone
+ * cannot rule it out either way.
+ *
+ * - A trustworthy over-cap `ispe` in the prefix rejects HERE, synchronously,
+ *   before any slot is acquired — the admission-stage "costs no slot" case
+ *   the issue describes for a normally-muxed HEIC (leading `meta` box).
+ * - A within-cap `ispe` in the prefix is NOT trusted on its own when
+ *   `prefixTruncated` is true — the CALLER'S OWN knowledge that `prefix` is
+ *   shorter than the real file (a partial `ipco` can surface only a small
+ *   tile's `ispe`, so a within-cap answer from a truncated read is not
+ *   authoritative): stage 2 still runs on the full buffer.
+ * - No `ispe` at all in the prefix is legal ISO-BMFF (a late `meta` box) —
+ *   inconclusive, not a rejection; stage 2 decides.
+ *
+ * @param {Buffer} prefix - the admission-time sniff bytes (disk path: a
+ *        positioned fs.readSync(fd, buf, 0, N, 0); avatar path: a subarray
+ *        of the in-RAM buffer).
+ * @param {boolean} prefixTruncated - true when the CALLER already knows
+ *        `prefix` is shorter than the real file (disk: `sniffBytesRead ===
+ *        HEIC_ADMISSION_SNIFF_BYTES`; avatar: `buffer.length >
+ *        HEIC_ADMISSION_SNIFF_BYTES`) — stated by the producer that already
+ *        has this fact, not re-derived here from `prefix.length` (which
+ *        cannot distinguish "the file is exactly this long" from "the file
+ *        is longer and this is a cut prefix").
+ * @returns {boolean} true if stage 2 (full-buffer assertHeicPixelsWithinCap)
+ *          must still run once the full buffer is available.
+ * @throws {Error} .code 'BAD_IMAGE_TYPE' if the prefix's own `ispe` is
+ *         already, trustworthily, over MAX_HEIC_PIXELS.
+ */
+function heicPrefixNeedsFullCheck(prefix, prefixTruncated) {
+  const dims = heicPixelDimensions(prefix);
+  if (!dims) {
+    return true; // no ispe in the prefix yet -- inconclusive, defer to stage 2
+  }
+  if (dims.width * dims.height > MAX_HEIC_PIXELS) {
+    const err = new Error(HEIC_OVERSIZE_MESSAGE);
+    err.code = 'BAD_IMAGE_TYPE';
     throw err;
   }
+  // Within cap by the prefix's own ispe -- still needs stage 2 if the caller
+  // knows this prefix might have been truncated (a larger file could carry a
+  // different ispe, e.g. an assembled-grid tile, beyond what the prefix covered).
+  return prefixTruncated;
+}
 
-  // Admitted: this decode now counts toward the global held-memory budget.
-  // The matching decrement is the .finally below, which fires on EVERY settle
-  // path of `decoded` (success, decode failure, timeout, worker error/exit) —
-  // exactly once — so a burst of failures/timeouts can never permanently
-  // exhaust the cap.
-  pendingHeicDecodes += 1;
+/**
+ * Convert a HEIC/HEIF buffer to a JPEG buffer, admitted through
+ * heicDecodeSemaphore via src/utils/upload-concurrency.js's withBoundedSlot
+ * (issue #930 round-2 review: the HEIC gate and the avatar gate are now both
+ * thin callers of that one shared "ceiling check -> acquire -> timeout-recode
+ * -> run -> release" primitive, replacing two independently hand-rolled
+ * copies of the same shape).
+ *
+ * `header` is `{ prefix, prefixTruncated }` — the admission-time SNIFF
+ * PREFIX (NOT the full file) plus whether the CALLER already knows that
+ * prefix was cut short of the real file. Disk callers pass `sniffBytesRead
+ * === HEIC_ADMISSION_SNIFF_BYTES` from resolveUploadedFile's positioned
+ * fs.readSync; avatar callers pass `buffer.length > HEIC_ADMISSION_SNIFF_BYTES`
+ * from their in-RAM buffer — the producer states the truth it already has,
+ * rather than heicPrefixNeedsFullCheck re-deriving it from `prefix.length`.
+ *
+ * `supplier` is a zero-argument function that returns (or resolves to) the
+ * FULL buffer; it is called ONLY after a decode slot is actually granted.
+ * For a DISK caller (task submit, memory batch) this genuinely defers the
+ * full-file read: queued behind a busy semaphore, it has not yet read (and
+ * does not pin) its MAX_UPLOAD_BYTES buffer. For the AVATAR caller there is
+ * nothing to defer — the full buffer is already resident in RAM before this
+ * function is ever called, so an avatar decode pins its full buffer for the
+ * whole queued wait regardless of this pattern. See DESIGN.md's "Global
+ * pending-decode cap and admission" entry for the honest arithmetic this
+ * asymmetry produces and what actually licenses MAX_PENDING_HEIC_DECODES.
+ *
+ * heicPrefixNeedsFullCheck runs on just the prefix, before any slot is ever
+ * requested, and may throw synchronously on a trustworthy over-cap prefix,
+ * or flag that stage 2 (assertHeicPixelsWithinCap on the full buffer) must
+ * still run once the full buffer is available — still before
+ * decodeHeicInWorker either way, so an over-cap file NEVER spawns a worker
+ * regardless of which stage catches it. This call and withBoundedSlot's own
+ * ceiling check + acquire() happen in ONE synchronous turn (no `await`
+ * between them) — an async gap here would open a check-then-enqueue race
+ * that could admit a decode past the ceiling. A cancelled/expired wait is
+ * spliced out of the semaphore's queue by identity (semaphore.js) — it never
+ * held a slot, so expiry never reads `supplier` and never leaves a slot to
+ * release.
+ *
+ * The GLOBAL pending-decode ceiling this enforces is separate from the
+ * PER-GUEST decode-rate limit (assertHeicDecodeAllowed), which runs upstream
+ * in resolveUploadedFile/saveAvatar before this function is ever called.
+ *
+ * @param {{prefix: Buffer, prefixTruncated: boolean}} header
+ * @param {() => (Buffer|Promise<Buffer>)} supplier - returns the full HEIC
+ *        buffer; invoked only after a decode slot is granted.
+ * @returns {Promise<Buffer>} JPEG-encoded bytes.
+ * @throws {Error} synchronously with .code 'BAD_IMAGE_TYPE' if the prefix's
+ *         own declared pixel area exceeds MAX_HEIC_PIXELS. Asynchronously
+ *         (via the returned Promise) with .code 'HEIC_RATE_LIMITED' if the
+ *         global pending-decode ceiling is already reached (withBoundedSlot
+ *         is async, so its pre-acquire ceiling throw surfaces as a
+ *         rejection) or if the wait bound (HEIC_QUEUE_WAIT_MS) expires
+ *         before a slot frees; with 'BAD_IMAGE_TYPE' if the full buffer
+ *         turns out oversized/unreadable.
+ */
+function convertHeicToJpeg({ prefix, prefixTruncated }, supplier) {
+  // SECURITY: bound the decoder's raw-frame allocation by the file's
+  // declared dimensions, cheaply, on just the prefix, before a worker is
+  // ever spawned (and before withBoundedSlot's own ceiling check/acquire, in
+  // this same synchronous turn — see this function's own doc comment).
+  const needsStage2Check = heicPrefixNeedsFullCheck(prefix, prefixTruncated);
 
-  // The decode runs OFF the main thread in a worker (decodeHeicInWorker), queued
-  // behind any decode already running so at most one worker is active at a time.
-  const decoded = heicDecodeChain.then(() => decodeHeicInWorker(buffer));
-  // Chain the NEXT caller's decode after this one SETTLES either way (not
-  // after it succeeds), so one failed/corrupt HEIC does not wedge the gate
-  // for every upload that follows it.
-  heicDecodeChain = decoded.then(
-    () => undefined,
-    () => undefined
+  return withBoundedSlot(
+    heicDecodeSemaphore,
+    {
+      limitKind: 'occupancy',
+      limit: config.MAX_PENDING_HEIC_DECODES,
+      waitMs: config.HEIC_QUEUE_WAIT_MS,
+      busyError: heicRateLimitedError,
+      // Same guest-facing code/copy as a ceiling refusal, but keep the
+      // underlying TimeoutError as the cause so logs can tell an instant
+      // ceiling refusal from a 45s wait expiry (a distinct loss path).
+      timeoutError: (waitErr) => Object.assign(heicRateLimitedError(), { cause: waitErr }),
+    },
+    async () => {
+      const buffer = await supplier();
+      if (needsStage2Check) {
+        // SECURITY: the authoritative pre-worker check on the FULL buffer,
+        // still before decodeHeicInWorker — an over-cap file caught here
+        // never spawns a worker either.
+        assertHeicPixelsWithinCap(buffer);
+      }
+      return await decodeHeicInWorker(buffer);
+    }
   );
-  return decoded.finally(() => {
-    pendingHeicDecodes -= 1;
-  });
 }
 
 /**
@@ -819,16 +928,39 @@ async function resolveUploadedFile(file, guestId) {
       throw rlErr;
     }
 
-    // Only now — confirmed HEIC — read the full file (bounded by
-    // MAX_UPLOAD_BYTES = 15 MB) from the SAME fd; convertHeicToJpeg and
-    // assertHeicPixelsWithinCap need every byte. Passing the fd (not the path)
-    // is what keeps this pinned to the inode the sniff already validated. This
-    // single read is the only full-file read on this path.
-    const original = fs.readFileSync(fd);
+    // Admission-stage sniff: a SECOND positioned read from the SAME fd (no
+    // re-open — the single-openSync TOCTOU guard above is preserved), this
+    // time up to HEIC_ADMISSION_SNIFF_BYTES so convertHeicToJpeg's stage-1
+    // pixel check has real bytes to look at BEFORE a decode slot is ever
+    // requested. Explicit position 0 (same reasoning as the 12-byte sniff
+    // above) leaves the fd's read offset unchanged. fs.readSync (NOT
+    // fs.readFileSync, which takes no length and reads from the current
+    // offset) is what makes this a bounded, positioned read rather than an
+    // unconditional full-file read on every HEIC candidate.
+    const sniffBuf = Buffer.alloc(config.HEIC_ADMISSION_SNIFF_BYTES);
+    const sniffBytesRead = fs.readSync(fd, sniffBuf, 0, config.HEIC_ADMISSION_SNIFF_BYTES, 0);
+    const admissionPrefix = sniffBuf.subarray(0, sniffBytesRead);
+    // True exactly when this positioned read filled the whole sniff buffer —
+    // the file may well continue past it, so the prefix cannot be trusted as
+    // the whole story (see heicPrefixNeedsFullCheck's own doc comment on
+    // prefixTruncated). A short read (sniffBytesRead < the buffer size) means
+    // the file itself ended within the prefix, so there is nothing beyond it.
+    const admissionPrefixTruncated = sniffBytesRead === config.HEIC_ADMISSION_SNIFF_BYTES;
 
+    // The FULL file (bounded by MAX_UPLOAD_BYTES = 15 MB) is read ONLY once a
+    // decode slot is actually granted — convertHeicToJpeg calls this supplier
+    // itself, after heicDecodeSemaphore.acquire() resolves, so a caller
+    // queued behind a busy semaphore never pins this buffer while merely
+    // waiting (issue #930). Passing the fd (not the path) is what keeps this
+    // pinned to the inode the sniff already validated. This is the only
+    // full-file read on this path, and it happens at most once regardless of
+    // how long the wait was.
     let jpegBuffer;
     try {
-      jpegBuffer = await convertHeicToJpeg(original);
+      jpegBuffer = await convertHeicToJpeg(
+        { prefix: admissionPrefix, prefixTruncated: admissionPrefixTruncated },
+        () => fs.readFileSync(fd)
+      );
     } catch (convertErr) {
       fs.unlinkSync(safePath);
       // convertHeicToJpeg's own guards throw already-guest-safe, coded errors
@@ -1125,7 +1257,26 @@ async function saveAvatar(buffer, guestId) {
     // HEIC_RATE_LIMITED when over the limit; the caller surfaces it.
     assertHeicDecodeAllowed(guestId);
     try {
-      sourceBuffer = await convertHeicToJpeg(buffer);
+      // Avatar bytes are already fully in RAM (multer memoryStorage) — the
+      // `prefix` convertHeicToJpeg's stage-1 check reads is just a subarray
+      // of the same buffer (Buffer#subarray clamps to buffer.length, so a
+      // short avatar naturally yields prefixTruncated: false — there is
+      // nothing beyond the buffer for it to have cut off), and the supplier
+      // hands back that same buffer with no re-read (issue #930 — mirrors
+      // resolveUploadedFile's deferred-read disk-path supplier, but here
+      // there is nothing to defer: the bytes are already resident, so
+      // convertHeicToJpeg's supplier pattern costs nothing extra while
+      // queued — it does NOT mean this decode is cheap to queue behind: the
+      // full `buffer` is already pinned in RAM before this call, for the
+      // whole wait, unlike a disk caller's deferred read. See DESIGN.md's
+      // "Global pending-decode cap and admission" entry.
+      sourceBuffer = await convertHeicToJpeg(
+        {
+          prefix: buffer.subarray(0, config.HEIC_ADMISSION_SNIFF_BYTES),
+          prefixTruncated: buffer.length > config.HEIC_ADMISSION_SNIFF_BYTES,
+        },
+        () => buffer
+      );
     } catch (convertErr) {
       // Let our own guest-safe coded errors through (pixel cap / global cap —
       // same reasoning as resolveUploadedFile); only a raw/uncoded decode
@@ -1146,7 +1297,7 @@ async function saveAvatar(buffer, guestId) {
   // Issue #929: only the sharp crop below runs inside the avatar concurrency
   // gate -- the HEIC conversion above (if any) stays OUTSIDE it, since that
   // decode already has its own process-wide serialization, pixel cap, and
-  // per-guest rate limit. Holding a gate slot across the HEIC decode chain
+  // per-guest rate limit. Holding a gate slot across the HEIC decode itself
   // would stall the unrelated, patient task-submit/memory-batch waiters on
   // the shared upload semaphore behind one guest's avatar -- see
   // src/utils/upload-concurrency.js's module header for the full rationale.
@@ -1582,6 +1733,12 @@ module.exports = {
   MAX_HEIC_PIXELS,
   heicPixelDimensions,
   assertHeicPixelsWithinCap,
+
+  // The live HEIC-decode admission gate (issue #930) — exported so tests can
+  // observe .active/.pending directly, the same "import the live singleton"
+  // pattern tests/memories.test.js uses for
+  // src/utils/upload-concurrency.js's uploadSemaphore.
+  heicDecodeSemaphore,
 
   // safe-path derivation from a multer descriptor's filename (exported for
   // direct unit testing of both the allowlisted and fail-closed arms).
