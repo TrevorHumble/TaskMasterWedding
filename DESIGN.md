@@ -18,6 +18,7 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
   - [COOKIE_SECRET must be fixed for the event](#cookie_secret-must-be-fixed-for-the-event)
   - [Guest sessions are rolling and long-lived, admin is not (#242)](#guest-sessions-are-rolling-and-long-lived-admin-is-not-242)
   - [Photos: multer intake, sharp normalization, takedown over delete](#photos-multer-intake-sharp-normalization-takedown-over-delete)
+  - [Avatar processing: a dedicated small avatar gate, not a share of the upload semaphore (#929)](#avatar-processing-a-dedicated-small-avatar-gate-not-a-share-of-the-upload-semaphore-929)
   - [HEIC accepted and converted to JPEG at intake (#281, supersedes #188's rejection)](#heic-accepted-and-converted-to-jpeg-at-intake-281-supersedes-188s-rejection)
   - [sharp 0.35.2 SAC block was a reputation-lag, now cleared (#304)](#sharp-0352-sac-block-was-a-reputation-lag-now-cleared-304)
   - [Scoring derived, not stored](#scoring-derived-not-stored)
@@ -139,6 +140,21 @@ The guest `gsid` cookie lasts 400 days (`config.GUEST_COOKIE_MAX_AGE_MS`) — th
 ### Photos: multer intake, sharp normalization, takedown over delete
 
 Uploads come in through multer; sharp produces a normalized full-size original plus a small thumbnail (`THUMB_WIDTH = 400`). Originals live in `data/uploads/`, thumbnails in `data/thumbs/`, served at `/uploads` and `/thumbs`. The admin "takes down" a photo by setting `taken_down = 1` rather than deleting the row, so a moderation action is reversible and the submission's history is preserved. A taken-down photo is hidden from the gallery, profiles, and scoring but can be restored.
+
+### Avatar processing: a dedicated small avatar gate, not a share of the upload semaphore (#929)
+
+`src/utils/upload-concurrency.js`'s `withUploadSlot`/`uploadSemaphore` (issue #311, `MAX_CONCURRENT_UPLOADS = 6`) bounds task-submit and memory-batch concurrency, but avatar processing — `src/services/photos.js`'s `saveAvatar`, called from both `POST /join` and `POST /me/edit` — had no bound at all. A poster-rush burst of joins, each running sharp's `.rotate()` + `attention` crop (a full-raster materialization measured at ~325 MB per upload in practice, issue #856), could OOM the ~2 GB host and crash the process for every in-flight guest.
+
+**Why not share `uploadSemaphore`:**
+
+1. **The raster arithmetic doesn't fit.** Admitting avatars at `MAX_CONCURRENT_UPLOADS = 6` would peak at 6 × ~325 MB ≈ 1.95 GB — reproducing the exact OOM the gate exists to prevent, inside the "bound." A separate, smaller `AVATAR_CONCURRENCY` (default 2) peaks at 2 × ~325 MB ≈ 650 MB transient, alongside the unchanged task-upload pipeline.
+2. **Head-of-line inversion.** `saveAvatar` runs the (process-wide-serialized) HEIC decode chain _before_ the sharp crop. An avatar holding a _shared_ slot while parked on that chain would stall the patient, unbounded task-submit/memory-batch waiters behind it — a guest's task photo delayed by someone's avatar, an inversion that does not exist today and must not be introduced by sharing the gate.
+
+**Why the join rate limiter (`RATE_LIMIT_IP_MAX`) can't substitute:** that limiter is IP-keyed and deliberately generous (300/10min) to admit an entire venue-NAT'd reception scanning one poster within minutes — it bounds abuse, not concurrency. A hundred honest guests within the limit, all attaching an avatar in the same burst, is exactly the load this gate exists to survive; the rate limiter does nothing to shape it.
+
+**Semantics are "skip, never stall," the opposite of `uploadSemaphore`'s "queue forever":** losing a task/memory upload is never acceptable (those queue with no depth bound); losing an avatar costs nothing — the guest can add one later from their profile, and the #716 starter point derives from `guests.avatar_path` whenever it's eventually set, not from a one-shot join-time award. `withAvatarSlot` (in `upload-concurrency.js`, alongside `withUploadSlot`) therefore fails fast on two bounds rather than queuing patiently: an immediate `AVATAR_QUEUE_BUSY` throw when the wait queue is already at `MAX_PENDING_AVATAR_WAITERS` (default 16), and an `AVATAR_SLOT_TIMEOUT` when an admitted wait doesn't clear within `AVATAR_SLOT_WAIT_MS` (default 10s — the most spinner an interactive join should make a guest absorb). Both failures flow into paths that already existed before this gate: `POST /join`'s existing catch around `trySaveAvatar` (`src/routes/auth.js`) silently drops the avatar and completes signup; `POST /me/edit`'s existing sharp-failure branch (`src/routes/guest.js`) produces its existing flash. No new guest-facing copy, no route changes — the gate wraps only the sharp pipeline inside `saveAvatar`, so both call sites are covered for free.
+
+The HEIC conversion inside `saveAvatar` stays deliberately _outside_ `withAvatarSlot` — it already has its own decode-chain serialization, pixel cap, and per-guest rate limit (see "HEIC accepted and converted to JPEG at intake" below), and gating it too would be exactly the head-of-line inversion reason 2 above rules out.
 
 ### HEIC accepted and converted to JPEG at intake (#281, supersedes #188's rejection)
 

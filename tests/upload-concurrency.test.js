@@ -6,9 +6,94 @@
 // standards/edge-case-checklist.md's "number" row -- 0/negative) rather than
 // driving it through a full HTTP upload, since the concurrency behavior
 // itself lives entirely in this module.
+//
+// Issue #929 adds the avatar gate (avatarSemaphore / withAvatarSlot) to this
+// same module -- most of its tests below are unit-level, same rationale as
+// #311 above. AC3 ("no avatar-gate slot is held during the HEIC decode") is
+// the one exception: that acceptance criterion is about the real wiring
+// between src/services/photos.js's saveAvatar and this gate, not about the
+// Semaphore primitive itself, so it drives a real HEIC decode through the
+// real photos.saveAvatar (same real fixture tests/heic-conversion.test.js
+// uses) instead of a fake.
+//
+// REQUIRE ORDER MATTERS (see tests/helpers/testApp.js): loadApp() must run,
+// setting DATA_DIR/DB_PATH, before this file's first require of config, db,
+// upload-concurrency, or photos -- all of which read config at module-load
+// time. That is why every one of those requires below happens inside
+// beforeAll, AFTER loadApp(), rather than at module scope.
 'use strict';
 
-const { Semaphore, withUploadSlot, uploadSemaphore } = require('../src/utils/upload-concurrency');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { loadApp } = require('./helpers/testApp');
+
+const HEIC_FIXTURE = fs.readFileSync(
+  path.join(__dirname, '../fixtures/sample-photos/sample-heic-01.heic')
+);
+
+// Resolved once, outside beforeAll, purely as PATH STRINGS (require.resolve
+// does not execute the module) -- used by reloadUploadConcurrency below to
+// force a fresh module instance with a different config value, the same
+// require.cache-eviction technique tests/config-branches.test.js documents
+// (vi.resetModules() does not evict Node's require.cache for a plain CJS
+// require()).
+const CONFIG_PATH = require.resolve('../config');
+const UPLOAD_CONCURRENCY_PATH = require.resolve('../src/utils/upload-concurrency');
+
+let db;
+let photos;
+let Semaphore;
+let withUploadSlot;
+let uploadSemaphore;
+let avatarSemaphore;
+let withAvatarSlot;
+
+beforeAll(() => {
+  const loaded = loadApp();
+  db = loaded.db;
+
+  // Required AFTER loadApp() so config (and everything that reads it)
+  // resolves against the temp DATA_DIR.
+  photos = require('../src/services/photos');
+  ({
+    Semaphore,
+    withUploadSlot,
+    uploadSemaphore,
+    avatarSemaphore,
+    withAvatarSlot,
+  } = require('../src/utils/upload-concurrency'));
+});
+
+function insertGuest(prefix) {
+  const token = `${prefix}-${crypto.randomUUID()}`;
+  return db
+    .prepare('INSERT INTO guests (token, name, onboarded) VALUES (?, ?, 1)')
+    .run(token, 'Gate Test Guest').lastInsertRowid;
+}
+
+/**
+ * Force a fresh require of config.js + upload-concurrency.js, picking up
+ * whatever AVATAR_CONCURRENCY/AVATAR_SLOT_WAIT_MS/MAX_PENDING_AVATAR_WAITERS
+ * env values are set at call time -- gives a test its OWN avatarSemaphore
+ * instance, independent of (and never affecting) the singleton `photos` and
+ * the outer `avatarSemaphore`/`withAvatarSlot` above are bound to. DATA_DIR/
+ * DB_PATH are left untouched, so this never touches the live db.
+ */
+function reloadUploadConcurrency() {
+  delete require.cache[CONFIG_PATH];
+  delete require.cache[UPLOAD_CONCURRENCY_PATH];
+  return require('../src/utils/upload-concurrency');
+}
+
+/** Restore one env var to its saved value (or delete it if it was unset). */
+function restoreEnvVar(key, savedValue) {
+  if (savedValue === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = savedValue;
+  }
+}
 
 describe('Semaphore', () => {
   it('bounds concurrent holders to the limit and queues the next acquire until release (representative input: limit=1)', async () => {
@@ -80,4 +165,244 @@ describe('withUploadSlot', () => {
     const value = await withUploadSlot(() => Promise.resolve('the actual value'));
     expect(value).toBe('the actual value');
   });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #929 — avatarSemaphore / withAvatarSlot: a SEPARATE, smaller gate for
+// avatar processing (see upload-concurrency.js's module header for the full
+// raster-arithmetic and head-of-line-inversion rationale).
+// ---------------------------------------------------------------------------
+
+describe('withAvatarSlot: basic release contract', () => {
+  it('releases the avatar slot even when the wrapped function throws', async () => {
+    const activeBefore = avatarSemaphore.active;
+
+    await expect(withAvatarSlot(() => Promise.reject(new Error('boom')))).rejects.toThrow('boom');
+
+    expect(avatarSemaphore.active).toBe(activeBefore);
+  });
+
+  it("returns the wrapped function's resolved value on success", async () => {
+    const value = await withAvatarSlot(() => Promise.resolve('the actual value'));
+    expect(value).toBe('the actual value');
+  });
+});
+
+describe('AC1: avatar concurrency is bounded at the configured value (instrumented ordering)', () => {
+  it('AVATAR_CONCURRENCY=1: a second concurrent save does not begin its sharp work until the first completes', async () => {
+    const saved = process.env.AVATAR_CONCURRENCY;
+    process.env.AVATAR_CONCURRENCY = '1';
+    const mod = reloadUploadConcurrency();
+
+    try {
+      expect(mod.avatarSemaphore.limit).toBe(1);
+      const order = [];
+      let resolveFirst;
+      const firstGate = new Promise((resolve) => {
+        resolveFirst = resolve;
+      });
+
+      const first = mod.withAvatarSlot(async () => {
+        order.push('first-start');
+        await firstGate;
+        order.push('first-end');
+      });
+
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(order).toEqual(['first-start']); // admitted immediately (under the limit)
+
+      let secondStarted = false;
+      const second = mod.withAvatarSlot(async () => {
+        secondStarted = true;
+        order.push('second-start');
+      });
+
+      await new Promise((resolve) => setImmediate(resolve));
+      // The second save's sharp work has NOT begun while the first still
+      // holds the only slot.
+      expect(secondStarted).toBe(false);
+      expect(order).toEqual(['first-start']);
+
+      resolveFirst();
+      await first;
+      await second;
+
+      expect(order).toEqual(['first-start', 'first-end', 'second-start']);
+    } finally {
+      restoreEnvVar('AVATAR_CONCURRENCY', saved);
+      reloadUploadConcurrency(); // leave require.cache holding a correctly-configured module
+    }
+  });
+
+  it('at the default AVATAR_CONCURRENCY=2, a third concurrent save waits until one of the first two completes', async () => {
+    const saved = process.env.AVATAR_CONCURRENCY;
+    delete process.env.AVATAR_CONCURRENCY; // ensure the default (2) applies
+    const mod = reloadUploadConcurrency();
+
+    try {
+      expect(mod.avatarSemaphore.limit).toBe(2);
+      const running = new Set();
+      let resolveFirst;
+      const firstGate = new Promise((resolve) => {
+        resolveFirst = resolve;
+      });
+
+      const first = mod.withAvatarSlot(async () => {
+        running.add('first');
+        await firstGate;
+        running.delete('first');
+      });
+      const second = mod.withAvatarSlot(async () => {
+        running.add('second');
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        running.delete('second');
+      });
+
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(running.size).toBe(2); // both admitted at once -- limit is 2, not 1
+
+      let thirdStarted = false;
+      const third = mod.withAvatarSlot(async () => {
+        thirdStarted = true;
+      });
+
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(thirdStarted).toBe(false); // peak concurrency bounded at 2
+
+      resolveFirst();
+      await first;
+      await third; // frees once the first of the two releases
+      expect(thirdStarted).toBe(true);
+      await second;
+
+      expect(mod.avatarSemaphore.active).toBe(0);
+      expect(mod.avatarSemaphore.pending).toBe(0);
+    } finally {
+      restoreEnvVar('AVATAR_CONCURRENCY', saved);
+      reloadUploadConcurrency();
+    }
+  });
+});
+
+describe('withAvatarSlot: depth and wait bounds', () => {
+  it('AVATAR_QUEUE_BUSY: a save is rejected immediately once the wait queue is already at MAX_PENDING_AVATAR_WAITERS', async () => {
+    const savedConcurrency = process.env.AVATAR_CONCURRENCY;
+    const savedMaxWaiters = process.env.MAX_PENDING_AVATAR_WAITERS;
+    process.env.AVATAR_CONCURRENCY = '1';
+    process.env.MAX_PENDING_AVATAR_WAITERS = '2';
+    const mod = reloadUploadConcurrency();
+
+    try {
+      // Hold the only slot ourselves so every withAvatarSlot call below queues.
+      await mod.avatarSemaphore.acquire();
+
+      const filler1 = mod.withAvatarSlot(() => Promise.resolve());
+      const filler2 = mod.withAvatarSlot(() => Promise.resolve());
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(mod.avatarSemaphore.pending).toBe(2); // at the cap
+
+      // A third arrival, with the queue already at the cap, is rejected
+      // IMMEDIATELY -- it must never touch the queue at all.
+      await expect(mod.withAvatarSlot(() => Promise.resolve())).rejects.toMatchObject({
+        code: 'AVATAR_QUEUE_BUSY',
+      });
+      expect(mod.avatarSemaphore.pending).toBe(2); // unchanged by the rejected caller
+
+      // Release our held slot -- it cascades through the two queued fillers
+      // (each releases its own slot in withAvatarSlot's finally once its fn
+      // resolves), draining the queue back to rest.
+      mod.avatarSemaphore.release();
+      await Promise.all([filler1, filler2]);
+
+      expect(mod.avatarSemaphore.active).toBe(0);
+      expect(mod.avatarSemaphore.pending).toBe(0);
+    } finally {
+      restoreEnvVar('AVATAR_CONCURRENCY', savedConcurrency);
+      restoreEnvVar('MAX_PENDING_AVATAR_WAITERS', savedMaxWaiters);
+      reloadUploadConcurrency();
+    }
+  });
+
+  it('AVATAR_SLOT_TIMEOUT: a queued wait that does not free within AVATAR_SLOT_WAIT_MS is rejected, with no slot leak', async () => {
+    const savedConcurrency = process.env.AVATAR_CONCURRENCY;
+    const savedWaitMs = process.env.AVATAR_SLOT_WAIT_MS;
+    process.env.AVATAR_CONCURRENCY = '1';
+    process.env.AVATAR_SLOT_WAIT_MS = '150';
+    const mod = reloadUploadConcurrency();
+
+    try {
+      // Hold the only slot for the whole test -- stands in for #929's
+      // "instrumented long crop" that never frees before the wait bound.
+      await mod.avatarSemaphore.acquire();
+      const activeBefore = mod.avatarSemaphore.active;
+
+      await expect(
+        mod.withAvatarSlot(() => Promise.resolve('should never run'))
+      ).rejects.toMatchObject({ code: 'AVATAR_SLOT_TIMEOUT' });
+
+      // No slot leak: a timed-out waiter never held a slot, so active/queue
+      // are exactly what they were before it ever queued.
+      expect(mod.avatarSemaphore.active).toBe(activeBefore);
+      expect(mod.avatarSemaphore.pending).toBe(0);
+
+      mod.avatarSemaphore.release(); // release the slot we held
+      expect(mod.avatarSemaphore.active).toBe(0);
+    } finally {
+      restoreEnvVar('AVATAR_CONCURRENCY', savedConcurrency);
+      restoreEnvVar('AVATAR_SLOT_WAIT_MS', savedWaitMs);
+      reloadUploadConcurrency();
+    }
+  }, 10000);
+});
+
+describe("AC3: no avatar-gate slot is held during the HEIC decode (issue #929's inversion guard)", () => {
+  it('the gate is acquired only after the JPEG buffer exists, not while a HEIC decode is in flight', async () => {
+    const guestId = insertGuest('ac3-heic-gate');
+
+    // Hold BOTH of the default AVATAR_CONCURRENCY=2 slots ourselves, so any
+    // attempt by saveAvatar's gate to acquire immediately queues -- a
+    // directly observable signal (queue.length) for exactly when in the
+    // call the gate is actually touched.
+    await avatarSemaphore.acquire();
+    await avatarSemaphore.acquire();
+    expect(avatarSemaphore.active).toBe(2);
+    expect(avatarSemaphore.pending).toBe(0);
+
+    const savePromise = photos.saveAvatar(HEIC_FIXTURE, guestId);
+
+    // One tick after invocation: if the gate wrapped the WHOLE function (the
+    // regression this guards against), saveAvatar would already be blocked
+    // trying to acquire -- queue.length would already be 1, well before a
+    // real HEIC decode could possibly have finished. Correct wiring runs the
+    // HEIC decode UNGATED first, so the queue must still be empty here.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(avatarSemaphore.pending).toBe(0);
+
+    // Poll for the decode to finish and the gate to actually be reached --
+    // a real HEIC decode plus a fresh worker_thread spawn, so this is a
+    // generous real-time bound, not an instant check.
+    const deadline = Date.now() + 10000;
+    while (avatarSemaphore.pending !== 1) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          'saveAvatar never reached the avatar gate -- the HEIC decode may have failed'
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(avatarSemaphore.pending).toBe(1); // now genuinely queued behind our 2 held slots
+
+    // Release both held slots -- the queued save takes the first one freed.
+    avatarSemaphore.release();
+    avatarSemaphore.release();
+
+    const savedName = await savePromise;
+    expect(savedName).toMatch(/\.jpg$/);
+    const row = db.prepare('SELECT avatar_path FROM guests WHERE id = ?').get(guestId);
+    expect(row.avatar_path).toBe(savedName);
+
+    // No slot leak: back to the resting state.
+    expect(avatarSemaphore.active).toBe(0);
+    expect(avatarSemaphore.pending).toBe(0);
+  }, 15000);
 });

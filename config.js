@@ -389,6 +389,36 @@ const config = {
   // needlessly slow for the common case of a handful of simultaneous
   // uploads. Env-overridable per event/host.
   MAX_CONCURRENT_UPLOADS: parseInt(process.env.MAX_CONCURRENT_UPLOADS, 10) || 6,
+
+  // Avatar processing concurrency gate (issue #929) -- a SEPARATE, smaller
+  // bound from MAX_CONCURRENT_UPLOADS above. src/utils/upload-concurrency.js's
+  // withAvatarSlot wraps only the sharp .rotate()/attention-crop pipeline
+  // inside src/services/photos.js's saveAvatar (the HEIC conversion above it
+  // is deliberately outside this gate -- it already has its own decode-chain
+  // serialization, pixel cap, and per-guest rate limit).
+  //
+  // AVATAR_CONCURRENCY: max concurrent avatar crops. Default 2. The raster-
+  // size arithmetic behind that default (and why sharing MAX_CONCURRENT_UPLOADS
+  // here would reproduce the OOM this gate exists to prevent) is worked out
+  // ONCE, in DESIGN.md's "Avatar processing: a dedicated small avatar gate,
+  // not a share of the upload semaphore
+  // (#929)" section -- not restated here, so a remeasure updates one place,
+  // not two.
+  AVATAR_CONCURRENCY: parseInt(process.env.AVATAR_CONCURRENCY, 10) || 2,
+  // AVATAR_SLOT_WAIT_MS: how long an admitted waiter may sit queued for a
+  // free avatar slot before giving up. Default 10000 (10s) -- join is
+  // interactive, and 10s is the most spinner a signup should ever make a
+  // guest absorb, well inside the 300s proxy_read_timeout docs/deploy.md's
+  // nginx example sets (issue #936).
+  AVATAR_SLOT_WAIT_MS: parseInt(process.env.AVATAR_SLOT_WAIT_MS, 10) || 10000,
+  // MAX_PENDING_AVATAR_WAITERS: depth cap on the avatar gate's wait queue. A
+  // save arriving when the queue is already this deep fails immediately
+  // (AVATAR_QUEUE_BUSY) rather than joining a queue it would wait the full
+  // AVATAR_SLOT_WAIT_MS behind anyway. Default 16 -- avatar semantics are
+  // "skip, never stall" (losing an avatar costs nothing; a guest can add one
+  // later from their profile), unlike MAX_CONCURRENT_UPLOADS's callers, which
+  // queue with no depth bound because losing an upload is never acceptable.
+  MAX_PENDING_AVATAR_WAITERS: parseInt(process.env.MAX_PENDING_AVATAR_WAITERS, 10) || 16,
 };
 
 // ---- Lowercase aliases (backwards compatibility ONLY) ----------------------

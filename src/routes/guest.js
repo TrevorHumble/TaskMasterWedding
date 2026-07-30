@@ -1350,36 +1350,62 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
     // guests.avatar_path, and returns the filename. No temp file to read back
     // or clean up.
     let newAvatarPath = guest.avatar_path; // keep existing unless replaced
+    // Issue #929 PR review fix: a gate rejection (photos.saveAvatar resolving
+    // null, never thrown for AVATAR_QUEUE_BUSY/AVATAR_SLOT_TIMEOUT — see that
+    // function's own doc comment) must not cost the guest their name/PIN/
+    // social edits from this same POST. This flag is what keeps that case
+    // from falling into the ordinary success flash/redirect below.
+    let avatarGateRejected = false;
     if (req.file) {
       let savedAvatar;
       try {
-        savedAvatar = await photos.saveAvatar(req.file.buffer, guest.id); // stored filename
+        savedAvatar = await photos.saveAvatar(req.file.buffer, guest.id); // stored filename, or null on a gate rejection
       } catch (e) {
+        // A genuine save failure (corrupt image, HEIC decode error, etc.) —
+        // unchanged behavior: flash and bail before anything is written.
         setFlash(res, 'error', 'Sorry, we could not save that avatar. Please try again.');
         return res.redirect('/me/edit');
       }
 
-      const oldAvatar = guest.avatar_path;
-      newAvatarPath = savedAvatar;
+      if (savedAvatar === null) {
+        // The concurrency gate skipped this avatar (busy or timed out).
+        // avatar_path stays unchanged (newAvatarPath was already seeded from
+        // guest.avatar_path above) — but unlike the throw above, the rest of
+        // this save (name/PIN/socials) still proceeds and persists below.
+        setFlash(res, 'error', 'Sorry, we could not save that avatar. Please try again.');
+        avatarGateRejected = true;
+      } else {
+        const oldAvatar = guest.avatar_path;
+        newAvatarPath = savedAvatar;
 
-      // Issue #716: no separate award step needed here — the starter point
-      // is derived from guests.avatar_path (scoring.starterTaskContribution),
-      // and the UPDATE below sets that column.
+        // Issue #716: no separate award step needed here — the starter point
+        // is derived from guests.avatar_path (scoring.starterTaskContribution),
+        // and the UPDATE below sets that column.
 
-      // Delete the previous avatar file if it changed. Avatars live in the
-      // uploads dir (no thumbnail), so deleteOriginalFile removes them.
-      try {
-        if (oldAvatar && oldAvatar !== newAvatarPath) {
-          photos.deleteOriginalFile(oldAvatar);
+        // Delete the previous avatar file if it changed. Avatars live in the
+        // uploads dir (no thumbnail), so deleteOriginalFile removes them.
+        try {
+          if (oldAvatar && oldAvatar !== newAvatarPath) {
+            photos.deleteOriginalFile(oldAvatar);
+          }
+        } catch (e) {
+          // Non-fatal.
         }
-      } catch (e) {
-        // Non-fatal.
       }
     }
 
     db.prepare(
       'UPDATE guests SET name = ?, avatar_path = ?, social_links = ?, pin = ? WHERE id = ?'
     ).run(name, newAvatarPath, socialJson, newPin, guest.id);
+
+    // A gate-rejected avatar already set its own error flash above — leave it
+    // as the one the guest sees rather than clobbering it with the success
+    // message below (setFlash writes a single one-shot cookie; see
+    // src/middleware/session.js). Everything else this save touched (name,
+    // PIN, socials) is still in the UPDATE that just ran either way.
+    if (avatarGateRejected) {
+      return res.redirect('/me/edit');
+    }
 
     setFlash(res, 'success', 'Profile updated!');
     return res.redirect('/');

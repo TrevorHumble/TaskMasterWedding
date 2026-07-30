@@ -25,6 +25,11 @@ class Semaphore {
     this.queue = [];
   }
 
+  /** Number of QUEUED waiters (not active holders) -- read-only. */
+  get pending() {
+    return this.queue.length;
+  }
+
   /**
    * Wait for a free slot. Resolves immediately if under the limit; otherwise
    * queues and resolves once an earlier holder calls release().
