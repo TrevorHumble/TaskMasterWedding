@@ -23,6 +23,35 @@
   var picker = document.getElementById('badge-picker');
   var editForm = editDialog && editDialog.querySelector('#task-edit-form');
 
+  // Surface native constraint-validation failures in-page (issue #918).
+  // Save is a plain native submit, and when a field inside the dialog is
+  // invalid (e.g. flash minutes below its min) the browser blocks the
+  // submit -- desktop shows a bubble at the field, but iOS Safari has
+  // historically shown NOTHING, so on a phone Save just silently did
+  // nothing. The capture-phase `invalid` listener writes the same fact
+  // into a visible note above Save and scrolls the offending field into
+  // view; any later input hides the note again.
+  function attachValidationNote(form) {
+    if (!form) return;
+    var note = form.querySelector('.dialog-validation-note');
+    if (!note) return;
+    form.addEventListener(
+      'invalid',
+      function (event) {
+        note.hidden = false;
+        if (event.target && typeof event.target.scrollIntoView === 'function') {
+          event.target.scrollIntoView({ block: 'center' });
+        }
+      },
+      true
+    );
+    form.addEventListener('input', function () {
+      note.hidden = true;
+    });
+  }
+  attachValidationNote(editForm);
+  attachValidationNote(createDialog && createDialog.querySelector('#task-create-form'));
+
   // The approved default (issue #755 criterion 2): first configured day,
   // +1 bonus — applied when a host promotes an undated task to One day only
   // (both create and edit), so the accordion never opens blank. Read from
@@ -99,9 +128,25 @@
       var panel = group.querySelector('.special-panel');
       if (!radio || !panel) return;
       var active = radio.checked;
+      // The class IS the accordion's visibility (issue #918): theme.css
+      // shows .special-panel only under .special-active, and this toggle is
+      // the single owner that sets it. (Formerly a CSS :has() rule, which
+      // failed closed on a :has()-less phone browser -- tapping "Flash"
+      // showed no panel at all and Save posted a flash mode with blank
+      // fields. One owner now, by design-philosophy review.)
+      group.classList.toggle('special-active', active);
       panel.querySelectorAll('input:not([type="hidden"]), select, textarea').forEach(function (el) {
         el.disabled = !active;
       });
+    });
+    // Same single-owner rule, one level down (issue #918): the flash
+    // "Pick a time" day+time sub-panel (.flash-when) is shown only under
+    // .flash-later-active, and this toggle is what sets it -- without it a
+    // host could open the flash panel above but never reach the date/time
+    // fields for a scheduled flash.
+    dialog.querySelectorAll('.flash-start-field').forEach(function (field) {
+      var later = field.querySelector('input[name="flash_start_mode"][value="later"]');
+      field.classList.toggle('flash-later-active', !!(later && later.checked));
     });
   }
 
@@ -398,7 +443,10 @@
       // review, minor 8) — no early return, so the branches below (which
       // fill in day/bonus defaults for the newly-picked option) still run
       // against the same event.
-      if (event.target.matches && event.target.matches('input[name="special_mode"]')) {
+      if (
+        event.target.matches &&
+        event.target.matches('input[name="special_mode"], input[name="flash_start_mode"]')
+      ) {
         syncSpecialPanels(editDialog);
       }
       if (event.target.matches && event.target.matches('input[name="special_date"]')) {
@@ -484,7 +532,10 @@
   // listener just above.
   if (createDialog) {
     createDialog.addEventListener('change', function (event) {
-      if (event.target.matches && event.target.matches('input[name="special_mode"]')) {
+      if (
+        event.target.matches &&
+        event.target.matches('input[name="special_mode"], input[name="flash_start_mode"]')
+      ) {
         syncSpecialPanels(createDialog);
       }
     });

@@ -6299,6 +6299,10 @@ body:has(dialog[open]) {
   grid-column: 2;
   grid-row: 2;
   display: flex;
+  /* Wrap on narrow phones (issue #918): with a live "Flash · N min left"
+     chip in the row, an unwrappable strip pushed the rank-and-award link
+     past the card edge on small screens. */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding: 0 var(--space-3) var(--space-3) 0;
@@ -6379,6 +6383,13 @@ body:has(dialog[open]) {
   max-height: 90dvh;
   overflow-y: auto;
   padding: var(--space-4);
+  /* Kill double-tap-to-zoom for every tap target inside both task dialogs
+     (issue #918): the flash minutes stepper is the app's only rapid-tap
+     control, and without this a host's quick -/+ taps on a phone read as
+     double-tap-zoom -- alternate taps get swallowed and the dialog zooms
+     instead of stepping. Scoped to the dialog form, not the page: pinch
+     zoom still works, and page-level double-tap behavior is untouched. */
+  touch-action: manipulation;
 }
 .task-dialog-head {
   display: flex;
@@ -6407,6 +6418,12 @@ body:has(dialog[open]) {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
+/* Reuses .form-error's ink/size; only the margin differs in the dialog
+   footer context (issue #918). Hidden by default via the `hidden`
+   attribute; admin-tasks.js reveals it on a blocked native submit. */
+.dialog-validation-note {
+  margin: 0;
+}
 
 /* ---- Form fields ---- */
 .field {
@@ -6434,6 +6451,10 @@ body:has(dialog[open]) {
 /* ---- Worth chips (1/2/3) ---- */
 .worth-chips {
   display: flex;
+  /* Wrap on very narrow phones (issue #918): the flash bonus row's three
+     "+N pts" faces overflow the dialog's usable width at <=320px, and this
+     row -- unlike .day-chips, which already wraps -- had no wrap. */
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 .worth-chip {
@@ -6549,16 +6570,24 @@ body:has(dialog[open]) {
   border-radius: 0 0 var(--radius-input) var(--radius-input);
   background: var(--green-50);
 }
-/* Scoped to the radio inside .special-option — the MODE radio — and not to
-   any `input:checked` in the group. The panel's own day/bonus chips are
-   checked radios too, so an unscoped :has() would hold the accordion open
-   from first paint whether or not the mode was picked. */
-.special-option-group:has(.special-option input:checked) .special-panel {
+/* The accordion's visibility has exactly ONE owner (issue #918):
+   `.special-active`, set by admin-tasks.js's syncSpecialPanels() from the
+   checked MODE radio, on dialog open and on every mode change. This used
+   to be a `:has(input:checked)` selector — pure CSS, correct at first
+   paint — but on a :has()-less phone browser it failed closed: tapping
+   "Flash" showed no panel and no feedback at all, and Save then posted a
+   flash mode with blank fields. A JS class works on every engine, and
+   first paint costs nothing here because the dialog is only ever shown by
+   the same script that sets the class (syncSpecialPanels always runs
+   before showModal()). Do not reintroduce a parallel :has() rule for
+   this — two independently-written statements of one visibility rule can
+   drift (design-philosophy review, #918). */
+.special-option-group.special-active .special-panel {
   display: flex;
 }
 /* Square off the face's bottom corners so the open panel reads as one
    attached sheet rather than two stacked boxes. */
-.special-option-group:has(.special-option input:checked) .special-option-face {
+.special-option-group.special-active .special-option-face {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
@@ -6677,16 +6706,22 @@ body:has(dialog[open]) {
   font-size: var(--fs-small);
   color: var(--color-text-muted);
 }
-/* Day + time reveal: same CSS-only accordion mechanism as .special-panel
-   itself, one level down — scoped to the START chips so the bonus and day
-   radios in the same panel can never hold it open. */
+/* Day + time reveal: same JS-class accordion mechanism as .special-panel
+   itself, one level down (issue #918) — keyed to the START chips only, so
+   the bonus and day radios in the same panel can never hold it open. */
 .flash-when {
   display: none;
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
-.flash-start-field:has(input[name='flash_start_mode'][value='later']:checked) .flash-when {
+/* Single owner, same rule as .special-active one level up (issue #918):
+   `.flash-later-active` is set by syncSpecialPanels() from the Starts
+   "later" radio. Formerly a :has() selector, which failed closed on a
+   :has()-less engine — "Pick a time" revealed nothing and Save posted a
+   `later` flash with no instant. Do not reintroduce a parallel :has()
+   rule. */
+.flash-start-field.flash-later-active .flash-when {
   display: flex;
 }
 .flash-time-row {

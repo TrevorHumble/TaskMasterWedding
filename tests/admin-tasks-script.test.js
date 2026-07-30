@@ -28,6 +28,7 @@
 // bottom of this file covers reflectBadge's set/clear round trip.
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
@@ -221,6 +222,8 @@ function editDialogMarkup() {
     '<input type="hidden" name="badge_icon" />' +
     '<input type="hidden" name="badge_name" />' +
     '<button type="button" data-delete-task></button>' +
+    '<p class="form-error dialog-validation-note" hidden>Something above needs fixing.</p>' +
+    '<button type="submit"></button>' +
     '</form>' +
     '</dialog>'
   );
@@ -249,6 +252,7 @@ function createDialogMarkup() {
     '<span id="task-create-badge-name"></span>' +
     '<input type="hidden" name="badge_icon" />' +
     '<input type="hidden" name="badge_name" />' +
+    '<p class="form-error dialog-validation-note" hidden>Something above needs fixing.</p>' +
     '<button type="submit" id="task-create-submit" disabled></button>' +
     '</form>' +
     '</dialog>'
@@ -973,5 +977,195 @@ describe('admin-tasks.js (issue #755 PR review fix — the client-side half now 
 
     expect(createIconEl.style.getPropertyValue('--icon-src')).toBe('');
     expect(createIconEl.hidden).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #918 AC1/AC2 — the `.special-active` / `.flash-later-active`
+  // class-toggle fallback for engines without :has(). The class itself
+  // carries no visual behavior jsdom can observe (no CSS layout engine), so
+  // these assert the DOM FACT the CSS depends on: which elements carry which
+  // class, and when — mirroring how tests (s)/(t)/(v) above already pin the
+  // disabled-state fact syncSpecialPanels() derives from the same radios.
+  // -------------------------------------------------------------------------
+  test('(z) tapping Flash adds .special-active to its own group and none of the others (AC2, tap-time sync)', () => {
+    openEditFor(doc, 2); // ordinary task -- nothing selected yet
+    var groups = doc.querySelectorAll('#task-edit-dialog .special-option-group');
+    groups.forEach(function (g) {
+      expect(g.classList.contains('special-active')).toBe(false);
+    });
+
+    var flashRadio = doc.querySelector(
+      '#task-edit-dialog .special-option input[name="special_mode"][value="flash"]'
+    );
+    flashRadio.checked = true;
+    change(doc, flashRadio);
+
+    var flashGroup = flashRadio.closest('.special-option-group');
+    expect(flashGroup.classList.contains('special-active')).toBe(true);
+    groups.forEach(function (g) {
+      if (g !== flashGroup) expect(g.classList.contains('special-active')).toBe(false);
+    });
+
+    // Switching to None removes it again (AC2's "picking a different mode ...
+    // removes the matching class").
+    var noneRadio = doc.querySelector(
+      '#task-edit-dialog .special-option input[name="special_mode"][value="none"]'
+    );
+    noneRadio.checked = true;
+    change(doc, noneRadio);
+    expect(flashGroup.classList.contains('special-active')).toBe(false);
+  });
+
+  test('(aa) tapping "Pick a time" adds .flash-later-active to the flash-start-field; "Now" removes it (AC2)', () => {
+    openEditFor(doc, 2);
+    var startField = doc.querySelector('#task-edit-dialog .flash-start-field');
+    expect(startField.classList.contains('flash-later-active')).toBe(false);
+
+    var laterRadio = doc.querySelector(
+      '#task-edit-dialog input[name="flash_start_mode"][value="later"]'
+    );
+    laterRadio.checked = true;
+    change(doc, laterRadio);
+    expect(startField.classList.contains('flash-later-active')).toBe(true);
+
+    var nowRadio = doc.querySelector(
+      '#task-edit-dialog input[name="flash_start_mode"][value="now"]'
+    );
+    nowRadio.checked = true;
+    change(doc, nowRadio);
+    expect(startField.classList.contains('flash-later-active')).toBe(false);
+  });
+
+  test('(bb) opening the edit dialog on a saved FLASH task already carries .special-active at open time, not only after a tap (AC2, open-time sync)', () => {
+    // Task 10: a SCHEDULED flash task (specialKind='flash'). openEdit() must
+    // run syncSpecialPanels() itself so the dialog opens with the fallback
+    // class already correct -- a host on a :has()-less phone opening an
+    // ALREADY-armed flash task must see its panel open on first paint, not
+    // only after they themselves flip a radio.
+    openEditFor(doc, 10);
+    var flashRadio = doc.querySelector(
+      '#task-edit-dialog .special-option input[name="special_mode"][value="flash"]'
+    );
+    expect(flashRadio.checked).toBe(true);
+    var flashGroup = flashRadio.closest('.special-option-group');
+    expect(flashGroup.classList.contains('special-active')).toBe(true);
+  });
+
+  test('(cc) the create dialog gets the identical class sync as the host clicks between options (AC2)', () => {
+    click(doc, doc.querySelector('[data-open-create]'));
+    var flashRadio = doc.querySelector(
+      '#task-create-dialog .special-option input[name="special_mode"][value="flash"]'
+    );
+    var flashGroup = flashRadio.closest('.special-option-group');
+    expect(flashGroup.classList.contains('special-active')).toBe(false);
+
+    flashRadio.checked = true;
+    change(doc, flashRadio);
+    expect(flashGroup.classList.contains('special-active')).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #918 AC4 — the in-dialog validation note, driven by a real blocked
+  // native submit (form.reportValidity() on an out-of-range field), not a
+  // hand-called internal function -- exercises attachValidationNote() exactly
+  // as a real browser blocking Save would.
+  // -------------------------------------------------------------------------
+  test('(dd) a blocked native submit (flash minutes below min) reveals the validation note and scrolls the field into view', () => {
+    openEditFor(doc, 2);
+    var note = doc.querySelector('#task-edit-dialog .dialog-validation-note');
+    expect(note.hidden).toBe(true);
+
+    var flashRadio = doc.querySelector(
+      '#task-edit-dialog .special-option input[name="special_mode"][value="flash"]'
+    );
+    flashRadio.checked = true;
+    change(doc, flashRadio); // enables the panel's fields, including minutes
+
+    var minutesField = doc.querySelector('#task-edit-flash-minutes');
+    minutesField.value = '0'; // below min="1"
+    var scrolled = false;
+    minutesField.scrollIntoView = function () {
+      scrolled = true;
+    };
+
+    expect(minutesField.reportValidity()).toBe(false);
+    expect(note.hidden).toBe(false);
+    expect(scrolled).toBe(true);
+  });
+
+  test('(ee) any subsequent input on the form hides the validation note again', () => {
+    openEditFor(doc, 2);
+    var note = doc.querySelector('#task-edit-dialog .dialog-validation-note');
+    var flashRadio = doc.querySelector(
+      '#task-edit-dialog .special-option input[name="special_mode"][value="flash"]'
+    );
+    flashRadio.checked = true;
+    change(doc, flashRadio);
+    var minutesField = doc.querySelector('#task-edit-flash-minutes');
+    minutesField.value = '0';
+    minutesField.scrollIntoView = function () {};
+    minutesField.reportValidity();
+    expect(note.hidden).toBe(false);
+
+    minutesField.value = '15';
+    minutesField.dispatchEvent(new doc.defaultView.Event('input', { bubbles: true }));
+    expect(note.hidden).toBe(true);
+  });
+
+  test('(ff) the create dialog carries the identical validation-note wiring', () => {
+    click(doc, doc.querySelector('[data-open-create]'));
+    var note = doc.querySelector('#task-create-dialog .dialog-validation-note');
+    expect(note.hidden).toBe(true);
+
+    var flashRadio = doc.querySelector(
+      '#task-create-dialog .special-option input[name="special_mode"][value="flash"]'
+    );
+    flashRadio.checked = true;
+    change(doc, flashRadio);
+    var minutesField = doc.querySelector('#task-create-flash-minutes');
+    minutesField.value = '0';
+    minutesField.scrollIntoView = function () {};
+
+    expect(minutesField.reportValidity()).toBe(false);
+    expect(note.hidden).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #918 AC3/AC5 — CSS guardrails. jsdom has no layout engine (see
+// tests/leaderboard-overflow.test.js's own file header for why), so these pin
+// the CSS source text the same way that file's own guardrail describe block
+// does: the inline CSS-block regex pattern, reused verbatim here rather than
+// re-invented.
+// ---------------------------------------------------------------------------
+describe('CSS guardrail: touch-action and chip-wrap rules the #918 fix depends on', () => {
+  const THEME_PATH = path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css');
+
+  function ruleBlock(source, selector) {
+    const start = source.indexOf(selector + ' {');
+    if (start === -1) return null;
+    const end = source.indexOf('}', start);
+    return source.slice(start, end + 1);
+  }
+
+  test('.task-dialog-form sets touch-action: manipulation (AC3)', () => {
+    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const block = ruleBlock(themeSrc, '.task-dialog-form');
+    expect(block).not.toBeNull();
+    expect(block).toMatch(/touch-action:\s*manipulation/);
+  });
+
+  test('.worth-chips sets flex-wrap: wrap (AC5)', () => {
+    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const block = ruleBlock(themeSrc, '.worth-chips');
+    expect(block).not.toBeNull();
+    expect(block).toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  test('.admin-chip-strip sets flex-wrap: wrap (AC5)', () => {
+    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const block = ruleBlock(themeSrc, '.admin-chip-strip');
+    expect(block).not.toBeNull();
+    expect(block).toMatch(/flex-wrap:\s*wrap/);
   });
 });
