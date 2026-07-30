@@ -28,6 +28,8 @@ let db;
 let config;
 let photos;
 let realJpeg;
+let realPng;
+let realWebp;
 
 const HEIC_FIXTURE = fs.readFileSync(
   path.join(__dirname, '../fixtures/sample-photos/sample-heic-01.heic')
@@ -46,6 +48,21 @@ beforeAll(async () => {
     create: { width: 8, height: 8, channels: 3, background: { r: 120, g: 180, b: 90 } },
   })
     .jpeg()
+    .toBuffer();
+
+  // #933 AC1: real decodable PNG/WebP buffers (same sharp({create: ...})
+  // pattern as realJpeg above), so the octet-stream-sniff submissions below
+  // are genuine images that must survive thumbnailing, not just pass the
+  // signature check.
+  realPng = await sharp({
+    create: { width: 8, height: 8, channels: 3, background: { r: 40, g: 200, b: 210 } },
+  })
+    .png()
+    .toBuffer();
+  realWebp = await sharp({
+    create: { width: 8, height: 8, channels: 3, background: { r: 220, g: 90, b: 30 } },
+  })
+    .webp()
     .toBuffer();
 });
 
@@ -389,6 +406,162 @@ describe('edge case: a HEIC-candidate mimetype that is not really HEIC is still 
     expect(page.status).toBe(200);
     expect(page.text).toContain(photos.ALLOWED_LABEL);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #933: Android SAF content pickers (and the HTML multipart algorithm
+// itself, whenever File.type is empty) hand over a real JPEG/PNG/WebP under
+// the generic application/octet-stream mimetype. Before this fix,
+// resolveUploadedFile sniffed octet-stream ONLY for HEIC and rejected
+// anything else under that mimetype as "not allowed" — deleting a guest's
+// real photo. AC1 covers the fix (sniff + rename to the right extension);
+// AC2 confirms the gate still does not widen to arbitrary bytes.
+// ---------------------------------------------------------------------------
+describe('#933 AC1: a real JPEG/PNG/WebP declared application/octet-stream is sniffed, retyped, and stored', () => {
+  it.each([
+    ['JPEG', () => realJpeg, '.jpg'],
+    ['PNG', () => realPng, '.png'],
+    ['WebP', () => realWebp, '.webp'],
+  ])(
+    '%s bytes under application/octet-stream persist under %s and the submission succeeds',
+    async (label, getBuffer, expectedExt) => {
+      const { guestId, taskId, token } = insertGuestAndTask(`heic-933-${label.toLowerCase()}`);
+      const agent = await makeGuestAgent(token);
+
+      const res = await agent.post(`/tasks/${taskId}/submit`).attach('photo', getBuffer(), {
+        // No real Content-Type from the client — the Android SAF / empty
+        // File.type case this issue exists for.
+        filename: `android-photo-${label.toLowerCase()}`,
+        contentType: 'application/octet-stream',
+      });
+
+      expect([301, 302, 303]).toContain(res.status);
+      expect(res.headers.location).toBe(`/tasks/${taskId}`);
+
+      const row = db
+        .prepare(
+          'SELECT photo_path, thumb_path FROM submissions WHERE guest_id = ? AND task_id = ?'
+        )
+        .get(guestId, taskId);
+      expect(row).toBeDefined(); // the submission was NOT rejected
+      expect(row.photo_path.endsWith(expectedExt)).toBe(true);
+
+      // The provisional `.heic` disk name (diskStorage.filename's fallback for
+      // a mimetype not in ALLOWED_MIME_TO_EXT) was renamed away, not left
+      // behind or copied.
+      expect(heicFilesIn(config.UPLOADS_DIR)).toEqual([]);
+
+      // Served back correctly, and the thumbnail generated -- proving the
+      // stored bytes are genuinely the sniffed format, not junk that merely
+      // matched a signature.
+      const original = await agent.get('/uploads/' + row.photo_path);
+      expect(original.status).toBe(200);
+      const thumb = await agent.get('/thumbs/' + row.thumb_path);
+      expect(thumb.status).toBe(200);
+    }
+  );
+});
+
+describe('#933 AC2: octet-stream bytes matching no known signature are still rejected', () => {
+  it('a PDF-header buffer declared application/octet-stream is unlinked and rejected with the standard copy', async () => {
+    const { guestId, taskId, token } = insertGuestAndTask('heic-933-pdf');
+    const agent = await makeGuestAgent(token);
+
+    const uploadsBefore = fs.readdirSync(config.UPLOADS_DIR).sort();
+
+    // Handcrafted bytes (not sharp-generated -- this must NOT decode as any
+    // allowed format): a real PDF magic-byte header.
+    const pdfBytes = Buffer.from('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n', 'binary');
+
+    const res = await agent.post(`/tasks/${taskId}/submit`).attach('photo', pdfBytes, {
+      filename: 'not-a-photo.pdf',
+      contentType: 'application/octet-stream',
+    });
+
+    expect([301, 302, 303]).toContain(res.status);
+    expect(res.headers.location).toBe(`/tasks/${taskId}`);
+
+    const row = db
+      .prepare('SELECT id FROM submissions WHERE guest_id = ? AND task_id = ?')
+      .get(guestId, taskId);
+    expect(row).toBeUndefined();
+
+    // No new file left behind -- the gate did not widen to arbitrary bytes.
+    expect(fs.readdirSync(config.UPLOADS_DIR).sort()).toEqual(uploadsBefore);
+
+    const page = await agent.get(`/tasks/${taskId}`);
+    expect(page.status).toBe(200);
+    expect(page.text).toContain(photos.ALLOWED_LABEL);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #933 AC3: image/heic-sequence (hevc-branded) and image/heif-sequence
+// (msf1-branded) must pass fileFilter (new HEIC_CANDIDATE_MIMES entries) and
+// sniff as HEIC (msf1 was already an accepted brand; hevc is new) so they
+// reach convertHeicToJpeg -- deliberately bounded at that entry point per the
+// issue: the repo has no decodable hevc-branded fixture, so end-to-end decode
+// success is not asserted. Both fixtures below are header-only (ftyp + a
+// well-formed ispe, no HEVC payload) -- craftHeicHeader from
+// tests/helpers/heic-fixtures.js now takes an optional `brand` param, used
+// here to supply 'hevc'/'msf1' instead of the default 'heic'.
+//
+// Reaching convertHeicToJpeg is proven by the FLASH MESSAGE: a rejection at
+// the earlier "declared type doesn't map / doesn't sniff as jpeg-png-webp-
+// heic" gate would say photos.ALLOWED_LABEL ("not allowed... JPEG, PNG, or
+// WebP"); a header-only HEIC that DID reach the decode fails inside the
+// worker instead ("HEIF image not found" -- an uncoded error, so
+// resolveUploadedFile wraps it in the generic "couldn't be read" copy, per
+// GUEST_SAFE_CONVERT_CODES) -- the same observable shape as the existing
+// "worker decode failure" suite's 100x100 'heic'-branded fixture below, just
+// with the new brand and mimetype.
+// ---------------------------------------------------------------------------
+
+describe('#933 AC3: heic-sequence / heif-sequence candidate mimes sniff by ftyp brand and reach the convert path', () => {
+  it.each([
+    ['hevc', 'image/heic-sequence'],
+    ['msf1', 'image/heif-sequence'],
+    ['hevx', 'image/heic-sequence'],
+  ])(
+    'a %s-branded fixture declared %s passes fileFilter, sniffs as HEIC, and reaches convertHeicToJpeg',
+    async (brand, mimetype) => {
+      const { guestId, taskId, token } = insertGuestAndTask(`heic-933-${brand}`);
+      const agent = await makeGuestAgent(token);
+
+      const uploadsBefore = fs.readdirSync(config.UPLOADS_DIR).sort();
+
+      const res = await agent
+        .post(`/tasks/${taskId}/submit`)
+        .attach('photo', craftHeicHeader(100, 100, brand), {
+          filename: 'live-photo.heic',
+          contentType: mimetype,
+        });
+
+      // The request completed normally (fileFilter accepted the mimetype --
+      // a rejection there would still redirect too, so this alone isn't the
+      // proof; the message check below is).
+      expect([301, 302, 303]).toContain(res.status);
+      expect(res.headers.location).toBe(`/tasks/${taskId}`);
+
+      const row = db
+        .prepare('SELECT id FROM submissions WHERE guest_id = ? AND task_id = ?')
+        .get(guestId, taskId);
+      expect(row).toBeUndefined(); // no decodable payload -- rejected, but AFTER reaching convert
+
+      expect(fs.readdirSync(config.UPLOADS_DIR).sort()).toEqual(uploadsBefore);
+      expect(heicFilesIn(config.UPLOADS_DIR)).toEqual([]);
+
+      // Proves it reached convertHeicToJpeg rather than being rejected at the
+      // earlier type gate: the "not allowed" copy is ABSENT, because this
+      // failure came from the worker's decode error, wrapped in the distinct
+      // generic "couldn't be read" copy instead (checked apostrophe-free —
+      // EJS's default escapeFn renders `'` as `&#39;` in the response body).
+      const page = await agent.get(`/tasks/${taskId}`);
+      expect(page.status).toBe(200);
+      expect(page.text).not.toContain(photos.ALLOWED_LABEL);
+      expect(page.text).toContain('Sorry, that photo');
+    }
+  );
 });
 
 // ---------------------------------------------------------------------------
