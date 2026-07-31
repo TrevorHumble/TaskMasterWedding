@@ -2883,3 +2883,41 @@ set upstream in the guard survives untouched to the client:
 No new middleware was added: `STATIC_PHOTO_OPTS` is passed directly as `express.static`'s second
 argument in `src/app.js`, and the guards' existing single functions grew one `res.set()` line each per
 branch — the same shape the #191 admin bypass already used.
+
+## Feed in-place loading: scroll correction owned by the module, native anchoring suppressed only mid-insert (#677)
+
+**Date:** 2026-07-29. **Status:** shipped (phase-2, PR review fix).
+
+**The problem.** #677's phase-1 approved module (`src/public/js/feed-scroll.js`) restores scroll
+position itself after prepending a newer window above the guest's current photo (measure the anchor
+tile's position before/after insert, `scrollBy` the difference). The first cut also disabled native CSS
+scroll anchoring statically and permanently — `.feed { overflow-anchor: none }` plus a second rule
+covering everything below it (sentinels, edges, pager, footer) — reasoning that native anchoring and the
+module's own correction would otherwise stack and double-correct. PR review found two real problems with
+that static approach, not hypothetical ones: `.feed` is not unique to this page (`src/views/admin-photos.ejs`
+renders its own `.feed` for the moderation view), so the static rule silently turned off anchoring there
+too, on a surface #677 was never meant to touch; and suppressing anchoring page-wide, permanently, also
+removed the browser's own compensation for photos ABOVE the viewport that resolve to their real height
+AFTER paint (issue #612's `contain-intrinsic-size: 600px` on `.feed-item` is only an estimate) — with
+anchoring off at all times, a guest scrolling up through freshly-prepended cards would see the page drift
+as those cards resolved, with nothing left to correct it once the module's own one-shot adjustment had
+already run.
+
+**The fix: suppress anchoring only for the tick that processes one insert.** `overflow-anchor: none` on
+one element excludes that element AND its whole subtree from anchor candidacy, so toggling it on
+`<body>` (a single `body.feed-inserting` rule in `theme.css`) covers every anchor candidate on the page in
+one place, without scoping to `.feed` at all — the admin photos panel is never touched. `feed-scroll.js`'s
+`load()` takes a counted hold on the class immediately before calling `edge.insert(...)` (a counter, not
+a bare add/remove pair, so overlapping inserts from the two independent edges never strip the class out
+from under each other) and releases it two animation frames later (one frame for the browser's layout
+pass over the inserted nodes, a second so anchoring is live again before the next observer tick), falling
+back to a synchronous release when `requestAnimationFrame` is unavailable so a test environment without
+it never hangs. Native anchoring is
+therefore OFF only while the module's own measure-and-adjust (`prependNewer`) is doing the correcting for
+that one insert, and back ON the rest of the time — including while a later-resolving image height drifts
+the layout, which is exactly the case the static version broke.
+
+**Provenance.** Issue #677; the original static suppression was written against the 2026-07-29 phase-1
+preview observation (headless Chrome: an append at the bottom sentinel anchored there instead of leaving
+scroll position untouched, stalling the observer chain) — that observation is still the reason anchoring
+must be off during an insert; the fix only narrows WHEN and WHERE it is off.
