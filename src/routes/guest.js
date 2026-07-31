@@ -90,6 +90,13 @@ const photos = require('../services/photos');
 // Scoring service (section 06) — REAL exports only.
 const scoring = require('../services/scoring');
 
+// The 'u<id>'/'t<id>'/'m' scope-token grammar's single owner (issue #952 PR
+// review) — GET / below calls feed.scopeToken to hand My Photos' tile grid
+// its own already-tokenized scope, rather than the view hand-concatenating
+// 'u' + guest.id the way it did before this fix. No other export of this
+// module is used here; community.js remains the primary feed.js consumer.
+const feed = require('../services/feed');
+
 // The recap service (issue #644) — owns the recap row/count reads and the
 // checkpoint write (POST /recap/seen below).
 const notifications = require('../services/notifications');
@@ -337,6 +344,11 @@ router.get('/', function (req, res) {
       totalTasks: totalTasks,
       completedTasks: clampedCompletedTasks,
       progressPercent: progressPercent,
+      // My Photos' own scope token (issue #952 PR review) — every tile here
+      // is this signed-in guest's own photo, so the token is resolved once,
+      // here, via feed.scopeToken rather than the view hand-building 'u' +
+      // guest.id itself.
+      scopeToken: feed.scopeToken({ type: 'guest', id: guest.id }),
     })
   );
 });

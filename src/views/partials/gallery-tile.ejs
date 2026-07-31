@@ -1,0 +1,94 @@
+<%# src/views/partials/gallery-tile.ejs — the single photo tile every photo
+    grid renders (issue #952 AC1/AC2, "gallery parity"): the Shared Gallery's
+    recent wall and grouped-preview sections, a guest's public profile, and
+    "My Photos" all open the SAME tile — thumbnail linking into the feed at
+    that photo — so the mark a tile wears never drifts per surface. Before
+    this partial, the tile markup was hand-copied at three call sites
+    (gallery.ejs's renderTile, public-profile.ejs, guest-home.ejs); a fourth
+    copy was the failure mode this extraction closes off, not a style
+    preference.
+
+    The tile's own href/aria-label are built HERE, not by the caller (PR
+    review of #952): every caller was hand-concatenating the identical
+    '/feed?from=<id>&scope=<token>#photo-<id>' / 'View photo for <alt>'
+    formulas, which is the exact copy-drift this partial exists to close off
+    for the surrounding markup, just one layer further in. `scopeToken` is the
+    caller's ALREADY-TOKENIZED '?scope=' value ('u<id>' | 't<id>' | 'm',
+    from feed.scopeToken() — see feed.js and community.js), never a scope
+    descriptor object and never hand-built from raw parts here or by a caller.
+
+    A top-5 crowd-favorite photo wears its crown, top-left (issue #788); a
+    photo holding a released task-badge rank wears its victory medal,
+    bottom-left (issue #811/#893) — both marks are OPTIONAL lookups, so a
+    caller that omits one (guest-home's bare "My Photos" tiles) gets a plain
+    tile rather than a throw, the same guard idiom every lookup below uses.
+    overlayCount/overlayHref (issue #251) are the grouped-preview "+N" scrim
+    a gallery section's overflowing last tile shows in place of the medal,
+    and take over the tile's link/aria-label while active — /gallery's
+    grouped previews are the only caller that ever passes them.
+
+    Locals:
+      thumbPath    (required) — the submission's thumbnail path (rendered as
+                   /thumbs/<thumbPath>).
+      id           (required) — the submission id: keys the crownRank/
+                   badgeVictory lookups below AND builds the tile's own feed
+                   link (/feed?from=<id>...).
+      alt          (required) — the <img>'s alt text; also seeds the tile's
+                   own aria-label ("View photo for <alt>").
+      scopeToken   (optional) — the feed's already-tokenized '?scope=' value
+                   ('u<id>' | 't<id>' | 'm'), from feed.scopeToken() — never
+                   built here or by the caller from raw parts. Falsy (the
+                   default) omits the scope param entirely, an unscoped link.
+      crownRank    (optional) — submission_id -> rank map (issue #788).
+                   Defaults to {} (the crown matches nothing).
+      crownGoldId  (optional) — the sole rank-1 submission id, or null.
+                   Defaults to null (no gold treatment).
+      badgeVictory (optional) — submission_id -> { rank, badge } map (issue
+                   #811/#893). Defaults to {} (the medal matches nothing).
+      overlayCount (optional) — truthy renders the "+N" scrim instead of the
+                   medal, and repoints the tile at overlayHref / "See all
+                   photos in this section" instead of its own href/aria-label.
+                   Falsy (the default) renders the plain tile.
+      overlayHref  (required when overlayCount is truthy) — where the "+N"
+                   scrim links. %>
+<% var crownRank = (typeof crownRank !== 'undefined' && crownRank) ? crownRank : {}; %>
+<% var crownGoldId = (typeof crownGoldId !== 'undefined') ? crownGoldId : null; %>
+<% var badgeVictory = (typeof badgeVictory !== 'undefined' && badgeVictory) ? badgeVictory : {}; %>
+<% var overlayCount = (typeof overlayCount !== 'undefined') ? overlayCount : 0; %>
+<% var scopeToken = (typeof scopeToken !== 'undefined' && scopeToken) ? scopeToken : null; %>
+<% var href = '/feed?from=' + id + (scopeToken ? '&scope=' + scopeToken : '') + '#photo-' + id; %>
+<% var ariaLabel = 'View photo for ' + alt; %>
+<figure class="gallery-item">
+  <a
+    class="gallery-thumb-btn"
+    href="<%= overlayCount ? overlayHref : href %>"
+    aria-label="<%= overlayCount ? 'See all photos in this section' : ariaLabel %>"
+  >
+    <img
+      class="gallery-thumb"
+      src="/thumbs/<%= thumbPath %>"
+      alt="<%= alt %>"
+      loading="lazy"
+      width="400"
+      height="400"
+    />
+    <% if (!overlayCount && crownRank[id]) { %>
+      <%- include('crowd-favorite-mark', {
+            rank: crownRank[id],
+            gold: crownGoldId !== null && id === crownGoldId
+          }) %>
+    <% } %>
+    <% if (overlayCount) { %>
+      <span class="tile-more">+<%= overlayCount %></span>
+    <% } else if (badgeVictory[id]) { %>
+      <%# The gallery tile carries no like-count overlay (issue #811): the
+          only bottom-left mark a photo wears is its task-badge victory
+          medal, when it has won one — rendering the actual badge won
+          (issue #893), not a generic glyph. %>
+      <%- include('badge-victory-mark', {
+            rank: badgeVictory[id].rank,
+            badge: badgeVictory[id].badge
+          }) %>
+    <% } %>
+  </a>
+</figure>

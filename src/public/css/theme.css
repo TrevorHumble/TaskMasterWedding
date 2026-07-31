@@ -2435,32 +2435,6 @@ textarea {
   aspect-ratio: 1;
   display: block;
 }
-/* Caption overlay — no longer used by the main /gallery grid (issue #81
-   moved captions off the grid), but src/views/public-profile.ejs still
-   renders .gallery-caption/.gallery-task/.gallery-text on its own photo
-   grid, so these rules stay live for that page. */
-.gallery-caption {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--fs-eyebrow);
-  color: var(--white);
-  background: linear-gradient(transparent, rgba(42, 67, 53, 0.72));
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.gallery-task {
-  font-weight: 600;
-  color: var(--white);
-}
-.gallery-text {
-  color: rgba(255, 255, 255, 0.8);
-  font-style: italic;
-}
-
 /* The view switcher (Recent / By task / By person) renders the app-wide
    .chip-filter pattern (see "Task filter chips" above) — no gallery-specific
    switcher styles. */
@@ -3967,38 +3941,6 @@ body:has(dialog[open]) {
   cursor: pointer;
   font: inherit;
   text-align: left;
-}
-.photo-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-3);
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.photo-item {
-  position: relative;
-  border-radius: var(--radius-input);
-  overflow: hidden;
-  background: var(--green-50);
-  border: var(--border-hairline);
-  aspect-ratio: 1;
-}
-.photo-thumb {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.photo-caption {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--fs-eyebrow);
-  color: var(--white);
-  background: linear-gradient(transparent, rgba(42, 67, 53, 0.72));
 }
 .btn-primary {
   background: var(--color-primary);

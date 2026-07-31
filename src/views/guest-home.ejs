@@ -79,24 +79,35 @@
     <% if (submissions.length === 0) { %>
       <p class="muted">No photos yet. <a href="/tasks">See the tasks</a></p>
     <% } else { %>
-      <ul class="photo-grid">
+      <%# Gallery-parity: same tile partial as /gallery and /u/:id
+          (partials/gallery-tile), replacing the one-off .photo-grid list.
+          A tile opens the feed at that photo — card with likes/comments,
+          then the full-res lightbox — never the /p/:id dead end. A memory
+          (issue #247, s.task_id IS NULL) keeps its caption-fallback
+          accessible name. My Photos passes crownRank/crownGoldId/
+          badgeVictory explicitly as null — bare tiles are this page's own
+          contract (no crown or medal, matching the approved look), not an
+          accident of omitting locals the partial happens to default; the
+          partial's own guards treat an explicit null identically to the
+          local being absent. %>
+      <div class="gallery-grid">
         <% submissions.forEach(function (s) { %>
-          <% var captionText = s.task_id ? s.task_title : s.caption; %>
-          <% var photoName = captionText || 'a shared memory'; %>
-          <li class="photo-item">
-            <%# Every thumbnail opens the photo detail view at /p/:id (issue
-                #613), mirroring the anchor-around-thumbnail pattern already
-                shipped on public-profile.ejs (:92-105). A memory (issue #247,
-                s.task_id IS NULL) has no task to link to — the accessible
-                name and caption fall back to the memory's own caption, or
-                "a shared memory" if there's no caption either (AC4/AC8). %>
-            <a href="/p/<%= s.id %>" aria-label="View photo for <%= photoName %>">
-              <img src="/thumbs/<%= s.thumb_path %>" alt="<%= photoName %>" class="photo-thumb" />
-            </a>
-            <span class="photo-caption"><%= captionText %></span>
-          </li>
+          <%
+            /* photoName: a memory (task_id IS NULL) has no task title, so
+               the accessible name falls back to the memory's own caption. */
+            var photoName = (s.task_id ? s.task_title : s.caption) || 'a shared memory';
+          %>
+          <%- include('partials/gallery-tile', {
+                thumbPath: s.thumb_path,
+                id: s.id,
+                alt: photoName,
+                scopeToken: scopeToken,
+                crownRank: null,
+                crownGoldId: null,
+                badgeVictory: null
+              }) %>
         <% }); %>
-      </ul>
+      </div>
     <% } %>
   </section>
 

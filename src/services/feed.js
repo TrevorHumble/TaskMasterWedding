@@ -189,43 +189,225 @@ function recentPage(taskFilter, page) {
   return { photos, page: clampedPage, totalPages, total };
 }
 
+// ---------------------------------------------------------------------------
+// Scoped feed windows (issue #952): a feed opened from a profile ("Nora's
+// photos"), a gallery task section, or the Memories section is constrained to
+// that section's own set — never the whole event. Phase 1 mocked this
+// client-side (download a full unscoped window, then hide the non-matching
+// cards); doing it here, in the WHERE clause, is what actually saves the
+// venue-wifi bytes issue #194 exists to bound.
+//
+// A scope is one of three shapes. SCOPE_SHAPES is the ONE table that owns
+// each shape's predicate/args/matches/token — the SQL predicate, the query
+// args, the row-membership test, and the '?scope=' token — so changing any
+// of THOSE four means editing one row here, not hunting four separate
+// switches. It is not the only place a new shape must be touched, though:
+// parseScope() below is the other half of the token grammar (string ->
+// descriptor, the mirror of this table's token() direction), and
+// community.js's scopeBackLinkContext owns the back-link copy (where "back"
+// leads and what the scoped set is called) for each shape — a fourth shape
+// needs a row here AND a parseScope branch AND a scopeBackLinkContext branch,
+// not just this table:
+//   'guest'  -> s.guest_id = ?    (a profile's own photos)
+//   'task'   -> s.task_id = ?     (one gallery task section)
+//   'memory' -> s.task_id IS NULL (the task-free Memories section)
+// buildScopedStatements() stamps out the same three statements (anchor
+// window / first page / newer-ids) once per shape below — precompiled at
+// module load, not rebuilt per request — plus once more for the synthetic
+// 'none' shape (today's unscoped feed, which owns no descriptor and so has
+// no row in SCOPE_SHAPES), so feedWindow() picks a ready statement set
+// instead of composing SQL text on every call.
+//
+// A lookup keyed by a scope.type absent from this table (which should never
+// happen — parseScope below is the only producer of a scope descriptor, and
+// it only ever returns a type present here) throws rather than silently
+// falling through to another shape's behavior; see shapeFor().
+// ---------------------------------------------------------------------------
+const SCOPE_SHAPES = {
+  guest: {
+    predicate: 's.guest_id = ?',
+    args: (scope) => [scope.id],
+    matches: (row, scope) => row.guest_id === scope.id,
+    token: (scope) => 'u' + scope.id,
+  },
+  task: {
+    predicate: 's.task_id = ?',
+    args: (scope) => [scope.id],
+    matches: (row, scope) => row.task_id === scope.id,
+    token: (scope) => 't' + scope.id,
+  },
+  memory: {
+    predicate: 's.task_id IS NULL',
+    args: () => [],
+    matches: (row) => row.task_id === null,
+    token: () => 'm',
+  },
+};
+
+// The one guarded lookup into SCOPE_SHAPES — every function below that needs
+// a shape's behavior goes through this instead of indexing SCOPE_SHAPES
+// directly, so an unknown scope.type throws here once rather than each call
+// site risking a silent `undefined` fall-through.
+function shapeFor(scopeType) {
+  const shape = SCOPE_SHAPES[scopeType];
+  if (!shape) {
+    throw new Error('unknown scope type: ' + scopeType);
+  }
+  return shape;
+}
+
 // One /feed window: the anchor row (inclusive) and everything older, capped.
 // The +1 in the LIMIT is how olderFromId is discovered — the extra row, when
-// present, is exactly the next-older page's anchor.
-const stmtFeedWindowFromAnchor = db.prepare(`${GALLERY_SELECT_BODY}
-   WHERE ${VISIBLE_WHERE}
-     AND (s.created_at < ? OR (s.created_at = ? AND s.id <= ?))
-   ${ORDER_NEWEST_FIRST}
-   LIMIT ${FEED_PAGE_SIZE + 1}`);
+// present, is exactly the next-older page's anchor. `predicate`, when given,
+// is one of SCOPE_SHAPES's `.predicate` values above; its placeholder (if it
+// has one) binds AFTER the anchor clause's three placeholders, in
+// fromAnchor/newerIds, or alone in firstPage.
+function buildScopedStatements(predicate) {
+  const scopeClause = predicate ? ` AND ${predicate}` : '';
+  return {
+    fromAnchor: db.prepare(`${GALLERY_SELECT_BODY}
+       WHERE ${VISIBLE_WHERE}
+         AND (s.created_at < ? OR (s.created_at = ? AND s.id <= ?))${scopeClause}
+       ${ORDER_NEWEST_FIRST}
+       LIMIT ${FEED_PAGE_SIZE + 1}`),
+    firstPage: db.prepare(`${GALLERY_SELECT_BODY}
+       WHERE ${VISIBLE_WHERE}${scopeClause}
+       ${ORDER_NEWEST_FIRST}
+       LIMIT ${FEED_PAGE_SIZE + 1}`),
+    // Up to FEED_PAGE_SIZE ids strictly newer than the window's first photo,
+    // walked ascending (nearest first). Used to find the next-newer page's
+    // anchor: when a full FEED_PAGE_SIZE of newer rows exists, the farthest
+    // of them starts a page that ends exactly where this window begins; when
+    // fewer exist, the newer page is simply the first page (no anchor).
+    newerIds: db.prepare(`
+      SELECT s.id AS submission_id
+        FROM submissions s
+       WHERE ${VISIBLE_WHERE}
+         AND (s.created_at > ? OR (s.created_at = ? AND s.id > ?))${scopeClause}
+       ${ORDER_OLDEST_FIRST}
+       LIMIT ${FEED_PAGE_SIZE}`),
+  };
+}
 
-const stmtFeedWindowFirstPage = db.prepare(`${GALLERY_SELECT_BODY}
-   WHERE ${VISIBLE_WHERE}
-   ${ORDER_NEWEST_FIRST}
-   LIMIT ${FEED_PAGE_SIZE + 1}`);
+// One statement set per scope shape, built once at module load — never
+// rebuilt per request. 'none' (today's unscoped feed) has no SCOPE_SHAPES
+// row and so is built separately, with a null predicate.
+const FEED_STATEMENTS_BY_SCOPE = { none: buildScopedStatements(null) };
+for (const [shapeName, shape] of Object.entries(SCOPE_SHAPES)) {
+  FEED_STATEMENTS_BY_SCOPE[shapeName] = buildScopedStatements(shape.predicate);
+}
 
-// Up to FEED_PAGE_SIZE ids strictly newer than the window's first photo,
-// walked ascending (nearest first). Used to find the next-newer page's
-// anchor: when a full FEED_PAGE_SIZE of newer rows exists, the farthest of
-// them starts a page that ends exactly where this window begins; when fewer
-// exist, the newer page is simply the first page (/feed with no anchor).
-const stmtFeedNewerIds = db.prepare(`
-  SELECT s.id AS submission_id
-    FROM submissions s
-   WHERE ${VISIBLE_WHERE}
-     AND (s.created_at > ? OR (s.created_at = ? AND s.id > ?))
-   ${ORDER_OLDEST_FIRST}
-   LIMIT ${FEED_PAGE_SIZE}`);
+// The statement set for a scope (or the unscoped 'none' set). Resolves
+// through shapeFor() for the guard rather than repeating its "unknown scope
+// type" check here — the ONE throw for an unrecognized scope.type lives in
+// shapeFor, not duplicated per lookup function. FEED_STATEMENTS_BY_SCOPE is
+// built by iterating SCOPE_SHAPES' own keys above, so any scope.type that
+// clears shapeFor's guard is guaranteed to have a statement set here too.
+function statementsFor(scope) {
+  if (!scope) {
+    return FEED_STATEMENTS_BY_SCOPE.none;
+  }
+  shapeFor(scope.type);
+  return FEED_STATEMENTS_BY_SCOPE[scope.type];
+}
+
+// A guest/task id referenced by a scope must exist for the scope to be
+// honored (AC4: a well-formed but nonexistent id falls back to unscoped,
+// same as a malformed one) — one EXISTS-shaped lookup per shape here; the
+// display name/title used in the back-link copy is a SEPARATE lookup owned
+// by community.js (only needed when a valid scope is actually rendered).
+const stmtScopeGuestExists = db.prepare('SELECT 1 FROM guests WHERE id = ?');
+const stmtScopeTaskExists = db.prepare('SELECT 1 FROM tasks WHERE id = ?');
 
 /**
- * One bounded page of the full-screen feed (issue #194).
+ * Parse a `?scope=` query value into a scope descriptor. The single owner of
+ * the 'u<id>' / 't<id>' / 'm' grammar — every caller (feedWindow below,
+ * community.js's back-link context) reads the same parsed shape rather than
+ * re-matching the string.
+ *
+ * @param {*} raw - req.query.scope, of unknown shape (string, array, undefined).
+ * @returns {{type: 'guest', id: number} | {type: 'task', id: number} |
+ *   {type: 'memory'} | null} null for a missing, malformed, or well-formed-
+ *   but-nonexistent scope (AC4) — every one of those degrades to the plain
+ *   unscoped feed.
+ */
+function parseScope(raw) {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  let m = /^u(\d+)$/.exec(raw);
+  if (m) {
+    const id = parseInt(m[1], 10);
+    return stmtScopeGuestExists.get(id) ? { type: 'guest', id } : null;
+  }
+  m = /^t(\d+)$/.exec(raw);
+  if (m) {
+    const id = parseInt(m[1], 10);
+    return stmtScopeTaskExists.get(id) ? { type: 'task', id } : null;
+  }
+  if (raw === 'm') {
+    return { type: 'memory' };
+  }
+  return null;
+}
+
+/**
+ * Does a GALLERY_COLUMNS row belong to the scoped set? Used only to decide
+ * whether an anchor row is IN the scope (AC4's out-of-scope-`from` fallback)
+ * — every other row's membership is enforced in SQL by the scoped statements
+ * above, not re-checked here. Delegates to the shape's own `.matches` — see
+ * SCOPE_SHAPES.
+ */
+function matchesScope(row, scope) {
+  return shapeFor(scope.type).matches(row, scope);
+}
+
+/**
+ * The query args a scope's predicate placeholder needs, or [] for an
+ * unscoped ('none') lookup. Delegates to the shape's own `.args` — see
+ * SCOPE_SHAPES.
+ */
+function scopeArgsFor(scope) {
+  if (!scope) {
+    return [];
+  }
+  return shapeFor(scope.type).args(scope);
+}
+
+/**
+ * The canonical 'u<id>' / 't<id>' / 'm' token for a scope, or null for no
+ * scope. The single owner of re-serializing a parsed scope back into a query
+ * param (issue #952) — every pager/back-link href, in this file or in
+ * community.js, reads the SAME token rather than re-deriving it from the
+ * scope shape. Delegates to the shape's own `.token` — see SCOPE_SHAPES.
+ *
+ * @param {{type: 'guest'|'task'|'memory', id?: number}|null} scope
+ * @returns {string|null}
+ */
+function scopeToken(scope) {
+  if (!scope) {
+    return null;
+  }
+  return shapeFor(scope.type).token(scope);
+}
+
+/**
+ * One bounded page of the full-screen feed (issue #194), optionally
+ * constrained to a scope (issue #952: a profile, a gallery task section, or
+ * the Memories section).
  *
  * The window starts AT the anchor submission (so /feed?from=<id>#photo-<id>
  * always lands on a page containing that photo) and runs older from there,
  * capped at FEED_PAGE_SIZE rows. A missing, invalid, or taken-down anchor
  * falls back to the first (newest) page rather than erroring — a stale link
- * to a moderated photo should degrade to "show me the feed", not break.
+ * to a moderated photo should degrade to "show me the feed", not break. An
+ * anchor that exists but falls OUTSIDE the scope gets the identical
+ * treatment (AC4): the scoped set's own first page, not the anchor's real
+ * position.
  *
  * @param {number|null} fromId - anchor submission id, or null for the newest page.
+ * @param {{type: 'guest'|'task'|'memory', id?: number}|null} [scope] - from
+ *        parseScope(), or null/omitted for today's unscoped feed.
  * @returns {{
  *   photos: object[],          // ≤ FEED_PAGE_SIZE rows, newest-first
  *   olderFromId: number|null,  // anchor for the next-older page, or null when none
@@ -234,15 +416,21 @@ const stmtFeedNewerIds = db.prepare(`
  *                              // hasNewer true) means that page is the first page
  * }}
  */
-function feedWindow(fromId) {
+function feedWindow(fromId, scope) {
+  const stmts = statementsFor(scope);
+  const scopeArgs = scopeArgsFor(scope);
+
   let anchor = null;
   if (Number.isInteger(fromId) && fromId >= 1) {
     anchor = stmtDetail.get(fromId) || null;
+    if (anchor && scope && !matchesScope(anchor, scope)) {
+      anchor = null;
+    }
   }
 
   const rows = anchor
-    ? stmtFeedWindowFromAnchor.all(anchor.created_at, anchor.created_at, anchor.submission_id)
-    : stmtFeedWindowFirstPage.all();
+    ? stmts.fromAnchor.all(anchor.created_at, anchor.created_at, anchor.submission_id, ...scopeArgs)
+    : stmts.firstPage.all(...scopeArgs);
 
   const photos = rows.slice(0, FEED_PAGE_SIZE);
   const olderFromId = rows.length > FEED_PAGE_SIZE ? rows[FEED_PAGE_SIZE].submission_id : null;
@@ -251,7 +439,12 @@ function feedWindow(fromId) {
   let newerFromId = null;
   if (photos.length > 0) {
     const first = photos[0];
-    const newerIds = stmtFeedNewerIds.all(first.created_at, first.created_at, first.submission_id);
+    const newerIds = stmts.newerIds.all(
+      first.created_at,
+      first.created_at,
+      first.submission_id,
+      ...scopeArgs
+    );
     if (newerIds.length > 0) {
       hasNewer = true;
       newerFromId =
@@ -750,6 +943,13 @@ module.exports = {
   COMMENT_VISIBLE_WHERE,
   recentPage,
   feedWindow,
+  // The one 'u<id>' / 't<id>' / 'm' scope grammar (issue #952): parseScope is
+  // the single owner of the parse direction (string -> descriptor), scopeToken
+  // the single owner of the emit direction (descriptor -> string) — both
+  // consumed by community.js's GET /feed rather than re-matching or
+  // re-building the scope string there.
+  parseScope,
+  scopeToken,
   grouped,
   guestPhotos,
   detail,
