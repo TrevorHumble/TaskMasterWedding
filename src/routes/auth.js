@@ -67,7 +67,8 @@ function stashLoginContact(res, contactValue) {
 
 /**
  * Save the avatar buffer via the photos service. Returns the relative
- * filename to store in guests.avatar_path, or null if no file was uploaded.
+ * filename to store in guests.avatar_path, or null if no file was uploaded —
+ * or when the issue #929 avatar concurrency gate skipped the save.
  */
 async function trySaveAvatar(file, guestId) {
   if (!file || !file.buffer || file.buffer.length === 0) {

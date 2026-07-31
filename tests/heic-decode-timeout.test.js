@@ -3,17 +3,18 @@
 // must be bounded too. A crafted HEIC with a small ispe (under MAX_HEIC_PIXELS)
 // but a pathological bitstream can drive libheif into a non-terminating decode:
 // the worker never posts a result and never exits, so decodeHeicInWorker never
-// settles — and because heicDecodeChain (the single global serialization point)
-// advances only on settle, EVERY later HEIC upload would queue behind a promise
-// that never resolves (process-wide denial of the HEIC path until restart).
+// settles — and because heicDecodeSemaphore (the single global serialization
+// point, issue #930) only advances past a held slot on release, EVERY later
+// HEIC upload would queue behind a decode that never settles (process-wide
+// denial of the HEIC path until restart).
 //
 // This suite proves the HEIC_DECODE_TIMEOUT_MS bound:
 //   1. a decode that hangs is force-failed as a guest-safe BAD_IMAGE_TYPE
 //      rejection within the timeout (not left hanging), and
 //   2. a NORMAL HEIC uploaded immediately AFTER still converts — proving
-//      heicDecodeChain advanced past the timed-out decode rather than wedging.
+//      heicDecodeSemaphore advanced past the timed-out decode rather than wedging.
 // It would FAIL if the timeout were removed (test 1 would hang and trip the
-// test-runner timeout; the chain in test 2 would stay wedged).
+// test-runner timeout; heicDecodeSemaphore in test 2 would stay wedged).
 //
 // DETERMINISM: two env vars are set at module scope, BEFORE loadApp() requires
 // photos.js (which reads both once at load — same require-order rule as
@@ -74,7 +75,7 @@ function hangingHeicBuffer() {
   return Buffer.concat([craftHeicHeader(100, 100), Buffer.from(HANG_MARKER)]);
 }
 
-describe('HEIC decode timeout bounds a hung decode and does not wedge the chain', () => {
+describe('HEIC decode timeout bounds a hung decode and does not wedge heicDecodeSemaphore', () => {
   it('a hanging decode is rejected as BAD_IMAGE_TYPE within the timeout, and the NEXT normal HEIC still converts', async () => {
     // 1) A HEIC whose decode hangs. Without the timeout this request would hang
     //    forever; with it, the request comes back within ~timeout + overhead.
@@ -110,7 +111,7 @@ describe('HEIC decode timeout bounds a hung decode and does not wedge the chain'
     expect(elapsed).toBeGreaterThanOrEqual(TEST_DECODE_TIMEOUT_MS - 100);
 
     // 2) Immediately after, a NORMAL HEIC still converts — proving
-    //    heicDecodeChain advanced past the timed-out decode (not wedged).
+    //    heicDecodeSemaphore advanced past the timed-out decode (not wedged).
     const ok = insertGuestAndTask('heic-after');
     const okAgent = await makeGuestAgent(ok.token);
 
@@ -122,7 +123,7 @@ describe('HEIC decode timeout bounds a hung decode and does not wedge the chain'
     const okRow = db
       .prepare('SELECT photo_path, thumb_path FROM submissions WHERE guest_id = ? AND task_id = ?')
       .get(ok.guestId, ok.taskId);
-    expect(okRow).toBeDefined(); // the chain recovered — this decode ran and stored
+    expect(okRow).toBeDefined(); // heicDecodeSemaphore recovered — this decode ran and stored
     expect(okRow.photo_path).toMatch(/\.jpg$/);
 
     const thumb = await okAgent.get('/thumbs/' + okRow.thumb_path);

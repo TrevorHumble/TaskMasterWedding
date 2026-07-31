@@ -251,6 +251,42 @@ describe('AC2: nothing about a lucky task is guest-visible before its first win'
 });
 
 // ---------------------------------------------------------------------------
+// issue #926 AC3: the FOMO "missed bonus" marker (src/routes/guest.js reading
+// tasks.missedBonusForTask()) must never single out a passed lucky day. The
+// lucky SPECIAL_RULES entry in src/services/tasks.js deliberately carries no
+// `missed` predicate -- a "you missed +N bonus" mark on a lucky_date that has
+// come and gone would retroactively reveal which task had been that day's
+// lucky task, which is exactly the secrecy #650 AC2 exists to protect. The
+// engine-level guarantee is already covered above ("free again: a PAST
+// lucky_date is not spoken for and not paying"); this pins the SAME rule at
+// the GET /tasks surface, where guest.js turns missedBonusForTask()'s answer
+// into the task-bonus-missed row class and task-points-lost struck span.
+// ---------------------------------------------------------------------------
+describe('issue #926 AC3: a passed lucky day renders as a completely ordinary row', () => {
+  it('GET /tasks carries neither task-bonus-missed nor task-points-lost for a task whose lucky_date is in the past', async () => {
+    insertTask({
+      title: 'issue 926 AC3 Passed Bonus-Day Task',
+      worth: 1,
+      luckyDate: DAY1,
+      luckyBonus: 2,
+    });
+    const guest = insertGuest();
+    const agent = signInGuest(app, guest.token);
+
+    const res = await agent.get('/tasks');
+    expect(res.status).toBe(200);
+
+    const idx = res.text.indexOf('issue 926 AC3 Passed Bonus-Day Task');
+    expect(idx).toBeGreaterThan(-1);
+    const rowStart = res.text.lastIndexOf('<li class="task-row', idx);
+    const row = res.text.slice(rowStart, res.text.indexOf('</li>', rowStart));
+
+    expect(row).not.toContain('task-bonus-missed');
+    expect(row).not.toContain('task-points-lost');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC3: a re-upload (soft-takedown replace) is refused the bonus.
 // ---------------------------------------------------------------------------
 describe('AC3: a takedown-then-replace on a lucky day never banks the lucky bonus', () => {

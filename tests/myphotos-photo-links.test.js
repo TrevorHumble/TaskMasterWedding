@@ -1,11 +1,16 @@
 // tests/myphotos-photo-links.test.js
-// Covers issue #613 acceptance criteria — the "My Photos" section of the
-// guest's own home page (src/views/guest-home.ejs, GET '/'):
-//   AC1 — a task-linked thumbnail's anchor points at /p/:id, not /tasks/:task_id
-//   AC2 — a memory thumbnail (task_id IS NULL) is wrapped in an anchor to
-//         /p/:id (previously it had no link at all)
-//   AC3 — following that anchor (GET /p/:id) renders the photo detail view
-//         with HTTP 200, for both a task-linked and a memory submission
+// Covers issue #613 acceptance criteria, as amended by issue #952 (gallery
+// parity — a My Photos tile opens the scoped feed, not the old /p/:id
+// dead end) — the "My Photos" section of the guest's own home page
+// (src/views/guest-home.ejs, GET '/'):
+//   AC1 — a task-linked thumbnail's anchor points at the feed scoped to this
+//         guest's own photos (/feed?from=:id&scope=u<guestId>#photo-:id),
+//         not /tasks/:task_id
+//   AC2 — a memory thumbnail (task_id IS NULL) is wrapped in the same scoped
+//         feed anchor (previously it had no link at all)
+//   AC3 — the underlying photo permalink (GET /p/:id) still renders 200 for
+//         both a task-linked and a memory submission (unaffected by AC1/AC2 —
+//         the feed card's own photo link still targets /p/:id)
 //   AC4 — the anchor carries an accessible name: the task title for a
 //         task-linked photo, or the caption / "a shared memory" fallback for
 //         a memory
@@ -26,6 +31,24 @@ let taskSubId; // task-linked, task title "My Photos Task"
 let taskId;
 let memorySubId; // memory (task_id NULL), caption "A fun day"
 let blankMemorySubId; // memory with NO caption — exercises the "a shared memory" fallback
+let guestId; // owner of every submission above — the scope=u<guestId> id.
+
+/** The scoped feed href a My Photos tile carries for submission `id` — the
+ * rendered anchor HTML-escapes the query separator to &amp; (approved
+ * markup, issue #952 AC2). */
+function scopedFeedHref(id) {
+  return `href="/feed?from=${id}&amp;scope=u${guestId}#photo-${id}"`;
+}
+
+/** Slice from a tile's own opening <a ...> through its closing '>', so an
+ * aria-label assertion can be scoped to the SAME anchor the href marker
+ * identifies rather than matching a coincidental later tile. */
+function tileAnchorChunk(html, hrefMarker) {
+  const start = html.indexOf(hrefMarker);
+  expect(start).toBeGreaterThan(-1);
+  const end = html.indexOf('>', start);
+  return html.slice(start, end === -1 ? html.length : end);
+}
 
 beforeAll(async () => {
   const loaded = loadApp();
@@ -39,7 +62,7 @@ beforeAll(async () => {
   agent = request.agent(app);
   signInGuest(app, 'myphotos-token', agent);
 
-  const guestId = db.prepare(`SELECT id FROM guests WHERE token = ?`).get('myphotos-token').id;
+  guestId = db.prepare(`SELECT id FROM guests WHERE token = ?`).get('myphotos-token').id;
 
   taskId = db.prepare(`INSERT INTO tasks (title) VALUES (?)`).run('My Photos Task').lastInsertRowid;
 
@@ -65,12 +88,12 @@ beforeAll(async () => {
     .run(guestId).lastInsertRowid;
 });
 
-describe('AC1: task-linked thumbnail points at the photo', () => {
-  test('the anchor href is /p/<id>, not /tasks/<task_id>', async () => {
+describe('AC1: task-linked thumbnail opens the scoped feed', () => {
+  test('the anchor href is the feed scoped to this guest, not /tasks/<task_id>', async () => {
     const res = await agent.get('/');
     expect(res.status).toBe(200);
 
-    expect(res.text).toContain(`href="/p/${taskSubId}"`);
+    expect(res.text).toContain(scopedFeedHref(taskSubId));
     // The real assertion this would fail on if AC1 regressed: the old
     // /tasks/:task_id anchor target is gone from the page entirely.
     expect(res.text).not.toContain(`href="/tasks/${taskId}"`);
@@ -78,15 +101,15 @@ describe('AC1: task-linked thumbnail points at the photo', () => {
 });
 
 describe('AC2: memory thumbnail becomes clickable', () => {
-  test('a memory (task_id IS NULL) thumbnail is wrapped in an anchor to /p/<id>', async () => {
+  test('a memory (task_id IS NULL) thumbnail is wrapped in an anchor to the scoped feed', async () => {
     const res = await agent.get('/');
     expect(res.status).toBe(200);
 
-    expect(res.text).toContain(`href="/p/${memorySubId}"`);
+    expect(res.text).toContain(scopedFeedHref(memorySubId));
   });
 });
 
-describe('AC3: the link opens the photo', () => {
+describe('AC3: the underlying photo permalink still resolves', () => {
   test('GET /p/<id> for the task-linked submission renders 200', async () => {
     const res = await agent.get(`/p/${taskSubId}`);
     expect(res.status).toBe(200);
@@ -103,22 +126,23 @@ describe('AC4: the link has an accessible name', () => {
     const res = await agent.get('/');
     expect(res.status).toBe(200);
 
-    expect(res.text).toContain(`href="/p/${taskSubId}" aria-label="View photo for My Photos Task"`);
+    const chunk = tileAnchorChunk(res.text, scopedFeedHref(taskSubId));
+    expect(chunk).toContain('aria-label="View photo for My Photos Task"');
   });
 
   test('a memory anchor with a caption is named after the caption', async () => {
     const res = await agent.get('/');
     expect(res.status).toBe(200);
 
-    expect(res.text).toContain(`href="/p/${memorySubId}" aria-label="View photo for A fun day"`);
+    const chunk = tileAnchorChunk(res.text, scopedFeedHref(memorySubId));
+    expect(chunk).toContain('aria-label="View photo for A fun day"');
   });
 
   test('a memory anchor with no caption falls back to "a shared memory"', async () => {
     const res = await agent.get('/');
     expect(res.status).toBe(200);
 
-    expect(res.text).toContain(
-      `href="/p/${blankMemorySubId}" aria-label="View photo for a shared memory"`
-    );
+    const chunk = tileAnchorChunk(res.text, scopedFeedHref(blankMemorySubId));
+    expect(chunk).toContain('aria-label="View photo for a shared memory"');
   });
 });

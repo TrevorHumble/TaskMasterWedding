@@ -419,7 +419,7 @@ describe('AC7: COMPLETIONIST is unaffected by memories', () => {
 // AC8 — My Photos renders a memory's thumbnail + caption, no /tasks/ anchor.
 // ---------------------------------------------------------------------------
 describe('AC8: My Photos shows a memory with its caption and no /tasks/ anchor', () => {
-  it('the memory tile has no /tasks/ anchor but does show the caption', async () => {
+  it('the memory tile has no /tasks/ anchor and its accessible name carries the caption', async () => {
     const { guestId, token } = insertGuest('AC8 Guest');
     const { thumbPath } = insertSubmission({ guestId, caption: 'late night' });
     const agent = await agentFor(token);
@@ -427,16 +427,20 @@ describe('AC8: My Photos shows a memory with its caption and no /tasks/ anchor',
     const res = await agent.get('/');
     expect(res.status).toBe(200);
 
-    // Scope to this tile's <li> so the assertion cannot be satisfied by a
-    // sibling task-photo tile that legitimately has a /tasks/ anchor.
+    // Scope to this tile's <figure> so the assertion cannot be satisfied by a
+    // sibling task-photo tile that legitimately has a /tasks/ anchor. Issue
+    // #952 replaced the one-off <li class="photo-item"> list with the shared
+    // gallery tile (<figure class="gallery-item">) — a memory tile carries
+    // no on-tile caption text anymore; the caption instead names the tile's
+    // accessible name (aria-label="View photo for <caption>").
     const thumbAt = res.text.indexOf('/thumbs/' + thumbPath);
     expect(thumbAt).toBeGreaterThan(-1);
-    const liStart = res.text.lastIndexOf('<li class="photo-item">', thumbAt);
-    const liEnd = res.text.indexOf('</li>', thumbAt);
-    const tile = res.text.slice(liStart, liEnd);
+    const figStart = res.text.lastIndexOf('<figure class="gallery-item">', thumbAt);
+    const figEnd = res.text.indexOf('</figure>', thumbAt);
+    const tile = res.text.slice(figStart, figEnd);
 
     expect(tile).not.toContain('/tasks/');
-    expect(tile).toContain('late night');
+    expect(tile).toContain('aria-label="View photo for late night"');
   });
 });
 

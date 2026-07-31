@@ -146,6 +146,8 @@ Real tasks and guests are created through the admin UI:
 
 TLS terminates at the reverse proxy; the app itself keeps serving plain HTTP on `localhost` exactly as it does in development. In Option A, `docker-compose.yml` binds the published port to `127.0.0.1` (see the comment above its `ports:` entry), so this is enforced by the binding, not just by convention — nothing on the outside interface can reach the app directly.
 
+Caddy and nginx are not drop-in equivalents here, in three ways. First, body size: Caddy ships with no default body-size cap, so the block below needs nothing extra; nginx compiles in a 1 MB `client_max_body_size`, so its block below sets that explicitly — skip it and nginx returns a bare `413` on any normal phone photo before the app ever sees the request. Second, forwarded headers: Caddy sets `X-Forwarded-For`/`-Proto`/`-Host` by default, nginx sends none of them — its block below adds them explicitly. Third, timeouts: nginx cuts a request body or an upstream response off at 60s by default; Caddy imposes neither, so its block needs nothing there either. Pick Caddy and there is nothing to add; pick nginx and the directives below are load-bearing, not optional tuning.
+
 **Caddy** (provisions and renews certificates automatically):
 
 ```
@@ -158,8 +160,44 @@ hunt.example.com {
 
 ```
 server {
+    listen 80;
+    server_name hunt.example.com; # change-me: your domain
+
     location / {
         proxy_pass http://localhost:3000;
+
+        # The app's TRUST_PROXY=true reads the real guest IP from this —
+        # without it every guest shares one rate-limit bucket as 127.0.0.1.
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # Also read via that same TRUST_PROXY=true setting — without it
+        # req.protocol reports plain http for every request even though the
+        # guest's own connection was HTTPS.
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Preserves the domain guests actually requested instead of nginx's
+        # own proxy_pass target, so anything the app reads off the Host
+        # header sees the real hostname.
+        proxy_set_header Host $host;
+
+        # 150 MB worst case (10 files/batch x 15 MB app ceiling —
+        # src/services/photos.js MEMORY_BATCH_MAX_FILES x MAX_UPLOAD_BYTES),
+        # rounded up to the next 10 MB to cover multipart boundary/field
+        # overhead (well under 1 MB) — the headroom is rounding, not
+        # precision. nginx's compiled-in default is 1m — unset, a normal
+        # phone-photo batch gets a bare 413 before the app runs.
+        client_max_body_size 160m;
+
+        # proxy_read_timeout governs how long nginx waits for the upstream's
+        # RESPONSE. The app can hold a queued upload past this 60s default
+        # (the upload-slot gate serializes concurrent uploads) — without a
+        # longer value here, nginx returns its own 504 before the app ever
+        # answers.
+        proxy_read_timeout 300s;
+
+        # Slow venue radio links can stall a request body past nginx's 60s
+        # default well before the app or its upload slots are the bottleneck.
+        client_body_timeout 120s;
     }
 }
 ```

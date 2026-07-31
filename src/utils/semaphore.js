@@ -25,6 +25,16 @@ class Semaphore {
     this.queue = [];
   }
 
+  /** Number of QUEUED waiters (not active holders) -- read-only. */
+  get pending() {
+    return this.queue.length;
+  }
+
+  /** Active holders plus queued waiters -- the total load on this gate. */
+  get occupancy() {
+    return this.active + this.queue.length;
+  }
+
   /**
    * Wait for a free slot. Resolves immediately if under the limit; otherwise
    * queues and resolves once an earlier holder calls release().
@@ -105,8 +115,8 @@ class Semaphore {
 
 // Both call sites (the pre-aborted fast-reject above, and onAbort's
 // reject() -- which only runs because it is itself the listener registered
-// on `signal` at :86) guarantee `signal` is truthy here, so there is no
-// falsy-signal case for `signal &&` to guard against.
+// on `signal` in acquire()'s queueing branch) guarantee `signal` is truthy
+// here, so there is no falsy-signal case for `signal &&` to guard against.
 function abortError(signal) {
   return signal.reason || new Error('aborted');
 }

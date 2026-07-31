@@ -32,11 +32,21 @@ describe('gallery page', () => {
     expect(res.text).not.toContain('data-src="/thumbs/');
   });
 
-  it('AC3: GET /u/:guestId returns 200 with real thumbnail src and photo-page link', async () => {
+  it('AC3: GET /u/:guestId returns 200 with real thumbnail src and a feed link scoped to this profile', async () => {
     const p = await agent.get('/u/' + ids.guestId);
     expect(p.status).toBe(200);
     expect(p.text).toContain('src="/thumbs/t.jpg"');
-    // Thumbnails now link to /p/<id> (issue #42 — lightbox removed).
-    expect(p.text).toContain('href="/p/' + ids.submissionId + '"');
+    // Thumbnails open the feed scoped to this profile's own photos (issue
+    // #952 — gallery parity), not the old /p/<id> dead end. The rendered
+    // anchor HTML-escapes the query separator to &amp; (approved markup).
+    expect(p.text).toContain(
+      'href="/feed?from=' +
+        ids.submissionId +
+        '&amp;scope=u' +
+        ids.guestId +
+        '#photo-' +
+        ids.submissionId +
+        '"'
+    );
   });
 });

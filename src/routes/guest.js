@@ -90,6 +90,13 @@ const photos = require('../services/photos');
 // Scoring service (section 06) — REAL exports only.
 const scoring = require('../services/scoring');
 
+// The 'u<id>'/'t<id>'/'m' scope-token grammar's single owner (issue #952 PR
+// review) — GET / below calls feed.scopeToken to hand My Photos' tile grid
+// its own already-tokenized scope, rather than the view hand-concatenating
+// 'u' + guest.id the way it did before this fix. No other export of this
+// module is used here; community.js remains the primary feed.js consumer.
+const feed = require('../services/feed');
+
 // The recap service (issue #644) — owns the recap row/count reads and the
 // checkpoint write (POST /recap/seen below).
 const notifications = require('../services/notifications');
@@ -337,6 +344,11 @@ router.get('/', function (req, res) {
       totalTasks: totalTasks,
       completedTasks: clampedCompletedTasks,
       progressPercent: progressPercent,
+      // My Photos' own scope token (issue #952 PR review) — every tile here
+      // is this signed-in guest's own photo, so the token is resolved once,
+      // here, via feed.scopeToken rather than the view hand-building 'u' +
+      // guest.id itself.
+      scopeToken: feed.scopeToken({ type: 'guest', id: guest.id }),
     })
   );
 });
@@ -501,6 +513,44 @@ router.get('/tasks', function (req, res) {
     const flashActive = bonusDecision !== null && bonusDecision.reason === tasks.BONUS_REASON_FLASH;
     const flashWindowVal = tasks.flashWindow(t);
     const flashBonus = flashActive ? bonusDecision.amount : 0;
+    // Missed bonus (FOMO): a bonus this guest can no longer earn — a flash whose
+    // window closed, or a one-day challenge whose day has passed. Read off
+    // tasks.missedBonusForTask(), the single owner of "did a bonus slip away
+    // here, and how much was it", so this route never re-derives "expired" per
+    // special type (the same discipline flashActive follows for bonusForTask).
+    // Gated on amount > 0: a legacy row carrying a date with a NULL bonus never
+    // had anything to miss, and must not render "+0".
+    //
+    // NOT mutually exclusive with the live markers by construction (issue #926
+    // review fix, MAJOR M3 — correcting a false claim this comment used to
+    // make). isToday/locked are derived here from tasks.isSealed/isOnDay
+    // directly, while missedBonusForTask() independently walks each rule's OWN
+    // `missed` predicate, which does not consult whether that rule is
+    // presently "spoken for" (findSpecialRule's separate question). A task
+    // whose special_date has already passed but which ALSO carries a live or
+    // scheduled flash window is spoken-for by 'flash' (daily's own spokenFor
+    // is false once its date has passed) while STILL matching daily's
+    // `missed` predicate — so flashActive and a raw missedBonusForTask()
+    // result can both be true on the SAME row at once (host-reachable: arm a
+    // flash on a task whose day already passed, or let a flash expire on a
+    // task dated today). The two markers say opposite things ("worth more
+    // right now" vs. "you missed this"), so exactly one must win. That
+    // precedence is decided HERE, once — live beats missed — rather than left
+    // for the view's price-column else-if order to (accidentally) also
+    // decide: without this gate the row could carry the `task-bonus-missed`
+    // class from this flag while its price column rendered the LIVE
+    // treatment (isToday/flashActive checked first in the partial's else-if
+    // chain), two owners of one precedence disagreeing on the same row. Lucky
+    // deliberately reports no miss regardless (it wears no live marker
+    // either; see its SPECIAL_RULES entry).
+    //
+    // This flag feeds both todoTasks and doneTasks below (both are filtered
+    // FROM this same mapped array) — but the missed marker only ever RENDERS
+    // on a todo row (task-todo-row.ejs is not used for done rows), so a done
+    // row simply carries an unused, harmless bonusMissed value.
+    const missedDecision = tasks.missedBonusForTask(t, clock);
+    const bonusMissed =
+      !isToday && !flashActive && missedDecision !== null && missedDecision.amount > 0;
     return Object.assign({}, t, {
       badge: taskBadges.toTaskBadgeView(badge),
       locked: locked,
@@ -511,6 +561,8 @@ router.get('/tasks', function (req, res) {
       flashEndsAt: flashActive ? new Date(flashWindowVal.endMs).toISOString() : null,
       flashBonus: flashBonus,
       flashTotalMs: flashActive ? flashWindowVal.totalMs : null,
+      bonusMissed: bonusMissed,
+      bonusMissedAmount: bonusMissed ? missedDecision.amount : 0,
     });
   });
 
@@ -1310,36 +1362,62 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
     // guests.avatar_path, and returns the filename. No temp file to read back
     // or clean up.
     let newAvatarPath = guest.avatar_path; // keep existing unless replaced
+    // Issue #929 PR review fix: a gate rejection (photos.saveAvatar resolving
+    // null, never thrown for AVATAR_QUEUE_BUSY/AVATAR_SLOT_TIMEOUT — see that
+    // function's own doc comment) must not cost the guest their name/PIN/
+    // social edits from this same POST. This flag is what keeps that case
+    // from falling into the ordinary success flash/redirect below.
+    let avatarGateRejected = false;
     if (req.file) {
       let savedAvatar;
       try {
-        savedAvatar = await photos.saveAvatar(req.file.buffer, guest.id); // stored filename
+        savedAvatar = await photos.saveAvatar(req.file.buffer, guest.id); // stored filename, or null on a gate rejection
       } catch (e) {
+        // A genuine save failure (corrupt image, HEIC decode error, etc.) —
+        // unchanged behavior: flash and bail before anything is written.
         setFlash(res, 'error', 'Sorry, we could not save that avatar. Please try again.');
         return res.redirect('/me/edit');
       }
 
-      const oldAvatar = guest.avatar_path;
-      newAvatarPath = savedAvatar;
+      if (savedAvatar === null) {
+        // The concurrency gate skipped this avatar (busy or timed out).
+        // avatar_path stays unchanged (newAvatarPath was already seeded from
+        // guest.avatar_path above) — but unlike the throw above, the rest of
+        // this save (name/PIN/socials) still proceeds and persists below.
+        setFlash(res, 'error', 'Sorry, we could not save that avatar. Please try again.');
+        avatarGateRejected = true;
+      } else {
+        const oldAvatar = guest.avatar_path;
+        newAvatarPath = savedAvatar;
 
-      // Issue #716: no separate award step needed here — the starter point
-      // is derived from guests.avatar_path (scoring.starterTaskContribution),
-      // and the UPDATE below sets that column.
+        // Issue #716: no separate award step needed here — the starter point
+        // is derived from guests.avatar_path (scoring.starterTaskContribution),
+        // and the UPDATE below sets that column.
 
-      // Delete the previous avatar file if it changed. Avatars live in the
-      // uploads dir (no thumbnail), so deleteOriginalFile removes them.
-      try {
-        if (oldAvatar && oldAvatar !== newAvatarPath) {
-          photos.deleteOriginalFile(oldAvatar);
+        // Delete the previous avatar file if it changed. Avatars live in the
+        // uploads dir (no thumbnail), so deleteOriginalFile removes them.
+        try {
+          if (oldAvatar && oldAvatar !== newAvatarPath) {
+            photos.deleteOriginalFile(oldAvatar);
+          }
+        } catch (e) {
+          // Non-fatal.
         }
-      } catch (e) {
-        // Non-fatal.
       }
     }
 
     db.prepare(
       'UPDATE guests SET name = ?, avatar_path = ?, social_links = ?, pin = ? WHERE id = ?'
     ).run(name, newAvatarPath, socialJson, newPin, guest.id);
+
+    // A gate-rejected avatar already set its own error flash above — leave it
+    // as the one the guest sees rather than clobbering it with the success
+    // message below (setFlash writes a single one-shot cookie; see
+    // src/middleware/session.js). Everything else this save touched (name,
+    // PIN, socials) is still in the UPDATE that just ran either way.
+    if (avatarGateRejected) {
+      return res.redirect('/me/edit');
+    }
 
     setFlash(res, 'success', 'Profile updated!');
     return res.redirect('/');

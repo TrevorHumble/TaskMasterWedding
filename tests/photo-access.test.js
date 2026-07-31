@@ -224,3 +224,83 @@ it('AC6: file still on disk after hideSubmission', async () => {
   // Restore so AC3 live-serve tests are not affected by ordering.
   photos.restoreSubmission(liveSubmissionId);
 });
+
+// ---------------------------------------------------------------------------
+// Issue #937: immutable cache headers for /uploads and /thumbs.
+// ---------------------------------------------------------------------------
+
+// #937 AC1: a guest's successful fetch of a live original/thumb carries the
+// pinned 7-day immutable directive — the exact string, not just a substring
+// match, since AC1 requires byte-exact header text.
+it('#937 AC1: live original → Cache-Control public, max-age=604800, immutable', async () => {
+  const res = await request(app).get('/uploads/' + LIVE_PHOTO_NAME);
+  expect(res.status).toBe(200);
+  expect(res.headers['cache-control']).toBe('public, max-age=604800, immutable');
+});
+
+it('#937 AC1: live thumbnail → Cache-Control public, max-age=604800, immutable', async () => {
+  const res = await request(app).get('/thumbs/' + LIVE_THUMB_NAME);
+  expect(res.status).toBe(200);
+  expect(res.headers['cache-control']).toBe('public, max-age=604800, immutable');
+});
+
+// #937 AC2: the CSS/JS public asset mount is untouched by this change — still
+// today's max-age=0 behavior (a test would fail if the immutable options were
+// accidentally applied to config.PUBLIC_DIR too).
+it('#937 AC2: public CSS asset → Cache-Control unchanged (public, max-age=0)', async () => {
+  const res = await request(app).get('/css/theme.css');
+  expect(res.status).toBe(200);
+  expect(res.headers['cache-control']).toBe('public, max-age=0');
+});
+
+// #937 AC3: an authenticated admin's bypassed fetch (of a taken-down file, so
+// the assertion only holds if the bypass branch — not stage 2 — is what ran)
+// is never publicly cacheable, but still revalidatable (no-cache, not no-store).
+it('#937 AC3: admin → taken-down original carries Cache-Control private, no-cache', async () => {
+  const admin = await makeAdminAgent(app);
+  const res = await admin.get('/uploads/' + PHOTO_NAME);
+  expect(res.status).toBe(200);
+  expect(res.headers['cache-control']).toBe('private, no-cache');
+});
+
+it('#937 AC3: admin → taken-down thumbnail carries Cache-Control private, no-cache', async () => {
+  const admin = await makeAdminAgent(app);
+  const res = await admin.get('/thumbs/' + THUMB_NAME);
+  expect(res.status).toBe(200);
+  expect(res.headers['cache-control']).toBe('private, no-cache');
+});
+
+// #937 AC3 (404 branch): the allowlist-failing-name 404 fires BEFORE the
+// admin bypass check, so it applies to every requester including an admin —
+// this test asserts that on an authenticated admin agent specifically, so a
+// future reordering of the guard (bypass moved ahead of the allowlist) would
+// break it.
+it('#937 AC3: admin with malformed name still 404s with Cache-Control no-store', async () => {
+  const admin = await makeAdminAgent(app);
+  const res = await admin.get('/uploads/not-a-real-name.txt');
+  expect(res.status).toBe(404);
+  expect(res.headers['cache-control']).toBe('no-store');
+});
+
+// #937 AC3 (404 branch, guest): a guest's ordinary takedown 404 must also
+// never be cached, so a later restore isn't fought by a stale cached negative.
+it('#937 AC3: guest taken-down original 404 carries Cache-Control no-store', async () => {
+  const res = await request(app).get('/uploads/' + PHOTO_NAME);
+  expect(res.status).toBe(404);
+  expect(res.headers['cache-control']).toBe('no-store');
+});
+
+// #937 AC3 (404 branch, thumb guard): same two exits on the /thumbs twin —
+// without these, deleting the thumb guard's res.set('no-store') calls would
+// leave the whole suite green (PR review finding).
+it('#937 AC3: thumb allowlist-failing name 404s with Cache-Control no-store', async () => {
+  const res = await request(app).get('/thumbs/not-a-real-name.txt');
+  expect(res.status).toBe(404);
+  expect(res.headers['cache-control']).toBe('no-store');
+});
+
+it('#937 AC3: guest taken-down thumb 404 carries Cache-Control no-store', async () => {
+  const res = await request(app).get('/thumbs/' + THUMB_NAME);
+  expect(res.status).toBe(404);
+  expect(res.headers['cache-control']).toBe('no-store');
+});

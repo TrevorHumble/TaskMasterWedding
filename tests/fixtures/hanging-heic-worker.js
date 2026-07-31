@@ -10,7 +10,7 @@
 // decode. For any OTHER input it delegates to the real heic-convert exactly
 // like the production worker, so a normal HEIC still converts through it. That
 // lets one test prove: a hanging decode is force-failed by the timeout AND the
-// NEXT (normal) HEIC still converts (heicDecodeChain recovered, not wedged).
+// NEXT (normal) HEIC still converts (heicDecodeSemaphore recovered, not wedged).
 
 'use strict';
 

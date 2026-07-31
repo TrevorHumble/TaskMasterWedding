@@ -13,6 +13,13 @@
 //         absent, page still 200s.
 //   AC8 — a signed-in guest cannot reach /admin.
 //
+// Issue #662's own acceptance criteria (the "Rank & award: [task]" auto row)
+// are covered in the "#662" describe block below, against hostChecklist.
+// buildRows(now) directly rather than through the rendered page — this row's
+// done-collecting predicate turns on the real calendar date, and pinning
+// `now` is what keeps these cases deterministic regardless of which day the
+// suite actually runs on.
+//
 // REQUIRE ORDER: config / db / app are required only via loadApp() — see
 // tests/helpers/testApp.js "REQUIRE ORDER MATTERS".
 'use strict';
@@ -360,6 +367,220 @@ describe('AC7: a missing feature degrades quietly', () => {
       db.exec(fullTasksSql);
       db.pragma('foreign_keys = ON');
     }
+  });
+});
+
+describe('#662: rank-and-award row appears when a task is done collecting photos', () => {
+  const TZ = 'America/Boise';
+  // Fixed clock this whole block pins buildRows(now) to (see host-checklist.
+  // js's own doc comment: `now` is an injectable parameter for exactly this
+  // reason). Noon UTC on 2026-08-10 is 06:00 MDT the same calendar day in
+  // America/Boise, so this instant's event-local "today" is unambiguously
+  // 2026-08-10 regardless of the real wall-clock date the suite runs on.
+  const NOW = new Date('2026-08-10T12:00:00.000Z');
+  const TODAY = '2026-08-10';
+  const YESTERDAY = '2026-08-09';
+  const TOMORROW = '2026-08-11';
+
+  let taskBadges;
+  let guestId;
+
+  beforeAll(() => {
+    taskBadges = require('../src/services/task-badges');
+  });
+
+  beforeEach(() => {
+    resetTables();
+    guestId = insertGuest('rank-award-guest', 'Ranker');
+  });
+
+  function insertTask(title, opts = {}) {
+    const {
+      specialDate = null,
+      specialBonus = null,
+      mode = 'none',
+      flashStartAt = null,
+      flashMinutes = null,
+      flashBonus = null,
+    } = opts;
+    return db
+      .prepare(
+        `INSERT INTO tasks
+           (title, special_mode, special_date, special_bonus, flash_start_at, flash_minutes, flash_bonus)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(title, mode, specialDate, specialBonus, flashStartAt, flashMinutes, flashBonus)
+      .lastInsertRowid;
+  }
+
+  // `submissions` carries UNIQUE(guest_id, task_id) — a caller inserting a
+  // SECOND visible photo on the same task must pass a different guestId, or
+  // this collides with the first insert instead of adding a second row.
+  let subSeq = 0;
+  function insertSubmission(taskId, takenDown = 0, forGuestId = guestId) {
+    subSeq += 1;
+    return db
+      .prepare(
+        `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(forGuestId, taskId, `ra-p${subSeq}.jpg`, `ra-t${subSeq}.jpg`, takenDown).lastInsertRowid;
+  }
+
+  function rankRow(rows, taskId) {
+    return rows.find((r) => r.id === `rank-award-${taskId}`);
+  }
+
+  test('a past-dated task with a visible photo gets a row; an on-day or future-dated one does not (AC1, AC2)', () => {
+    setEventConfig(TZ, '2026-08-07', TOMORROW);
+    const pastTask = insertTask('Past challenge', { specialDate: YESTERDAY, specialBonus: 1 });
+    insertSubmission(pastTask);
+    const onDayTask = insertTask('Today challenge', { specialDate: TODAY, specialBonus: 1 });
+    insertSubmission(onDayTask);
+    const futureTask = insertTask('Future challenge', { specialDate: TOMORROW, specialBonus: 1 });
+    insertSubmission(futureTask);
+
+    const { rows } = hostChecklist.buildRows(NOW);
+
+    const past = rankRow(rows, pastTask);
+    expect(past).toBeDefined();
+    expect(past.kind).toBe('auto');
+    expect(past.state).toBe('open');
+    expect(past.label).toBe('Rank & award: Past challenge');
+    expect(past.sub).toBe('1 photo waiting. Pick and rank your winners.');
+    expect(past.href).toBe(`/admin/tasks/${pastTask}/rank`);
+    expect(rankRow(rows, onDayTask)).toBeUndefined();
+    expect(rankRow(rows, futureTask)).toBeUndefined();
+  });
+
+  test('an undated task is done only once event_end_date is a real date strictly before today (AC1, AC2)', () => {
+    const undatedTask = insertTask('Undated, unconfigured');
+    insertSubmission(undatedTask);
+
+    // No settings row at all — resetTables() already cleared `settings`.
+    let built = hostChecklist.buildRows(NOW);
+    expect(rankRow(built.rows, undatedTask)).toBeUndefined();
+
+    // Event configured but still ongoing (end date in the future).
+    setEventConfig(TZ, '2026-08-07', TOMORROW);
+    built = hostChecklist.buildRows(NOW);
+    expect(rankRow(built.rows, undatedTask)).toBeUndefined();
+
+    // Event over (end date strictly before today).
+    setEventConfig(TZ, '2026-08-07', YESTERDAY);
+    built = hostChecklist.buildRows(NOW);
+    const row = rankRow(built.rows, undatedTask);
+    expect(row).toBeDefined();
+    expect(row.label).toBe('Rank & award: Undated, unconfigured');
+  });
+
+  test('a future-dated task stays quiet even once the event is over — its own day still governs (AC1)', () => {
+    setEventConfig(TZ, '2026-08-07', YESTERDAY);
+    const futureTask = insertTask('Future after event end', {
+      specialDate: TOMORROW,
+      specialBonus: 1,
+    });
+    insertSubmission(futureTask);
+
+    const { rows } = hostChecklist.buildRows(NOW);
+    expect(rankRow(rows, futureTask)).toBeUndefined();
+  });
+
+  test("a flash task's expired window alone never produces a row while the event is ongoing (AC1)", () => {
+    setEventConfig(TZ, '2026-08-07', TOMORROW);
+    const flashTask = insertTask('Expired flash', {
+      flashStartAt: '2026-08-10T10:00:00.000Z',
+      flashMinutes: 5,
+      flashBonus: 2,
+    });
+    insertSubmission(flashTask);
+
+    const { rows } = hostChecklist.buildRows(NOW);
+    expect(rankRow(rows, flashTask)).toBeUndefined();
+  });
+
+  test('a hidden task gets no row while hidden, and reappears once re-shown (AC3)', () => {
+    setEventConfig(TZ, '2026-08-07', TOMORROW);
+    const hiddenTask = insertTask('Hidden but done', {
+      specialDate: YESTERDAY,
+      specialBonus: 1,
+      mode: 'hidden',
+    });
+    insertSubmission(hiddenTask);
+
+    let built = hostChecklist.buildRows(NOW);
+    expect(rankRow(built.rows, hiddenTask)).toBeUndefined();
+
+    db.prepare(`UPDATE tasks SET special_mode = 'none' WHERE id = ?`).run(hiddenTask);
+    built = hostChecklist.buildRows(NOW);
+    expect(rankRow(built.rows, hiddenTask)).toBeDefined();
+  });
+
+  test('a released badge leaves the row out entirely rather than converting it to done (AC4)', () => {
+    setEventConfig(TZ, '2026-08-07', TOMORROW);
+    const taskId = insertTask('Released task', { specialDate: YESTERDAY, specialBonus: 1 });
+    const submissionId = insertSubmission(taskId);
+
+    const before = hostChecklist.buildRows(NOW);
+    expect(rankRow(before.rows, taskId)).toBeDefined();
+    const openCountBefore = before.openCount;
+
+    const released = taskBadges.releaseRanking(taskId, [submissionId]);
+    expect(released).not.toBeNull();
+
+    const after = hostChecklist.buildRows(NOW);
+    expect(rankRow(after.rows, taskId)).toBeUndefined();
+    // No "done" row of this row type appears in its place — the row simply
+    // is not in the flat list at all, checked directly rather than inferred
+    // from openCount alone.
+    expect(after.rows.some((r) => r.id === `rank-award-${taskId}`)).toBe(false);
+    expect(after.openCount).toBe(openCountBefore - 1);
+  });
+
+  test('zero visible photos (none ever, or all taken down) gets no row (AC5)', () => {
+    setEventConfig(TZ, '2026-08-07', TOMORROW);
+    const noPhotosTask = insertTask('Done, no photos', { specialDate: YESTERDAY, specialBonus: 1 });
+
+    let built = hostChecklist.buildRows(NOW);
+    expect(rankRow(built.rows, noPhotosTask)).toBeUndefined();
+
+    const takenDownTask = insertTask('Done, all taken down', {
+      specialDate: YESTERDAY,
+      specialBonus: 1,
+    });
+    insertSubmission(takenDownTask, 1);
+
+    built = hostChecklist.buildRows(NOW);
+    expect(rankRow(built.rows, takenDownTask)).toBeUndefined();
+  });
+
+  test('the row counts toward openCount, and appears at most once per task (AC6)', () => {
+    setEventConfig(TZ, '2026-08-07', TOMORROW);
+    const withoutTask = hostChecklist.buildRows(NOW).openCount;
+
+    const taskId = insertTask('Counted task', { specialDate: YESTERDAY, specialBonus: 1 });
+    const secondGuestId = insertGuest('rank-award-guest-2', 'Second Ranker');
+    insertSubmission(taskId);
+    insertSubmission(taskId, 0, secondGuestId);
+
+    const built = hostChecklist.buildRows(NOW);
+    expect(built.openCount).toBe(withoutTask + 1);
+    const matches = built.rows.filter((r) => r.id === `rank-award-${taskId}`);
+    expect(matches.length).toBe(1);
+  });
+
+  test('the sub copy is singular at exactly 1 photo and plural at 2+ (AC2)', () => {
+    setEventConfig(TZ, '2026-08-07', TOMORROW);
+    const oneTask = insertTask('One photo', { specialDate: YESTERDAY, specialBonus: 1 });
+    insertSubmission(oneTask);
+    const twoTask = insertTask('Two photos', { specialDate: YESTERDAY, specialBonus: 1 });
+    const secondGuestId = insertGuest('rank-award-guest-3', 'Third Ranker');
+    insertSubmission(twoTask);
+    insertSubmission(twoTask, 0, secondGuestId);
+
+    const { rows } = hostChecklist.buildRows(NOW);
+    expect(rankRow(rows, oneTask).sub).toBe('1 photo waiting. Pick and rank your winners.');
+    expect(rankRow(rows, twoTask).sub).toBe('2 photos waiting. Pick and rank your winners.');
   });
 });
 

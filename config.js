@@ -326,12 +326,13 @@ const config = {
   MIN_FREE_DISK_BYTES: parseInt(process.env.MIN_FREE_DISK_BYTES, 10) || 524288000,
 
   // Per-guest HEIC-DECODE rate limit (issue #281). A HEIC decode is expensive
-  // (a full raw-frame allocation, serialized one-at-a-time on a shared chain,
-  // and a crafted hang can burn the 20s decode timeout), so a hostile guest
-  // flooding hang-crafted HEICs could monopolize the single global decode chain
-  // and deny every guest's HEIC uploads. This throttle is checked BEFORE the
-  // decode, for files that actually sniff as HEIC only, across all three upload
-  // paths (task submit, memory batch, avatar). It NEVER touches JPEG/PNG/WebP.
+  // (a full raw-frame allocation, serialized one-at-a-time behind a shared
+  // gate, and a crafted hang can burn the 20s decode timeout), so a hostile
+  // guest flooding hang-crafted HEICs could monopolize the single global
+  // decode gate and deny every guest's HEIC uploads. This throttle is checked
+  // BEFORE the decode, for files that actually sniff as HEIC only, across all
+  // three upload paths (task submit, memory batch, avatar). It NEVER touches
+  // JPEG/PNG/WebP.
   //
   // Tuned GENEROUS — it must never fire for a real guest, only stop a
   // pathological rapid flood:
@@ -341,30 +342,77 @@ const config = {
   // minutes — far past any human selecting and uploading real photos through
   // the picker, while a scripted flood trips it in seconds. Combined with the
   // pixel cap, 20s decode timeout, one-at-a-time serialization, and worker
-  // isolation, it bounds how much of the shared decode chain any single guest
+  // isolation, it bounds how much of the shared decode gate any single guest
   // can command.
   HEIC_DECODE_RATE_MAX: parseInt(process.env.HEIC_DECODE_RATE_MAX, 10) || 60,
   HEIC_DECODE_RATE_WINDOW_MS: parseInt(process.env.HEIC_DECODE_RATE_WINDOW_MS, 10) || 120000,
 
   // Global cap on the number of PENDING (queued + in-flight) HEIC decodes
-  // across ALL guests (issue #281). HEIC decodes are serialized one-at-a-time,
-  // and each pending decode PINS its source buffer (up to MAX_UPLOAD_BYTES =
-  // 15 MB) in the main process until its turn. The per-guest rate limit bounds
-  // how fast one guest enqueues, but not the total queue DEPTH: many
-  // self-onboarding guests (or one guest over many connections) flooding
-  // hang-crafted HEICs — each draining slowly against the 20s decode timeout —
-  // could grow the queue and its held buffers without bound and OOM the ~2 GB
-  // host. This cap bounds total held decode memory to MAX_PENDING_HEIC_DECODES
-  // x 15 MB regardless of how many guests flood.
+  // across ALL guests (issue #281, raised 8 -> 12 and re-derived by #930).
+  // HEIC decodes are serialized one-at-a-time via heicDecodeSemaphore
+  // (src/services/photos.js). The per-guest rate limit bounds how fast one
+  // guest enqueues, but not the total queue DEPTH, so this cap is what bounds
+  // total held decode memory regardless of how many guests flood.
   //
-  // 8: worst-case ~120 MB of held source buffers, comfortably within the ~2 GB
-  // host's headroom alongside Node + SQLite + sharp (sharp itself can spike
-  // during thumbnailing). 8 is also far more depth than the one-at-a-time drain
-  // needs under normal load (a normal HEIC decodes in ~1-3s, so a healthy burst
-  // clears in seconds); beyond 8 pending, "give it a moment" is the honest
-  // response. Env-overridable if a specific event wants more concurrent-upload
-  // headroom.
-  MAX_PENDING_HEIC_DECODES: parseInt(process.env.MAX_PENDING_HEIC_DECODES, 10) || 8,
+  // The honest held-memory arithmetic that licenses the higher ceiling lives
+  // in ONE place — DESIGN.md's "Global pending-decode cap and admission"
+  // entry (under "HEIC accepted and converted to JPEG at intake") — because
+  // it is NOT a single uniform number: a disk caller's (task submit, memory
+  // batch) queued wait is cheap (an open fd + a temp file + the ~256 KB
+  // admission-sniff prefix), but an AVATAR caller's full buffer is already
+  // resident in RAM before it ever reaches this gate, so it stays pinned for
+  // the whole queued wait regardless of the deferred-read pattern. Restated
+  // here only in outline; the arithmetic itself is not duplicated.
+  //
+  // 12: why not deeper — the wait bound below (HEIC_QUEUE_WAIT_MS) must be
+  // able to drain a full healthy queue. A normal HEIC decodes in ~1-3s
+  // (HEIC_DECODE_TIMEOUT_MS's own comment), so a serial drain of up to 11
+  // predecessors (≤ ~33s) still finishes inside the 45s wait bound for the
+  // last-admitted item of a full, healthy queue. Deeper would erode that
+  // margin. Env-overridable if a specific event wants a different ceiling.
+  MAX_PENDING_HEIC_DECODES: parseInt(process.env.MAX_PENDING_HEIC_DECODES, 10) || 12,
+
+  // HEIC_QUEUE_WAIT_MS (issue #930): the longest a HEIC decode may sit QUEUED
+  // (admitted, under the ceiling, but waiting for the single active decode
+  // slot) before giving up with the existing HEIC_RATE_LIMIT_MESSAGE. Without
+  // this bound a decode admitted under the ceiling would wait indefinitely
+  // behind a deep or stalled queue, eventually failing anyway at a reverse
+  // proxy's read timeout — minutes later, with a confusing bare 504 instead
+  // of the app's own honest, fast, guest-safe message.
+  //
+  // 45000 (45s): a full healthy queue at the new MAX_PENDING_HEIC_DECODES=12
+  // ceiling drains in ≤ ~33s (11 predecessors x ~1-3s each), so the
+  // last-admitted item of a normal burst still succeeds inside this bound.
+  // Single-request worst case is HEIC_QUEUE_WAIT_MS + HEIC_DECODE_TIMEOUT_MS
+  // = 45 + 20 = 65s, comfortably inside the 300s proxy_read_timeout
+  // docs/deploy.md's nginx example sets (issue #936). RECORDED RESIDUAL: this
+  // wait bound is itself a NEW loss path under sustained partial saturation
+  // (a deep queue where each wait sits just under this bound) — a 10-HEIC
+  // memory batch can still run long enough to hit a proxy's own timeout in
+  // that band. Accepted: the alternative (no wait bound) loses the same
+  // batch anyway, later and less honestly. Env-overridable so tests can drive
+  // this deterministically without waiting 45s.
+  HEIC_QUEUE_WAIT_MS: parseInt(process.env.HEIC_QUEUE_WAIT_MS, 10) || 45000,
+
+  // HEIC_ADMISSION_SNIFF_BYTES (issue #930): size of the POSITIONED,
+  // bounded read src/services/photos.js takes from a HEIC candidate BEFORE a
+  // decode slot is requested, so the pixel-bomb check (assertHeicPixelsWithinCap)
+  // can run a cheap "stage 1" pass on just this prefix — refusing an
+  // honestly-oversized HEIC at admission, consuming no slot at all, for the
+  // dominant case where the ISO-BMFF `meta`/`ispe` box sits near the front of
+  // the file. A prefix with no readable `ispe` (or one truncated by this
+  // bound) is not rejected outright — the full buffer gets a second,
+  // authoritative "stage 2" check once it is actually read (still before any
+  // worker is spawned), so a legitimate odd-layout HEIC is never falsely
+  // refused as oversized.
+  //
+  // 262144 (256 KB): phone camera encoders write the `meta` box (which
+  // contains `ispe`) before the (much larger) `mdat` image payload, so this
+  // comfortably covers the leading `meta` box of every normally-muxed HEIC
+  // this app expects, with headroom for EXIF/thumbnail auxiliary data ahead
+  // of it. Env-overridable so tests can drive the two-stage logic with a
+  // tiny value.
+  HEIC_ADMISSION_SNIFF_BYTES: parseInt(process.env.HEIC_ADMISSION_SNIFF_BYTES, 10) || 262144,
 
   // Cap on how many photo submissions (src/routes/guest.js POST
   // /tasks/:id/submit) may run their HEAVY pipeline -- sharp thumbnailing +
@@ -389,6 +437,36 @@ const config = {
   // needlessly slow for the common case of a handful of simultaneous
   // uploads. Env-overridable per event/host.
   MAX_CONCURRENT_UPLOADS: parseInt(process.env.MAX_CONCURRENT_UPLOADS, 10) || 6,
+
+  // Avatar processing concurrency gate (issue #929) -- a SEPARATE, smaller
+  // bound from MAX_CONCURRENT_UPLOADS above. src/utils/upload-concurrency.js's
+  // withAvatarSlot wraps only the sharp .rotate()/attention-crop pipeline
+  // inside src/services/photos.js's saveAvatar (the HEIC conversion above it
+  // is deliberately outside this gate -- it already has its own decode-chain
+  // serialization, pixel cap, and per-guest rate limit).
+  //
+  // AVATAR_CONCURRENCY: max concurrent avatar crops. Default 2. The raster-
+  // size arithmetic behind that default (and why sharing MAX_CONCURRENT_UPLOADS
+  // here would reproduce the OOM this gate exists to prevent) is worked out
+  // ONCE, in DESIGN.md's "Avatar processing: a dedicated small avatar gate,
+  // not a share of the upload semaphore
+  // (#929)" section -- not restated here, so a remeasure updates one place,
+  // not two.
+  AVATAR_CONCURRENCY: parseInt(process.env.AVATAR_CONCURRENCY, 10) || 2,
+  // AVATAR_SLOT_WAIT_MS: how long an admitted waiter may sit queued for a
+  // free avatar slot before giving up. Default 10000 (10s) -- join is
+  // interactive, and 10s is the most spinner a signup should ever make a
+  // guest absorb, well inside the 300s proxy_read_timeout docs/deploy.md's
+  // nginx example sets (issue #936).
+  AVATAR_SLOT_WAIT_MS: parseInt(process.env.AVATAR_SLOT_WAIT_MS, 10) || 10000,
+  // MAX_PENDING_AVATAR_WAITERS: depth cap on the avatar gate's wait queue. A
+  // save arriving when the queue is already this deep fails immediately
+  // (AVATAR_QUEUE_BUSY) rather than joining a queue it would wait the full
+  // AVATAR_SLOT_WAIT_MS behind anyway. Default 16 -- avatar semantics are
+  // "skip, never stall" (losing an avatar costs nothing; a guest can add one
+  // later from their profile), unlike MAX_CONCURRENT_UPLOADS's callers, which
+  // queue with no depth bound because losing an upload is never acceptable.
+  MAX_PENDING_AVATAR_WAITERS: parseInt(process.env.MAX_PENDING_AVATAR_WAITERS, 10) || 16,
 };
 
 // ---- Lowercase aliases (backwards compatibility ONLY) ----------------------

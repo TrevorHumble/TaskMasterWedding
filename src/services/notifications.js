@@ -77,6 +77,13 @@ const FETCH_LIMIT = PAGE_SIZE + 1;
 // storedRows into this one table (issue #644 review: a sibling issue adding
 // a kind to the data half of KIND_VIEW alone, with the copy/href half left
 // as a parallel if/else, could add a kind that renders a blank row).
+// `takenDown` (issue #866) extends that same discipline to a THIRD axis: what
+// this kind becomes once its submission is taken down. storedRows applies it
+// generically (`treatment.takenDown(ev, ctx)`, when present) rather than
+// branching on `ev.kind` itself a second time — the identical "one map, no
+// parallel switch" rule `parts`/`href` already enforce, now covering the
+// takedown case too (issue #866 review: a parallel if/else chain here was
+// the exact shape this comment already warns against).
 //
 // `parts` is an array of `{ text, emphasis?, quote? }` segments, not a
 // pre-built HTML string: the view (header.ejs / recap.js) is what turns each
@@ -92,6 +99,23 @@ const FETCH_LIMIT = PAGE_SIZE + 1;
 // the only writer of a non-NULL guest_badges.rank, and it refuses a release
 // longer than 5).
 const RANK_ORDINAL = ['1st', '2nd', '3rd', '4th', '5th'];
+
+// The two shared `takenDown` outcomes (issue #866) every KIND_VIEW entry
+// below picks from — a shallow override object storedRows layers on top of
+// this kind's ordinary `view`/`dead`/`href`/`thumb`. INERT nulls `href` and
+// `thumb`: the fact the row celebrates still holds, but the photo behind it
+// is no longer viewable (the submission row and its thumb_path still exist —
+// they are just blocked from serving):
+//   INERT — the fact this row celebrates still holds (the guest still holds
+//     the badge); only the link/thumbnail go null. Used by badge_granted
+//     alone: a takedown never revokes a ranked win.
+//   LOSS  — the generic dead+loss composite already shipped for
+//     crowd_favorite_lost/badge_removed: `view: 'loss'`, `dead: true`,
+//     `href`/`thumb` null. Every submission-bearing kind whose underlying
+//     fact does NOT survive a takedown of the photo it names falls back to
+//     this same object rather than a bespoke one.
+const INERT = () => ({ href: null, thumb: null });
+const LOSS = () => ({ view: 'loss', dead: true, href: null, thumb: null });
 
 const KIND_VIEW = {
   badge_granted: {
@@ -125,6 +149,9 @@ const KIND_VIEW = {
     // source (system auto/metric grants) never sets submission_id, so this
     // stays null for them exactly as before.
     href: (ev) => (ev.submission_id != null ? `/p/${ev.submission_id}` : null),
+    // A takedown never revokes a ranked win (issue #866) — only the
+    // link/thumb go inert, the row stays the celebration-replay button.
+    takenDown: INERT,
   },
   badge_revoked: {
     view: 'loss',
@@ -156,12 +183,14 @@ const KIND_VIEW = {
     dead: true,
     parts: () => [{ text: 'The hosts ' }, { text: 'took your photo down', emphasis: true }],
     href: () => null,
+    takenDown: LOSS,
   },
   photo_restore: {
     view: 'photo',
     dead: false,
     parts: () => [{ text: 'Your photo is ' }, { text: 'back up', emphasis: true }],
     href: (ev) => (ev.submission_id != null ? `/p/${ev.submission_id}` : null),
+    takenDown: LOSS,
   },
   comment_hidden: {
     view: 'loss',
@@ -171,12 +200,14 @@ const KIND_VIEW = {
       { text: 'removed by the hosts', emphasis: true },
     ],
     href: (ev) => (ev.submission_id != null ? `/p/${ev.submission_id}` : null),
+    takenDown: LOSS,
   },
   comment_restored: {
     view: 'photo',
     dead: false,
     parts: () => [{ text: 'A comment on your photo is ' }, { text: 'back', emphasis: true }],
     href: (ev) => (ev.submission_id != null ? `/p/${ev.submission_id}` : null),
+    takenDown: LOSS,
   },
   // Crowd favorites (issue #625; re-keyed to the owning guest by #895). The
   // stored row carries guest_id + submission_id (scoring.
@@ -196,18 +227,13 @@ const KIND_VIEW = {
   crowd_favorite: {
     view: 'gold',
     dead: false,
-    parts: (ev) => {
-      // Lazy require (call-time, not module top level): scoring.js requires
-      // this module ('./notifications') at ITS OWN top level (see this
-      // file's header comment), so a top-level require('./scoring') here
-      // would create a load-order-sensitive cycle — whichever of the two
-      // modules happens to load first would see the other's module.exports
-      // still mid-assembly at the moment it destructures from it, and every
-      // recap render would throw. Deferring to call time sidesteps the cycle
-      // entirely, mirroring feed.js's own deferred require('./scoring')
-      // inside slideshowSequence.
-      const scoring = require('./scoring');
-      const placing = scoring.crowdFavorites().find((cf) => cf.guest_id === ev.guest_id);
+    // `ctx.placingFor` memoization rationale: see storedRows' own
+    // `getFavorites`/`placingFor` comment below — the lazy-require-to-dodge-
+    // a-load-cycle discipline lives there now, threaded into every row's
+    // `parts()`/`takenDown()` through the one `ctx` object rather than
+    // re-derived here.
+    parts: (ev, ctx) => {
+      const placing = ctx.placingFor(ev.guest_id);
       if (!placing) {
         // The guest has since left the placing set entirely (a later like or
         // takedown moved them out between the event being recorded and this
@@ -224,6 +250,25 @@ const KIND_VIEW = {
       ];
     },
     href: (ev) => (ev.submission_id != null ? `/p/${ev.submission_id}` : null),
+    // issue #866: `crowd_favorite` is a per-guest fact, not a per-photo one
+    // (KIND_VIEW.crowd_favorite's own header above) — taking down the ONE
+    // photo a stored event happened to name does not necessarily end the
+    // guest's placement. If `ctx.placingFor` still finds them, re-point at
+    // their CURRENT representative submission (`stmtSubmissionThumb`, keyed
+    // on the survivor's OWN id — `scoring.crowdFavorites()`'s return shape
+    // carries no thumb_path) rather than demoting a placement they still
+    // hold. Otherwise fall back to the shared LOSS composite, identical to
+    // every other kind whose underlying fact does not survive.
+    takenDown: (ev, ctx) => {
+      const placing = ctx.placingFor(ev.guest_id);
+      if (!placing) {
+        return LOSS();
+      }
+      return {
+        href: `/p/${placing.submission_id}`,
+        thumb: stmtSubmissionThumb.get(placing.submission_id).thumb_path,
+      };
+    },
   },
   crowd_favorite_lost: {
     view: 'loss',
@@ -234,6 +279,7 @@ const KIND_VIEW = {
       { text: ' of the crowd favorites' },
     ],
     href: () => null,
+    takenDown: LOSS,
   },
 };
 
@@ -454,6 +500,17 @@ const COMMENT_EXISTENCE_WHERE = `s.guest_id = ? AND ${VISIBLE_WHERE} AND ${COMME
 // existence predicate, not bolted on separately by each query.
 const LIKE_EXISTENCE_WHERE = `s.guest_id = ? AND ${VISIBLE_WHERE} AND l.created_at > ?`;
 
+// submission_taken_down (issue #866) is read here, NOT filtered on here —
+// this WHERE clause stays exactly EVENT_EXISTENCE_WHERE, unchanged, because
+// a STORED event stays permanent even once its submission is taken down
+// (this module's own "stored events never disappear" rule, file header
+// comment). storedRows() below reads this column to decide whether a row
+// keeps its live link/thumbnail or goes inert — see its own comment for the
+// per-kind treatment. Deliberately NOT folded into EVENT_EXISTENCE_WHERE
+// (which stmtUnreadEventCount also shares, with no `submissions` join at
+// all): a visibility predicate in that shared constant would either throw
+// "no such column" at stmtUnreadEventCount's own prepare time, or silently
+// make the unread chip disagree with the rendered list.
 const stmtStoredEvents = db.prepare(`
   SELECT ne.id            AS id,
          ne.kind           AS kind,
@@ -465,6 +522,7 @@ const stmtStoredEvents = db.prepare(`
          b.art_path        AS badge_art_path,
          b.description     AS badge_description,
          s.thumb_path      AS thumb_path,
+         s.taken_down      AS submission_taken_down,
          gb.rank           AS rank
     FROM notification_events ne
     LEFT JOIN badges b ON b.id = ne.badge_id
@@ -560,15 +618,79 @@ function cursorParams(cursor) {
   return [when, when, when, key, key];
 }
 
+// issue #866: a crowd_favorite row whose named photo was taken down, but
+// whose guest still places via a DIFFERENT (visible) photo, re-points at
+// that survivor's thumbnail. scoring.crowdFavorites() returns only
+// {submission_id, guest_id, like_count, rank, points} — no thumb_path — so
+// this is a second, deliberately narrow lookup, keyed on the survivor's own
+// submission_id (never on ev.submission_id, which names the taken-down
+// photo).
+const stmtSubmissionThumb = db.prepare(`SELECT thumb_path FROM submissions WHERE id = ?`);
+
 /**
  * Build the row objects for one guest's STORED events, up to FETCH_LIMIT
- * rows (bounded — see allRows' doc comment). `parts`/`href`/`dead`/`kind`
+ * rows (bounded — see allRows' doc comment). `parts`/`href`/`dead`/`view`
  * come from KIND_VIEW, the one place the stored-kind -> treatment map lives
  * (mirrors the table in the issue's implementation plan step 1).
+ *
+ * issue #866: a stored row naming a now-taken-down submission is never
+ * dropped (stored events are permanent) and never left pointing at a dead
+ * `/p/<id>` link or a broken thumbnail either. KIND_VIEW's own `takenDown`
+ * field (present only on submission-bearing kinds) is the ONE place that
+ * per-kind outcome is decided — see its doc comment, above KIND_VIEW's
+ * declaration, for the INERT/LOSS/custom shapes it can return. This function
+ * only applies whichever override that field produces (`override.view` etc.,
+ * falling back to the kind's ordinary `view`/`dead`/`href`/thumb when the
+ * override omits a field); it does not itself know or care what any
+ * particular kind does on takedown, so a new kind added to KIND_VIEW can
+ * never leave this function's own logic out of sync with the map (issue #866
+ * review — a parallel `ev.kind === ...` chain here duplicated KIND_VIEW's own
+ * ownership of that vocabulary). Keyed SOLELY on `submission_taken_down`
+ * (never re-checking `submission_id != null` alongside it — a stored event's
+ * submission_id is either null or points at a live row, `ON DELETE CASCADE`,
+ * `src/db.js`, so submission_taken_down is already falsy whenever there is no
+ * submission at all; a separate "missing join" branch would be unreachable).
+ *
+ * `scoring.crowdFavorites()` is resolved AT MOST ONCE per call to this
+ * function (memoized in `getFavorites` below), not once per row — it used to
+ * be called once per `crowd_favorite` row inside that kind's own `parts()`.
+ * The "is this guest currently placing" lookup built on top of it
+ * (`placingFor`, also memoized, PER GUEST this time since a page can contain
+ * more than one guest's rows in principle — though in practice every row on
+ * one call is the same guestId) is likewise built exactly once here and
+ * threaded via `ctx` into both `KIND_VIEW.crowd_favorite.parts` and its
+ * `takenDown` — the one place `find((cf) => cf.guest_id === guestId)` exists
+ * now, where it used to be typed out separately in each of those two spots
+ * (issue #866 review).
  */
 function storedRows(guestId, cursor) {
   const events = stmtStoredEvents.all(guestId, ...cursorParams(cursor));
   const rows = [];
+  // Lazy require (call-time, not module top level): scoring.js requires
+  // this module ('./notifications') at ITS OWN top level (file header
+  // comment), so a top-level require('./scoring') here would create a
+  // load-order-sensitive cycle. Deferring to call time sidesteps it,
+  // mirroring feed.js's own deferred require('./scoring') inside
+  // slideshowSequence.
+  let favorites = null;
+  function getFavorites() {
+    if (favorites === null) {
+      favorites = require('./scoring').crowdFavorites();
+    }
+    return favorites;
+  }
+  // The single "is this guest currently placing" predicate (issue #866
+  // review) — memoized per guestId rather than re-scanning `getFavorites()`
+  // once for `parts()` and again for `takenDown()`.
+  const placingCache = new Map();
+  function placingFor(forGuestId) {
+    if (!placingCache.has(forGuestId)) {
+      placingCache.set(forGuestId, getFavorites().find((cf) => cf.guest_id === forGuestId) || null);
+    }
+    return placingCache.get(forGuestId);
+  }
+  const ctx = { placingFor };
+
   for (const ev of events) {
     const treatment = KIND_VIEW[ev.kind];
     if (!treatment) {
@@ -585,16 +707,24 @@ function storedRows(guestId, cursor) {
             description: ev.badge_description,
           }
         : null;
+
+    const override =
+      ev.submission_taken_down && treatment.takenDown ? treatment.takenDown(ev, ctx) : {};
+    const view = 'view' in override ? override.view : treatment.view;
+    const dead = 'dead' in override ? override.dead : treatment.dead;
+    const href = 'href' in override ? override.href : treatment.href(ev);
+    const thumb = 'thumb' in override ? override.thumb : ev.thumb_path;
+
     rows.push({
       key: `event-${ev.id}`,
-      kind: treatment.view,
-      dead: treatment.dead,
-      parts: treatment.parts(ev),
-      href: treatment.href(ev),
-      thumb: ev.thumb_path,
+      kind: view,
+      dead: dead,
+      parts: treatment.parts(ev, ctx),
+      href: href,
+      thumb: thumb,
       badge: badge,
       badgeArtHtml: renderBadgeArt(badge),
-      glyph: KIND_GLYPH[treatment.view] || KIND_GLYPH.photo,
+      glyph: KIND_GLYPH[view] || KIND_GLYPH.photo,
       when: ev.created_at,
     });
   }

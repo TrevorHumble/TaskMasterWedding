@@ -18,6 +18,7 @@ Why the app is built the way it is. Decisions and tradeoffs, not getting-started
   - [COOKIE_SECRET must be fixed for the event](#cookie_secret-must-be-fixed-for-the-event)
   - [Guest sessions are rolling and long-lived, admin is not (#242)](#guest-sessions-are-rolling-and-long-lived-admin-is-not-242)
   - [Photos: multer intake, sharp normalization, takedown over delete](#photos-multer-intake-sharp-normalization-takedown-over-delete)
+  - [Avatar processing: a dedicated small avatar gate, not a share of the upload semaphore (#929)](#avatar-processing-a-dedicated-small-avatar-gate-not-a-share-of-the-upload-semaphore-929)
   - [HEIC accepted and converted to JPEG at intake (#281, supersedes #188's rejection)](#heic-accepted-and-converted-to-jpeg-at-intake-281-supersedes-188s-rejection)
   - [sharp 0.35.2 SAC block was a reputation-lag, now cleared (#304)](#sharp-0352-sac-block-was-a-reputation-lag-now-cleared-304)
   - [Scoring derived, not stored](#scoring-derived-not-stored)
@@ -140,6 +141,21 @@ The guest `gsid` cookie lasts 400 days (`config.GUEST_COOKIE_MAX_AGE_MS`) — th
 
 Uploads come in through multer; sharp produces a normalized full-size original plus a small thumbnail (`THUMB_WIDTH = 400`). Originals live in `data/uploads/`, thumbnails in `data/thumbs/`, served at `/uploads` and `/thumbs`. The admin "takes down" a photo by setting `taken_down = 1` rather than deleting the row, so a moderation action is reversible and the submission's history is preserved. A taken-down photo is hidden from the gallery, profiles, and scoring but can be restored.
 
+### Avatar processing: a dedicated small avatar gate, not a share of the upload semaphore (#929)
+
+`src/utils/upload-concurrency.js`'s `withUploadSlot`/`uploadSemaphore` (issue #311, `MAX_CONCURRENT_UPLOADS = 6`) bounds task-submit and memory-batch concurrency, but avatar processing — `src/services/photos.js`'s `saveAvatar`, called from both `POST /join` and `POST /me/edit` — had no bound at all. A poster-rush burst of joins, each running sharp's `.rotate()` + `attention` crop (a full-raster materialization measured at ~325 MB per upload in practice, issue #856), could OOM the ~2 GB host and crash the process for every in-flight guest.
+
+**Why not share `uploadSemaphore`:**
+
+1. **The raster arithmetic doesn't fit.** Admitting avatars at `MAX_CONCURRENT_UPLOADS = 6` would peak at 6 × ~325 MB ≈ 1.95 GB — reproducing the exact OOM the gate exists to prevent, inside the "bound." A separate, smaller `AVATAR_CONCURRENCY` (default 2) peaks at 2 × ~325 MB ≈ 650 MB transient, alongside the unchanged task-upload pipeline.
+2. **Head-of-line inversion.** `saveAvatar` runs the (process-wide-serialized) HEIC decode _before_ the sharp crop. An avatar holding a _shared_ slot while parked on that decode would stall the patient, unbounded task-submit/memory-batch waiters behind it — a guest's task photo delayed by someone's avatar, an inversion that does not exist today and must not be introduced by sharing the gate.
+
+**Why the join rate limiter (`RATE_LIMIT_IP_MAX`) can't substitute:** that limiter is IP-keyed and deliberately generous (300/10min) to admit an entire venue-NAT'd reception scanning one poster within minutes — it bounds abuse, not concurrency. A hundred honest guests within the limit, all attaching an avatar in the same burst, is exactly the load this gate exists to survive; the rate limiter does nothing to shape it.
+
+**Semantics are "skip, never stall," the opposite of `uploadSemaphore`'s "queue forever":** losing a task/memory upload is never acceptable (those queue with no depth bound); losing an avatar costs nothing — the guest can add one later from their profile, and the #716 starter point derives from `guests.avatar_path` whenever it's eventually set, not from a one-shot join-time award. `withAvatarSlot` (in `upload-concurrency.js`, alongside `withUploadSlot`) therefore fails fast on two bounds rather than queuing patiently: an immediate `AVATAR_QUEUE_BUSY` throw when the wait queue is already at `MAX_PENDING_AVATAR_WAITERS` (default 16), and an `AVATAR_SLOT_TIMEOUT` when an admitted wait doesn't clear within `AVATAR_SLOT_WAIT_MS` (default 10s — the most spinner an interactive join should make a guest absorb). Both failures flow into paths that already existed before this gate: `POST /join`'s existing catch around `trySaveAvatar` (`src/routes/auth.js`) silently drops the avatar and completes signup; `POST /me/edit`'s existing sharp-failure branch (`src/routes/guest.js`) produces its existing flash. No new guest-facing copy, no route changes — the gate wraps only the sharp pipeline inside `saveAvatar`, so both call sites are covered for free.
+
+The HEIC conversion inside `saveAvatar` stays deliberately _outside_ `withAvatarSlot` — it already has its own decode-semaphore serialization, pixel cap, and per-guest rate limit (see "HEIC accepted and converted to JPEG at intake" below), and gating it too would be exactly the head-of-line inversion reason 2 above rules out.
+
 ### HEIC accepted and converted to JPEG at intake (#281, supersedes #188's rejection)
 
 An iPhone (and a recent Samsung) hands over HEIC/HEIF photos by default. The prebuilt `sharp`/libvips binaries this app runs on cannot decode real HEVC-encoded HEIC — their bundled libheif has only an AV1 decoder (`sharp.format.heif.input.fileSuffix === ['.avif']`), and HEVC is excluded from the prebuilt binary for patent-licensing reasons. Issue #188 made the honest call at the time: reject HEIC at intake with actionable copy ("take a screenshot, or switch to Most Compatible") rather than store an original that could never be thumbnailed.
@@ -150,19 +166,33 @@ An iPhone (and a recent Samsung) hands over HEIC/HEIF photos by default. The pre
 
 **Decode runs off the main thread (worker offload):** `heic-convert` → `heic-decode` → `libheif-js/wasm-bundle` has no worker offload of its own and decodes **synchronously**, so running it on the Node main thread would block the entire event loop — freezing every route for every guest — for the full decode duration. Unlike the JPEG/PNG/WebP path, where `sharp` runs off-thread natively, this would be a new main-thread stall, and because HEIC is the iPhone default it is the expected load (a reception-night burst of uploads), not an edge — directly at odds with Goal A ("fast under the whole party at once"). So the decode is dispatched to a `worker_threads` worker (`src/services/heic-worker.js`) and awaited; `convertHeicToJpeg` still returns `Promise<Buffer>` and its call sites are unchanged. A **fresh worker is spawned per decode** and terminated when it finishes: the worker exits after one image, so its WASM heap and raw frame are fully reclaimed each time, and the large allocation is isolated in a short-lived child process — a worst-case decode cannot OOM (or leak into) the main app. A worker crash, error, or non-zero exit is caught on the main side and surfaces as the same guest-safe `BAD_IMAGE_TYPE` "couldn't be read" rejection; it never crashes or hangs the main process.
 
-The decode is also bounded in **time** by `HEIC_DECODE_TIMEOUT_MS` (20s; a legitimate large HEIC decodes in ~1–3s). The pixel cap bounds how much a decode allocates but not how long it runs — a crafted small-`ispe` HEIC with a pathological bitstream can drive libheif into a non-terminating decode, so the worker would post no result and never exit. Without a timeout that decode would never settle, and because the serialization chain advances only on settle, every later HEIC upload would queue behind it forever (a process-wide denial of the iPhone-default path until restart — squarely against Goal A). The timeout turns that hang into a single failed request that also frees the chain: the next upload proceeds normally.
+The decode is also bounded in **time** by `HEIC_DECODE_TIMEOUT_MS` (20s; a legitimate large HEIC decodes in ~1–3s). The pixel cap bounds how much a decode allocates but not how long it runs — a crafted small-`ispe` HEIC with a pathological bitstream can drive libheif into a non-terminating decode, so the worker would post no result and never exit. Without a timeout that decode would never settle, and because `heicDecodeSemaphore` (the single global serialization point, #930 — see below) only advances past a held slot on release, every later HEIC upload would queue behind it forever (a process-wide denial of the iPhone-default path until restart — squarely against Goal A). The timeout turns that hang into a single failed request that also frees the slot: the next upload proceeds normally.
 
-A **per-guest HEIC-decode rate limit** (`HEIC_DECODE_RATE_MAX` per `HEIC_DECODE_RATE_WINDOW_MS`, in `src/services/rate-limit.js`) is checked BEFORE the decode, for files that actually sniff as HEIC, across all three upload paths (task submit, memory batch, avatar). Without it a single hostile guest could flood hang-crafted HEICs — each burning the 20s timeout — and, since the decode chain is one-at-a-time and global, monopolize it and deny every guest's HEIC uploads (Goals A/D). The limit is tuned generously (60 decodes / 2 min per guest — far above any human's real upload rate) so it only ever stops a pathological flood; JPEG/PNG/WebP uploads never consume it.
+A **per-guest HEIC-decode rate limit** (`HEIC_DECODE_RATE_MAX` per `HEIC_DECODE_RATE_WINDOW_MS`, in `src/services/rate-limit.js`) is checked BEFORE the decode, for files that actually sniff as HEIC, across all three upload paths (task submit, memory batch, avatar). Without it a single hostile guest could flood hang-crafted HEICs — each burning the 20s timeout — and, since decoding is one-at-a-time and global, monopolize it and deny every guest's HEIC uploads (Goals A/D). The limit is tuned generously (60 decodes / 2 min per guest — far above any human's real upload rate) so it only ever stops a pathological flood; JPEG/PNG/WebP uploads never consume it.
 
-Finally, a **global pending-decode cap** (`MAX_PENDING_HEIC_DECODES`, default 8) bounds total held-buffer memory. The per-guest rate limit bounds enqueue RATE, but not queue DEPTH: because decodes are serialized one-at-a-time and a hang-crafted decode drains only as fast as the 20s timeout, many self-onboarding guests (or one guest over many connections) flooding could grow the queue without bound — and each pending decode PINS its ~15 MB source buffer (`MAX_UPLOAD_BYTES`) in the main process until its turn, so unbounded queue depth means unbounded held memory and an OOM of the ~2 GB host in minutes. `convertHeicToJpeg` (the single funnel every HEIC decode passes through) admits a decode only while the global pending count is below the cap — incrementing on admission, decrementing on settle (either outcome) — and rejects an over-cap upload with the rate-limit copy BEFORE its buffer is pinned onto the chain. Held decode memory is therefore capped at `MAX_PENDING_HEIC_DECODES × 15 MB` (~120 MB at the default) no matter how many guests flood. This completes the decode-DoS defenses: the pixel cap (per-decode allocation), the 20s timeout (per-decode time), the per-guest rate limit (per-guest enqueue rate), the global pending cap (total held memory), one-at-a-time serialization, and worker isolation.
+**Global pending-decode cap and admission (`MAX_PENDING_HEIC_DECODES`, raised 8 → 12; wait bound and admission mechanism replaced, #930).** A global cap bounds total held decode memory: the per-guest rate limit bounds enqueue RATE, but not queue DEPTH, so many self-onboarding guests (or one guest over many connections) flooding hang-crafted HEICs could grow the queue without bound. What changed under #930 is the admission MECHANISM and, with it, what a pending decode actually costs:
 
-**Memory constraint — one decode at a time:** a single HEIC decodes a full RGBA frame into memory and can transiently want a few hundred MB. Decodes are serialized behind a module-level promise chain (`src/services/photos.js`'s `heicDecodeChain`) so at most one decode worker runs at once, regardless of how many guests upload HEIC photos in the same moment. This matters because the app is sized for a small (~2 GB) host per the "Constraints that shaped the design" section above, and a move off the single event laptop to a small VPS is under consideration — a future host-sizing decision should account for this one-decode-at-a-time ceiling rather than assuming photo intake is memory-cheap.
+- **Mechanism: the repo's audited `Semaphore` (`src/utils/semaphore.js`) replaces the hand-rolled `heicDecodeChain` promise chain + `pendingHeicDecodes` counter.** `heicDecodeSemaphore = new Semaphore(1)` is the same primitive `withUploadSlot`/`withAvatarSlot` (`src/utils/upload-concurrency.js`) already standardize on, not a new one. Its FIFO wait queue supports `AbortSignal` cancellation with identity-splice removal (a cancelled waiter is spliced out of the queue by identity, never tombstoned) — this is what makes a wait bound on a queued decode safe by construction: a cancelled wait can never leak a slot or double-decrement a counter, because there is no separate counter to decrement and no tombstone that could be handed a slot later. **Round 2 (same #930 thread):** the HEIC gate's own hand-rolled "ceiling check → acquire → timeout-recode → run → release" sequence and `withAvatarSlot`'s independently hand-rolled copy of that identical shape had drifted apart under review — `withBoundedSlot` (`src/utils/upload-concurrency.js`) is now the ONE owner of that shape; both gates are thin callers (`limitKind: 'occupancy'` for HEIC via the semaphore's new `.occupancy` getter — active holders count toward its own cap; `limitKind: 'pending'` for avatar — only queued waiters count).
+- **Held-memory arithmetic differs by CALLER KIND — there is no single "one pinned buffer" bound.** `convertHeicToJpeg({ prefix, prefixTruncated }, supplier)` takes the admission-time sniff PREFIX plus a lazy `supplier` that performs the actual full-file read — the disk path's `() => fs.readFileSync(fd)`, the avatar path's `() => buffer` (already in RAM). The supplier runs only AFTER a slot is granted, but what that defers is NOT the same for both callers:
+  - **Disk callers (task submit, memory batch).** A queued decode has not yet read its full file — it holds only an open fd, its on-disk temp file, and the `HEIC_ADMISSION_SNIFF_BYTES` prefix already read (default 256 KB, ≈3 MB total across a full 12-deep queue) — not a pinned `MAX_UPLOAD_BYTES` (15 MB) buffer. At most ONE disk caller (the single ACTIVE decode) pins its full 15 MB buffer at any moment. This is the real reduction from the pre-#930 model (`MAX_PENDING_HEIC_DECODES × 15 MB` pinned regardless of caller kind) and is what actually licenses raising the ceiling 8 → 12 for the disk path.
+  - **Avatar callers (memory-resident, multer memoryStorage).** There is nothing to defer: `req.file.buffer` is already fully resident in the main process before `saveAvatar` ever calls `convertHeicToJpeg` — the "deferred read" pattern controls when the SUPPLIER reads, but the avatar's buffer was never behind a read to begin with. A guest queued behind a busy decode slot holds their full avatar buffer pinned for the entire wait. Worst case — a pure-avatar HEIC burst filling the ceiling — pins `MAX_PENDING_HEIC_DECODES × MAX_UPLOAD_BYTES` = 12 × 15 MB = **180 MB transient**, bounded to ≤ `HEIC_QUEUE_WAIT_MS` (45s) by the wait bound below, and further bounded in practice by the per-guest HEIC-decode rate limit (60 decodes / 2 min — see above), which caps how many distinct avatar HEICs any one guest can even enqueue. This sits ALONGSIDE, not instead of, the #929 avatar-crop concurrency budget (`AVATAR_CONCURRENCY` × ~325 MB ≈ 2 × ~325 MB ≈ 650 MB, from "Avatar processing" above) — both are transient, do not compound indefinitely, and the combined worst-case stack (≈180 MB avatar-buffer pin + ≈650 MB avatar-crop + the app's own baseline) still fits inside the ~2 GB host.
+  - The 8 → 12 raise is licensed by the DISK-path deferral (a real, large reduction in the common case) plus this recorded avatar-path arithmetic — not by a universal "one pinned 15 MB buffer" claim, which never held for the avatar path and would have been an honest-cost-model defect to ship as written.
+- **Admission ceiling and acquire() run in one synchronous turn.** `heicPrefixNeedsFullCheck` (the stage-1 pixel check on just the prefix) and `withBoundedSlot`'s own `occupancy >= MAX_PENDING_HEIC_DECODES` check both run, and — with no `await` in between either of them or the `acquire()` call that follows — a decode is admitted or rejected in one synchronous turn; an async gap here would open a check-then-enqueue race that could admit one over the ceiling.
+- **New wait bound (`HEIC_QUEUE_WAIT_MS`, default 45000).** An admitted-but-queued decode previously had NO bound on how long it could wait — it would simply succeed late. `acquire({ signal: AbortSignal.timeout(HEIC_QUEUE_WAIT_MS) })` now fails it, re-coded to the same `HEIC_RATE_LIMITED` copy, if a slot doesn't free in time. 45s covers a serial drain of a full healthy 12-deep queue (~1-3s per decode, ≤ ~33s for 11 predecessors) with margin; single-request worst case is `HEIC_QUEUE_WAIT_MS + HEIC_DECODE_TIMEOUT_MS` = 65s, inside the 300s `proxy_read_timeout` `docs/deploy.md`'s nginx example sets (#936).
+- **Two-stage pixel-bomb check (`HEIC_ADMISSION_SNIFF_BYTES`, default 262144 = 256 KB).** Stage 1 runs `assertHeicPixelsWithinCap` on a bounded, positioned prefix read (disk: `fs.readSync(fd, buf, 0, N, 0)`; avatar: a subarray of the in-RAM buffer) BEFORE a slot is ever requested — an honestly-oversized HEIC whose `ispe` sits in the leading `meta` box (the normal phone-encoder layout) is refused consuming no slot at all, unchanged in spirit from the pre-#930 single-stage check. Stage 2 re-runs the same check on the FULL buffer, still on the main thread, still before `decodeHeicInWorker`, whenever stage 1 was inconclusive (no `ispe` in the prefix — legal ISO-BMFF, a late `meta` box) OR the prefix read was truncated (`prefixTruncated` — stated explicitly by the producer that already knows it: `sniffBytesRead === HEIC_ADMISSION_SNIFF_BYTES` on the disk path, `buffer.length > HEIC_ADMISSION_SNIFF_BYTES` on the avatar path, rather than re-derived from `prefix.length` inside the checker, which cannot tell "the file ends exactly here" from "the file continues and this is a cut prefix"). This is what keeps the invariant "no over-cap file ever spawns a worker" true even for a HEIC whose `meta` box is not near the front — the old single main-thread check ran on the full buffer unconditionally, so this is a genuine behavior addition, not just a refactor.
+- **Honest residuals, restated (unchanged in kind, since #930 narrows rather than removes them):** the hard ceiling still refuses outright at 12 (the batch-kill boundary for a whole memory batch moves from depth 8 to depth 12, reduced but not eliminated — see #931 for batch-atomicity itself). The wait bound is also a **new** loss path under sustained saturation: in the partial-saturation band (a deep queue where each wait sits just under `HEIC_QUEUE_WAIT_MS`), a multi-file HEIC batch can still run long enough to hit a documented-nginx deployment's own proxy timeout and die with a bare 504 — accepted, because the alternative (no wait bound) loses the same batch anyway, later and less honestly.
+
+This completes the decode-DoS defenses: the two-stage pixel cap (per-decode allocation), the 20s timeout (per-decode time), the per-guest rate limit (per-guest enqueue rate), the global pending cap with its wait bound (total held memory and bounded queueing), one-at-a-time serialization, and worker isolation.
+
+**Memory constraint — one decode at a time:** a single HEIC decodes a full RGBA frame into memory and can transiently want a few hundred MB. Decodes are serialized behind `heicDecodeSemaphore` (`src/services/photos.js`, #930 — see above) so at most one decode worker runs at once, regardless of how many guests upload HEIC photos in the same moment. This matters because the app is sized for a small (~2 GB) host per the "Constraints that shaped the design" section above, and a move off the single event laptop to a small VPS is under consideration — a future host-sizing decision should account for this one-decode-at-a-time ceiling rather than assuming photo intake is memory-cheap.
 
 **Pixel-dimension cap — defense against a HEIC pixel bomb:** serializing decodes bounds _how many_ run at once, but not _how big_ each one is. `heic-decode` allocates a full raw RGBA frame (`new Uint8ClampedArray(width*height*4)`) sized from libheif's decoded-image `get_width()`/`get_height()`, and it does so _before_ `sharp` — and `sharp`'s default input-pixel guard — ever runs, so the HEIC path bypasses the protection the JPEG/PNG/WebP path gets for free. A crafted few-MB HEIC (a uniform image compresses to almost nothing under HEVC, well within the 15 MB upload cap) could carry huge dimensions and force a ~1 GB allocation that OOMs the ~2 GB host. Anything over `MAX_HEIC_PIXELS` (100 megapixels) is refused. 100 MP sits above any default-camera phone HEIC (a 48 MP iPhone ProRAW frame, a 50 MP flagship) with headroom while a 100 MP RGBA decode is ~400 MB — the largest single transient the one-at-a-time gate permits — and is deliberately tighter than `sharp`'s ~268 MP default AND than libheif's own ~1-gigapixel default limit, neither of which this host can safely absorb.
 
 **The cap uses libheif's AUTHORITATIVE dimensions, not the `ispe` box (#281 round-8 finding).** An earlier version gated only on the ISO-BMFF `ispe` box (`heicPixelDimensions`). That is a parser differential: **libheif does not size the allocation from `ispe`.** Verified empirically — patching a HEIC's primary-image `ispe` to 4000×4000 leaves libheif's decoded `get_width()`/`get_height()` unchanged (they come from the coded HEVC stream, not the `ispe`), and declaring a non-standard-size `ispe` (e.g. 24 bytes) makes libheif reject the file outright. So a "24-byte `ispe` declaring huge dims → huge allocation" bypass is a **false positive** (the `ispe` cannot drive the allocation), but the same evidence shows an `ispe`-only cap could diverge from the real allocation size. The cap is therefore enforced at two points: (1) a cheap **main-thread pre-check** on `ispe` (`assertHeicPixelsWithinCap`) that avoids spawning a worker for an honestly-huge HEIC, and (2) the **authoritative gate inside the worker** (`heic-worker.js`) on libheif's real `get_width()`/`get_height()`, obtained via `heic-decode`'s `.all()` (which exposes dimensions after the container parse but **before** the raster is allocated — measured: `.all()` ~0.2 MB, the raster only materializes at `.decode()`). Over-cap in the worker aborts and signals oversize, mapped to the same guest-safe `BAD_IMAGE_TYPE` copy; the giant allocation never happens. (worker_threads share the process address space, so this gate — not the worker "isolation" — is what prevents the OOM.) The worker decodes with `heic-decode` + `jpeg-js` directly at `Math.floor(0.9*100)=90` quality, byte-identical to the prior `heic-convert` path.
 
 **EXIF/orientation of the converted original:** libheif-js (1.19.8) applies the HEIF spatial transforms — including `irot`/`imir` orientation — during decode by default (`ignore_transformations=false`), so the decoded raster it hands back is already upright and the JPEG written to `data/uploads/` needs no further rotation. No extra rotation is applied to the converted full-size original; the thumbnail continues to go through `makeThumb`'s `sharp().rotate()` as before.
+
+**Any HEIC-candidate mimetype is now sniffed for jpeg/png/webp too, not just HEIC (#933) — bringing the disk path in line with the avatar path.** `saveAvatar` (memory storage) always handed real bytes straight to sharp regardless of declared type, so a generic `application/octet-stream` JPEG never failed there; `resolveUploadedFile` (disk storage) only sniffed octet-stream for HEIC and rejected everything else under that mimetype, because `ALLOWED_MIME_TO_EXT` has no octet-stream entry — an intake-path asymmetry, not a deliberate security boundary, that deleted a real JPEG/PNG/WebP and blamed the guest whenever Android SAF pickers (or the HTML multipart algorithm itself, when `File.type` is empty) sent one under the generic type. `resolveUploadedFile` now sniffs a non-HEIC candidate's magic bytes (any of `HEIC_CANDIDATE_MIMES` — `application/octet-stream` being the case that matters in practice) for jpeg/png/webp (mirroring `looksLikeHeic`'s signature-over-label approach) before rejecting, and renames the stored file to the sniffed extension on a match — judging the bytes, not the label, exactly as the avatar path already effectively did. `image/heic-sequence`/`image/heif-sequence` (Live Photos) are HEIC candidates too now, with `hevc`/`hevx` added to the accepted `ftyp` brands so admitting those mimetypes can't create a mime-accepted/brand-rejected dead end.
 
 ### sharp 0.35.2 SAC block was a reputation-lag, now cleared (#304)
 
@@ -1281,6 +1311,56 @@ arithmetic a second time in the route would let the clock and the fill disagree 
 shape changes. The "no SQL-fragment counterpart" claim in the #761 point (2) still holds for both
 functions — neither ships one, for the same reason stated there.
 
+## Missed-bonus FOMO: one meaning for a struck-through price, lucky excluded (#926)
+
+**Date:** 2026-07-29. **Status:** landed with #926 — phase-1 pixels owner-approved live on a
+seeded preview; the code in this section is mid-pipeline (adversarial review) as of this writing,
+not yet merged.
+
+**A struck-through figure means exactly one thing.** Before this issue, a struck-through base worth
+appeared on a LIVE special row (Today Only / an active flash — "worth more right now"). Adding a second,
+opposite meaning for the identical mark — "you missed this, it's gone" — on an expired row would have
+made the strike-through ambiguous the instant a guest saw both states in one scroll. The owner's ruling
+collapses this to one meaning: a struck-through figure on the guest list means a bonus that EXPIRED, full
+stop. Live rows (`isToday`/`flashActive`) dropped their struck base entirely — the price column now shows
+only the raised total, and the pill above the title (the gold Today Only flag, the ember flash pill) is
+the sole "worth more now" signal for a still-open window. The missed state reuses
+`.task-points-raised`'s column-flex layout for its own stack (`.task-points-lost` struck above the
+still-earnable `+worth pts`), but nothing else about the live and missed treatments overlaps — the CSS
+comment on `.task-points-raised` (`src/public/css/theme.css`) says so explicitly now, so a future reader
+does not reintroduce the old "struck base, then live total" shape by pattern-matching the wrong
+neighboring rule.
+
+**Flash and one-day challenge share the ONE missed rule, not two.** `tasks.missedBonusForTask(taskRow,
+clock)` (`src/services/tasks.js`) walks the SAME ordered `SPECIAL_RULES` list `bonusForTask`/`whatSpecial`
+already walk (see the #761 entry above), each rule now also carrying a `missed` predicate beside its
+existing `spokenFor`/`paying`. A row that is BOTH a passed one-day challenge and an expired flash
+therefore reports the 'daily' miss — the identical precedence the live path already gives 'daily' over
+'flash', for the same reason: one ordered list, one walk, so the live and missed questions can never
+independently drift apart on which rule owns a given row. `src/routes/guest.js` derives
+`bonusMissed`/`bonusMissedAmount` from this single function alone, gated on `amount > 0` (a legacy
+one-day row carrying a date with a NULL `special_bonus` never had anything to miss, and must not render
+"+0 bonus"), and never re-derives "expired" per special type.
+
+**`clock.todayIso` is now validated where `clock.nowMs` already was.** Before this issue,
+`missedBonusForTask`'s only clock check was `nowMs` (via the shared `assertClock`); an invalid `todayIso`
+fell through to the 'daily' rule's own `missed` predicate, which merely gated on `isValidDateString` and
+silently answered "not missed" — the exact silent-wrong-answer shape `isSealed()`/`isOnDay()` already
+refuse to allow for the SAME parameter on the live path. The fix adds an explicit `todayIso` check inside
+`missedBonusForTask` itself, throwing before any rule is walked — deliberately NOT hoisted into the shared
+`assertClock`, because `assertClock` is also `findSpecialRule`'s guard, and `findSpecialRule`'s flash-only
+callers legitimately pass no `todayIso` at all (flash's own `spokenFor`/`paying` never read it); forcing
+the check there would start throwing for a caller that was never wrong.
+
+**Lucky stays invisible, on purpose.** `SPECIAL_RULES`'s `lucky` entry carries no `missed` predicate at
+all — `missedBonusForTask` treats a rule with no `missed` key as never-missed, structurally, not via a
+special case inside the function. Lucky wears no live marker while its day is open (that secrecy is
+#650 AC2's whole point: naming which task is lucky would let a guest game the guess), so growing a
+posthumous "+N bonus, missed" mark on a passed lucky day would out it just as effectively as a live
+marker would. The omission from the rule table IS the guard — the alternative (special-casing lucky
+inside `missedBonusForTask` to force a `null` result) would duplicate, a second way, the exact "no marker
+for lucky" fact the missing `missed` key already states for free.
+
 ## Recap: derived events vs. written events, and the badge-moment stamp (#644)
 
 **Date:** 2026-07-22. **Status:** shipped.
@@ -2105,8 +2185,8 @@ alongside the columns it already selected, and the live placing lookup at render
 `ev.guest_id` rather than `ev.submission_id`, so a stored event whose recorded photo is no longer the guest's
 representative (the #896 swap case) still resolves to that guest's CURRENT rank instead of falling back to
 the rank-free "crowd favorite" copy. Nothing about the recap's `href`/thumbnail behavior changed — a stored
-event still links to the submission it was recorded against, which is issue #866's separate, still-open
-surface.
+event still links to the submission it was recorded against, which was issue #866's separate surface
+(since built and merged; see the #866 amendment below).
 
 **Alternative considered — pass the recap owner's `guestId` into `parts()` instead of projecting
 `ne.guest_id`.** Rejected: `parts()` renders one stored ROW, and the row's own `guest_id` is the fact the
@@ -2486,6 +2566,70 @@ questions on flap-out predate #894 and stay parked on `#588`. `recomputeBadges()
 auto/metric path) is untouched: this amendment applies only to `recomputeTransferableBadges()`'s
 grant/revoke pair, since only a transferable badge's holder set is subject to this outside-driven flap.
 
+## Amendment: a taken-down submission never leaves a dead link or broken thumb (#866)
+
+**Date:** 2026-07-30. **Status:** shipped.
+
+The #644 ADR above states stored `notification_events` rows are permanent, and `stmtStoredEvents`
+(`src/services/notifications.js`) has never filtered on the joined submission's visibility — unlike the
+DERIVED comment/like sources beside it, which compose `feed.VISIBLE_WHERE`. So a submission taken down
+(by a host, or by the guest themself) after its stored event was written left that row's `/p/<id>` link
+permanently 404ing and its thumbnail permanently broken, for as long as the row exists — which, per the
+permanence rule above, is forever.
+
+**Why not filter the row out.** `EVENT_EXISTENCE_WHERE` (`ne.guest_id = ?`) is shared, unmodified, between
+`stmtStoredEvents` (the list) and `stmtUnreadEventCount` (the chip) — the source-registry pattern the
+#644 ADR's own review established, so the two can never disagree about which rows exist. Appending a
+visibility predicate to that shared constant would either throw "no such column" at
+`stmtUnreadEventCount`'s own `db.prepare()` time (that statement has no `submissions` join to hang the
+predicate off), or — filtering only the list's own query instead — make the chip count rows the list never
+renders. Marking a row dead touches neither statement's WHERE, so the invariant holds structurally rather
+than by convention.
+
+**Three outcomes, not one, because "taken down" doesn't mean the same thing for every stored kind:**
+
+- **`badge_granted`:** the guest still holds the badge — `recomputeAfterSubmissionChange` runs only the
+  auto/metric and transferable passes on a takedown; `releaseRanking`'s ranked award is never re-run, so a
+  takedown cannot revoke it. Only `href`/`thumb` go null; the row stays the celebration-replay button
+  (badge data and `badgeArtHtml` untouched).
+- **`crowd_favorite` whose guest still places:** `crowd_favorite` is a per-guest fact, not a per-photo one
+  (`scoring.crowdFavorites()` dedupes to one row per guest, their single best photo — #896). Taking down
+  the ONE photo a stored event happened to name does not necessarily end the guest's placement; if
+  `crowdFavorites()` still lists them, the row re-points `href`/`thumb` at their CURRENT representative
+  photo instead of demoting a placement they still hold. The representative's thumbnail is a second,
+  narrow lookup (`stmtSubmissionThumb`, keyed on the survivor's own `submission_id`) since
+  `crowdFavorites()`'s return shape carries no `thumb_path`.
+- **Everything else** (every other submission-bearing kind, and a `crowd_favorite` whose guest no longer
+  places): `dead: true`, `href`/`thumb` null, `kind: 'loss'` — the identical composite already shipped and
+  approved for `crowd_favorite_lost`/`badge_removed`, so no new CSS or view branch is needed.
+
+**Keyed solely on `submission_taken_down`** (`s.taken_down`, newly joined into `stmtStoredEvents`), never
+re-checking `submission_id != null` alongside it: a stored event's `submission_id` is either null or points
+at a live row (`ON DELETE CASCADE` on `notification_events.submission_id`, `src/db.js`), so
+`submission_taken_down` is already falsy for every event with no submission at all — a separate
+"missing join" branch would be unreachable and untestable.
+
+**`scoring.crowdFavorites()` is resolved at most once per `storedRows()` call**, memoized rather than
+re-run per row — it used to be called once per `crowd_favorite` row inside that kind's own `parts()`
+closure; that closure now takes the memoized accessor instead of calling scoring itself, and the takedown
+re-point branch shares the same memoized result. `storedRows()` runs on every guest recap render, so this
+was worth hoisting rather than adding a second per-row full scan.
+
+**Deliberately left alone, not missed:** a muted `crowd_favorite` row (the no-longer-placing case) keeps
+its present-tense copy beside the `crowd_favorite_lost` row the same takedown mints — read together they
+read as history; a richer treatment is a taste call for the owner to raise at a preview, not decided here.
+The two #783 restore kinds (`photo_restore`, `comment_restored`) would, under the generic `loss` branch,
+render "back up" copy in muted loss styling if their submission is taken down again after a restore —
+copy contradicting treatment. Accepted for now: no route emits these yet (`recordEvent` is a public
+export; tests reach them through it), and #783 is the right place to pick those kinds' own takedown
+treatment.
+
+The takedown code itself needs no defensive branch to cover that gap in the meantime, either: each kind's
+`takenDown` (`KIND_VIEW.photo_restore`/`comment_restored`'s is the shared `LOSS`) runs unconditionally
+whenever `storedRows()` reads `submission_taken_down` true, in that same synchronous read — the identical
+same-turn/CASCADE discipline the missing-join omission above already relies on, not a second guarantee
+argued separately.
+
 ## Badge icon search tags: a public client-side data file, not server-rendered attributes (#903)
 
 The admin badge-icon picker's search box (`src/public/js/badge-picker.js`, part of #410) matched only an
@@ -2739,3 +2883,240 @@ in review (both the PR and design-philosophy passes caught it independently): `p
 `'12.9'` to `12` and `'12abc'` to `12`, so a parsed-count-vs-entry-count check lets exactly the malformed
 input it exists to catch through. This mirrors `releaseRanking`'s own no-silent-drop rule for a
 submission id that fails its visibility/ownership check.
+
+## Static photo caching: content-immutable filenames license a 7-day pinned cache (#937)
+
+**Date:** 2026-07-30. **Status:** shipped.
+
+**The problem.** `/uploads` and `/thumbs` (`src/app.js`) were mounted with no `express.static` options,
+so every response carried the framework default `Cache-Control: public, max-age=0` — a guest's phone
+re-validates every already-seen photo on every gallery scroll. Each revalidation first passes through the
+synchronous better-sqlite3 takedown query in `blockTakenDownOriginal`/`blockTakenDownThumb`
+(`src/services/photos.js`) before a 304 can even be answered, on the same main JS thread the upload
+pipeline's 6-slot semaphore is trying to protect. A hundred guests scrolling one gallery multiplies into
+thousands of blocking round-trips competing with in-flight uploads.
+
+**The filename invariant that licenses `immutable`.** A stored name is `<16 hex>-<ms timestamp>.<ext>`
+under both `/uploads` and `/thumbs`, and the bytes under a given name never change once written: takedown
+hides or deletes a row, it never rewrites the file in place, and a re-save always mints a fresh random
+name. `/uploads` has a second tenant beyond submission originals — guest **avatars** — and the same
+invariant holds for them: `saveAvatar` (`src/services/photos.js`) writes a new random filename per save
+and updates `guests.avatar_path` to point at it; it never overwrites bytes under an old avatar's name.
+Both tenants of `/uploads`, and everything under `/thumbs`, are therefore safe to mark `immutable` —
+a client that has fetched a name once never needs to ask again for that same name.
+
+**Why 604800 seconds (7 days), not longer or shorter.** The takedown guard still blocks every _new_
+fetch immediately and unconditionally — nothing about this change touches that. What a 7-day `max-age`
+adds is that a phone which already cached a photo before it was taken down keeps rendering its own copy,
+without asking the server, for up to 7 days, on any surface that still emits that URL. Shorter would
+re-open the revalidation flood mid-wedding-weekend, exactly when it matters most; longer would stretch
+the takedown residual (below) past the point the owner accepted. Seven days covers the full wedding
+weekend for performance while guaranteeing every phone converges to a takedown within a week.
+
+**Dependency: #866 (merged, PR #946, commit `5a4d851`, 2026-07-30).** Before #866, a taken-down photo's
+`/p/<id>` link could still be re-emitted from a guest's stored recap row, so a cached copy plus a
+still-live link would have compounded into a durable-looking dead-photo experience. #866 made every
+stored-event surface stop emitting a taken-down submission's `href`/`thumb` (see the #866 ADR above), so
+by the time this issue shipped, no in-app surface renders a taken-down photo's URL. This issue was
+sequenced to depend on and ship after #866 for that reason.
+
+**The residual, accepted as-is.** With #866 landed, the only way a guest's phone still shows a
+taken-down photo is a direct URL they browsed to and cached _before_ the takedown, revisited manually
+(bookmark, browser history, a screenshot-shared link) within the 7-day window — one phone, one guest,
+capped at 7 days, never renderable from any in-app link. The export/keepsake pipeline reads the server's
+files directly, never a phone's cache, so the kept record is unaffected by this residual.
+
+**Why `public` is the safe directive here — an assumption, not a given.** This deployment terminates
+TLS at the reverse proxy (§ "Hosted deployment" records that termination); no CDN is deployed today and
+none is planned for the event, so no shared/intermediary cache sits in the request path. `public` on an HTTP response
+normally permits ANY shared cache — a corporate proxy, a CDN edge — to store and reuse it, but with none
+of those in the request path, "public" resolves to "cacheable by the requesting device" in practice. A
+future deployment that adds a CDN or drops to plain HTTP through a shared proxy must revisit this
+directive before shipping — `public` would then mean what it actually says.
+
+**The admin-bypass and 404 branches get their own directives, not `immutable`'s.** The two guard
+middlewares set `Cache-Control` themselves, one line each, before passing through — `express.static`'s
+underlying `send()` only sets `Cache-Control` when the response doesn't already carry one, so a value
+set upstream in the guard survives untouched to the client:
+
+- **Admin bypass** (`isAdminRequest(req)` branch, both guards): `private, no-cache`. An admin's bypassed
+  view can include a taken-down file — that response must never be marked publicly cacheable, but the
+  host's own bodiless-304 revalidation flow (useful on the moderation gallery, which re-fetches the same
+  thumbnails repeatedly) still works under `no-cache` (revalidate-before-reuse), unlike `no-store` (never
+  cache at all).
+- **404 branches** (both the stage-1 allowlist rejection and the stage-2 takedown 404): `no-store`. A
+  takedown 404 must never be cached as a negative, or a later restore would have to fight a stale cached
+  404 on top of the takedown guard already re-allowing the file. Because the stage-1 allowlist check runs
+  _before_ the admin-bypass check in both guards, a malformed/non-matching filename 404s — with
+  `no-store` — for an admin requester exactly the same as for a guest; the bypass only ever reaches
+  stage 2 (the DB takedown check), never stage 1.
+
+No new middleware was added: `STATIC_PHOTO_OPTS` is passed directly as `express.static`'s second
+argument in `src/app.js`, and the guards' existing single functions grew one `res.set()` line each per
+branch — the same shape the #191 admin bypass already used.
+
+## Feed in-place loading: scroll correction owned by the module, native anchoring suppressed only mid-insert (#677)
+
+**Date:** 2026-07-29. **Status:** shipped (phase-2, PR review fix).
+
+**The problem.** #677's phase-1 approved module (`src/public/js/feed-scroll.js`) restores scroll
+position itself after prepending a newer window above the guest's current photo (measure the anchor
+tile's position before/after insert, `scrollBy` the difference). The first cut also disabled native CSS
+scroll anchoring statically and permanently — `.feed { overflow-anchor: none }` plus a second rule
+covering everything below it (sentinels, edges, pager, footer) — reasoning that native anchoring and the
+module's own correction would otherwise stack and double-correct. PR review found two real problems with
+that static approach, not hypothetical ones: `.feed` is not unique to this page (`src/views/admin-photos.ejs`
+renders its own `.feed` for the moderation view), so the static rule silently turned off anchoring there
+too, on a surface #677 was never meant to touch; and suppressing anchoring page-wide, permanently, also
+removed the browser's own compensation for photos ABOVE the viewport that resolve to their real height
+AFTER paint (issue #612's `contain-intrinsic-size: 600px` on `.feed-item` is only an estimate) — with
+anchoring off at all times, a guest scrolling up through freshly-prepended cards would see the page drift
+as those cards resolved, with nothing left to correct it once the module's own one-shot adjustment had
+already run.
+
+**The fix: suppress anchoring only for the tick that processes one insert.** `overflow-anchor: none` on
+one element excludes that element AND its whole subtree from anchor candidacy, so toggling it on
+`<body>` (a single `body.feed-inserting` rule in `theme.css`) covers every anchor candidate on the page in
+one place, without scoping to `.feed` at all — the admin photos panel is never touched. `feed-scroll.js`'s
+`load()` takes a counted hold on the class immediately before calling `edge.insert(...)` (a counter, not
+a bare add/remove pair, so overlapping inserts from the two independent edges never strip the class out
+from under each other) and releases it two animation frames later (one frame for the browser's layout
+pass over the inserted nodes, a second so anchoring is live again before the next observer tick), falling
+back to a synchronous release when `requestAnimationFrame` is unavailable so a test environment without
+it never hangs. Native anchoring is
+therefore OFF only while the module's own measure-and-adjust (`prependNewer`) is doing the correcting for
+that one insert, and back ON the rest of the time — including while a later-resolving image height drifts
+the layout, which is exactly the case the static version broke.
+
+**Provenance.** Issue #677; the original static suppression was written against the 2026-07-29 phase-1
+preview observation (headless Chrome: an append at the bottom sentinel anchored there instead of leaving
+scroll position untouched, stalling the observer chain) — that observation is still the reason anchoring
+must be off during an insert; the fix only narrows WHEN and WHERE it is off.
+
+## Rank & award checklist row: "done collecting" is read-only, and lives beside the setting it reads (#662)
+
+**Date:** 2026-07-31. **Status:** shipped.
+
+**What changed.** `src/services/host-checklist.js`'s `buildRows()` gained one open auto row per task
+that is done collecting photos, still holds at least one visible submission, and has not yet had its
+badge released (`task-badges.isTaskBadgeAwarded`) — `Rank & award: [task title]`, linking to
+`/admin/tasks/<id>/rank`. This fills in the omission #646 recorded in the
+`host-checklist.js` comment this change deletes ("rank-and-award … still has no backing column or
+table at all, so that row type stays omitted" — the same substance #646's ADR above records as "no
+column or table for 'winners chosen' exists") now that #661 gives the row a fact to read: a task's
+visible-submission count plus the settings-table awarded marker.
+
+**"Done collecting" is a host-facing signal, not a write-side seal.** Submission code never hard-closes
+a task to photos except while sealed for a future day (`tasks.js`'s `isSealed`/`sealedTaskWhere`) — a
+past-dated task can still technically receive a photo, and the rank page itself supports re-ranking one
+in after release. The predicate this issue adds is therefore read-only, with two cases and an explicit
+precedence: a **dated** task (a real `special_date`) is done when that date is strictly before today in
+the event timezone — its own day governs in both directions, so a task dated after `event_end_date` is
+not done until its own day passes even though the event is over. An **undated** task (no real
+`special_date` — ordinary, flash, lucky, or a `'oneday'` row with a NULL date) is done only once the
+configured `event_end_date` is a real date strictly before today. A flash task's expired window is
+deliberately NOT a third case and never substitutes for either: `flashState()` governs only the bonus,
+the task remains a fully live ordinary task once its window closes, and a row keyed off a flash window
+closing would invite releasing the badge mid-collection — the exact defect issue-review round 1 caught
+in this issue's first draft, before the trigger was reconciled to "done collecting" instead of the
+`#259`-era "5th chosen winner" the original body assumed (a persisted "chosen" state #661's one-badge
+consolidation had already removed).
+
+**Predicate placement: split at the seam, not all-or-nothing (corrected — PR review round 1, design-
+philosophy finding, information leakage).** The first-shipped version put the DATED arm's own `<`
+comparison (`special_date` strictly before today) inline in `host-checklist.js` as a bare string compare
+— a duplicate of a comparison that already existed, privately, inside `tasks.js`'s `SPECIAL_RULES` daily
+`missed` predicate (the "has this challenge's day passed" fact `missedBonusForTask` uses for the
+struck-through missed-bonus marker, issue #926). That predicate is a raw `special_date`/`todayIso`
+comparison with no event-level input, so it belongs to `tasks.js`'s existing `isSealed` (`>`) /
+`isOnDay` (`=`) family, not to this module — the fix adds `tasks.isPastDay(taskRow, todayIso)` as their
+`<` sibling (same signature shape, same `todayIso` validation, same `isRealDateString` guard against a
+regex-shaped-but-impossible `special_date`), and both the daily `missed` predicate and
+`host-checklist.js`'s dated arm now call it instead of each carrying their own copy. What stays in
+`host-checklist.js`, deliberately, is the UNDATED arm and the two-case composite: `event_end_date` is an
+EVENT-LEVEL setting this module already owns reading, through its own `settingRaw` helper specifically
+because that helper distinguishes "never configured" from "configured" — `db.getEventConfig()` would
+silently default an unset `event_end_date`, which would make an unconfigured event's undated tasks read
+as permanently NOT done rather than correctly undecidable — and deciding WHICH arm applies has exactly
+one consumer today. Moving that single-consumer, cross-module composite into `tasks.js` on spec would be
+the premature generalization this codebase's own convention (`liveTaskWhere`, `feed.js`'s
+`VISIBLE_WHERE`) exists to avoid; a second surface needing the COMPOSITE is what graduates it, as its own
+reviewed issue — the raw `<` comparison itself had no such excuse, since a second raw consumer already
+existed the day this predicate was written.
+
+**One grouped query for the candidate set, plus one small settings read per candidate (corrected — the
+first-shipped note here overclaimed "not a second SQL round trip per task").** The row's candidate set is
+one `tasks` query with a `LEFT JOIN submissions` gated in the `ON` clause (not a `WHERE`) by
+`feed.VISIBLE_WHERE` — so a task with zero visible submissions still survives the join as one row with
+`photo_count = 0` rather than being dropped by the join — filtered to not-hidden via
+`tasks.liveTaskWhere('t')`. Both filters are composed from their declared owners, not re-typed: this is
+the same discipline `host-checklist.js`'s own file comment already sets for the rest of this module's
+rows. The done-collecting test runs in JS afterward at no further SQL cost, but `taskBadges.
+isTaskBadgeAwarded` genuinely does execute one prepared `settings` SELECT per candidate task — that is a
+real per-task SQL statement, just a cheap indexed single-row read bounded by the party's own task count
+(tens, not thousands), not the N+1 shape (a submissions-table query per task) this query's `LEFT JOIN`
+was built to avoid.
+
+**A hidden task's row disappears, not just goes dormant.** `tasks.liveTaskWhere('t')` excludes a
+`special_mode = 'hidden'` task from the candidate query entirely, so hiding a done-collecting task with
+photos waiting drops its row on the very next render — matching this row type's other auto rows, which
+carry no dismiss control of their own, and the host's only way to silence one is to act on it (here:
+hide the task, or release its badge).
+
+## Scoped feed windows: every photo grid opens a feed constrained to its own set (#952)
+
+**Date:** 2026-07-30. **Status:** shipped (phase 2).
+
+**The problem.** The Shared Gallery's tile → `/feed?from=<id>#photo-<id>` → lightbox chain is the star
+pattern, but it always opens the WHOLE event's feed — a tap on a task section, a person's profile grid,
+or "My Photos" dropped the guest into every visible photo, not just that grid's own set. Phase 1 (owner-
+approved 2026-07-30) mocked the fix client-side in `src/public/js/feed-scroll.js`: a `?scope=u<id>|t<id>|m`
+query param told the already-downloaded feed page to hide non-matching cards, chaining past a fully-
+filtered-out window until one contributed a visible card. That still downloaded every unscoped window
+over venue wifi first — the exact cost issue #194 exists to bound — so it was a look, not the shape.
+
+**The fix: the scope is a SQL predicate, not a DOM filter.** `src/services/feed.js` now precompiles four
+statement sets (`FEED_STATEMENTS_BY_SCOPE`) at module load — one per scope shape (`guest` →
+`s.guest_id = ?`, `task` → `s.task_id = ?`, `memory` → `s.task_id IS NULL`, plus `none` for today's
+unscoped feed) — so `feedWindow(fromId, scope)` composes the SAME `VISIBLE_WHERE`/ordering rules this
+file already owns with a ready statement instead of building SQL text per request. A non-matching photo
+is never fetched, let alone hidden client-side.
+
+**`feed.js` owns both directions of the `u<id>` / `t<id>` / `m` grammar.** `feed.parseScope(raw)` is the
+single place a `?scope=` string becomes a scope descriptor (parsing); `feed.scopeToken(scope)` is the
+single place a descriptor becomes a string again (emission), delegating to the same per-shape
+`SCOPE_SHAPES` table `feedWindow` itself reads. Every other caller — the window query, `community.js`'s
+back-link context, both pager hrefs — consumes one of these two functions rather than re-matching or
+re-building the scope string itself. The token side reaches the photo-grid VIEWS too (a review fix
+after phase 2 first shipped): every route resolves tokens server-side and hands the views ready
+strings, all under the one name `scopeToken` — `GET /gallery` stamps each group's token
+(`g.scopeToken`) plus a `taskWallScope` for the filtered wall, while `GET /u/:guestId` and
+`GET /` (`guest.js`) each resolve their single token once — and `partials/gallery-tile.ejs` only ever
+composes a token it was given into its own `/feed?...&scope=` link; no view calls the token builder or
+re-derives the `u`/`t`/`m` grammar itself. A malformed value and a well-formed but
+nonexistent guest/task id both resolve to `null` (one EXISTS-shaped lookup per shape) and are
+therefore indistinguishable from "no scope" downstream — the route never has to special-case "bad scope"
+separately from "no scope"; both just render the plain unscoped feed. This is a deliberate simplification
+over the phase-1 mock's `SCOPE_RE`, which had no such validation (a garbage or dead id in the URL, or a
+guest who deleted their whole profile, would have raised errors client-side, not degraded quietly).
+
+**An out-of-scope `from` anchor degrades exactly like a stale one already does.** `feedWindow` reused the
+existing "missing/taken-down anchor falls back to the first page" branch: after resolving the anchor row,
+one extra check (`matchesScope`) discards it if it exists but sits outside the scope, so the caller gets
+the scoped set's own newest page — the same one-branch shape as the pre-existing stale-`from` fallback,
+not a second, parallel "wrong scope" code path.
+
+**Back-link copy is looked up server-side, not scraped from rendered rows.** The phase-1 mock derived the
+task title / guest name for its back-link chrome from the DOM (`feedEl.querySelector(...)`) — which
+cannot work for an empty scoped set (AC4: every photo in the set taken down still has to render a back
+link naming what would have been there). `community.js`'s `scopeBackLinkContext()` looks the title/name up
+directly from the DB once per request, so the frame renders identically whether the scoped set holds
+photos or none.
+
+**The no-JS pager stays real, not just present.** `src/views/feed.ejs` still renders
+`<nav class="pagination">` on a scoped page with scope-carrying hrefs on both directions — `feed-scroll.js`
+reads those same hrefs off each fetched page and hides the nav at runtime exactly as it already did for
+an unscoped feed (issue #677's degradation contract, untouched); this issue's own phase-1 mock's DOM-
+filtering/chaining logic (`SCOPE_RE`, `scopeGuestId`, `itemMatchesScope`, `applyScope`, `scopeContext`,
+`insertScopeChrome`, and the `scopeId`/`visBefore`/`visAfter` chaining inside `load()`) is deleted outright
+rather than adapted, since the server now guarantees every fetched window is already scoped.

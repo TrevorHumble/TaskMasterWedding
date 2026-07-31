@@ -1,0 +1,29 @@
+<%# src/views/partials/task-earn-pitch.ejs
+    Issue #926 review fix (MAJOR M4): the SINGLE place that renders the guest
+    task list's earn-pitch line — "Best photos earn [badge name] + bonus
+    points" — as three spans (a fixed lead, the one variable-width name, a
+    fixed tail) laid out as a nowrap line where ONLY the name may shrink and
+    ellipsize (see .task-earnable-copy's own comment, src/public/css/
+    theme.css, for the sizing math). Before this partial existed,
+    src/views/partials/task-todo-row.ejs (the to-do row) and the done-rows
+    loop in src/views/tasks.ejs each carried their own copy of this identical
+    three-span markup — two owners of one sentence, with nothing stopping a
+    wording tweak or a class rename made in one copy from silently not
+    reaching the other. Every guest-list call site includes this partial
+    instead now, the same "one owner, why" shape badge-art.ejs's own header
+    comment already sets for how a badge's ART renders — this partial is that
+    same discipline applied to the WORDS beside it.
+
+    Local:
+      badge (required) - { name, ... } (task-badges.toTaskBadgeView's shape).
+        Only .name is read here; the badge's ART is a separate concern (see
+        badge-art.ejs), rendered independently by each call site (a large
+        leading .task-badge-lead on a to-do row, the guest's own photo
+        thumbnail on a done row) — this partial owns the WORDS only, never
+        the art.
+%>
+<span class="task-earnable-copy"
+  ><span class="task-earnable-lead">Best photos earn</span
+  ><span class="task-earnable-name"><%= badge.name %></span
+  ><span class="task-earnable-tail">+ bonus points</span
+></span>
