@@ -2921,3 +2921,73 @@ the layout, which is exactly the case the static version broke.
 preview observation (headless Chrome: an append at the bottom sentinel anchored there instead of leaving
 scroll position untouched, stalling the observer chain) — that observation is still the reason anchoring
 must be off during an insert; the fix only narrows WHEN and WHERE it is off.
+
+## Rank & award checklist row: "done collecting" is read-only, and lives beside the setting it reads (#662)
+
+**Date:** 2026-07-31. **Status:** shipped.
+
+**What changed.** `src/services/host-checklist.js`'s `buildRows()` gained one open auto row per task
+that is done collecting photos, still holds at least one visible submission, and has not yet had its
+badge released (`task-badges.isTaskBadgeAwarded`) — `Rank & award: [task title]`, linking to
+`/admin/tasks/<id>/rank`. This fills in the omission #646 recorded in the
+`host-checklist.js` comment this change deletes ("rank-and-award … still has no backing column or
+table at all, so that row type stays omitted" — the same substance #646's ADR above records as "no
+column or table for 'winners chosen' exists") now that #661 gives the row a fact to read: a task's
+visible-submission count plus the settings-table awarded marker.
+
+**"Done collecting" is a host-facing signal, not a write-side seal.** Submission code never hard-closes
+a task to photos except while sealed for a future day (`tasks.js`'s `isSealed`/`sealedTaskWhere`) — a
+past-dated task can still technically receive a photo, and the rank page itself supports re-ranking one
+in after release. The predicate this issue adds is therefore read-only, with two cases and an explicit
+precedence: a **dated** task (a real `special_date`) is done when that date is strictly before today in
+the event timezone — its own day governs in both directions, so a task dated after `event_end_date` is
+not done until its own day passes even though the event is over. An **undated** task (no real
+`special_date` — ordinary, flash, lucky, or a `'oneday'` row with a NULL date) is done only once the
+configured `event_end_date` is a real date strictly before today. A flash task's expired window is
+deliberately NOT a third case and never substitutes for either: `flashState()` governs only the bonus,
+the task remains a fully live ordinary task once its window closes, and a row keyed off a flash window
+closing would invite releasing the badge mid-collection — the exact defect issue-review round 1 caught
+in this issue's first draft, before the trigger was reconciled to "done collecting" instead of the
+`#259`-era "5th chosen winner" the original body assumed (a persisted "chosen" state #661's one-badge
+consolidation had already removed).
+
+**Predicate placement: split at the seam, not all-or-nothing (corrected — PR review round 1, design-
+philosophy finding, information leakage).** The first-shipped version put the DATED arm's own `<`
+comparison (`special_date` strictly before today) inline in `host-checklist.js` as a bare string compare
+— a duplicate of a comparison that already existed, privately, inside `tasks.js`'s `SPECIAL_RULES` daily
+`missed` predicate (the "has this challenge's day passed" fact `missedBonusForTask` uses for the
+struck-through missed-bonus marker, issue #926). That predicate is a raw `special_date`/`todayIso`
+comparison with no event-level input, so it belongs to `tasks.js`'s existing `isSealed` (`>`) /
+`isOnDay` (`=`) family, not to this module — the fix adds `tasks.isPastDay(taskRow, todayIso)` as their
+`<` sibling (same signature shape, same `todayIso` validation, same `isRealDateString` guard against a
+regex-shaped-but-impossible `special_date`), and both the daily `missed` predicate and
+`host-checklist.js`'s dated arm now call it instead of each carrying their own copy. What stays in
+`host-checklist.js`, deliberately, is the UNDATED arm and the two-case composite: `event_end_date` is an
+EVENT-LEVEL setting this module already owns reading, through its own `settingRaw` helper specifically
+because that helper distinguishes "never configured" from "configured" — `db.getEventConfig()` would
+silently default an unset `event_end_date`, which would make an unconfigured event's undated tasks read
+as permanently NOT done rather than correctly undecidable — and deciding WHICH arm applies has exactly
+one consumer today. Moving that single-consumer, cross-module composite into `tasks.js` on spec would be
+the premature generalization this codebase's own convention (`liveTaskWhere`, `feed.js`'s
+`VISIBLE_WHERE`) exists to avoid; a second surface needing the COMPOSITE is what graduates it, as its own
+reviewed issue — the raw `<` comparison itself had no such excuse, since a second raw consumer already
+existed the day this predicate was written.
+
+**One grouped query for the candidate set, plus one small settings read per candidate (corrected — the
+first-shipped note here overclaimed "not a second SQL round trip per task").** The row's candidate set is
+one `tasks` query with a `LEFT JOIN submissions` gated in the `ON` clause (not a `WHERE`) by
+`feed.VISIBLE_WHERE` — so a task with zero visible submissions still survives the join as one row with
+`photo_count = 0` rather than being dropped by the join — filtered to not-hidden via
+`tasks.liveTaskWhere('t')`. Both filters are composed from their declared owners, not re-typed: this is
+the same discipline `host-checklist.js`'s own file comment already sets for the rest of this module's
+rows. The done-collecting test runs in JS afterward at no further SQL cost, but `taskBadges.
+isTaskBadgeAwarded` genuinely does execute one prepared `settings` SELECT per candidate task — that is a
+real per-task SQL statement, just a cheap indexed single-row read bounded by the party's own task count
+(tens, not thousands), not the N+1 shape (a submissions-table query per task) this query's `LEFT JOIN`
+was built to avoid.
+
+**A hidden task's row disappears, not just goes dormant.** `tasks.liveTaskWhere('t')` excludes a
+`special_mode = 'hidden'` task from the candidate query entirely, so hiding a done-collecting task with
+photos waiting drops its row on the very next render — matching this row type's other auto rows, which
+carry no dismiss control of their own, and the host's only way to silence one is to act on it (here:
+hide the task, or release its badge).
