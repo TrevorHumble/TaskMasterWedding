@@ -1822,7 +1822,8 @@ shape as every other column this table has grown) — NULL for every award path 
 convention a caller could forget to honor. `task-badges.releaseRanking(taskId, submissionIds)` is the new,
 whole-set-atomic write path (`awardTaskBadge`/`removeTaskAward`, #483's original single-photo award/remove
 pair, are untouched — kept for their own existing callers/tests, superseded only as the route-facing path):
-validates 1-5 entries, no duplicates, and every id a CURRENTLY VISIBLE submission of THIS task (refusing
+validates 1-5 entries (amended by #892, see below — 0 is now a deliberate clear-all, not a refusal), no
+duplicates, and every id a CURRENTLY VISIBLE submission of THIS task (refusing
 the WHOLE release otherwise, never silently dropping one bad entry — a partial write would shift every
 following rank/points value out from under the host's on-screen order without telling them); folds
 placements onto their guest (`foldRankedPlacements`, pulled out as its own pure function so the same-guest
@@ -2668,3 +2669,73 @@ the same CSS-guardrail-regex workaround `tests/leaderboard-overflow.test.js` alr
 `touch-action`/`flex-wrap` source-text assertions. The pixel-level proof (the class alone renders the
 panel `display: flex` on a `:has()`-less engine) happened in the owner's phase-1 visual-approval loop,
 not in this suite.
+
+## Rank & award results view: one hidden-button bug, one release-means-clear amendment (#892)
+
+**Date:** 2026-07-29. **Status:** shipped.
+
+**The problem, and its actual root cause.** The owner reported the Rank & Award page giving no visual
+cue that Release did anything ("the button indents, and nothing after that"), which led to spamming
+Release and the duplicate-notification bugs #889 already fixed server-side. The client-visible root
+cause: the released (Awarded) page differed from the live editor only by a `hidden` Release button —
+and `.btn`'s own `display` rule already beat the UA's `[hidden]` attribute rule in specificity, so that
+button never actually disappeared. The page looked identical whether released or not, in every state,
+the entire time #661 shipped.
+
+**Fix: `.rank-award-foot .btn[hidden] { display: none }`, plus a genuinely different released view.**
+`src/public/css/theme.css` gains one rule scoped to this foot so a future `hidden` toggle on any of its
+buttons actually paints hidden — a stylesheet-presence test (`tests/admin-badge-rank-script.test.js`)
+guards this specifically, since jsdom does no layout and a geometry assertion there would be vacuously
+green. On top of the CSS fix, a released task now opens as a distinct RESULTS view (card titled
+"Results", a check-glyph "Awarded" pill, medal rows with no drag handles) rather than the same editor
+with one button hidden — the owner's own diagnosis ("make it obvious without writing it, with the UI
+changes") ruled out a text explanation or a confirm dialog as the fix.
+
+**The photos stay visible always; the tile's ROLE swaps with the mode, not its presence.** Hiding the
+grid entirely on a released task was considered and rejected live: the owner wants to keep browsing a
+task's photos after release. `src/public/js/admin-badge-rank.js`'s `renderGrid()` now branches per photo
+on `editing`: a pick-tile button (numbered checks, toggles `picked`) in edit mode, or a `.js-lightbox`
+BUTTON (no href — `/p/:id` is guest-gated and would 302 an admin to `/join`, the same shape
+`admin-photos.ejs`'s own admin-feed lightbox trigger already uses) on the results view, so a tap browses
+full-resolution instead of touching the ranking. `data-lightbox-photo` carries `photo_path` (the
+original filename), not `thumb_path` — the route's `stmtVisibleTaskPhotosForRank` SELECT was widened to
+carry it (`src/routes/admin.js`), since `lightbox.js` always prefixes its source attribute with
+`/uploads/` and a thumbnail path there would resolve to a nonexistent file.
+
+**One state machine, `editing`, replaces the old `released`-mutates-in-place model.** #661's original
+design let ANY pick-tile tap silently exit the read-only Awarded state and re-enter live editing
+(dropping this same photo's pick status in the same click) — the exact "mis-tap pulls a released ranking
+apart with no visual cue" root cause #2 the owner's report also named. `editing` (a released task starts
+`false`, an unreleased one starts `true`) is now flipped ONLY by the explicit Edit-ranking / Cancel
+buttons; `released` itself becomes a read-only fact (has this badge EVER been released — still sourced
+from the same `data-released` attribute / `isTaskBadgeAwarded` settings marker) that only gates whether
+Cancel has a released baseline to return to. A `baseline` snapshot (`picked.slice()` at load) is what the
+Release button's visibility is keyed on now — `isDirty()` compares the live `picked` order against it, so
+edit mode with nothing yet changed shows Cancel alone, and Release appears the moment the ranking
+actually differs (added, removed, or reordered) from what was last released.
+
+**Amending #661's own 1-to-5 floor: an empty release is now a deliberate clear, not a refusal.**
+`task-badges.releaseRanking`'s guard originally refused `submissionIds.length === 0` outright (see the
+`#661` ADR above, "the release refuses an empty set"). The owner's own requirement here —
+"everyone posted junk must never force the host to reward someone" — needed a real path to zero winners,
+so the floor is dropped: only the CEILING (`length > MAX_RANKED_WINNERS`) still refuses. An empty array
+reaches the exact same whole-set `DELETE` every release already ran; the fold-and-upsert loop simply has
+nothing to iterate, so it writes zero rows and emits zero events — no guest is newly notified, matching
+the existing (undocumented until now) behavior of a shrinking re-release that drops a winner with no
+replacement. `markTaskBadgeAwarded` still runs unconditionally, so the badge stays marked released and
+the page reopens on the Results view reading "No winners." rather than falling back to the picker.
+
+**The route, not the service, is where "absent" and "deliberately empty" are told apart.** A raw HTML
+form has no way to distinguish "the `winners` field was never in this POST" from "`winners` was posted
+as an empty string" once both reach `req.body` as `undefined`-vs-`''` — so `src/routes/admin.js`'s POST
+handler checks `typeof req.body.winners !== 'string'` FIRST (refused, same as pre-#892 — an absent field
+is never a clear) before trimming; only a present, trimmed-empty value is passed through as `[]`. This is
+also where a second, previously-silent gap closed: the old parse (`.filter(Number.isInteger)`) DROPPED
+any non-digit entry and released the shortened list, quietly shifting every later placement's rank/points
+out from under the host. The route now tests every comma-separated entry against a whole-string
+digits-only regex (`RANK_WINNER_ENTRY_RE`, `/^\s*\d+\s*$/`) BEFORE parsing any of them, and refuses the
+WHOLE post if one fails — a length-compare against `parseInt`'s own output was tried first and rejected
+in review (both the PR and design-philosophy passes caught it independently): `parseInt` coerces
+`'12.9'` to `12` and `'12abc'` to `12`, so a parsed-count-vs-entry-count check lets exactly the malformed
+input it exists to catch through. This mirrors `releaseRanking`'s own no-silent-drop rule for a
+submission id that fails its visibility/ownership check.

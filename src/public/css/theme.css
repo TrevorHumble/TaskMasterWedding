@@ -5013,6 +5013,26 @@ body:has(dialog[open]) {
   font-size: var(--fs-eyebrow);
   font-weight: 600;
   letter-spacing: 0.02em;
+  max-width: min-content;
+}
+/* Issue #892 review, major: the check glyph inside this pill carried no
+   explicit size — a bare <svg viewBox="0 0 24 24"> with no CSS or attribute
+   width/height has no intrinsic size, so it contributes 0 to the pill's
+   intrinsic width and then STRETCHES to fill whatever content box the pill
+   ends up with. The 66x66 render the owner approved live was a coincidence
+   of the text width ("Awarded" sized the pill to 89.64px, leaving a 65.64px
+   content box the glyph filled), not any rule pinning the glyph. The
+   glyph's own box is pinned below; the min-content clamp on the pill's rule
+   above is what keeps the PILL the shape the owner approved. Pinning the
+   glyph adds its 66px to max-content, which on its own widens the pill into
+   a 155.6px stadium and squeezes the head text; min-content instead
+   resolves to the widest single item — the 66px glyph, just over the
+   "Awarded" run — so the pill lands at 66px + 24px padding = 90px, within
+   0.36px of the approved render, wrap and near-circle intact. Changing the
+   glyph's px size below therefore moves the pill's width. */
+.rank-award-status svg {
+  width: 66px;
+  height: 66px;
 }
 
 .rank-winner-list {
@@ -5168,6 +5188,28 @@ body:has(dialog[open]) {
 .rank-award-release {
   align-self: stretch;
 }
+/* Edit-ranking affordance (issue #892 redesign): a compact secondary button
+   beside the release button, its pencil glyph pinned to text size so the
+   SVG can never inflate the button. */
+.rank-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  align-self: stretch;
+}
+.rank-edit-btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+/* .btn's own display (and .rank-edit-btn's above) beats the UA's [hidden]
+   rule, so a JS-hidden foot button stayed visible — the exact
+   two-buttons-at-once the owner rejected (and likely why the pre-#892
+   released page still showed a live-looking Release button at all). */
+.rank-award-foot .btn[hidden] {
+  display: none;
+}
 @container (min-width: 440px) {
   .rank-award-foot {
     flex-direction: row;
@@ -5178,6 +5220,10 @@ body:has(dialog[open]) {
     flex: 1 1 220px;
   }
   .rank-award-release {
+    flex: none;
+    align-self: auto;
+  }
+  .rank-edit-btn {
     flex: none;
     align-self: auto;
   }

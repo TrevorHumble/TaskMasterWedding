@@ -7,8 +7,10 @@
      Locals from the route:
        task        - { id, title, description }
        badge       - { name, art_path } (task-badges.toTaskBadgeView's shape)
-       photos      - task's CURRENTLY VISIBLE submissions, the pick-grid
-                     candidates: [{ id, thumb_path, guest_id, guest_name }]
+       photos      - task's CURRENTLY VISIBLE submissions, the pick-grid /
+                     results-wall candidates: [{ id, thumb_path, photo_path,
+                     guest_id, guest_name }] (photo_path is the FULL-res
+                     original filename, issue #892 AC2's lightbox source)
        winners     - the badge's CURRENT ranked award rows, ordered 1st..Kth
                      (empty before the first release):
                      [{ rank, points, submission_id, guest_id, guest_name,
@@ -58,25 +60,36 @@
     </div>
   </div>
 
-  <!-- STEP 1 — pick winners -->
-  <h2 class="rankpage-section-title">Choose winners</h2>
-  <p class="rankpage-section-sub">
-    Tap up to 5 photos, in the order they placed. Award as many or as few as
-    you like.
-  </p>
-  <div class="pick-grid" id="pickGrid"></div>
-  <p class="pick-limit" id="pickLimit"></p>
+  <!-- STEP 1 — the task's photos, ALWAYS visible (issue #892, owner
+       direction 2026-07-28). In edit mode they are the pick grid (tap to
+       rank, numbered checks); on a released task's results view the same
+       grid is a plain browsable wall — tapping a photo opens the standard
+       lightbox, never an editor, so a mis-tap can't disturb a released
+       ranking. The heading/copy swap with the mode in
+       src/public/js/admin-badge-rank.js. -->
+  <div id="pickSection">
+    <h2 class="rankpage-section-title" id="pickTitle">Choose winners</h2>
+    <p class="rankpage-section-sub" id="pickSub">
+      Tap up to 5 photos, in the order they placed. Award as many or as few as
+      you like.
+    </p>
+    <div class="pick-grid" id="pickGrid"></div>
+    <p class="pick-limit" id="pickLimit"></p>
+  </div>
 
-  <!-- STEP 2 — rank & release -->
+  <!-- STEP 2 — rank & release (or, once released, the RESULTS card) -->
   <section class="rank-award-card" id="rankCard" style="margin-top: var(--space-6)">
     <div class="rank-award-head">
       <div class="rank-award-headtext">
-        <h2 class="rank-award-title">Ranking</h2>
+        <h2 class="rank-award-title" id="rankCardTitle">Ranking</h2>
         <p class="rank-award-sub">
           1st place wins the badge and 5 points, down to 1 point for 5th.
         </p>
       </div>
-      <span class="rank-award-status" id="awardedPill" hidden>Awarded</span>
+      <span class="rank-award-status" id="awardedPill" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 13 4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Awarded
+      </span>
     </div>
 
     <ol class="rank-winner-list" id="rankList"></ol>
@@ -84,6 +97,13 @@
 
     <div class="rank-award-foot">
       <p class="rank-award-total" id="rankTotal"></p>
+      <button type="button" class="btn btn-secondary rank-edit-btn" id="editBtn" hidden>
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m13.5 6.5 3 3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        Edit ranking
+      </button>
+      <button type="button" class="btn btn-ghost" id="cancelEditBtn" hidden>
+        Cancel
+      </button>
       <button type="button" class="btn rank-award-release" id="releaseBtn">
         Release badge &amp; points
       </button>
@@ -100,5 +120,6 @@
   </form>
 </div>
 
+<script src="/js/lightbox.js" defer></script>
 <script src="/js/admin-badge-rank.js" defer></script>
 <%- include('partials/footer') %>

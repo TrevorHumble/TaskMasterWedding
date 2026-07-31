@@ -352,9 +352,11 @@ function isTaskBadgeAwarded(taskId) {
  * the marker and the rows it describes can never observably disagree (a
  * reader either sees both the pre-release state or both the post-release
  * state, never one without the other). There is no corresponding "un-award"
- * in this issue's scope: a re-rank always leaves at least one winner (the
- * release refuses an empty set — see releaseRanking), so nothing in this
- * module ever needs to write the marker back to unset.
+ * — even a release that clears every winner (issue #892: an empty ordered
+ * list is a deliberate "everyone posted junk" clear, not a refusal) still
+ * marks the badge released, so the page reopens on the Results view ("No
+ * winners.") rather than the pick editor. Nothing in this module ever writes
+ * the marker back to unset.
  * @param {number} taskId
  */
 function markTaskBadgeAwarded(taskId) {
@@ -569,6 +571,15 @@ function foldRankedPlacements(resolved) {
  * would shift every following rank/points value out from under the host's
  * actual on-screen order without telling them.
  *
+ * An EMPTY `submissionIds` is a deliberate clear-all (issue #892, amending
+ * this function's original 1-5-only floor): "everyone posted junk" must
+ * never force the host to reward someone. The whole-set DELETE below still
+ * runs (clearing every prior winner), the fold/insert loop simply has
+ * nothing to iterate (zero upserts, zero events — no guest is newly
+ * notified, same as a shrinking re-release that drops a winner with no
+ * replacement), and markTaskBadgeAwarded still marks the badge released so
+ * the page reopens on the Results view reading "No winners."
+ *
  * Same-guest collapse (AC5): a guest who owns two (or more) of the ranked
  * photos holds exactly ONE guest_badges row afterward — points SUMMED
  * across their placements, rank/submission_id pinned to their FIRST (and,
@@ -598,16 +609,13 @@ function foldRankedPlacements(resolved) {
  * (AC2).
  *
  * @param {number} taskId
- * @param {Array<number>} submissionIds - ordered 1st..Kth, 1 <= length <= 5
+ * @param {Array<number>} submissionIds - ordered 1st..Kth, 0 <= length <= 5
+ *   (issue #892: 0 is a deliberate clear-all, not a refusal)
  * @returns {{badge: object, winners: number}|null} the released badge and
  *   how many distinct guests it now pays, or null if the release was refused
  */
 const releaseRanking = db.transaction((taskId, submissionIds) => {
-  if (
-    !Array.isArray(submissionIds) ||
-    submissionIds.length === 0 ||
-    submissionIds.length > MAX_RANKED_WINNERS
-  ) {
+  if (!Array.isArray(submissionIds) || submissionIds.length > MAX_RANKED_WINNERS) {
     return null;
   }
   const distinctCount = new Set(submissionIds).size;
