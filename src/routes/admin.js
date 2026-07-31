@@ -2409,6 +2409,63 @@ function groupPhotos(list, keyFn, headingFn) {
   return order.map((key) => byKey.get(key));
 }
 
+// The ONE owner of "which section does this photo belong to" (issue #953).
+// Before this helper, section membership was computed twice: once
+// here in the route (as the grouping key below) and once more, independently,
+// by the view's inline script (which re-derived the same 'g'+guest_id /
+// 't'+task_id / 'memory' shape from data-guest-id/data-task-id and the
+// current VIEW axis). GET /admin/photos now calls this once per row and
+// stamps the result onto the row as p._scope_key (below), so both the
+// grouping and the rendered data-scope-key attribute the feed script reads
+// come from the same computation — a future third grouping axis is one
+// branch here, not one branch in two files.
+//
+// Returns null for a view with no section axis (recent, fav) — those
+// contexts are unscoped, matching the pre-existing openFeedAt behavior of
+// only scoping when VIEW was 'user' or 'task'.
+function scopeKey(p, view) {
+  if (view === 'user') return 'g' + p.guest_id;
+  if (view === 'task') return p.task_id == null ? 'memory' : 't' + p.task_id;
+  return null;
+}
+
+// The ONE owner of a photo's displayed guest label (issue #953).
+// Before this fix, `p.guest_name || 'Guest #' + p.guest_id` was hand-typed
+// in four places — the person-view grouping heading below, and three sites
+// in admin-photos.ejs (the tile aria-label, .admin-feed-name, and the
+// data-lightbox-by attribute) — four chances to drift on what a missing
+// guest name falls back to.
+function guestLabel(p) {
+  return p.guest_name || 'Guest #' + p.guest_id;
+}
+
+// The ONE owner of a photo's displayed task-line text (issue #953).
+// Before this fix, this string was hand-typed twice — here and in
+// admin-photos.ejs's .feed-task-line — and the two copies branched on
+// DIFFERENT predicates (this file checked `p.task_id == null`; the template
+// checked `p.task_title` truthiness). Unified on the template's predicate,
+// the one that actually reached guests: it treats any falsy title —
+// including an empty string, not just null/undefined — as "a shared
+// memory," so a photo never renders with an empty quoted title.
+function taskLine(p) {
+  return p.task_title ? 'for “' + p.task_title + '”' : 'a shared memory';
+}
+
+// The ONE owner of the scope note's label text (issue #953). Before
+// this helper, the admin-photos inline script derived the label itself by
+// decoding scopeKey()'s own grammar (`feedScope.charAt(0) === 'g'`) and then
+// reading it off whichever DOM element happened to hold it (.admin-feed-name
+// or .feed-task-line) — the route's internal key shape leaking into the
+// view. Built from guestLabel()/taskLine() above (issue #953) — the
+// same single-owner values the template itself renders — so the scope note
+// stays byte-identical to what shipped in phase 1. Returns null alongside
+// scopeKey()'s null for an unscoped view.
+function scopeLabel(p, view) {
+  if (view === 'user') return guestLabel(p);
+  if (view === 'task') return taskLine(p);
+  return null;
+}
+
 // Attach every comment on each loaded photo, hidden ones included — the admin
 // judges a hidden comment in place (struck-through, with Restore). This is NOT
 // community.js:attachComments, which is private to that file, filters to
@@ -2473,13 +2530,21 @@ router.get('/photos', (req, res) => {
 
   // LEFT JOIN tasks (not JOIN): a memory (issue #247, s.task_id IS NULL) has
   // no task row to join — it must still appear here, with task_title coming
-  // back NULL; the view falls back to "a shared memory" / "Memories".
+  // back NULL; taskLine() below falls back to "a shared memory", and the
+  // By-task heading closure further down falls back to "Memories".
   //
   // Scoped (issue #748): narrow this SAME query with `WHERE s.task_id = ?`
   // rather than running a second query — `photoRows` (and everything derived
   // from it below: the H1 count, the group, the inline feed panel) is then
   // already the scoped set, with no extra bookkeeping needed to keep them
   // in sync.
+  // like_count (issue #953) rides along as feed.LIKE_COUNT_COLUMN — the same
+  // correlated-subquery fragment src/services/feed.js's GALLERY_COLUMNS
+  // composes for the identical count (idx_likes_submission, src/db.js, makes
+  // it an index lookup), imported here rather than a third hand-typed copy
+  // (src/services/scoring.js keeps its own pre-existing copy, out of this
+  // issue's scope) — one query attaches the real guest-like count to every
+  // row instead of a per-photo follow-up.
   const photosSelect = `SELECT s.id          AS id,
               s.task_id      AS task_id,
               s.photo_path   AS photo_path,
@@ -2491,7 +2556,8 @@ router.get('/photos', (req, res) => {
               s.created_at   AS created_at,
               g.id           AS guest_id,
               g.name         AS guest_name,
-              t.title        AS task_title
+              t.title        AS task_title,
+              ${feed.LIKE_COUNT_COLUMN}
          FROM submissions s
          JOIN guests g ON g.id = s.guest_id
          LEFT JOIN tasks  t ON t.id = s.task_id`;
@@ -2512,6 +2578,20 @@ router.get('/photos', (req, res) => {
   const favIds = favoritesSvc.favoriteIdSet();
   for (const p of photoRows) {
     p._fav = favIds.has(p.id);
+    // The single scope-membership computation (issue #953) — see
+    // scopeKey's own comment. Stamped on every row (null/'' for the unscoped
+    // recent/fav views) so the feed template can render it as
+    // data-scope-key without re-deriving the rule itself. p._scope_label
+    // (see scopeLabel's own comment, same issue) rides alongside it so the
+    // scope note's text is stamped here too, not decoded back out of
+    // data-scope-key by the view.
+    p._scope_key = scopeKey(p, view);
+    p._scope_label = scopeLabel(p, view);
+    // p._guest_label / p._task_line (issue #953) — the single-owner
+    // guestLabel()/taskLine() values, stamped here so the template renders
+    // them instead of re-deriving the same fallback text itself.
+    p._guest_label = guestLabel(p);
+    p._task_line = taskLine(p);
   }
 
   // Attach every comment (hidden ones included) to each photo — the admin
@@ -2535,18 +2615,14 @@ router.get('/photos', (req, res) => {
     }
   } else if (view === 'task' || view === 'user') {
     const livePhotos = photoRows.filter((p) => !p.taken_down);
+    // Both branches group by the same scopeKey(); only the heading differs
+    // per axis (issue #953) — write the keyFn once rather than pass an
+    // identical closure down each arm of the ternary.
+    const keyFn = (p) => scopeKey(p, view);
     groups =
       view === 'task'
-        ? groupPhotos(
-            livePhotos,
-            (p) => (p.task_id == null ? 'memory' : 't' + p.task_id),
-            (p) => p.task_title || 'Memories'
-          )
-        : groupPhotos(
-            livePhotos,
-            (p) => 'g' + p.guest_id,
-            (p) => p.guest_name || 'Guest #' + p.guest_id
-          );
+        ? groupPhotos(livePhotos, keyFn, (p) => p.task_title || 'Memories')
+        : groupPhotos(livePhotos, keyFn, guestLabel);
     if (q !== '') {
       const needle = q.toLowerCase();
       groups = groups.filter((g) => g.heading.toLowerCase().includes(needle));

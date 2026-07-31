@@ -78,6 +78,17 @@ const VISIBLE_WHERE = 's.taken_down = 0';
 // import a route file, inverting the app's route -> service dependency
 // direction the file comment above already establishes.
 const COMMENT_VISIBLE_WHERE = 'c.taken_down = 0';
+// The ONE like-count column fragment (issue #953): a correlated
+// COUNT(*) subquery over likes, aliased `s` the same way VISIBLE_WHERE is —
+// any consumer that already aliases the submissions table `s` composes this
+// directly into its own column list. This file's own GALLERY_COLUMNS and
+// slideshowSequence() both compose it, and src/routes/admin.js's photosSelect
+// imports and uses it too, so the only known, out-of-scope duplicate left is
+// src/services/scoring.js's separate pre-existing copy — see DESIGN.md
+// § "Scoped admin inline feed: a client-side filter, deliberately not a
+// server query (#953)" for why #953 did not touch it.
+const LIKE_COUNT_COLUMN =
+  '(SELECT COUNT(*) FROM likes l WHERE l.submission_id = s.id) AS like_count';
 const ORDER_NEWEST_TERMS = 's.created_at DESC, s.id DESC';
 const ORDER_NEWEST_FIRST = `ORDER BY ${ORDER_NEWEST_TERMS}`;
 // The reversed ordering, used only by the newer-side keyset lookups: they
@@ -105,7 +116,7 @@ const GALLERY_COLUMNS = `
          g.pinned        AS guest_pinned,
          t.id            AS task_id,
          t.title         AS task_title,
-         (SELECT COUNT(*) FROM likes l WHERE l.submission_id = s.id) AS like_count`;
+         ${LIKE_COUNT_COLUMN}`;
 
 // LEFT JOIN tasks (not JOIN): issue #247 made submissions.task_id nullable so
 // a "memory" row (task_id IS NULL) can exist. An inner JOIN would silently
@@ -845,7 +856,7 @@ function slideshowSequence() {
               g.name          AS guest_name,
               t.title         AS task_title,
               t.worth         AS worth,
-              (SELECT COUNT(*) FROM likes l WHERE l.submission_id = s.id) AS like_count
+              ${LIKE_COUNT_COLUMN}
          FROM submissions s
          JOIN guests g ON g.id = s.guest_id
          LEFT JOIN tasks  t ON t.id = s.task_id
@@ -941,6 +952,11 @@ module.exports = {
   // reason as VISIBLE_WHERE above (issue #644) — community.js and
   // notifications.js both compose it rather than each typing their own copy.
   COMMENT_VISIBLE_WHERE,
+  // The one like-count column fragment (issue #953), exported for the same
+  // reason as VISIBLE_WHERE/COMMENT_VISIBLE_WHERE above — src/routes/admin.js
+  // composes it into photosSelect rather than hand-typing the same COUNT(*)
+  // subquery a third time.
+  LIKE_COUNT_COLUMN,
   recentPage,
   feedWindow,
   // The one 'u<id>' / 't<id>' / 'm' scope grammar (issue #952): parseScope is
