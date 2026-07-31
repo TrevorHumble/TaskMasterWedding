@@ -946,7 +946,13 @@ p {
 /* Uploading state (issue #254): a small ring before the label. The label
    text itself already changes to data-uploading-label via JS, so a
    reduced-motion user still gets the disabled state + label change even
-   though the ring doesn't spin for them. */
+   though the ring doesn't spin for them.
+   Ring geometry (border/border-top-color/border-radius) and the spin
+   animation are declared ONCE, shared with .feed-edge-ring (#677 PR review
+   dedupe) — see the Photo feed section below for the shared
+   `.btn-uploading::before, .feed-edge-ring` rule and its own comment. Only
+   this surface's size/position and its `color` (which the shared rule's
+   colorless `border: 2px solid` resolves to via currentColor) live here. */
 .btn-uploading {
   position: relative;
   padding-left: 44px;
@@ -959,14 +965,7 @@ p {
   width: 16px;
   height: 16px;
   margin-top: -8px;
-  border: 2px solid var(--color-on-primary);
-  border-top-color: transparent;
-  border-radius: 50%;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .btn-uploading::before {
-    animation: btn-spin 0.7s linear infinite;
-  }
+  color: var(--color-on-primary);
 }
 @keyframes btn-spin {
   to {
@@ -2700,6 +2699,85 @@ textarea {
      (unlike overflowing the content-visibility:auto .feed-item). The photo then
      fills its card at width:100%; only the text rows are re-indented below. */
   margin-inline: calc(-1 * var(--gutter));
+}
+
+/* #677 PR review: scroll-anchoring suppression is a TOGGLED body class, not
+   a static rule on .feed. Two problems with the static version this
+   replaces (both real, not hypothetical):
+     (a) .feed is not unique to this page — src/views/admin-photos.ejs
+         renders its own .feed for the moderation view, and that surface
+         must keep native anchoring; a static `.feed { overflow-anchor: none }`
+         silently broke it there too.
+     (b) suppressing anchoring page-wide, permanently, also removed the
+         browser's own compensation for photos ABOVE the viewport that
+         resolve to their real height AFTER paint (issue #612's
+         contain-intrinsic-size: 600px estimate on .feed-item is only an
+         estimate) — with anchoring off at all times, a guest scrolling up
+         through freshly-prepended cards would see the page drift as those
+         cards resolve, with nothing left to correct it.
+   overflow-anchor: none on one element excludes that element AND its whole
+   subtree from anchor candidacy, so toggling it on <body> covers every
+   candidate on the page (sentinels, edges, pager, footer) in one place. It
+   is set for exactly the tick that processes one insert — added by
+   feed-scroll.js's load() right before the DOM mutation, removed two
+   animation frames later — so native anchoring stays OFF only while the
+   module's own measure-and-adjust (prependNewer) is doing the correcting,
+   and is back on the rest of the time to do its normal job. Without this
+   suppression during that one tick, Chrome was observed (headless, phase-1
+   preview, 2026-07-29) anchoring an append on the bottom sentinel instead —
+   yanking the guest past all 40 new photos and pinning the sentinel in view,
+   permanently stalling the observer chain — and on a prepend, double-
+   correcting the jump on top of the module's own scrollBy. */
+body.feed-inserting {
+  overflow-anchor: none;
+}
+
+/* In-place loading edges (issue #677): the sentinel is the invisible strip
+   feed-scroll.js watches to know the guest is nearing an edge; the ring is
+   the loading affordance shown at that edge while the next window is being
+   fetched (owner amendment 2026-07-19). Same ring as .btn-uploading::before
+   (#254) — shared btn-spin keyframes, muted ink on the page ground — and the
+   same reduced-motion behavior: the ring shows but does not spin. */
+.feed-sentinel {
+  /* 1px, not 0: a zero-area target makes IntersectionObserver's
+     isIntersecting semantics browser-dependent — give it real area. */
+  height: 1px;
+}
+.feed-edge {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4) 0;
+}
+.feed-edge[hidden] {
+  display: none;
+}
+/* Shared ring geometry (#677 PR review dedupe): .btn-uploading::before
+   (#254, the upload-button spinner) and .feed-edge-ring below are the same
+   ring shape, previously declared as two independent copies. `border: 2px
+   solid` with no color token resolves to currentColor, so each surface
+   supplies its own ink with a plain `color` declaration on its own rule
+   (.btn-uploading::before above sets --color-on-primary; .feed-edge-ring
+   below sets --color-text-muted) instead of re-touching border-color or
+   border-top-color here — which would have re-colored the transparent top
+   edge along with the other three sides and broken the spinner gap. Sizes
+   also stay per-surface (16px button / 20px feed, set on each rule below).
+   Pixel-identical to the two-copy version this replaces. */
+.btn-uploading::before,
+.feed-edge-ring {
+  border: 2px solid;
+  border-top-color: transparent;
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .btn-uploading::before,
+  .feed-edge-ring {
+    animation: btn-spin 0.7s linear infinite;
+  }
+}
+.feed-edge-ring {
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-muted);
 }
 /* Re-indent the non-photo rows by the gutter the .feed just broke out of, so
    text keeps its margin while the photo stays full-bleed (#612). The action
