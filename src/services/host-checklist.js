@@ -37,6 +37,8 @@
 
 const { db, getEventConfig, openBugCount } = require('../db');
 const tasks = require('./tasks');
+const feed = require('./feed');
+const taskBadges = require('./task-badges');
 const { eventLocalDateString, singleDayLabel } = require('./event-days');
 
 // settings-table keys the Configuration page (issue #681) writes — read
@@ -367,15 +369,95 @@ function buildRows(now = new Date()) {
     }
   }
 
-  // --- Lucky task (#650) and rank-and-award (#661/#662) — lucky now HAS a
-  // backing column (tasks.lucky_date, landed by #650), but still gets no
-  // checklist row here: the flash sibling above exists because a host might
-  // forget to schedule ANY flash all weekend, but a checklist row is #646's
-  // surface to add, not this issue's — see the issue's own "Deliberate
-  // omissions, recorded" section ("The host checklist gains no lucky row").
-  // rank-and-award (#661/#662) still has no backing column or table at all,
-  // so that row type stays omitted for the original reason: nothing to
-  // feature-detect a column FOR. ---
+  // --- Lucky task (#650) gets no checklist row here: the flash sibling
+  // above exists because a host might forget to schedule ANY flash all
+  // weekend, but a checklist row is #646's surface to add, not this issue's
+  // — see the issue's own "Deliberate omissions, recorded" section ("The
+  // host checklist gains no lucky row"). ---
+
+  // --- Rank and award (#662): one open row per task that is done collecting
+  // photos, still holds at least one visible submission, and has not yet had
+  // its badge released. "Done collecting" is a host-facing signal that the
+  // task's moment has passed, NOT a claim that submissions are locked (a
+  // past-dated task can still technically receive a photo — see
+  // src/services/submissions.js's isSealed gate) — so this predicate is
+  // read-only here, never enforced as a write-side seal.
+  //
+  // Precedence, exactly two cases:
+  //   - a DATED task (special_date is a real date): done when special_date
+  //     is strictly before today in the event timezone. Its own day governs
+  //     in both directions — a task dated after event_end_date is not done
+  //     until its own day passes, even if the event is already over.
+  //   - an UNDATED task (special_date is not a real date — ordinary, flash,
+  //     lucky, or a mode-'oneday' row with a NULL date): done when the
+  //     configured event_end_date is a real date strictly before today.
+  // A flash task's expired window is deliberately NOT a third case: flashState
+  // governs only the bonus, and the task remains a fully live ordinary task
+  // afterward (see DESIGN.md for the recorded rule this predicate must not
+  // silently re-derive from flashState instead).
+  //
+  // The DATED arm's own `<` comparison is tasks.isPastDay(task, rankTodayIso)
+  // — that half of the predicate is a raw special_date/todayIso comparison
+  // with no event-level input, so tasks.js is its declared owner (issue #662
+  // review fix — design-philosophy finding, information leakage: this
+  // comparison used to be re-derived here as a bare string compare, when it
+  // already existed, privately, inside SPECIAL_RULES' daily `missed`
+  // predicate in tasks.js; both now call the same exported function). What
+  // stays HERE, on purpose (recorded for the architecture lens in the issue
+  // and in DESIGN.md), is the UNDATED arm and the two-case composite:
+  // event_end_date is an event-level setting this module already owns
+  // reading (via settingRaw — getEventConfig() would silently default an
+  // unset value), and deciding WHICH arm applies has exactly one consumer.
+  // A second consumer of the composite would be the trigger to graduate it
+  // into tasks.js as its own issue.
+  if (hasColumn('tasks', 'special_date')) {
+    const rankTodayIso = eventLocalDateString(timezone, now);
+    const eventEndRaw = settingRaw(KEY_EVENT_END_DATE);
+    const eventOver = tasks.isRealDateString(eventEndRaw) && eventEndRaw < rankTodayIso;
+
+    const isDoneCollecting = (task) =>
+      tasks.isRealDateString(task.special_date) ? tasks.isPastDay(task, rankTodayIso) : eventOver;
+
+    // One grouped query for the candidate set (not N+1): every live task's
+    // visible-submission count rides along via a LEFT JOIN gated (in the ON
+    // clause, not a WHERE — so a task with zero visible submissions still
+    // survives the join as one row with count 0) on feed.VISIBLE_WHERE, the
+    // declared owner of "a submission is visible." Not-hidden comes from
+    // tasks.liveTaskWhere('t'), the declared owner of task liveness — neither
+    // filter is hand-copied. The loop below still runs one small prepared
+    // settings SELECT per candidate task (taskBadges.isTaskBadgeAwarded) —
+    // not zero SQL, just bounded by the party-scale task count rather than
+    // by submission count, which is the N+1 shape this query avoids.
+    const candidates = db
+      .prepare(
+        `SELECT t.id AS id, t.title AS title, t.special_date AS special_date,
+                COUNT(s.id) AS photo_count
+           FROM tasks t
+           LEFT JOIN submissions s
+             ON s.task_id = t.id AND ${feed.VISIBLE_WHERE}
+          WHERE ${tasks.liveTaskWhere('t')}
+          GROUP BY t.id
+          ORDER BY t.id ASC`
+      )
+      .all();
+
+    for (const task of candidates) {
+      if (
+        isDoneCollecting(task) &&
+        task.photo_count >= 1 &&
+        !taskBadges.isTaskBadgeAwarded(task.id)
+      ) {
+        openRows.push({
+          id: `rank-award-${task.id}`,
+          kind: 'auto',
+          state: 'open',
+          label: `Rank & award: ${task.title}`,
+          sub: `${task.photo_count} photo${task.photo_count === 1 ? '' : 's'} waiting. Pick and rank your winners.`,
+          href: `/admin/tasks/${task.id}/rank`,
+        });
+      }
+    }
+  }
 
   // --- Resubmitted photo re-review (submissions.resubmitted, present since
   // issue #190) ---

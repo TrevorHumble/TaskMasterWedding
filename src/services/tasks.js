@@ -169,6 +169,40 @@ function isOnDay(taskRow, todayIso) {
 }
 
 /**
+ * The ONE owner of "is taskRow's day strictly in the past" (issue #662
+ * review fix — design-philosophy finding, information leakage): true exactly
+ * when `taskRow.special_date` is a REAL calendar date (isRealDateString
+ * below, not the shape-only isValidDateString — special_date is a free-form
+ * TEXT column that can hold a regex-shaped-but-impossible value like
+ * '2026-13-45', same as isSealed's doc comment already warns) strictly
+ * BEFORE `todayIso`. The third sibling of isSealed (`>`) and isOnDay (`=`)
+ * over this same `special_date` fact.
+ *
+ * Before this function existed, the `<` comparison lived ONLY inside
+ * SPECIAL_RULES' daily `missed` predicate below, and a second caller
+ * (src/services/host-checklist.js's rank-and-award row, issue #662) had
+ * independently re-derived the identical comparison a second time rather
+ * than reusing it — exactly the two-owners-of-one-rule drift isSealed's own
+ * doc comment warns against. The daily `missed` predicate below now calls
+ * this function instead of carrying its own inline copy, and
+ * host-checklist.js's dated arm calls it too.
+ *
+ * Validates `todayIso` the same way isSealed()/isOnDay() do, and fails the
+ * same way: two owners of adjacent rules over the same column must not
+ * disagree about invalid input.
+ *
+ * @param {{special_date?: string|null}} taskRow
+ * @param {string} todayIso - YYYY-MM-DD, the event-local "today".
+ * @returns {boolean}
+ */
+function isPastDay(taskRow, todayIso) {
+  if (!ISO_DATE_RE.test(todayIso)) {
+    throw new Error(`isPastDay: todayIso must be YYYY-MM-DD, got ${JSON.stringify(todayIso)}`);
+  }
+  return !!(taskRow && isRealDateString(taskRow.special_date) && taskRow.special_date < todayIso);
+}
+
+/**
  * True for a value shaped like a real YYYY-MM-DD date string (issue #754
  * review fix, MINOR I) — the same shape ISO_DATE_RE already validates
  * `todayIso` against above. Exported so a caller holding a task row's OWN
@@ -641,18 +675,20 @@ const SPECIAL_RULES = [
     spokenFor: (row, clock) => isSealed(row, clock.todayIso) || isOnDay(row, clock.todayIso),
     paying: (row, clock) => isOnDay(row, clock.todayIso),
     // The window has CLOSED and can never pay again: this challenge's day is
-    // strictly in the past. isRealDateString (not the shape-only
-    // isValidDateString — issue #926 review fix, MINOR m1) guards
-    // special_date before the string compare: it is a free-form column that
-    // can hold anything, including a regex-shaped-but-impossible date like
-    // '2026-13-45', which isSealed/isOnDay's own plain string compare would
-    // not reject either. clock.todayIso is NOT re-checked here (also #926
-    // review fix, m1): missedBonusForTask(), this predicate's only caller,
-    // already throws on an invalid todayIso before ever walking SPECIAL_RULES
-    // (see that function's own doc comment) — re-validating it a second time
-    // here would be dead code.
-    missed: (row, clock) =>
-      !!(row && isRealDateString(row.special_date) && row.special_date < clock.todayIso),
+    // strictly in the past. Delegates to isPastDay (issue #662 review fix —
+    // design-philosophy finding, information leakage): before isPastDay
+    // existed, this predicate carried its own inline isRealDateString-guarded
+    // `<` comparison — the isRealDateString guard matters because
+    // special_date is a free-form column that can hold anything, including a
+    // regex-shaped-but-impossible date like '2026-13-45', which
+    // isSealed/isOnDay's own plain string compare would not reject either —
+    // and it was the ONLY place that exact comparison lived, until a second
+    // caller (src/services/host-checklist.js's rank-and-award row) needed the
+    // identical fact and re-derived it a second time instead of reusing it.
+    // isPastDay validates its own `todayIso` argument on every call, the same
+    // convention isSealed/isOnDay already follow above, so this callsite
+    // needs no defensive re-check of its own.
+    missed: (row, clock) => isPastDay(row, clock.todayIso),
   },
   {
     kind: SPECIAL_FLASH,
@@ -1041,6 +1077,7 @@ module.exports = {
   isTaskLive,
   isSealed,
   isOnDay,
+  isPastDay,
   isValidDateString,
   isRealDateString,
   sealedTaskWhere,
