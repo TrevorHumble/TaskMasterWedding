@@ -136,9 +136,13 @@ it('AC2: GET /tasks/:id for a taken-down submission reads "with the hosts", not 
   const taskPage = await guest.agent.get('/tasks/' + taskId);
   expect(taskPage.status).toBe(200);
   expect(taskPage.text).toContain('with the hosts');
-  // The task must not present as not-done — that heading is exactly what
-  // used to invite the resubmit that silently reversed the takedown.
-  expect(taskPage.text).not.toContain('Upload a photo to complete this task');
+  // The task must not present as not-done — that is exactly what used to
+  // invite the resubmit that silently reversed the takedown. Issue #611
+  // removed the "Upload a photo to complete this task" heading this guard
+  // originally anchored to; re-anchored to the never-submitted branch's own
+  // submit-button label, which the taken-down branch never renders (it
+  // renders "Upload & replace" instead — see task-upload-form.ejs).
+  expect(taskPage.text).not.toContain('Upload &amp; complete');
 });
 
 // ---------------------------------------------------------------------------

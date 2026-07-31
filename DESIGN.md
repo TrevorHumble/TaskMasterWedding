@@ -3156,3 +3156,70 @@ call sites (`GALLERY_COLUMNS` and `slideshowSequence()`) and imported by `admin.
 those sites can no longer drift apart. `scoring.js`'s copy is deliberately left alone: it is pre-existing,
 out of #953's scope, and the one remaining known duplicate for a future issue to fold in, not a defect
 this one introduces.
+
+## Task detail redesign: badge state is the first PER-GUEST read of `guest_badges.rank` (#611)
+
+**Date:** 2026-07-31. **Status:** shipped.
+
+**The problem.** The task detail page's phase-1 mock (owner-approved look, six rounds) faked three
+things purely to show the shape: the success beat forced onto specific task ids with hard-coded point
+values, the badge hero's win state hard-coded per task id, and the badge art itself swapped to a bundled
+Material icon so a real medallion rendered instead of the seeded placeholder ribbon. None of that reached
+the real render path — `resolveTaskBadge`/`taskComplete` already drove the page underneath the mock.
+Making it real meant answering one question no read in the codebase answered: does THIS guest hold an
+award for THIS task's badge, and at what rank? `guest_badges.rank` was already read on a guest-facing
+surface — `victoryRankBySubmission` feeds the gallery tile's victory medal (issue #811) — but only
+event-wide and keyed by submission, never scoped to one guest asking about one badge.
+
+**`guestBadgeRank(badgeId, guestId)` (`src/services/task-badges.js`) is the one read**, added beside
+`victoryRankBySubmission` (the gallery tile's event-wide, unscoped read) and `currentRanking` (the admin
+rank page's task-scoped read) — a third shape scoped to one guest and one badge, because neither existing
+read fits a single guest asking "did I win this." It returns `undefined` for no row, `null` for a
+possession-only award (no rank column set — `awardTaskBadge`'s single-photo path), or the numeric rank for
+a ranked release. `undefined` vs `null` has to stay distinguishable because they route to different hero
+states: no row falls back to the pre-#611 earned/locked split, a row falls straight into "won" regardless
+of rank. `src/routes/guest.js`'s `GET /tasks/:id` resolves the mapping into one of four modifier suffixes
+(`locked`/`earned`/`won-first`/`won-place`) and hands `taskBadgeState` to the view as a plain string —
+`task.ejs` branches on nothing, matching the same "resolve in the route, not the template" pattern
+`guestFacingSubmission` already established for issue #886.
+
+**Possession, not resubmission, decides the win — same rule #886 and #661 already committed to.**
+`releaseRanking`'s own contract keeps a guest's award row when their winning photo is later taken down
+(issue #661 AC4); `guestBadgeRank` reads that same row regardless of the submission's current visibility,
+so a badge a guest already won does not vanish off their task page just because a host hid the photo
+later. This is exactly why the route computes `taskBadgeState` from the award row FIRST and only falls
+back to `guestFacingSubmission` (issue #886's own null-if-guest-hid-it signal) when no award row exists at
+all — the two guest-190/886 visibility rules apply to different facts (whether the PHOTO shows, whether
+the BADGE reads as won) and neither should leak into the other's branch.
+
+**Gold is conditional on art kind, and the win is never conditional on it.** Criterion 3's rule, applied
+as the owner stated it live ("not won is greyed out, wins are the proper color, no extra circles"):
+grey-to-colour is the universal win signal every task badge can show regardless of its art, and the gold
+ring + glyph is a refinement layered on top ONLY when `badge-art.ejs` would already render that badge
+through the medallion component (`badgeIsIcon(art_path)` — a bundled Material icon). A task badge whose
+art is the default ribbon or a host-uploaded photo renders as a plain `<img>` with no `.badge-medallion`
+element for `theme.css`'s `.task-badge-hero--won-first .badge-medallion` rule to match, so it stays in its
+own colours, ungrayed, with the placement carried in the note line beneath it instead of the ring. No new
+CSS selector encodes this split — it falls out for free from `badge-art.ejs`'s existing icon/composed
+branch, the same one every other badge surface already reads. Forcing gold onto non-icon art would have
+meant either a second ring drawn over an arbitrary host photo (the extra circle the owner explicitly cut)
+or rewriting the default badge art itself, both reaching outside this one screen into the task board,
+profile grids, and the badge modal that also render through `badge-art.ejs`.
+
+**The lucky card lost its gold accent edge too — recorded, not incidental.** The owner's rule was
+stated about card design generally ("no solid line of color as a card accent … it just reads very ai
+design", 2026-07-31), so removing `border-left: 4px solid var(--color-primary)` from `.success-card`
+necessarily also drops `.success-card--lucky`'s `border-left-color: var(--place-1)` — the lucky variant
+recolours that same edge rather than drawing its own. Issue #650's approved lucky treatment therefore
+ships changed: the gold inset ring and the gold clover remain and still make a lucky win read as its own
+rarer moment, but the 4px gold edge is gone. The owner reviewed the lucky card in exactly that state
+during the same session before approving.
+
+**The upload form is one partial, included from three mutually exclusive branches.**
+`src/views/partials/task-upload-form.ejs` — the picker button, caption textarea, and submit — is included
+by `task.ejs`'s never-submitted branch, its issue #190 host-takedown branch, and inside the `<details
+class="replace-disclosure">` a completed task collapses the form behind. Exactly one of the three renders
+per request (task.ejs's own `if`/`else if`/`else` on `submission`/`submission.taken_down`), which is what
+keeps the partial's fixed element ids (`#caption`, `#upload-preview`, `#upload-error`) unique on the page
+— it does not render twice on one page at any point, only once from whichever of the three branches the
+guest's current state selects.

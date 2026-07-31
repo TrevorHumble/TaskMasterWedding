@@ -548,29 +548,35 @@ p {
 }
 
 /* ------------------- Task-complete success card (#255) ------------------- */
-/* Sage-tinted card that replaces the plain flash for a fresh 'created' task
-   submission — the reward moment (points, and a new badge when one blooms).
-   border-left carries the accent; the two left corners are squared off to 0
-   so the straight accent edge and the rounded card don't fight each other
-   (the single-side-border rule: a border on one side keeps that side's
-   radius at 0). */
+/* Now the LUCKY variant's shell only (issue #611): an ordinary completion is
+   cardless — see .success-beat below. The 4px accent edge this rule used to
+   carry is gone (owner, 2026-07-31: no solid line of colour as card design),
+   which also drops the lucky card's gold edge; the sage ground here, and the
+   gold inset ring + clover on --lucky, carry the moment instead. */
+/* The bottom margin is load-bearing (owner, 2026-07-31, second live pass): the
+   beat is followed immediately by the guest's own photo, and with the memory
+   prompt that used to pad the card's foot now gone, a 0 bottom margin left the
+   lucky card's gold INSET RING (not the removed accent edge — that is a
+   different thing, see the note above) sitting flush against the photo.
+   --space-5 separates the two blocks without opening the page up as much as a
+   full section break (--space-6) would. */
 .success-card {
   max-width: var(--app-max-width);
-  margin: var(--space-4) auto 0;
+  margin: var(--space-4) auto var(--space-5);
   padding: var(--space-5);
   background: var(--green-50);
-  border-left: 4px solid var(--color-primary);
   border-radius: var(--radius-card);
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
   text-align: center;
 }
-.success-check {
-  width: 48px;
-  height: 48px;
-  margin: 0 auto var(--space-3);
-  color: var(--color-primary);
-  display: block;
+/* Cardless ordinary beat (issue #611, owner 2026-07-31): heading + points
+   straight on the page ground — no container, no check, no extra lines. */
+.success-beat {
+  max-width: var(--app-max-width);
+  /* Same bottom margin as .success-card above, for the same reason — see its
+     comment. The beat has no container edge of its own, but its last line
+     would otherwise still butt straight into the photo below. */
+  margin: var(--space-4) auto var(--space-5);
+  text-align: center;
 }
 .success-heading {
   margin: 0 0 var(--space-2);
@@ -583,15 +589,43 @@ p {
   font-size: var(--fs-body);
   color: var(--color-text);
 }
+/* The points beat (issue #611): the earned amount is the hero — display face,
+   primary green, sized between the heading and the badge modal's 32px title —
+   with the running total as a quiet muted line under it, replacing the flat
+   one-sentence points line the owner rejected. */
+.success-earned {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-display);
+  color: var(--color-primary);
+  line-height: 1;
+}
+.success-earned-num {
+  font-size: 40px;
+  font-weight: 600;
+  /* Lining figures: Cormorant's default "1" reads as a Roman I at this size. */
+  font-variant-numeric: lining-nums;
+}
+.success-earned-label {
+  font-size: var(--fs-body);
+  color: var(--color-text);
+}
+.success-total {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
 /* The lucky treatment (issue #650): the ONLY place a guest is ever told a task
    was lucky, so it takes over the whole success card rather than adding a line
-   to it — gold border and gold clover in place of the green border and check,
-   so a lucky win is a visibly different, rarer moment at first glance. Gold is
-   --place-1, the same token the leaderboard champion and the one-day-only chip
-   already use, not a new colour. */
+   to it — a gold inset ring and gold clover, so a lucky win is a visibly
+   different, rarer moment at first glance. Gold is --place-1, the same token
+   the leaderboard champion and the one-day-only chip already use, not a new
+   colour. Issue #611 removed this variant's 4px gold accent EDGE along with
+   the base card's green one (the owner's no-solid-line-of-colour rule applies
+   to both) and removed the green check an ordinary card used to pair against;
+   the ring and the clover are what remain, and the owner reviewed the lucky
+   card in that state on 2026-07-31. */
 .success-card--lucky {
   background: var(--white);
-  border-left-color: var(--place-1);
   box-shadow: 0 0 0 1px var(--place-1) inset;
 }
 .success-clover {
@@ -608,17 +642,129 @@ p {
 .success-card--lucky .success-points {
   font-weight: 600;
 }
-.success-memory-prompt {
-  margin: 0;
+/* ---- Task badge hero (issue #611) ---- */
+/* The task's badge as art alone under the title — no name, no sentence; its
+   state talks instead: locked/earned (gray) until the guest WINS the badge —
+   completing the task alone does not recolor it — color once they win any
+   placement, gold ring + glyph only for 1st place. Links to the badge page
+   for the words. */
+.task-badge-hero {
+  display: block;
+  width: 72px;
+  margin: 0 auto var(--space-4);
+  text-decoration: none;
+}
+.task-badge-hero-art {
+  width: 72px;
+  height: 72px;
+  display: block;
+}
+/* Not won = grayed out — locked and merely-completed read the same; the note
+   line under the badge carries the words (owner, 2026-07-31). */
+.task-badge-hero--locked,
+.task-badge-hero--earned {
+  filter: grayscale(1) opacity(0.4);
+}
+/* Hero-size medallion (badge-art.ejs's ancestor-scoped sizing convention —
+   see "Badge medallion (#410)"). The SAME ring as the task board — no extra
+   circles for a win (owner, 2026-07-31: "that is busy"). */
+.task-badge-hero .badge-medallion {
+  width: 72px;
+  height: 72px;
+  border-width: 3px;
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--green-300);
+}
+/* Wins are the proper color, nothing more: 1st place is the gold medallion
+   (ring + glyph), a top-5 win is the standard green one. Gold never inks
+   text (the #650/#878 rule) — only the ring and glyph here. */
+.task-badge-hero--won-first .badge-medallion {
+  border-color: var(--place-1);
+  /* The inner hairline goes gold too — a green line inside a gold ring reads
+     as a leftover (owner, 2026-07-31). */
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--place-1);
+  /* Set on the medallion, not on .badge-medallion-icon: the glyph reads this
+     custom property by inheritance, and naming that class here would put an
+     earlier textual match in front of the icon rule tests/variant-stag.test.js
+     locates by first occurrence. */
+  --badge-icon-color: var(--place-1);
+}
+/* One short line under the hero badge (owner, 2026-07-31): the art alone
+   doesn't explain itself. */
+.task-badge-hero-note {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+  text-align: center;
   font-size: var(--fs-small);
   color: var(--color-text-muted);
 }
 
+/* ---- Replace-photo disclosure (issue #611) ---- */
+/* A completed task shows one button; the form only exists once it's opened.
+   <summary> restyled as the standard button — marker hidden both ways. */
+.replace-disclosure {
+  max-width: var(--app-max-width);
+  margin: var(--space-4) auto;
+}
+.replace-summary {
+  list-style: none;
+  text-align: center;
+  cursor: pointer;
+}
+.replace-summary::-webkit-details-marker {
+  display: none;
+}
+.replace-disclosure[open] .replace-summary {
+  margin-bottom: var(--space-4);
+}
+
+/* ---- Task caption field (issue #611) ---- */
+/* Short bordered textarea instead of a single line that scrolls forever — the
+   full box so its edges are visible (owner, 2026-07-31). Box, type and focus
+   ring all come from the shared `textarea` element rule further down this
+   file; only what genuinely differs from it is declared here, so an a11y or
+   token change to the shared control reaches this field too instead of being
+   silently overridden by a restated copy. */
+.caption-input {
+  padding: var(--space-2) 16px;
+  max-height: 120px;
+  overflow-y: auto;
+  resize: none;
+  line-height: var(--lh-snug);
+}
+
+/* ---- Stacked form actions (issue #611) ---- */
+/* Choose-photo (white, via the btn-secondary + btn-block labelClass
+   task-upload-form.ejs passes to upload-field) sits directly above the green
+   submit as one block. The picker label's own full-width treatment comes from
+   .btn-block itself, not from a restatement here — only the wrapper needs
+   unpicking from its inline-flex default so the label can fill the row. */
+.task-upload-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.task-upload-actions .upload-field {
+  display: block;
+}
+.task-upload-actions .upload-filename {
+  display: block;
+  text-align: center;
+  margin-top: var(--space-1);
+}
+.task-upload-actions .upload-filename:empty {
+  display: none;
+}
+
 /* The memory payoff line (issue #656, src/views/partials/memory-payoff.ejs).
    One rule for every CTA that includes the partial, so the line reads the
-   same on /tasks, /task/:id, /how-to-play and /memories/new. Matches
-   .success-memory-prompt's muted-small treatment above rather than
-   introducing a second note style. */
+   same at each — today that is the finished-all-tasks card on /tasks alone
+   (src/views/tasks.ejs); issue #611 removed the task detail page's two
+   prompts, and /how-to-play and /memories/new deliberately fold the same
+   promise into their own prose instead of including the partial (see its own
+   header comment). Muted, small treatment; no separate note style. */
 .memory-payoff {
   margin: var(--space-2) 0 var(--space-1);
   font-size: var(--fs-small);
@@ -1316,12 +1462,6 @@ a.stat:hover {
 .task-row.task-todo .task-title-text {
   color: var(--color-text);
 }
-/* Small circular badge icon for the task detail's "Earns:" line (issue #488). */
-.task-badge-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-}
 /* Two-row grid, not a flex line: the badge, body, and price share the top row,
    and the earn-pitch takes a full-width bottom row spanning UNDER the badge and
    price gutters as well. That full width is what keeps the pitch on one line at
@@ -1842,38 +1982,12 @@ a.stat:hover {
 .back-link a:hover {
   color: var(--color-primary);
 }
-.task-detail-badge {
-  font-size: var(--fs-small);
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-5);
-}
-.task-detail-badge a {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--color-primary);
-  font-weight: 600;
-  text-decoration: none;
-  vertical-align: middle;
-}
-.task-detail-badge a:hover {
-  text-decoration: underline;
-}
-.task-detail-badge .task-badge-icon {
-  vertical-align: middle;
-}
-/* Issue #410 phase-2: the "Earns:" line's badge now renders through the
-   medallion component (bare icon in a ring) instead of task-badge-icon's
-   own plain 24px circle; match the same 24px size + inline alignment. */
-.task-detail-badge .badge-medallion {
-  width: 24px;
-  height: 24px;
-  border-width: 1px;
-  vertical-align: middle;
-  box-shadow:
-    inset 0 0 0 1px var(--white),
-    inset 0 0 0 2px var(--green-300);
-}
+/* The "Best photos earn <badge> + bonus points" line these rules styled was
+   removed from the task page by issue #611 (owner, 2026-07-31: the badge art
+   and its own one-line note say it instead), leaving .task-detail-badge and
+   .task-badge-icon with no markup anywhere — both deleted rather than left as
+   dead weight. The task badge's own hero treatment lives under
+   ".task-badge-hero" above. */
 .task-detail-desc {
   color: var(--color-text-muted);
   font-size: var(--fs-body);

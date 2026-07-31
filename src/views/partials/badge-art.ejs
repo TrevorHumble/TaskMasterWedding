@@ -40,9 +40,11 @@
 
     Icon-branch accessibility (#869 review fix): the old `<img alt="">` was
     treated as decorative and skipped by assistive tech whenever a caller
-    passed an empty alt (e.g. task.ejs passes alt: '' because its own
-    adjacent badge-name text already names the badge, so the icon itself
-    would be redundant noise for a screen reader). `role="img" aria-label=""`
+    passed an empty alt (e.g. task.ejs passes alt: '' because the badge is
+    already named next to it — issue #611 removed that page's visible badge
+    name, so what names it there now is the wrapping link's own aria-label;
+    either way the icon itself would be redundant noise for a screen reader).
+    `role="img" aria-label=""`
     is NOT
     auto-demoted the same way — it reads as an unnamed graphic — so the
     masked <span> below branches explicitly: a non-empty alt gets

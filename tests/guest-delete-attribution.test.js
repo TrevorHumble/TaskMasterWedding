@@ -302,7 +302,14 @@ describe('AC5: the approved guest-facing screen', () => {
 
     const taskPage = await guest.agent.get('/tasks/' + taskId);
     expect(taskPage.status).toBe(200);
-    expect(taskPage.text).toContain('Upload a photo to complete this task');
+    // Issue #611 removed the "Upload a photo to complete this task" heading
+    // this test originally anchored to; re-anchored to the never-submitted
+    // branch's own two markers — its submit button reads "Upload & complete"
+    // (the replace branch's reads "Upload & replace" instead), and its
+    // <details class="replace-disclosure"> wrapper is absent entirely (that
+    // element only renders when task.ejs takes the has-a-submission branch).
+    expect(taskPage.text).toContain('Upload &amp; complete');
+    expect(taskPage.text).not.toContain('replace-disclosure');
     expect(taskPage.text).not.toContain('with the hosts');
     expect(taskPage.text.toLowerCase()).not.toContain('restore');
   });

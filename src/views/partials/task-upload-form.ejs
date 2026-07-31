@@ -1,0 +1,47 @@
+<%# src/views/partials/task-upload-form.ejs
+    The task photo upload form (issue #611 redesign) — included from three
+    MUTUALLY EXCLUSIVE branches of task.ejs, so exactly one renders per
+    request (which is what keeps this partial's fixed element ids unique on
+    the page): the never-submitted branch, the issue #190 host-takedown
+    branch, and inside the "Replace photo" disclosure a completed task
+    collapses the form behind. No section heading: the page title + badge
+    above it already say what this is, and the picker + submit labels carry
+    the action.
+
+    Locals: task (required), submission (required, may be null) %>
+<form action="/tasks/<%= task.id %>/submit"
+      method="POST"
+      enctype="multipart/form-data"
+      class="task-upload-form">
+  <%- include('csrf-field') %>
+
+  <!-- Live preview target; filled by /js/upload.js -->
+  <div class="preview-wrap">
+    <img id="upload-preview" class="upload-preview" alt="" hidden />
+  </div>
+
+  <div class="form-row">
+    <%# One caption affordance, not two (issue #611: the label and the
+        placeholder restated each other) — the placeholder alone names it,
+        and the aria-label keeps it named for screen readers. A short
+        bordered textarea instead of a single line that scrolls forever. %>
+    <textarea id="caption"
+              name="caption"
+              rows="2"
+              maxlength="500"
+              placeholder="Add a caption"
+              aria-label="Add a caption"
+              class="caption-input"><%= submission ? submission.caption : '' %></textarea>
+  </div>
+
+  <p id="upload-error" class="form-error" role="alert" hidden></p>
+
+  <%# The two actions stacked as one block (owner, 2026-07-31): white
+      choose-photo directly above the green submit. %>
+  <div class="task-upload-actions">
+    <%- include('upload-field', { id: 'photo', name: 'photo', accept: 'image/*', required: true, labelClass: 'btn-secondary btn-block' }) %>
+    <button type="submit" class="btn btn-block" data-uploading-label="Uploading…">
+      <%= submission ? 'Upload & replace' : 'Upload & complete' %>
+    </button>
+  </div>
+</form>

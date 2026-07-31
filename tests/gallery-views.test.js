@@ -177,22 +177,26 @@ describe('AC6: taken-down photos never appear', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC4 (as amended by #250) — the task DETAIL page links to that task's
-// gallery. The per-row "See photos" links on the /tasks list were removed by
-// issue #250; the detail page is now the one path to a task's gallery view.
+// AC4 — SUPERSEDED by issue #611 (owner-directed, 2026-07-31): the task
+// detail page's "See photos for this task" link is cut outright ("let's just
+// get rid of that. We don't need that."). A guest now reaches a task's
+// photos through Gallery and its own task filter (AC3 above), not a link on
+// the task page. These two cases now assert the link's ABSENCE, not its
+// presence — deliberately rewritten per issue #611's "Prior criteria this
+// supersedes", not silently deleted.
 // (Guest routes; agent is signed in as guestId1 via seedtoken)
 // ---------------------------------------------------------------------------
-describe('AC4: task detail links to task gallery', () => {
-  it('GET /tasks/<taskId1> contains href="/gallery?task=<taskId1>"', async () => {
+describe('AC4: task detail no longer links to task gallery (issue #611)', () => {
+  it('GET /tasks/<taskId1> does not contain href="/gallery?task=<taskId1>"', async () => {
     const res = await agent.get(`/tasks/${taskId1}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain(`href="/gallery?task=${taskId1}"`);
+    expect(res.text).not.toContain(`href="/gallery?task=${taskId1}"`);
   });
 
-  it('GET /tasks/<taskId2> contains href="/gallery?task=<taskId2>"', async () => {
+  it('GET /tasks/<taskId2> does not contain href="/gallery?task=<taskId2>"', async () => {
     const res = await agent.get(`/tasks/${taskId2}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain(`href="/gallery?task=${taskId2}"`);
+    expect(res.text).not.toContain(`href="/gallery?task=${taskId2}"`);
   });
 });
 

@@ -28,8 +28,21 @@ const { JSDOM } = require('jsdom');
 const { loadApp, signInGuest } = require('./helpers/testApp');
 
 const TASK_EJS_PATH = path.join(__dirname, '..', 'src', 'views', 'task.ejs');
+// Issue #611: the upload form (and its data-uploading-label hook) moved out
+// of task.ejs into its own shared partial, included from three mutually
+// exclusive branches of task.ejs (never-submitted, host-takedown, and the
+// replace disclosure) — see that partial's own header comment.
+const TASK_UPLOAD_FORM_EJS_PATH = path.join(
+  __dirname,
+  '..',
+  'src',
+  'views',
+  'partials',
+  'task-upload-form.ejs'
+);
 const UPLOAD_JS_PATH = path.join(__dirname, '..', 'src', 'public', 'js', 'upload.js');
 const TASK_EJS_SOURCE = fs.readFileSync(TASK_EJS_PATH, 'utf8');
+const TASK_UPLOAD_FORM_EJS_SOURCE = fs.readFileSync(TASK_UPLOAD_FORM_EJS_PATH, 'utf8');
 const UPLOAD_JS_SOURCE = fs.readFileSync(UPLOAD_JS_PATH, 'utf8');
 
 // loadApp() pulls in src/app.js -> src/services/photos.js -> sharp. It is
@@ -96,8 +109,11 @@ describe('AC1: button label renders once-escaped', () => {
 // AC2: structural hooks exist in both source files.
 // ---------------------------------------------------------------------------
 describe('AC2: uploading-state hooks exist in source', () => {
-  it('task.ejs carries data-uploading-label="Uploading…" on the submit button', () => {
-    expect(TASK_EJS_SOURCE).toContain('data-uploading-label="Uploading…"');
+  it('the task upload form carries data-uploading-label="Uploading…" on the submit button', () => {
+    // Issue #611 moved the form (and this attribute) out of task.ejs into
+    // partials/task-upload-form.ejs; task.ejs itself no longer contains it.
+    expect(TASK_UPLOAD_FORM_EJS_SOURCE).toContain('data-uploading-label="Uploading…"');
+    expect(TASK_EJS_SOURCE).not.toContain('data-uploading-label="Uploading…"');
   });
 
   it('upload.js sets the submit button disabled in its submit handler', () => {

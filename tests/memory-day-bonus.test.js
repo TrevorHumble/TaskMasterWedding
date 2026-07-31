@@ -439,6 +439,9 @@ describe('AC7: the approved copy renders everywhere it was approved', () => {
   function containsNormalized(haystack, needle) {
     expect(normalizeWhitespace(haystack)).toContain(normalizeWhitespace(needle));
   }
+  function notContainsNormalized(haystack, needle) {
+    expect(normalizeWhitespace(haystack)).not.toContain(normalizeWhitespace(needle));
+  }
 
   it('/tasks row description renders identically in BOTH the available and claimed states', async () => {
     const available = insertGuest('AC7 Available Guest');
@@ -481,7 +484,15 @@ describe('AC7: the approved copy renders everywhere it was approved', () => {
     containsNormalized(res.text, PAYOFF_LINE);
   });
 
-  it('/task/:id fresh success card AND return-visit/replace prompt both carry the payoff line', async () => {
+  // SUPERSEDED by issue #611 (owner-directed, 2026-07-31): "let's remove
+  // share a memory from this page, we don't need it" — both the "Got more
+  // from tonight?" prompt and its payoff line are gone from /task/:id
+  // entirely. This case is deliberately rewritten to assert the ABSENCE of
+  // both, on both branches that used to carry them, rather than deleted —
+  // the other four AC7 cases above/below (/tasks, /memories/new,
+  // /how-to-play) are untouched by #611 and still assert the line's
+  // presence.
+  it('/task/:id no longer carries the memory-payoff prompt on either the fresh success card or the return-visit branch', async () => {
     const { guestId, token } = insertGuest('AC7 Task Detail Guest');
     const taskId = insertTask('AC7 Task Detail Task');
     const agent = await signedInAgent(token);
@@ -497,7 +508,8 @@ describe('AC7: the approved copy renders everywhere it was approved', () => {
 
     const freshPage = await agent.get(submitRes.headers.location);
     expect(freshPage.text).toContain('Task complete!');
-    containsNormalized(freshPage.text, PAYOFF_LINE);
+    expect(freshPage.text).not.toContain('Got more from tonight?');
+    notContainsNormalized(freshPage.text, PAYOFF_LINE);
 
     // Return-visit/replace prompt: insert the submission directly (bypassing
     // upload) so the page renders the "existing submission" branch, not the
@@ -510,8 +522,8 @@ describe('AC7: the approved copy renders everywhere it was approved', () => {
 
     const returnRes = await agent.get(`/tasks/${taskId}`);
     expect(returnRes.status).toBe(200);
-    expect(returnRes.text).toContain('Got more from tonight?');
-    containsNormalized(returnRes.text, PAYOFF_LINE);
+    expect(returnRes.text).not.toContain('Got more from tonight?');
+    notContainsNormalized(returnRes.text, PAYOFF_LINE);
   });
 
   it('/memories/new carries the folded-in promise', async () => {

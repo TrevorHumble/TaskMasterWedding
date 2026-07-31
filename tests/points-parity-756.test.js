@@ -148,9 +148,12 @@ describe('AC1: the success card reports the banked amount, and the grand total s
 
     const page = await agent.get(res.headers.location);
     expect(page.text).toContain('Task complete!');
-    expect(page.text).toContain('+5 points');
-    expect(page.text).not.toContain('+2 points');
-    expect(page.text).toContain("you're at 22 points");
+    // Issue #611: the earned figure and its "points" word are two separate
+    // elements now (the display-face number, then the smaller word beside
+    // it), and the running total moved to its own quiet "N total" line.
+    expect(page.text).toContain('<span class="success-earned-num">+5</span>');
+    expect(page.text).not.toContain('<span class="success-earned-num">+2</span>');
+    expect(page.text).toContain('<p class="success-total"><strong>22</strong> total</p>');
   });
 
   it('the SAME task submitted AFTER its date reads "+2 points", never "+5" (worth + special_bonus unconditionally)', async () => {
@@ -172,9 +175,9 @@ describe('AC1: the success card reports the banked amount, and the grand total s
 
     const page = await agent.get(res.headers.location);
     expect(page.text).toContain('Task complete!');
-    expect(page.text).toContain('+2 points');
-    expect(page.text).not.toContain('+5 points');
-    expect(page.text).toContain("you're at 2 points");
+    expect(page.text).toContain('<span class="success-earned-num">+2</span>');
+    expect(page.text).not.toContain('<span class="success-earned-num">+5</span>');
+    expect(page.text).toContain('<p class="success-total"><strong>2</strong> total</p>');
   });
 });
 
