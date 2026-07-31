@@ -442,7 +442,17 @@ function crownRankState() {
 function renderGallery(
   req,
   res,
-  { view, groups = [], photos = [], page = 1, totalPages = 1, total = 0, taskFilter = null, q = '' }
+  {
+    view,
+    groups = [],
+    photos = [],
+    page = 1,
+    totalPages = 1,
+    total = 0,
+    taskFilter = null,
+    q = '',
+    taskWallScope = null,
+  }
 ) {
   return res.render(
     'gallery',
@@ -456,6 +466,14 @@ function renderGallery(
       total,
       taskFilter,
       q,
+      // The 'u<id>'/'t<id>'/'m' scope-token grammar is owned entirely by
+      // feed.scopeToken (issue #952 PR review) — every group already carries
+      // its own precomputed g.scopeToken (attached below, before this
+      // function runs) and the ?task= filtered recent wall carries this one
+      // precomputed string, so the view only ever consumes a ready token,
+      // the same shape /u/:guestId and / (guest.js) already hand their
+      // views — it never calls back into feed.scopeToken itself.
+      taskWallScope,
       // One crowdFavorites() call per request (issue #788 AC1) — every
       // branch above calls renderGallery exactly once and returns, so this
       // single call point covers the whole handler regardless of which
@@ -497,6 +515,19 @@ router.get('/gallery', (req, res) => {
     // arrays — 25 photos in a task is 25 photos, even though 6 tiles show.
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const groups = feed.grouped(view, taskFilter, q);
+    // Each group's own scope token (issue #952 PR review): resolved once per
+    // group, here, the same "route resolves the token, the view only ever
+    // consumes a ready string" shape /u/:guestId and / (guest.js) already
+    // use — gallery.ejs never calls back into feed.scopeToken itself.
+    for (const g of groups) {
+      g.scopeToken = feed.scopeToken(
+        view === 'user'
+          ? { type: 'guest', id: g.guest_id }
+          : g.task_id
+            ? { type: 'task', id: g.task_id }
+            : { type: 'memory' }
+      );
+    }
     const total = groups.reduce((sum, g) => sum + g.total, 0);
     return renderGallery(req, res, { view, groups, total, taskFilter, q });
   }
@@ -504,9 +535,69 @@ router.get('/gallery', (req, res) => {
   // --- recent view: flat, paginated, newest-first. ---
   const requestedPage = parseInt(req.query.page, 10);
   const { photos, page, totalPages, total } = feed.recentPage(taskFilter, requestedPage);
+  // The ?task=-filtered recent wall's own scope token (same reasoning as the
+  // grouped-view loop above) — null (unscoped) for the plain everyone-wall.
+  const taskWallScope = taskFilter ? feed.scopeToken({ type: 'task', id: taskFilter }) : null;
 
-  return renderGallery(req, res, { view, photos, page, totalPages, total, taskFilter });
+  return renderGallery(req, res, {
+    view,
+    photos,
+    page,
+    totalPages,
+    total,
+    taskFilter,
+    taskWallScope,
+  });
 });
+
+/**
+ * The scoped feed's back-link frame (issue #952 AC5): where "back" leads for
+ * a scope, and what the scoped set is called. A task/memories scope came
+ * from the gallery; a person scope came from that person's profile — or,
+ * for the signed-in guest's own photos, their home. Looked up ONCE per
+ * request (task title / guest name), straight from the DB rather than from
+ * any rendered row — an empty scoped set (AC4) still has to name itself.
+ * Returns `{ backHref: null, backLabel: null, setLabel: null }` for no scope
+ * (or an invalid one, already resolved to null by feed.parseScope), which
+ * the view reads as "render the plain unscoped frame".
+ *
+ * @param {{type: 'guest'|'task'|'memory', id?: number}|null} scope
+ * @param {number|null} viewerGuestId - req.guest.id, for the "your photos"
+ *        special case (AC5's fourth bullet).
+ */
+function scopeBackLinkContext(scope, viewerGuestId) {
+  if (!scope) {
+    return { backHref: null, backLabel: null, setLabel: null };
+  }
+  if (scope.type === 'task') {
+    const task = db.prepare('SELECT title FROM tasks WHERE id = ?').get(scope.id);
+    return {
+      backHref: '/gallery?view=recent&task=' + scope.id,
+      backLabel: '← Back to the gallery',
+      setLabel: task && task.title ? '“' + task.title + '”' : 'this task',
+    };
+  }
+  if (scope.type === 'memory') {
+    return {
+      backHref: '/gallery?view=task',
+      backLabel: '← Back to the gallery',
+      setLabel: 'shared memories',
+    };
+  }
+  if (scope.type === 'guest') {
+    if (viewerGuestId === scope.id) {
+      return { backHref: '/', backLabel: '← Back to your photos', setLabel: 'your photos' };
+    }
+    const owner = db.prepare('SELECT name FROM guests WHERE id = ?').get(scope.id);
+    const name = (owner && owner.name) || 'Guest';
+    return {
+      backHref: '/u/' + scope.id,
+      backLabel: '← Back to ' + name + "'s profile",
+      setLabel: name + "'s photos",
+    };
+  }
+  throw new Error('unknown scope type: ' + scope.type);
+}
 
 // ---------------------------------------------------------------------------
 // GET /feed  — full-screen vertical scroll, one bounded window at a time.
@@ -519,25 +610,40 @@ router.get('/gallery', (req, res) => {
 // falls back to the newest page. like_count arrives on each row from the
 // feed query itself; comments, likers (issue #890), per-photo points, and
 // the viewer's own liked state are attached per-window here.
+//
+// ?scope=u<id>|t<id>|m (issue #952) constrains the window to one profile,
+// task, or the Memories section — feed.parseScope resolves the string (null
+// for missing/malformed/nonexistent, which is indistinguishable from no
+// scope at all below) and feed.feedWindow threads it into the SQL predicate,
+// so a non-matching photo is never even fetched, let alone rendered.
 // ---------------------------------------------------------------------------
 router.get('/feed', (req, res) => {
   const fromParam = parseInt(req.query.from, 10);
   const fromId = Number.isInteger(fromParam) && fromParam >= 1 ? fromParam : null;
+  const scope = feed.parseScope(req.query.scope);
 
-  const window = feed.feedWindow(fromId);
+  const window = feed.feedWindow(fromId, scope);
   const photos = attachViewerLikes(
     attachLikers(attachComments(attachPhotoPoints(window.photos))),
     req.guest ? req.guest.id : null
   );
 
+  const scopeToken = feed.scopeToken(scope);
+  const scopeQS = scopeToken ? '&scope=' + scopeToken : '';
   // hasNewer with a null newerFromId means "the newer page is the first
   // page" — fewer than a full window of newer photos exist, so /feed (no
-  // anchor) shows them all without a gap.
-  const olderHref = window.olderFromId !== null ? '/feed?from=' + window.olderFromId : null;
+  // anchor) shows them all without a gap. Both pager hrefs carry the same
+  // scope token (AC4) so the no-JS pager, and feed-scroll.js's window
+  // loader reading these same hrefs off the fetched page, never wander out
+  // of the scoped set.
+  const olderHref =
+    window.olderFromId !== null ? '/feed?from=' + window.olderFromId + scopeQS : null;
   const newerHref = window.hasNewer
     ? window.newerFromId !== null
-      ? '/feed?from=' + window.newerFromId
-      : '/feed'
+      ? '/feed?from=' + window.newerFromId + scopeQS
+      : scopeToken
+        ? '/feed?scope=' + scopeToken
+        : '/feed'
     : null;
 
   return res.render(
@@ -550,6 +656,11 @@ router.get('/feed', (req, res) => {
       captionMaxLength: submissions.CAPTION_MAX_LENGTH,
       olderHref,
       newerHref,
+      // Whether this page is scope-constrained at all (issue #952 AC5 fix):
+      // an explicit boolean straight from feed.parseScope's result, not
+      // inferred from backHref's truthiness downstream.
+      isScoped: Boolean(scope),
+      ...scopeBackLinkContext(scope, req.guest ? req.guest.id : null),
       // One crowdFavorites() call per request (issue #788 AC1); crownGoldId
       // (issue #811 AC4) is folded out of that same call.
       ...crownRankState(),
@@ -1121,12 +1232,23 @@ router.get('/u/:guestId', (req, res, next) => {
       socialLinks,
       photos,
       score,
+      // The profile grid's own scope token (issue #952 PR review): every
+      // photo tile here belongs to this ONE guest, so the token is resolved
+      // once, here, via feed.scopeToken — never hand-built as 'u' + id by
+      // the view itself (the leakage the token grammar's single-owner rule
+      // exists to close).
+      scopeToken: feed.scopeToken({ type: 'guest', id: profileGuest.id }),
       // One crowdFavorites() call per request (issue #788 AC1); crownGoldId
       // (issue #811 AC4) is folded out of that same call. This route also has
       // a pre-existing SECOND, unrelated crowdFavorites() call via
       // scoring.getPoints -> crowdPointsByGuest (the profile's points header)
       // — see crownRankState()'s own doc comment; that call is untouched.
       ...crownRankState(),
+      // One victoryRankBySubmission() query per request (issue #952 AC1 —
+      // gallery parity: the profile grid wears the same task-badge victory
+      // medal /gallery already renders, per the SAME lookup GET /gallery
+      // supplies to renderGallery above).
+      badgeVictory: taskBadges.victoryRankBySubmission(),
     })
   );
 });

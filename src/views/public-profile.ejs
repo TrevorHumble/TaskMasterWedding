@@ -93,39 +93,36 @@
         Defaults to null when a caller omits it, matching crownRank's own
         guard idiom. %>
     <% var crownGoldId = (typeof crownGoldId !== 'undefined') ? crownGoldId : null; %>
+    <%# Task-badge victory medal lookup — same guard idiom as gallery.ejs.
+        The route supplies badgeVictory from the same
+        taskBadges.victoryRankBySubmission() call GET /gallery already uses,
+        so the profile grid wears the same medal /gallery renders; the
+        default below is a defensive fallback for a caller that omits it,
+        not a placeholder awaiting future wiring. %>
+    <% var badgeVictory = (typeof badgeVictory !== 'undefined' && badgeVictory) ? badgeVictory : {}; %>
     <% if (photos.length === 0) { %>
       <p class="muted">No photos shared yet.</p>
     <% } else { %>
       <div class="gallery-grid" id="galleryGrid">
         <% photos.forEach(function (p) { %>
-          <figure class="gallery-item">
-            <a
-              class="gallery-thumb-btn"
-              href="/p/<%= p.submission_id %>"
-              aria-label="View photo for <%= p.task_title || 'a shared memory' %>"
-            >
-              <img
-                class="gallery-thumb"
-                src="/thumbs/<%= p.thumb_path %>"
-                alt="<%= p.task_title || 'a shared memory' %>"
-                loading="lazy"
-                width="400"
-                height="400"
-              />
-              <% if (crownRank[p.submission_id]) { %>
-                <%- include('partials/crowd-favorite-mark', {
-                      rank: crownRank[p.submission_id],
-                      gold: crownGoldId !== null && p.submission_id === crownGoldId
-                    }) %>
-              <% } %>
-            </a>
-            <figcaption class="gallery-caption">
-              <span class="gallery-task"><%= p.task_title || 'a shared memory' %></span>
-              <% if (p.caption) { %>
-                <span class="gallery-text"><%= p.caption %></span>
-              <% } %>
-            </figcaption>
-          </figure>
+          <%
+            /* scopeToken: the server-side window this tile's feed link is
+               constrained to (issue #952 AC1/AC4) — every other guest's
+               photo is excluded by the feedWindow() SQL predicate, not
+               filtered client-side. scopeToken is the route's own
+               feed.scopeToken() result (community.js's GET /u/:guestId) —
+               this view never hand-builds the 'u<id>' token itself. */
+            var alt = p.task_title || 'a shared memory';
+          %>
+          <%- include('partials/gallery-tile', {
+                thumbPath: p.thumb_path,
+                id: p.submission_id,
+                alt: alt,
+                scopeToken: scopeToken,
+                crownRank: crownRank,
+                crownGoldId: crownGoldId,
+                badgeVictory: badgeVictory
+              }) %>
         <% }); %>
       </div>
     <% } %>

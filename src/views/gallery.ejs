@@ -65,60 +65,41 @@
   <% var badgeVictory = (typeof badgeVictory !== 'undefined' && badgeVictory) ? badgeVictory : {}; %>
 
   <%
-    /* One photo tile: thumbnail linking into the feed at that photo. A top-5
-       crowd-favorite photo wears its crown, top-left (issue #788); a photo
-       that holds a released task-badge rank wears its victory medal,
-       bottom-left, and no corner mark otherwise — the tile carries no
-       like-count overlay (issue #811). overlayCount and overlayHref, when
-       given, render the "+N" scrim on this tile (grouped previews, issue
-       #251), taking precedence over the medal, and repoint the tile at the
-       full list. */
-    function renderTile(p, overlayCount, overlayHref) {
+    /* One photo tile: partials/gallery-tile, the same tile every photo grid
+       in the app renders (issue #952) — thumbnail linking into the feed at
+       that photo, the crowd-favorite crown (issue #788) and task-badge
+       victory medal (issue #811/#893) when the lookups above match, and the
+       "+N" scrim (issue #251) taking over for a grouped preview's
+       overflowing last tile. */
+    /* scopeToken: the server-side window a tile's feed link is constrained to
+       (issue #952 AC3/AC4) — 'u<guestId>' | 't<taskId>' | 'm' (memories),
+       resolved by feed.parseScope and enforced in the feedWindow() SQL
+       predicate, not filtered after the fact. The Recent everyone-wall
+       passes null and stays unscoped. */
+    function renderTile(p, overlayCount, overlayHref, scopeToken) {
+      var alt = p.task_title || 'a shared memory';
   %>
-    <figure class="gallery-item">
-      <a
-        class="gallery-thumb-btn"
-        href="<%= overlayCount ? overlayHref : '/feed?from=' + p.submission_id + '#photo-' + p.submission_id %>"
-        aria-label="<%= overlayCount ? 'See all photos in this section' : 'View photo for ' + (p.task_title || 'a shared memory') %>"
-      >
-        <img
-          class="gallery-thumb"
-          src="/thumbs/<%= p.thumb_path %>"
-          alt="<%= p.task_title || 'a shared memory' %>"
-          loading="lazy"
-          width="400"
-          height="400"
-        />
-        <% if (!overlayCount && crownRank[p.submission_id]) { %>
-          <%- include('partials/crowd-favorite-mark', {
-                rank: crownRank[p.submission_id],
-                gold: crownGoldId !== null && p.submission_id === crownGoldId
-              }) %>
-        <% } %>
-        <% if (overlayCount) { %>
-          <span class="tile-more">+<%= overlayCount %></span>
-        <% } else if (badgeVictory[p.submission_id]) { %>
-          <%# The gallery tile carries no like-count overlay (issue #811): the
-              only bottom-left mark a photo wears is its task-badge victory
-              medal, when it has won one — rendering the actual badge won
-              (issue #893), not a generic glyph. %>
-          <%- include('partials/badge-victory-mark', {
-                rank: badgeVictory[p.submission_id].rank,
-                badge: badgeVictory[p.submission_id].badge
-              }) %>
-        <% } %>
-      </a>
-    </figure>
+    <%- include('partials/gallery-tile', {
+          thumbPath: p.thumb_path,
+          id: p.submission_id,
+          alt: alt,
+          scopeToken: scopeToken,
+          crownRank: crownRank,
+          crownGoldId: crownGoldId,
+          badgeVictory: badgeVictory,
+          overlayCount: overlayCount,
+          overlayHref: overlayHref
+        }) %>
   <% } %>
 
   <%
     /* A flat grid of photo tiles — the recent wall and each grouped preview. */
-    function renderGrid(items, groupTotal, overlayHref) {
+    function renderGrid(items, groupTotal, overlayHref, scopeToken) {
   %>
     <div class="gallery-grid" id="galleryGrid">
       <% items.forEach(function (p, i) { %>
         <% var overflow = groupTotal > items.length && i === items.length - 1; %>
-        <%- renderTile(p, overflow ? groupTotal - items.length : 0, overlayHref) %>
+        <%- renderTile(p, overflow ? groupTotal - items.length : 0, overlayHref, scopeToken) %>
       <% }); %>
     </div>
   <% } %>
@@ -154,11 +135,22 @@
           <span class="gallery-group-count"><%= g.total %> photo<%= g.total === 1 ? '' : 's' %></span>
           <span class="gallery-group-chevron" aria-hidden="true">&rsaquo;</span>
         </a>
-        <%- renderGrid(g.photos, g.total, sectionHref) %>
+        <%# Section scope: By-person groups scope to the person, By-task
+            groups to the task — the Memories group (task_id null) scopes to
+            task-free photos ('m'). g.scopeToken is already resolved by the
+            route (community.js's GET /gallery, via feed.js's scopeToken) —
+            this view only ever consumes the ready string, never
+            hand-concatenates or re-derives the 'u<id>'/'t<id>'/'m' grammar
+            itself. %>
+        <%- renderGrid(g.photos, g.total, sectionHref, g.scopeToken) %>
       </section>
     <% }); %>
   <% } else if (photos.length > 0) { %>
-    <%- renderGrid(photos, photos.length, null) %>
+    <%# The Recent everyone-wall is unscoped — unless it is the ?task=N
+        filtered wall, whose set IS that task's photos. taskWallScope is
+        already resolved by the route, the same ready-string shape g.scopeToken
+        above uses. %>
+    <%- renderGrid(photos, photos.length, null, taskWallScope) %>
 
     <% if (page < totalPages) { %>
       <nav class="show-more" aria-label="More photos">

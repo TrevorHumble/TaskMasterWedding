@@ -17,9 +17,17 @@
       to null when a caller omits it, matching crownRank's own guard idiom. %>
   <% var crownGoldId = (typeof crownGoldId !== 'undefined') ? crownGoldId : null; %>
 
-  <% if (photos.length === 0) { %>
-    <p class="muted">No photos yet. Be the first to share one!</p>
-  <% } %>
+  <%# Scoped-feed back-link frame (issue #952 AC5): community.js's GET /feed
+      supplies backHref/backLabel/setLabel/isScoped only for a valid ?scope=
+      — isScoped false and the other three null on every other request
+      (unscoped, or an invalid scope that already fell back to unscoped in
+      feed.parseScope), which is this guard's default. isScoped is the one
+      signal that gates the scoped frame and the empty-state copy choice
+      below. %>
+  <% var backHref = (typeof backHref !== 'undefined') ? backHref : null; %>
+  <% var backLabel = (typeof backLabel !== 'undefined') ? backLabel : null; %>
+  <% var setLabel = (typeof setLabel !== 'undefined') ? setLabel : null; %>
+  <% var isScoped = (typeof isScoped !== 'undefined') ? isScoped : false; %>
 
   <%# Issue #677: top edge for in-place loading of NEWER photos. The sentinel
       is an invisible 1px strip src/public/js/feed-scroll.js watches with an
@@ -32,6 +40,25 @@
       <span class="feed-edge-ring" aria-hidden="true"></span>
       <span class="visually-hidden">Loading newer photos</span>
     </div>
+  <% } %>
+
+  <%# Scoped-feed top back link (issue #952 AC5): "<- Back to ..." plus which
+      set is showing. Server-rendered now (phase 1 built this client-side in
+      src/public/js/feed-scroll.js, deleted by this same change) — same
+      copy, same position (immediately above the card list); .muted alone
+      does the styling, no unread hook class riding along. %>
+  <% if (isScoped) { %>
+    <p class="muted">
+      <a href="<%= backHref %>"><%= backLabel %></a> — showing only <%= setLabel %>
+    </p>
+  <% } %>
+
+  <% if (photos.length === 0) { %>
+    <%# AC4: an empty but VALID scope (every photo in the set taken down)
+        reads "No photos here yet.", in place of the cards, never the
+        unscoped "be the first" copy — that line invites a share this page
+        can't accept. %>
+    <p class="muted"><%= isScoped ? 'No photos here yet.' : 'No photos yet. Be the first to share one!' %></p>
   <% } %>
 
   <%# Issue #890 AC5: the signed-in guest's own id/name/avatar are exposed
@@ -343,6 +370,16 @@
       <span class="visually-hidden">Loading older photos</span>
     </div>
     <div class="feed-sentinel" id="feedSentinelOlder" aria-hidden="true"></div>
+  <% } %>
+
+  <%# Scoped-feed bottom back link (issue #952 AC5) — the back link alone,
+      no set-label repeat. Sits just above the pager nav, same position the
+      phase-1 client mock inserted it at. Gated on isScoped, same as the top
+      back link above. %>
+  <% if (isScoped) { %>
+    <p class="muted">
+      <a href="<%= backHref %>"><%= backLabel %></a>
+    </p>
   <% } %>
 
   <%# The pager links are the no-JS fallback (issue #677 keeps them, #194's

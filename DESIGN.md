@@ -2921,3 +2921,61 @@ the layout, which is exactly the case the static version broke.
 preview observation (headless Chrome: an append at the bottom sentinel anchored there instead of leaving
 scroll position untouched, stalling the observer chain) — that observation is still the reason anchoring
 must be off during an insert; the fix only narrows WHEN and WHERE it is off.
+
+## Scoped feed windows: every photo grid opens a feed constrained to its own set (#952)
+
+**Date:** 2026-07-30. **Status:** shipped (phase 2).
+
+**The problem.** The Shared Gallery's tile → `/feed?from=<id>#photo-<id>` → lightbox chain is the star
+pattern, but it always opens the WHOLE event's feed — a tap on a task section, a person's profile grid,
+or "My Photos" dropped the guest into every visible photo, not just that grid's own set. Phase 1 (owner-
+approved 2026-07-30) mocked the fix client-side in `src/public/js/feed-scroll.js`: a `?scope=u<id>|t<id>|m`
+query param told the already-downloaded feed page to hide non-matching cards, chaining past a fully-
+filtered-out window until one contributed a visible card. That still downloaded every unscoped window
+over venue wifi first — the exact cost issue #194 exists to bound — so it was a look, not the shape.
+
+**The fix: the scope is a SQL predicate, not a DOM filter.** `src/services/feed.js` now precompiles four
+statement sets (`FEED_STATEMENTS_BY_SCOPE`) at module load — one per scope shape (`guest` →
+`s.guest_id = ?`, `task` → `s.task_id = ?`, `memory` → `s.task_id IS NULL`, plus `none` for today's
+unscoped feed) — so `feedWindow(fromId, scope)` composes the SAME `VISIBLE_WHERE`/ordering rules this
+file already owns with a ready statement instead of building SQL text per request. A non-matching photo
+is never fetched, let alone hidden client-side.
+
+**`feed.js` owns both directions of the `u<id>` / `t<id>` / `m` grammar.** `feed.parseScope(raw)` is the
+single place a `?scope=` string becomes a scope descriptor (parsing); `feed.scopeToken(scope)` is the
+single place a descriptor becomes a string again (emission), delegating to the same per-shape
+`SCOPE_SHAPES` table `feedWindow` itself reads. Every other caller — the window query, `community.js`'s
+back-link context, both pager hrefs — consumes one of these two functions rather than re-matching or
+re-building the scope string itself. The token side reaches the photo-grid VIEWS too (a review fix
+after phase 2 first shipped): every route resolves tokens server-side and hands the views ready
+strings, all under the one name `scopeToken` — `GET /gallery` stamps each group's token
+(`g.scopeToken`) plus a `taskWallScope` for the filtered wall, while `GET /u/:guestId` and
+`GET /` (`guest.js`) each resolve their single token once — and `partials/gallery-tile.ejs` only ever
+composes a token it was given into its own `/feed?...&scope=` link; no view calls the token builder or
+re-derives the `u`/`t`/`m` grammar itself. A malformed value and a well-formed but
+nonexistent guest/task id both resolve to `null` (one EXISTS-shaped lookup per shape) and are
+therefore indistinguishable from "no scope" downstream — the route never has to special-case "bad scope"
+separately from "no scope"; both just render the plain unscoped feed. This is a deliberate simplification
+over the phase-1 mock's `SCOPE_RE`, which had no such validation (a garbage or dead id in the URL, or a
+guest who deleted their whole profile, would have raised errors client-side, not degraded quietly).
+
+**An out-of-scope `from` anchor degrades exactly like a stale one already does.** `feedWindow` reused the
+existing "missing/taken-down anchor falls back to the first page" branch: after resolving the anchor row,
+one extra check (`matchesScope`) discards it if it exists but sits outside the scope, so the caller gets
+the scoped set's own newest page — the same one-branch shape as the pre-existing stale-`from` fallback,
+not a second, parallel "wrong scope" code path.
+
+**Back-link copy is looked up server-side, not scraped from rendered rows.** The phase-1 mock derived the
+task title / guest name for its back-link chrome from the DOM (`feedEl.querySelector(...)`) — which
+cannot work for an empty scoped set (AC4: every photo in the set taken down still has to render a back
+link naming what would have been there). `community.js`'s `scopeBackLinkContext()` looks the title/name up
+directly from the DB once per request, so the frame renders identically whether the scoped set holds
+photos or none.
+
+**The no-JS pager stays real, not just present.** `src/views/feed.ejs` still renders
+`<nav class="pagination">` on a scoped page with scope-carrying hrefs on both directions — `feed-scroll.js`
+reads those same hrefs off each fetched page and hides the nav at runtime exactly as it already did for
+an unscoped feed (issue #677's degradation contract, untouched); this issue's own phase-1 mock's DOM-
+filtering/chaining logic (`SCOPE_RE`, `scopeGuestId`, `itemMatchesScope`, `applyScope`, `scopeContext`,
+`insertScopeChrome`, and the `scopeId`/`visBefore`/`visAfter` chaining inside `load()`) is deleted outright
+rather than adapted, since the server now guarantees every fetched window is already scoped.

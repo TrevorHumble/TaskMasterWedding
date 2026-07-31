@@ -169,8 +169,24 @@ function galleryTileCrown(text, submissionId) {
   );
 }
 
-function profileTileCrown(text, submissionId) {
-  return crownStateFromChunk(text, 'href="/p/' + submissionId + '"', '<figure');
+// Issue #952 (gallery parity): a profile tile's feed link is now scoped to
+// the profile's own guest id (/feed?from=<id>&scope=u<profileGuestId>...),
+// not the old /p/<id> dead end — profileGuestId is the id in the /u/:id URL
+// the page under test was fetched with (every submission on a profile page
+// belongs to that same owner, so it also doubles as the submission's own
+// guest_id here).
+function profileTileCrown(text, submissionId, profileGuestId) {
+  return crownStateFromChunk(
+    text,
+    'href="/feed?from=' +
+      submissionId +
+      '&amp;scope=u' +
+      profileGuestId +
+      '#photo-' +
+      submissionId +
+      '"',
+    '<figure'
+  );
 }
 
 function feedCardCrown(text, submissionId) {
@@ -256,8 +272,8 @@ describe('AC1/AC3/AC4: the crown on every surface reads ONE crowdFavorites() cal
     const profile = await getCounted(agent, '/u/' + owner1.id);
     expect(profile.res.status).toBe(200);
     expect(profile.queryCount).toBe(2);
-    expect(profileTileCrown(profile.res.text, s1)).toBe('gold');
-    expect(profileTileCrown(profile.res.text, s6)).toBeNull();
+    expect(profileTileCrown(profile.res.text, s1, owner1.id)).toBe('gold');
+    expect(profileTileCrown(profile.res.text, s6, owner1.id)).toBeNull();
     expect((profile.res.text.match(/cf-crown-gold/g) || []).length).toBe(1);
   });
 
@@ -332,8 +348,8 @@ describe('#811 AC4: a tie at rank 1 renders zero gold crowns; AC5: a lone champi
     expect(galleryTileCrown(gallery.text, tie2)).toBe('white');
     expect(feedCardCrown(feed.text, tie1)).toBe('white');
     expect(feedCardCrown(feed.text, tie2)).toBe('white');
-    expect(profileTileCrown(profileA.text, tie1)).toBe('white');
-    expect(profileTileCrown(profileB.text, tie2)).toBe('white');
+    expect(profileTileCrown(profileA.text, tie1, ownerA.id)).toBe('white');
+    expect(profileTileCrown(profileB.text, tie2, ownerB.id)).toBe('white');
 
     // Zero gold crowns anywhere on any page while the tie holds.
     expect((gallery.text.match(/cf-crown-gold/g) || []).length).toBe(0);
@@ -363,7 +379,7 @@ describe('#811 AC4: a tie at rank 1 renders zero gold crowns; AC5: a lone champi
     expect(galleryTileCrown(gallery.text, champion)).toBe('gold');
     expect(galleryTileCrown(gallery.text, runnerUp)).toBe('white');
     expect(feedCardCrown(feed.text, champion)).toBe('gold');
-    expect(profileTileCrown(profile.text, champion)).toBe('gold');
+    expect(profileTileCrown(profile.text, champion, championOwner.id)).toBe('gold');
 
     expect((gallery.text.match(/cf-crown-gold/g) || []).length).toBe(1);
     expect((feed.text.match(/cf-crown-gold/g) || []).length).toBe(1);
