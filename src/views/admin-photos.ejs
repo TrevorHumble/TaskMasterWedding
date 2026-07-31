@@ -83,7 +83,7 @@
     <button
       type="button"
       class="gallery-thumb-btn admin-tile-open"
-      aria-label="Open photo by <%= p.guest_name || ('Guest #' + p.guest_id) %> in the feed"
+      aria-label="Open photo by <%= p._guest_label %> in the feed"
       data-open-feed="<%= p.id %>"
     >
       <img
@@ -232,7 +232,16 @@
   <p class="back-link"><a href="?view=<%= view %><%= q ? '&q=' + encodeURIComponent(q) : '' %>" data-feed-back>&larr; Back to photos</a></p>
   <div class="feed">
     <% photos.forEach(function (p) { %>
-      <article id="feed-photo-<%= p.id %>" class="feed-item admin-feed-item<%= p.taken_down ? ' is-down' : '' %>">
+      <%# data-scope-key (issue #953): the inline-feed scope filter below
+          keys on this to constrain the feed to the tile's own person/task
+          section. src/routes/admin.js's scopeKey() is the single owner of
+          the value — 'g<guest_id>' / 't<task_id>' / 'memory' / '' — so this
+          template renders it rather than re-deriving it from separate
+          guest/task ids. data-scope-label (issue #953) is the matching note text
+          for that key, src/routes/admin.js's scopeLabel() — the script reads
+          this off the opened card instead of decoding scopeKey()'s grammar
+          itself. %>
+      <article id="feed-photo-<%= p.id %>" class="feed-item admin-feed-item<%= p.taken_down ? ' is-down' : '' %>" data-scope-key="<%= p._scope_key || '' %>" data-scope-label="<%= p._scope_label || '' %>">
         <%# Card header: uploader name + the contextual ⋯ menu (issue #684).
             Take down / Restore moved OUT of the Give-a-badge dialog and into
             this kebab, mirroring the guest owner-menu (#387,
@@ -241,7 +250,7 @@
             <details>/<summary>: opens with no JS. The confirm is admin.js's
             delegated data-confirm handler. %>
         <div class="feed-by admin-feed-by">
-          <span class="admin-feed-name"><%= p.guest_name || ('Guest #' + p.guest_id) %></span>
+          <span class="admin-feed-name"><%= p._guest_label %></span>
           <details class="photo-owner-menu admin-photo-menu">
             <summary class="photo-owner-menu-trigger" aria-label="Photo options">&#8943;</summary>
             <div class="photo-owner-menu-panel">
@@ -281,7 +290,7 @@
           data-lightbox-group="admin-feed"
           data-lightbox-photo="<%= p.photo_path %>"
           data-lightbox-alt="<%= p.task_title || 'a shared memory' %>"
-          data-lightbox-by="<%= p.guest_name || ('Guest #' + p.guest_id) %><%= p.taken_down ? ' — taken down' : '' %>"
+          data-lightbox-by="<%= p._guest_label %><%= p.taken_down ? ' — taken down' : '' %>"
           data-lightbox-caption="<%= p.task_title || 'Memory' %>"
         >
           <img
@@ -326,16 +335,31 @@
                 <span class="like-count">Favorite</span>
               </button>
             </form>
+
+            <%# Real guest like count (issue #953 — phase 2 of the #259 gallery-
+                parity mock). p.like_count comes straight off the route's
+                photosSelect (a COUNT over the likes table, src/routes/admin.js),
+                so the host judges a photo by the same number guests see. Same
+                inner span shape as the guest feed's own likes-link
+                (src/views/feed.ejs) — byte-identical for a given count. No
+                aria-label: ARIA 1.2 prohibits the attribute on a role-less
+                <span> (role=generic), so it was inert here and is dropped
+                (AC1). No hover/cursor affordance either (.admin-likes-count,
+                theme.css) — this span opens nothing, unlike the guest feed's
+                clickable likers list. %>
+            <span class="likes-link admin-likes-count">
+              <span class="like-count"><%= p.like_count %></span> <span class="likes-link-word">like<%= p.like_count === 1 ? '' : 's' %></span>
+            </span>
           </div>
 
           <span class="points-count"><%= p.photo_bonus %> <%= p.photo_bonus === 1 ? 'point' : 'points' %></span>
         </div>
 
-        <% if (p.task_title) { %>
-          <p class="feed-task-line">for &ldquo;<%= p.task_title %>&rdquo;</p>
-        <% } else { %>
-          <p class="feed-task-line">a shared memory</p>
-        <% } %>
+        <%# p._task_line (issue #953): src/routes/admin.js's taskLine()
+            is the single owner of this text — the same value scopeLabel()
+            uses for the task-axis scope note — rendered here instead of
+            re-derived from p.task_title/p.task_id. %>
+        <p class="feed-task-line"><%= p._task_line %></p>
 
         <%# Comments in context (issue #684): each photo's comments render
             right under it so the host judges them where they live, instead of
@@ -416,10 +440,80 @@
     function showGrid() {
       chrome.forEach(function (el) { el.hidden = false; });
       if (feedPanel) feedPanel.hidden = true;
+      applyFeedScope(null);
     }
+
+    // ------- Person/task feed scoping (issue #953; owner direction
+    // 2026-07-30 for the look, settled here for the shape — see DESIGN.md
+    // "Scoped admin inline feed: a client-side filter, deliberately not a
+    // server query (#953)") -------
+    // A photo opened from a person section is viewed among THAT person's
+    // photos; from a task section, among THAT task's photos — "galleries are
+    // constrained to what is in those galleries," admin side. Filtered
+    // client-side over the one server-rendered feed list ON PURPOSE, not a
+    // phase-1 stand-in for a server query: this page already loads every
+    // submission once (issue #259), on the host's own laptop rather than
+    // venue wifi — the guest-side economics that force /feed's scoping
+    // server-side (issue #194, sibling #952) do not apply here, and a round
+    // trip per section-open would only slow moderation down.
+    //
+    // Each card's data-scope-key comes straight off src/routes/admin.js's
+    // scopeKey() (empty string for an unscoped view) — this script reads it
+    // rather than re-deriving 'which section' from a view axis switch, so
+    // the route stays the single owner of that rule (issue #953). data-scope-label
+    // (scopeLabel(), same issue) is read the same way, below, for the note text.
+    var scopeNote = null;
+    // The template's own lightbox group name, read off the first trigger's
+    // own data-lightbox-group attribute (issue #953) — read before any click can
+    // have overwritten a trigger's attribute to 'scoped-out'. No fallback
+    // literal: a feed with no triggers has no cards for this loop to match
+    // against either, so a missing firstTrigger (null) just leaves this
+    // null too, and unused.
+    var firstTrigger = feedPanel ? feedPanel.querySelector('.js-lightbox') : null;
+    var FEED_LIGHTBOX_GROUP = firstTrigger && firstTrigger.getAttribute('data-lightbox-group');
+
+    function applyFeedScope(scope) {
+      if (!feedPanel) return;
+      var cards = feedPanel.querySelectorAll('.feed-item');
+      var label = null;
+      for (var i = 0; i < cards.length; i++) {
+        var match = !scope || cards[i].getAttribute('data-scope-key') === scope;
+        cards[i].hidden = !match;
+        // Keep lightbox arrow-stepping inside the scoped set too.
+        var trig = cards[i].querySelector('.js-lightbox');
+        if (trig) trig.setAttribute('data-lightbox-group', match ? FEED_LIGHTBOX_GROUP : 'scoped-out');
+        if (match && scope && !label) {
+          // src/routes/admin.js's scopeLabel() already computed this card's
+          // note text (issue #953) — read it straight off the attribute instead
+          // of decoding scopeKey()'s grammar back out of it here.
+          label = cards[i].getAttribute('data-scope-label');
+        }
+      }
+      if (!scopeNote) {
+        scopeNote = document.createElement('p');
+        scopeNote.className = 'muted admin-scope-note';
+        feedPanel.insertBefore(scopeNote, feedPanel.querySelector('.feed'));
+      }
+      if (scope) {
+        scopeNote.hidden = false;
+        scopeNote.textContent = 'Showing only ' + (label || 'this section') + ' — ';
+        var all = document.createElement('a');
+        all.href = '#';
+        all.textContent = 'show all';
+        all.addEventListener('click', function (e) {
+          e.preventDefault();
+          applyFeedScope(null);
+        });
+        scopeNote.appendChild(all);
+      } else {
+        scopeNote.hidden = true;
+      }
+    }
+
     function openFeedAt(id) {
-      showFeed();
       var card = document.getElementById('feed-photo-' + id);
+      applyFeedScope(card && card.getAttribute('data-scope-key'));
+      showFeed();
       if (card) card.scrollIntoView({ block: 'start' });
       else window.scrollTo(0, 0);
     }

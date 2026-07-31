@@ -2373,6 +2373,17 @@ textarea {
 .likes-link:hover {
   text-decoration: underline;
 }
+/* Admin inline feed's like count (issue #953): reuses .likes-link's resting
+   look but opens nothing — no likers dialog behind it, unlike the guest
+   feed's clickable version. This two-declaration override removes the
+   "tap to see who liked this" affordance so the cursor/hover state matches
+   what actually happens on click (nothing). Resting pixels are unchanged. */
+.admin-likes-count {
+  cursor: default;
+}
+.admin-likes-count:hover {
+  text-decoration: none;
+}
 .likes-row {
   display: flex;
   align-items: center;

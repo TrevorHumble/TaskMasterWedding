@@ -3120,3 +3120,39 @@ an unscoped feed (issue #677's degradation contract, untouched); this issue's ow
 filtering/chaining logic (`SCOPE_RE`, `scopeGuestId`, `itemMatchesScope`, `applyScope`, `scopeContext`,
 `insertScopeChrome`, and the `scopeId`/`visBefore`/`visAfter` chaining inside `load()`) is deleted outright
 rather than adapted, since the server now guarantees every fetched window is already scoped.
+
+## Scoped admin inline feed: a client-side filter, deliberately not a server query (#953)
+
+**Date:** 2026-07-30. **Status:** shipped.
+
+**The problem, and why it is NOT sibling #952's problem.** Both issues scope a feed to one guest's or
+task's photos on open. #952 (immediately above) had to move that scoping onto the server, because the
+guest-side `/feed` downloads its window over venue wifi — shipping every unscoped card first, then hiding
+most of them client-side, was the exact cost #194 exists to bound. `/admin/photos`'s inline feed carries
+no such cost: it is one server-rendered page (issue #259's "one view file / one route" design) that already
+loads the full photo set once, on the host's own laptop, not venue wifi. Scoping that already-downloaded
+page client-side — a single `data-scope-key` attribute-match approach, the same shape the phase-1 mock's
+`data-guest-id` / `data-task-id` pair used — costs nothing extra a server round trip wouldn't also cost,
+and a round trip per section-open (grid tap, or the post-moderation `#feed-photo-<id>` reopen) would only
+slow the host down mid-moderation. So this issue keeps `applyFeedScope()` / `openFeedAt()` exactly as the
+owner approved it in phase 1 (`src/views/admin-photos.ejs`'s inline `<script>`), rather than porting #952's
+`FEED_STATEMENTS_BY_SCOPE` pattern over — the two features share a shape (scope-on-open) but not a cost
+profile, so they do not share an implementation. PR review folded the phase-1 pair of attributes into the
+one `data-scope-key`: `src/routes/admin.js`'s `scopeKey(p, view)` is the single computation of "which
+section does this photo belong to," consumed both by the route's own task/user grouping and by the value
+stamped onto each row as `p._scope_key` — the view renders that stamp verbatim, and the inline script reads
+it off the card instead of re-deriving the guest-vs-task axis itself from a `VIEW` switch.
+
+**Real like counts ride the same `photosSelect` the scoping reads — through one shared column, not a third
+hand-typed copy.** `src/routes/admin.js`'s `photosSelect` carries the real per-photo like count, replacing
+the phase-1 mock's deterministic `(p.id * 7) % 9` fake. Phase 2 first shipped this as a third hand-typed
+correlated subquery, alongside two pre-existing hand-typed copies already disagreeing on a single owner:
+`src/services/feed.js` carried its own copy twice over (`GALLERY_COLUMNS` and `slideshowSequence()`),
+and `src/services/scoring.js` carried a separate copy again. PR review flagged
+that a fresh fourth copy compounded rather than fixed the drift risk. `feed.js` now exports
+`LIKE_COUNT_COLUMN` — the one `(SELECT COUNT(*) FROM likes l WHERE l.submission_id = s.id) AS like_count`
+fragment (indexed by `idx_likes_submission`, `src/db.js`), used inside both of `feed.js`'s own internal
+call sites (`GALLERY_COLUMNS` and `slideshowSequence()`) and imported by `admin.js`'s `photosSelect` — so
+those sites can no longer drift apart. `scoring.js`'s copy is deliberately left alone: it is pre-existing,
+out of #953's scope, and the one remaining known duplicate for a future issue to fold in, not a defect
+this one introduces.
