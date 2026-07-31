@@ -9,7 +9,9 @@
 //       this file).
 // AC2 — release writes 5/4/3/2/1 by rank in one transaction; getPoints and
 //       leaderboard() both reflect it. Covers the 1-winner and 3-winner cases.
-// AC3 — zero winners writes nothing.
+// AC3 — over-cap/duplicate/wrong-task/taken-down/unknown ids are refused;
+//       zero winners (issue #892) is instead a DELIBERATE clear-all, covered
+//       under its own describe block below, not here.
 // AC4 — takedown/restore of a winning photo is free (scoring.js's existing
 //       visibility rule) — asserted here against a REAL ranked award, not
 //       re-implemented.
@@ -153,17 +155,6 @@ describe('AC2: release pays 5/4/3/2/1 by rank and both getPoints/leaderboard ref
 // visible" check.
 // ---------------------------------------------------------------------------
 describe('AC3: refused releases write nothing', () => {
-  it('an empty winners array is refused (no row, no badge marked awarded)', () => {
-    const taskId = makeTask('AC3 Empty Task');
-    expect(taskBadges.releaseRanking(taskId, [])).toBeNull();
-    expect(taskBadges.isTaskBadgeAwarded(taskId)).toBe(false);
-    // Every input-validation branch returns before resolveTaskBadge() ever
-    // runs, so a refused release leaves no badges row for this task at all
-    // (not just no guest_badges row) — checked via the non-lazy
-    // getTaskBadge, which — unlike resolveTaskBadge — never inserts one.
-    expect(taskBadges.getTaskBadge(taskId)).toBeUndefined();
-  });
-
   it('more than MAX_RANKED_WINNERS entries is refused', () => {
     const taskId = makeTask('AC3 Overflow Task');
     const subs = [];
@@ -210,6 +201,88 @@ describe('AC3: refused releases write nothing', () => {
     expect(res.status).toBe(303);
     expect(decodeURIComponent(res.headers.location)).toMatch(/Could not release/);
     expect(taskBadges.isTaskBadgeAwarded(taskId)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #892 AC5/AC6: an empty ranking is a DELIBERATE clear, not a refusal —
+// amending #661's original "zero winners is refused" floor. The route tells
+// an ABSENT `winners` field (still refused, covered above) apart from a
+// PRESENT, trimmed-empty one (a clear); a non-empty value that fails to
+// parse cleanly (AC6's new parsed-short guard) is refused whole, never
+// partially applied.
+// ---------------------------------------------------------------------------
+describe('Issue #892 AC5/AC6: empty release clears the whole ranked set; a short parse is refused', () => {
+  it('service: releaseRanking([]) clears every prior winner, marks the badge awarded, writes zero rows', () => {
+    const taskId = makeTask('892 Empty Clear Task');
+    const guestId = makeGuest('892 Empty Clear Guest');
+    const sub = makeSubmission(guestId, taskId);
+
+    const first = taskBadges.releaseRanking(taskId, [sub]);
+    expect(first.winners).toBe(1);
+
+    const cleared = taskBadges.releaseRanking(taskId, []);
+    expect(cleared).toEqual({ badge: first.badge, winners: 0 });
+    expect(taskBadges.isTaskBadgeAwarded(taskId)).toBe(true); // still released -> Results view
+    expect(taskBadges.currentRanking(taskId)).toEqual([]);
+    expect(
+      db.prepare('SELECT COUNT(*) AS n FROM guest_badges WHERE badge_id = ?').get(first.badge.id).n
+    ).toBe(0);
+    expect(scoring.getPoints(guestId)).toBe(1); // award gone, base completion point remains
+  });
+
+  it('route: winners="" (present, trimmed-empty) clears the set, marks awarded, and flashes "No winners released."', async () => {
+    const taskId = makeTask('892 Route Clear Task');
+    const guestId = makeGuest('892 Route Clear Guest');
+    const sub = makeSubmission(guestId, taskId);
+
+    const releaseRes = await adminAgent
+      .post('/admin/tasks/' + taskId + '/rank')
+      .type('form')
+      .send({ winners: String(sub) });
+    expect(releaseRes.status).toBe(303);
+
+    const clearRes = await adminAgent
+      .post('/admin/tasks/' + taskId + '/rank')
+      .type('form')
+      .send({ winners: '' });
+    expect(clearRes.status).toBe(303);
+    expect(decodeURIComponent(clearRes.headers.location)).toMatch(/No winners released\./);
+    expect(taskBadges.isTaskBadgeAwarded(taskId)).toBe(true);
+    expect(taskBadges.currentRanking(taskId)).toEqual([]);
+  });
+
+  it('route: winners="<validId>,x" against a two-winner release refuses (Could not release) with both rows intact', async () => {
+    const taskId = makeTask('892 Parsed Short Task');
+    const guestA = makeGuest('892 Parsed Short Guest A');
+    const guestB = makeGuest('892 Parsed Short Guest B');
+    const subA = makeSubmission(guestA, taskId);
+    const subB = makeSubmission(guestB, taskId);
+
+    const releaseRes = await adminAgent
+      .post('/admin/tasks/' + taskId + '/rank')
+      .type('form')
+      .send({ winners: subA + ',' + subB });
+    expect(releaseRes.status).toBe(303);
+    expect(decodeURIComponent(releaseRes.headers.location)).toMatch(/2 winners\./);
+
+    const tamperedRes = await adminAgent
+      .post('/admin/tasks/' + taskId + '/rank')
+      .type('form')
+      .send({ winners: subA + ',x' });
+    expect(tamperedRes.status).toBe(303);
+    expect(decodeURIComponent(tamperedRes.headers.location)).toMatch(/Could not release/);
+
+    // Both prior rows survive untouched — the short parse never reached
+    // releaseRanking at all.
+    const badge = taskBadges.getTaskBadge(taskId);
+    const rows = db
+      .prepare('SELECT guest_id, rank FROM guest_badges WHERE badge_id = ? ORDER BY rank')
+      .all(badge.id);
+    expect(rows).toEqual([
+      { guest_id: guestA, rank: 1 },
+      { guest_id: guestB, rank: 2 },
+    ]);
   });
 });
 

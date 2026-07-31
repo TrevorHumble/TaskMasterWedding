@@ -382,6 +382,78 @@ describe('issue #811: victoryRankBySubmission()', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #892: releaseRanking accepts an EMPTY ordered list as a deliberate
+// clear-all (amending #661's original 1-5-only floor) — "everyone posted
+// junk" must never force the host to reward someone. The route-level
+// coverage for the absent-vs-empty distinction and the parsed-short guard
+// lives in tests/task-badge-rank-release.test.js; this covers the SERVICE
+// write path itself: rows gone, no new events, idempotent re-clear, and the
+// awarded marker staying set so the page reopens on the Results view.
+// ---------------------------------------------------------------------------
+describe('Issue #892: releaseRanking([]) is a deliberate clear-all, not a refusal', () => {
+  function eventCount(guestId, badgeId) {
+    return db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM notification_events
+          WHERE guest_id = ? AND badge_id = ? AND kind = 'badge_granted'`
+      )
+      .get(guestId, badgeId).n;
+  }
+
+  it('clearing a 2-winner ranking deletes both rows, marks the badge awarded, and fires no new events', () => {
+    const taskId = makeTask('892 Clear Task');
+    const guestA = makeGuest('892 Clear Guest A');
+    const guestB = makeGuest('892 Clear Guest B');
+    const subA = makeSubmission(guestA, taskId);
+    const subB = makeSubmission(guestB, taskId);
+
+    const first = taskBadges.releaseRanking(taskId, [subA, subB]);
+    expect(first.winners).toBe(2);
+    expect(eventCount(guestA, first.badge.id)).toBe(1);
+    expect(eventCount(guestB, first.badge.id)).toBe(1);
+
+    const cleared = taskBadges.releaseRanking(taskId, []);
+    expect(cleared).toEqual({ badge: first.badge, winners: 0 });
+    expect(
+      db.prepare('SELECT COUNT(*) AS n FROM guest_badges WHERE badge_id = ?').get(first.badge.id).n
+    ).toBe(0);
+    expect(taskBadges.isTaskBadgeAwarded(taskId)).toBe(true); // stays released -> Results view
+
+    // The clear itself is not a grant — no new badge_granted event for
+    // either departing winner.
+    expect(eventCount(guestA, first.badge.id)).toBe(1);
+    expect(eventCount(guestB, first.badge.id)).toBe(1);
+  });
+
+  it('re-clearing an already-empty ranking is idempotent', () => {
+    const taskId = makeTask('892 Idempotent Clear Task');
+    const guestId = makeGuest('892 Idempotent Clear Guest');
+    const sub = makeSubmission(guestId, taskId);
+
+    taskBadges.releaseRanking(taskId, [sub]);
+    const first = taskBadges.releaseRanking(taskId, []);
+    expect(first.winners).toBe(0);
+
+    const second = taskBadges.releaseRanking(taskId, []);
+    expect(second.winners).toBe(0);
+    expect(taskBadges.isTaskBadgeAwarded(taskId)).toBe(true);
+    expect(
+      db.prepare('SELECT COUNT(*) AS n FROM guest_badges WHERE badge_id = ?').get(first.badge.id).n
+    ).toBe(0);
+  });
+
+  it('clearing a task never released before still marks it awarded (its badge row is lazily created)', () => {
+    const taskId = makeTask('892 Clear Never Released Task');
+    expect(taskBadges.isTaskBadgeAwarded(taskId)).toBe(false);
+
+    const result = taskBadges.releaseRanking(taskId, []);
+    expect(result.winners).toBe(0);
+    expect(taskBadges.isTaskBadgeAwarded(taskId)).toBe(true);
+    expect(taskBadges.currentRanking(taskId)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC9: migration is guarded — booting twice does not throw "duplicate
 // column", same idempotency contract as db.js's other guarded migrations
 // (see tests/per-photo-points.test.js AC1).
