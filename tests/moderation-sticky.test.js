@@ -13,7 +13,7 @@
 //         see that test's own comment below for the updated shape).
 //   AC4 — a normal (never-taken-down) replace stays visible: status quo.
 //   AC5 — GET /leaderboard's total excludes the still-hidden submission.
-//   Plus: restoreSubmission clears the resubmitted flag (src/services/photos.js).
+//   Plus: restoreSubmission clears the resubmitted flag (src/services/photos/moderation.js).
 //
 // REQUIRE ORDER: config / db / services are required only AFTER loadApp() sets
 // DATA_DIR / DB_PATH, matching tests/submission-intake.test.js and
@@ -247,8 +247,8 @@ it('AC5: GET /leaderboard excludes a taken-down-then-resubmitted submission from
 });
 
 // ---------------------------------------------------------------------------
-// Restore clears the resubmitted flag (src/services/photos.js), in the same
-// transaction as the taken_down flip back to 0.
+// Restore clears the resubmitted flag (src/services/photos/moderation.js), in
+// the same transaction as the taken_down flip back to 0.
 // ---------------------------------------------------------------------------
 it('restoreSubmission clears resubmitted back to 0 when un-hiding a resubmitted row', async () => {
   const guest = await signedInGuest('sticky-restore-' + crypto.randomUUID(), 'Restore Guest');

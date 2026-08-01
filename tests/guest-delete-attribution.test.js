@@ -611,11 +611,14 @@ describe('AC7: an existing (pre-#886) database migrates taken_down_by correctly 
     const checkValues = [...checkMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
 
     const photosSrc = stripComments(
-      fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'photos.js'), 'utf8')
+      fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'services', 'photos', 'moderation.js'),
+        'utf8'
+      )
     );
     const validSetMatch = photosSrc.match(/VALID_TAKEN_DOWN_BY\s*=\s*new Set\(\[([^\]]+)\]\)/);
     if (!validSetMatch) {
-      throw new Error('Could not locate VALID_TAKEN_DOWN_BY in src/services/photos.js');
+      throw new Error('Could not locate VALID_TAKEN_DOWN_BY in src/services/photos/moderation.js');
     }
     const validSetValues = [...validSetMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
 

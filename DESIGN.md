@@ -143,7 +143,7 @@ Uploads come in through multer; sharp produces a normalized full-size original p
 
 ### Avatar processing: a dedicated small avatar gate, not a share of the upload semaphore (#929)
 
-`src/utils/upload-concurrency.js`'s `withUploadSlot`/`uploadSemaphore` (issue #311, `MAX_CONCURRENT_UPLOADS = 6`) bounds task-submit and memory-batch concurrency, but avatar processing — `src/services/photos.js`'s `saveAvatar`, called from both `POST /join` and `POST /me/edit` — had no bound at all. A poster-rush burst of joins, each running sharp's `.rotate()` + `attention` crop (a full-raster materialization measured at ~325 MB per upload in practice, issue #856), could OOM the ~2 GB host and crash the process for every in-flight guest.
+`src/utils/upload-concurrency.js`'s `withUploadSlot`/`uploadSemaphore` (issue #311, `MAX_CONCURRENT_UPLOADS = 6`) bounds task-submit and memory-batch concurrency, but avatar processing — `src/services/photos/processing.js`'s `saveAvatar`, called from both `POST /join` and `POST /me/edit` — had no bound at all. A poster-rush burst of joins, each running sharp's `.rotate()` + `attention` crop (a full-raster materialization measured at ~325 MB per upload in practice, issue #856), could OOM the ~2 GB host and crash the process for every in-flight guest.
 
 **Why not share `uploadSemaphore`:**
 
@@ -160,7 +160,7 @@ The HEIC conversion inside `saveAvatar` stays deliberately _outside_ `withAvatar
 
 An iPhone (and a recent Samsung) hands over HEIC/HEIF photos by default. The prebuilt `sharp`/libvips binaries this app runs on cannot decode real HEVC-encoded HEIC — their bundled libheif has only an AV1 decoder (`sharp.format.heif.input.fileSuffix === ['.avif']`), and HEVC is excluded from the prebuilt binary for patent-licensing reasons. Issue #188 made the honest call at the time: reject HEIC at intake with actionable copy ("take a screenshot, or switch to Most Compatible") rather than store an original that could never be thumbnailed.
 
-**What we do now:** `src/services/photos.js` detects HEIC by sniffing the ISO-BMFF `ftyp` box's major brand (`heic`/`heix`/`heif`/`mif1`/`msf1`) from a file's leading bytes — not by declared mimetype, since the iOS/Android "Files" picker (and some third-party browsers) hand over a real HEIC under the generic `application/octet-stream` mimetype. A detected HEIC is decoded with `heic-convert` (a pure-JavaScript HEVC decoder — no native build tools, no external/paid service) and re-encoded to JPEG before the stored original, the thumbnail, the gallery, or the export ZIP ever see it. It is in-license and in-process: `heic-convert` is ISC-licensed and pulls in `libheif-js` (LGPL-3.0, dynamically linked as a normal npm dependency) and `jpeg-js` (BSD-3-Clause) — all permissive/LGPL, all running in-process, with no external or paid API. HEIC is invisible to the rest of the system: `ORIGINAL_RE`/`THUMB_RE` (the static-mount allowlist patterns) still match only `.jpg`/`.png`/`.webp`, because nothing else is ever written under those directories.
+**What we do now:** `src/services/photos/heic.js` detects HEIC by sniffing the ISO-BMFF `ftyp` box's major brand (`heic`/`heix`/`heif`/`mif1`/`msf1`) from a file's leading bytes — not by declared mimetype, since the iOS/Android "Files" picker (and some third-party browsers) hand over a real HEIC under the generic `application/octet-stream` mimetype. A detected HEIC is decoded with `heic-convert` (a pure-JavaScript HEVC decoder — no native build tools, no external/paid service) and re-encoded to JPEG before the stored original, the thumbnail, the gallery, or the export ZIP ever see it. It is in-license and in-process: `heic-convert` is ISC-licensed and pulls in `libheif-js` (LGPL-3.0, dynamically linked as a normal npm dependency) and `jpeg-js` (BSD-3-Clause) — all permissive/LGPL, all running in-process, with no external or paid API. HEIC is invisible to the rest of the system: `ORIGINAL_RE`/`THUMB_RE` (the static-mount allowlist patterns) still match only `.jpg`/`.png`/`.webp`, because nothing else is ever written under those directories.
 
 **Why `heic-convert` over rebuilding libvips:** the alternative — building or sourcing a libvips binary with an HEVC-capable libheif — means either compiling native code for the Windows host (no build tools on the event laptop, and the exact kind of native-binary fragility `DESIGN.md`'s "sharp 0.35.2 SAC block" entry above already burned a build on) or sourcing a third-party prebuilt binary of uncertain provenance days before the wedding. `heic-convert` is pure JS: `npm install` and it works, with no new binary surface for Smart App Control or any other Windows gatekeeper to block.
 
@@ -184,7 +184,7 @@ A **per-guest HEIC-decode rate limit** (`HEIC_DECODE_RATE_MAX` per `HEIC_DECODE_
 
 This completes the decode-DoS defenses: the two-stage pixel cap (per-decode allocation), the 20s timeout (per-decode time), the per-guest rate limit (per-guest enqueue rate), the global pending cap with its wait bound (total held memory and bounded queueing), one-at-a-time serialization, and worker isolation.
 
-**Memory constraint — one decode at a time:** a single HEIC decodes a full RGBA frame into memory and can transiently want a few hundred MB. Decodes are serialized behind `heicDecodeSemaphore` (`src/services/photos.js`, #930 — see above) so at most one decode worker runs at once, regardless of how many guests upload HEIC photos in the same moment. This matters because the app is sized for a small (~2 GB) host per the "Constraints that shaped the design" section above, and a move off the single event laptop to a small VPS is under consideration — a future host-sizing decision should account for this one-decode-at-a-time ceiling rather than assuming photo intake is memory-cheap.
+**Memory constraint — one decode at a time:** a single HEIC decodes a full RGBA frame into memory and can transiently want a few hundred MB. Decodes are serialized behind `heicDecodeSemaphore` (`src/services/photos/heic.js`, #930 — see above) so at most one decode worker runs at once, regardless of how many guests upload HEIC photos in the same moment. This matters because the app is sized for a small (~2 GB) host per the "Constraints that shaped the design" section above, and a move off the single event laptop to a small VPS is under consideration — a future host-sizing decision should account for this one-decode-at-a-time ceiling rather than assuming photo intake is memory-cheap.
 
 **Pixel-dimension cap — defense against a HEIC pixel bomb:** serializing decodes bounds _how many_ run at once, but not _how big_ each one is. `heic-decode` allocates a full raw RGBA frame (`new Uint8ClampedArray(width*height*4)`) sized from libheif's decoded-image `get_width()`/`get_height()`, and it does so _before_ `sharp` — and `sharp`'s default input-pixel guard — ever runs, so the HEIC path bypasses the protection the JPEG/PNG/WebP path gets for free. A crafted few-MB HEIC (a uniform image compresses to almost nothing under HEVC, well within the 15 MB upload cap) could carry huge dimensions and force a ~1 GB allocation that OOMs the ~2 GB host. Anything over `MAX_HEIC_PIXELS` (100 megapixels) is refused. 100 MP sits above any default-camera phone HEIC (a 48 MP iPhone ProRAW frame, a 50 MP flagship) with headroom while a 100 MP RGBA decode is ~400 MB — the largest single transient the one-at-a-time gate permits — and is deliberately tighter than `sharp`'s ~268 MP default AND than libheif's own ~1-gigapixel default limit, neither of which this host can safely absorb.
 
@@ -1028,7 +1028,7 @@ flagless default (both) — and the two halves are backed up differently:
   snapshot folder under `BACKUP_DIR`, and stays cheap enough to run often. `BACKUP_RETENTION_COUNT`
   prunes these timestamped snapshots exactly as it did before this issue (issue #287) — that logic is
   unchanged.
-- **Photos** are write-once (`src/services/photos.js:203-236` never rewrites an existing stored file
+- **Photos** are write-once (`src/services/photos/constants.js` and `src/services/photos/naming.js` — formerly `src/services/photos.js:203-236` — never rewrite an existing stored file
   under its own name). `--photos-only` (and the default run) copies a file into a single shared,
   append-only store at `BACKUP_DIR/photos/{uploads,thumbs}` only if a file of that name is not already
   there — never a fresh per-run copy of the whole photo set. Because the filename alone already
@@ -2896,7 +2896,7 @@ submission id that fails its visibility/ownership check.
 so every response carried the framework default `Cache-Control: public, max-age=0` — a guest's phone
 re-validates every already-seen photo on every gallery scroll. Each revalidation first passes through the
 synchronous better-sqlite3 takedown query in `blockTakenDownOriginal`/`blockTakenDownThumb`
-(`src/services/photos.js`) before a 304 can even be answered, on the same main JS thread the upload
+(`src/services/photos/moderation.js`) before a 304 can even be answered, on the same main JS thread the upload
 pipeline's 6-slot semaphore is trying to protect. A hundred guests scrolling one gallery multiplies into
 thousands of blocking round-trips competing with in-flight uploads.
 
@@ -2904,7 +2904,7 @@ thousands of blocking round-trips competing with in-flight uploads.
 under both `/uploads` and `/thumbs`, and the bytes under a given name never change once written: takedown
 hides or deletes a row, it never rewrites the file in place, and a re-save always mints a fresh random
 name. `/uploads` has a second tenant beyond submission originals — guest **avatars** — and the same
-invariant holds for them: `saveAvatar` (`src/services/photos.js`) writes a new random filename per save
+invariant holds for them: `saveAvatar` (`src/services/photos/processing.js`) writes a new random filename per save
 and updates `guests.avatar_path` to point at it; it never overwrites bytes under an old avatar's name.
 Both tenants of `/uploads`, and everything under `/thumbs`, are therefore safe to mark `immutable` —
 a client that has fetched a name once never needs to ask again for that same name.
@@ -3389,6 +3389,31 @@ prose pointers ("src/routes/admin.js's guest-delete route", etc.) were left as o
 degradations rather than rewritten file-by-file — the mount file's own area-map comment is the recorded
 answer for a reader who follows one of those pointers and finds no handler bodies there — and the
 omission is parked as a single line on #588 per the freeze's own finding-disposition rule.
+
+**A fifth module joins the pattern: `src/services/photos.js` (#979).** photos.js (1,786 lines) was the
+last #969-class oversized module — six concerns (pipeline constants, multer intake, HEIC detection/
+pixel-cap/worker-decode/convert, thumbnail + avatar processing, path/URL builders, and takedown/restore/
+hardDelete moderation) in one file. It splits the same way: a thin entry (`src/services/photos.js`,
+unchanged require path and public API) plus seven internals under `src/services/photos/` —
+`constants.js`, `naming.js`, `heic.js`, `intake.js`, `processing.js`, `paths.js`, `moderation.js`.
+
+Two decisions this split needed that the original four did not:
+
+- **The worker-path resolution.** `heic.js`'s `HEIC_WORKER_PATH` used to resolve
+  `path.join(__dirname, 'heic-worker.js')` — a same-directory sibling, since both files lived directly
+  under `src/services/`. `src/services/heic-worker.js` did NOT move (worker_threads workers are simplest
+  left as a stable, unmoved target), but `heic.js` now lives one directory deeper at
+  `src/services/photos/heic.js`, so the resolution became `path.join(__dirname, '..', 'heic-worker.js')`
+  — the same pattern `HEIC_WORKER_PATH`'s own test-seam override already exercised, just with the
+  production default's base directory shifted by one level. A wrong path here fails only at runtime on a
+  real HEIC decode, not at require time, so the split's verification ran the real-decode suite
+  (`tests/heic-conversion.test.js`) standalone rather than trusting a green full-suite run alone to prove it.
+- **`heicDecodeSemaphore`'s single owner.** Tests observe the live singleton directly (the same
+  "import the live instance" pattern `src/utils/upload-concurrency.js`'s `uploadSemaphore` already
+  established), so it must be constructed in exactly one place and re-exported by reference everywhere
+  else touches it. It is now created once in `heic.js` and re-exported unchanged by the entry —
+  `photos.heicDecodeSemaphore === require('./photos/heic').heicDecodeSemaphore` is `true`, proving no
+  second `new Semaphore(1)` was ever introduced along the way.
 
 ## Lint is a ratchet (#973)
 

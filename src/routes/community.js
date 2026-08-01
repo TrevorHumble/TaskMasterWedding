@@ -980,7 +980,7 @@ router.post('/p/:submissionId/caption', requireGuest, (req, res) => {
 // photo regardless of its current visibility). "Delete" here means take
 // down, not destroy: photos.hideSubmission is this codebase's single writer
 // of taken_down for moderation (flips the flag AND recomputes the owning
-// guest's auto-badges in one transaction — see src/services/photos.js), the
+// guest's auto-badges in one transaction — see src/services/photos/moderation.js), the
 // same seam the admin takedown path uses. The file stays on disk for the
 // couple's export and a host can still restore it (Goal D, Goal C) — a
 // guest cannot unilaterally erase the couple's record, only hide their own

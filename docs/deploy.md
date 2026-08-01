@@ -181,7 +181,8 @@ server {
         proxy_set_header Host $host;
 
         # 150 MB worst case (10 files/batch x 15 MB app ceiling —
-        # src/services/photos.js MEMORY_BATCH_MAX_FILES x MAX_UPLOAD_BYTES),
+        # src/services/photos/intake.js's MEMORY_BATCH_MAX_FILES x
+        # src/services/photos/constants.js's MAX_UPLOAD_BYTES),
         # rounded up to the next 10 MB to cover multipart boundary/field
         # overhead (well under 1 MB) — the headroom is rounding, not
         # precision. nginx's compiled-in default is 1m — unset, a normal

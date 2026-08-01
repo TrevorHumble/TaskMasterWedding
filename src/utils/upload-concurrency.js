@@ -34,7 +34,7 @@
 //   1. Raster arithmetic. Sharing uploadSemaphore's MAX_CONCURRENT_UPLOADS
 //      limit would reproduce the exact OOM this gate exists to prevent --
 //      admitting avatars at that limit is not a bound, it's the crash.
-//   2. Head-of-line inversion. src/services/photos.js's saveAvatar runs the
+//   2. Head-of-line inversion. src/services/photos/processing.js's saveAvatar runs the
 //      (process-wide-serialized) HEIC decode BEFORE the sharp crop this gate
 //      wraps. An avatar holding a SHARED slot while parked on that decode
 //      would stall task-submit/memory-batch waiters behind it -- a guest's
@@ -93,7 +93,7 @@ const avatarSemaphore = new Semaphore(config.AVATAR_CONCURRENCY);
 /**
  * Run `fn` inside a semaphore-backed bounded slot -- the ONE owner of the
  * "reject fast on depth, else wait-with-timeout, then run and release" shape
- * both withAvatarSlot below and src/services/photos.js's HEIC decode gate
+ * both withAvatarSlot below and src/services/photos/heic.js's HEIC decode gate
  * need (issue #930 round-2 review: those two gates had independently
  * hand-rolled the identical shape and drifted apart -- this is the single
  * place that shape now lives).
@@ -242,7 +242,7 @@ module.exports = {
   AVATAR_GATE_CODES,
 
   // The shared bounded-slot primitive (issue #930 round-2 review) --
-  // exported so src/services/photos.js's HEIC decode gate can be a thin
+  // exported so src/services/photos/heic.js's HEIC decode gate can be a thin
   // caller too, same as withAvatarSlot above.
   withBoundedSlot,
 };

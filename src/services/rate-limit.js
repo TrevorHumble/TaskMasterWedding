@@ -103,7 +103,7 @@ const heicDecodesByGuest = new Map();
 
 /**
  * Record a HEIC-decode attempt for a guest and decide whether it is allowed.
- * Called by src/services/photos.js right before a HEIC decode, per HEIC file.
+ * Called by src/services/photos/heic.js right before a HEIC decode, per HEIC file.
  *
  * @param {number} guestId
  * @param {object} [opts]

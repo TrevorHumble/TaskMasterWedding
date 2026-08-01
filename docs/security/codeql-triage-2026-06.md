@@ -11,7 +11,8 @@ Each verdict is grounded in the actual data flow; see the referenced files.
 
 **Verdict: false positive**
 
-**Alerts:** 5 — `src/services/photos.js:350` and the avatar handler in
+**Alerts:** 5 — `src/services/photos.js:350` (the `deleteOriginalFile` sink named below
+now lives in `src/services/photos/paths.js` post-#979 split) and the avatar handler in
 `src/routes/guest.js`.
 
 **Data flow.**
@@ -23,7 +24,8 @@ The question is whether a client can control what gets written into those
 columns. It cannot.
 
 Every upload — task photos and profile avatars — goes through multer. The
-disk-storage `filename` callback in `src/services/photos.js` (lines 123–127)
+disk-storage `filename` callback in `src/services/photos.js` (lines 123–127;
+now `src/services/photos/intake.js` post-#979 split)
 ignores `file.originalname` entirely:
 
 ```js
@@ -33,7 +35,14 @@ filename: function (req, file, cb) {
 },
 ```
 
-`randomFilename` (lines 107–111) returns
+(Pin note: live code's fallback extension is now `|| '.heic'`, not `|| '.jpg'` — the
+provisional name a HEIC candidate is written under before `resolveUploadedFile`
+resolves it, per issue #281/#979. The quote above is left as originally pinned; the
+data-flow argument it illustrates — `ext` always comes from the server-side
+allowlist/fallback, never from `file.originalname` — is unaffected by which literal
+the fallback is.)
+
+`randomFilename` (lines 107–111; now `src/services/photos/naming.js` post-#979 split) returns
 `crypto.randomBytes(8).toString('hex') + '-' + Date.now() + ext`, where `ext`
 is taken from the server-side MIME allowlist, not from the client's filename.
 A sample output: `a3f7b2c1d0e5f819-1751324000000.jpg`.
@@ -48,7 +57,8 @@ No client-controlled `../` segment can reach any `path.join` or `fs.*` call.
 
 **Named sinks.**
 
-- `src/services/photos.js:350` — `fs.unlinkSync(absOriginalPath(photoPath))` in
+- `src/services/photos.js:350` (now `src/services/photos/paths.js` post-#979 split) —
+  `fs.unlinkSync(absOriginalPath(photoPath))` in
   `deleteOriginalFile`. `photoPath` comes from `req.file.filename` or a DB read
   of a row that was written from `req.file.filename`.
 - `src/routes/guest.js` avatar handler (`POST /me/edit`, sinks at lines 427–440)

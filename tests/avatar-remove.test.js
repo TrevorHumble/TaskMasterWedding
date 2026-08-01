@@ -23,7 +23,7 @@ const path = require('path');
 const sharp = require('sharp');
 const { loadApp, signInGuest } = require('./helpers/testApp');
 
-// Realistic stored filename shape (matches photos.js's ORIGINAL_RE allowlist:
+// Realistic stored filename shape (matches src/services/photos/naming.js's ORIGINAL_RE allowlist:
 // ^[0-9a-f]{16}-\d+\.(jpg|png|webp)$), same pattern as
 // tests/guest-delete-avatar.test.js.
 const AVATAR_A = 'a1b2c3d4e5f60708-1719500000001.jpg';

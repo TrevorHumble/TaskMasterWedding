@@ -19,8 +19,8 @@
 //
 // Filename convention: identical contract to demo-fixture.js (see its header
 // comment) — submissions.photo_path / thumb_path (and guests.avatar_path)
-// must match src/services/photos.js's module-private storage-filename
-// allowlist:
+// must match src/services/photos/naming.js's exported
+// storage-filename allowlist:
 //   ORIGINAL_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)$/i
 //   THUMB_RE    = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)\.jpg$/i
 // The MANIFEST below uses fixed (seed-derived, not random) 16-hex-char +

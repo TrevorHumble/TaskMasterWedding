@@ -11,8 +11,9 @@
 // MANIFEST below for the exact filenames the two sides agree on).
 //
 // Filename convention: submissions.photo_path / thumb_path (and
-// guests.avatar_path) must match the storage-filename allowlist enforced by
-// src/services/photos.js's static-serve guards:
+// guests.avatar_path) must match the storage-filename allowlist declared in
+// src/services/photos/naming.js and enforced by moderation.js's static-serve
+// guards:
 //   ORIGINAL_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)$/i
 //   THUMB_RE    = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)\.jpg$/i
 // Any other name 404s when the gallery tries to load it. The MANIFEST below
@@ -95,13 +96,14 @@ function buildManifest() {
 
 const MANIFEST = buildManifest();
 
-// The stored thumbnail name is dictated by src/services/photos.js: its PUBLIC
-// storage-serve allowlist THUMB_RE requires thumb = original + '.jpg', and
-// makeThumb() derives its return value the same way. This is the single place
-// that rule lives on the fixture side — scripts/seed-demo.js asserts at
-// install time (via photos.makeThumb's actual return value) that this still
-// agrees with photos.js, so a future change to makeThumb's naming is caught
-// there, not silently.
+// The stored thumbnail name is dictated by src/services/photos/naming.js's
+// storage-serve allowlist THUMB_RE, which requires thumb = original +
+// '.jpg', and by src/services/photos/processing.js's makeThumb(), which
+// derives its return value the same way. This is the single place that rule
+// lives on the fixture side — scripts/seed-demo.js asserts at install time
+// (via photos.makeThumb's actual return value) that this still agrees with
+// the real code, so a future change to makeThumb's naming is caught there,
+// not silently.
 function thumbNameFor(originalName) {
   return `${originalName}.jpg`;
 }

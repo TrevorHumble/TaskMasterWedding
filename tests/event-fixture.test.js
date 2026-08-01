@@ -15,8 +15,9 @@
 //   AC6  — safety guard: refuses to clobber non-fixture data, exits non-zero,
 //          deletes no rows, message contains "refusing to clobber".
 //   AC7  — filename conformance: every photo_path/thumb_path matches
-//          photos.js's module-private ORIGINAL_RE/THUMB_RE (re-declared here
-//          since photos.js does not export them — see src/services/photos.js).
+//          photos/moderation.js's module-private ORIGINAL_RE/THUMB_RE
+//          (re-declared here since it does not export them — see
+//          src/services/photos/moderation.js).
 //   AC8  — task headroom: >= 15 event-prefixed tasks exist (actually >= 18).
 //   AC9  — badge correctness: BLOOM/BOUQUET/GARDEN held iff >= 5/10/15.
 //
@@ -31,9 +32,9 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
 
-// Re-declared exactly as src/services/photos.js defines them (they are
-// module-private, not exported) and exactly as tests/helpers/demo-fixture.js
-// documents in its header comment.
+// Re-declared exactly as src/services/photos/moderation.js defines them (they
+// are module-private, not exported) and exactly as
+// tests/helpers/demo-fixture.js documents in its header comment.
 const ORIGINAL_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)$/i;
 const THUMB_RE = /^[0-9a-f]{16}-\d+\.(jpg|png|webp)\.jpg$/i;
 

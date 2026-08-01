@@ -14,7 +14,7 @@ const path = require('path');
 const request = require('supertest');
 const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 
-// Realistic stored filename shape (matches photos.js's ORIGINAL_RE allowlist:
+// Realistic stored filename shape (matches src/services/photos/naming.js's ORIGINAL_RE allowlist:
 // ^[0-9a-f]{16}-\d+\.(jpg|png|webp)$) so the /uploads static-mount guard
 // treats it like a real avatar rather than rejecting it on shape alone.
 const AVATAR_NAME = 'd4e5f6071819202a-1719500000010.jpg';

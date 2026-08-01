@@ -18,7 +18,7 @@
 // its size/type stays the route's job, same as before this module existed.
 //
 // better-sqlite3 is fully synchronous: prepare(...).get/.all/.run, no async.
-// makeThumb (src/services/photos.js) is the one async step in the sequence.
+// makeThumb (src/services/photos/processing.js) is the one async step in the sequence.
 
 'use strict';
 
@@ -96,7 +96,7 @@ const stmtReplaceSubmission = db.prepare(
 
 // Flip resubmitted on only when the replace landed on an already-taken-down
 // row (issue #190 AC1/AC3). Never flips it off here — restoreSubmission
-// (src/services/photos.js) is the single place that clears it, in the same
+// (src/services/photos/moderation.js) is the single place that clears it, in the same
 // transaction as the taken_down flag flip back to 0.
 const stmtMarkResubmitted = db.prepare(`UPDATE submissions SET resubmitted = 1 WHERE id = ?`);
 
@@ -114,7 +114,7 @@ const stmtBankBonus = db.prepare(
 
 // Takedown attribution (issue #886): this file never inspects taken_down_by
 // itself — photos.isStickyTakedown / photos.hiddenByOwningGuest own the
-// convention (see their doc comments in src/services/photos.js).
+// convention (see their doc comments in src/services/photos/moderation.js).
 
 // Replace + (conditional) bank + (conditional) resubmitted-mark as ONE
 // atomic unit (#753). Before this, stmtReplaceSubmission ran
