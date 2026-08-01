@@ -418,9 +418,20 @@ describe('POST /tasks/:id/submit — status to response mapping (issue #106)', (
   });
 
   it('route contains no submissions SQL and no direct recomputeAutoBadges call', () => {
+    // Reads guest/tasks.js, not guest.js (issue #991 split): the mount file
+    // (src/routes/guest.js) now contains no route handler bodies at all, so
+    // asserting against it would go vacuously green regardless of whether the
+    // real submit handler still routes through submissions.submitPhoto —
+    // guest/tasks.js is where that handler (and this SQL, if it ever
+    // regressed back in) actually lives.
     const source = stripComments(
-      fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'guest.js'), 'utf8')
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'guest', 'tasks.js'), 'utf8')
     );
+    // Non-vacuous guard: confirm the file being read actually carries the
+    // POST /tasks/:id/submit handler this assertion is meant to police,
+    // so a future re-split that moves the route elsewhere fails loudly here
+    // instead of leaving this test silently checking the wrong file.
+    expect(source).toMatch(/tasks\/:id\/submit/);
     expect(source).not.toMatch(/INSERT\s+INTO\s+submissions/i);
     expect(source).not.toMatch(/UPDATE\s+submissions/i);
     expect(source).not.toMatch(/scoring\.recomputeAutoBadges/);

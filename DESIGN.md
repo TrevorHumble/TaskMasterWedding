@@ -3415,6 +3415,28 @@ Two decisions this split needed that the original four did not:
   `photos.heicDecodeSemaphore === require('./photos/heic').heicDecodeSemaphore` is `true`, proving no
   second `new Semaphore(1)` was ever introduced along the way.
 
+**A sixth module joins the pattern: `src/routes/guest.js` (#991).** guest.js (1,688 lines) was the
+largest remaining handwritten module over the ceiling. It splits the same way: a thin entry (`src/routes/
+guest.js`, unchanged require path and public API, `router.use(requireGuest)` then the area mounts) plus
+seven internals under `src/routes/guest/` per its own seam table — `home.js` (`GET /`), `tasks.js`
+(`GET /tasks`, `GET /tasks/:id`, `POST /tasks/:id/submit`), `pages.js` (`GET /how-to-play`,
+`GET /how-points-work`), `bug-report.js`, `memories.js`, `profile.js` (`GET`/`POST /me/edit`,
+`POST /me/avatar/delete`), and `recap.js` — plus `shared.js` for the four cross-area members.
+
+**The shared-limiter invariant.** `uploadRateLimiter` and `socialRateLimiter` (issue #283) are each one
+combined per-guest rate budget consumed by three different POST routes now living in three different
+files (`uploadRateLimiter`: `tasks.js`'s submit route and `profile.js`'s `/me/edit`/`/me/avatar/delete`;
+`socialRateLimiter`: `bug-report.js` and `recap.js`'s two routes). A split that let each consuming module
+construct its own `createRateLimiter(...)` call would silently double (or triple) the budget each was
+meant to enforce, without any test failing — every route would still 429 eventually, just at the wrong
+threshold. `shared.js` constructs both exactly once at module load, exporting the single instances;
+Node's `require.cache` guarantees every consumer gets the same object, so the split cannot introduce a
+second budget the way a careless per-file construction would.
+
+Same treatment as #969's own stale-pointer note: this split's prose pointers elsewhere in the repo
+naming `src/routes/guest.js`'s routes degrade gracefully through the entry's own area-map comment; the
+omission is parked as one line on #588 per the freeze's finding-disposition rule.
+
 ## Lint is a ratchet (#973)
 
 **Date:** 2026-08-01. **Status:** shipped.
