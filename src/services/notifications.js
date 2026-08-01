@@ -73,10 +73,9 @@ const FETCH_LIMIT = PAGE_SIZE + 1;
 // and from photos.js's hideSubmission/restoreSubmission.
 // `parts`/`href` are functions of the stored event row (`ev`) rather than
 // plain strings so the SAME entry both supplies the copy text AND decides
-// the destination — folding what used to be a separate if/else chain in
-// storedRows into this one table (issue #644 review: a sibling issue adding
+// the destination (#644): a sibling issue adding
 // a kind to the data half of KIND_VIEW alone, with the copy/href half left
-// as a parallel if/else, could add a kind that renders a blank row).
+// as a parallel if/else, could add a kind that renders a blank row.
 // `takenDown` (issue #866) extends that same discipline to a THIRD axis: what
 // this kind becomes once its submission is taken down. storedRows applies it
 // generically (`treatment.takenDown(ev, ctx)`, when present) rather than
@@ -300,7 +299,7 @@ const KIND_VIEW = {
 // emitter (#647).
 //
 // NOT wired here, and staying that way: three PLANNED per-announcement-detail
-// glyphs (`day`, `flash`, `task`) an earlier plan floated keeping room for.
+// glyphs (`day`, `flash`, `task`) a plan floated keeping room for.
 // Issue #778's own Design section retired that plan (owner decision,
 // 2026-07-21): differentiating the three announcement kinds by glyph is
 // unapproved new art, a separable future nicety, not something this issue
@@ -473,11 +472,7 @@ function retractGrantAnnouncement(guestId, badgeId) {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Per-source EXISTENCE predicates — the source registry (issue #644 review:
-// each source's ROW-FETCH statement below and its cheap COUNT statement
-// further down used to spell out the identical WHERE-clause rule as two
-// separately typed SQL string literals, with nothing stopping the two from
-// silently drifting apart the next time either was hand-edited. Each
+// Per-source EXISTENCE predicates — the source registry (#644). Each
 // constant below defines that rule EXACTLY ONCE — the same guest-scope +
 // visibility + self-exclusion predicate every row from this source must
 // satisfy to exist at all, independent of paging/cursor concerns — and both
@@ -652,16 +647,14 @@ const stmtSubmissionThumb = db.prepare(`SELECT thumb_path FROM submissions WHERE
  * submission at all; a separate "missing join" branch would be unreachable).
  *
  * `scoring.crowdFavorites()` is resolved AT MOST ONCE per call to this
- * function (memoized in `getFavorites` below), not once per row — it used to
- * be called once per `crowd_favorite` row inside that kind's own `parts()`.
+ * function (memoized in `getFavorites` below), not once per row.
  * The "is this guest currently placing" lookup built on top of it
  * (`placingFor`, also memoized, PER GUEST this time since a page can contain
  * more than one guest's rows in principle — though in practice every row on
  * one call is the same guestId) is likewise built exactly once here and
  * threaded via `ctx` into both `KIND_VIEW.crowd_favorite.parts` and its
  * `takenDown` — the one place `find((cf) => cf.guest_id === guestId)` exists
- * now, where it used to be typed out separately in each of those two spots
- * (issue #866 review).
+ * now (#866).
  */
 function storedRows(guestId, cursor) {
   const events = stmtStoredEvents.all(guestId, ...cursorParams(cursor));
@@ -1032,7 +1025,7 @@ function announceCount(checkpoint, clock) {
  * HTTP call site (src/middleware/session.js, src/services/render-locals.js,
  * src/routes/guest.js's `GET /recap`) resolves its OWN `timezone` from
  * `getEventConfig()` and passes it in here, rather than each hand-building the
- * same three-field literal (issue #778 PR review finding: the literal was
+ * same three-field literal (#778: the literal was
  * inlined verbatim in four places, including this module's own fallback
  * below). Injecting `timezone` rather than resolving it inside this function
  * keeps the builder a pure function of its argument — the deliberate
@@ -1210,8 +1203,7 @@ const stmtUnreadLikeSubmissionCount = db.prepare(`
  * statements, issue #644 review — the source registry) with the matching
  * FETCH query storedRows/commentRows/likeBatchRows runs, so the two are
  * STRUCTURALLY unable to disagree about which rows exist for a given
- * checkpoint — not "kept in lockstep by hand," the failure mode this JSDoc
- * used to flag and leave unfixed. The fourth source, announcements (issue
+ * checkpoint — not "kept in lockstep by hand." The fourth source, announcements (issue
  * #778), follows the identical shape one level up in JS rather than SQL:
  * announceCount() and announceRows() both consume the SAME
  * qualifyingAnnounceFacts(), so they too cannot disagree about which

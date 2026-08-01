@@ -53,11 +53,9 @@ db.exec(`
     -- exclusion all read IT, not special_mode = 'oneday'. special_mode's
     -- 'oneday' value is the marker written in lockstep alongside it, there
     -- only so the existing mode machinery (liveTaskWhere/isTaskLive) can see
-    -- the task is live. (Corrected, issue #761 review fix: this comment used
-    -- to also say a future exclusivity guard would read special_mode to see
-    -- the task is spoken for. It doesn't — the guard that shipped in #761,
-    -- src/services/tasks.js's whatSpecial(), reads special_date directly,
-    -- and the flash columns below, never special_mode.) Neither special_date
+    -- the task is live. The exclusivity guard that shipped in #761,
+    -- src/services/tasks.js's whatSpecial(), reads special_date directly, and
+    -- the flash columns below, never special_mode. Neither special_date
     -- nor special_bonus is ever written without the other.
     special_date   TEXT,
     special_bonus  INTEGER CHECK (special_bonus IS NULL OR special_bonus BETWEEN 1 AND 3),
@@ -111,7 +109,7 @@ db.exec(`
     -- which are the same UTC datetime('now') form.
     live_since     TEXT,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
-    -- Pairing constraint (issue #753 review fix): special_date and
+    -- Pairing constraint (#753): special_date and
     -- special_bonus are either BOTH NULL (an ordinary task) or BOTH set (a
     -- one-day-only challenge) -- never one without the other. Without this,
     -- special_date='2026-08-07', special_bonus=NULL is a legal row, and
@@ -426,7 +424,7 @@ function ensureTaskSpecialDayColumns() {
     .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`)
     .get();
   // Match the CHECK constraint's own text, not a bare "'oneday'" substring
-  // (issue #753 review fix): the CREATE TABLE above also carries a doc
+  // (#753): the CREATE TABLE above also carries a doc
   // comment mentioning 'oneday' in prose, and sqlite_master.sql preserves
   // that comment verbatim alongside the constraint -- a bare substring match
   // would (harmlessly, today, since both always appear together) leave a
@@ -1425,7 +1423,7 @@ ensureResubmittedColumn();
 function ensureTakenDownByColumn() {
   const cols = db.prepare(`PRAGMA table_info(submissions)`).all();
   if (!cols.some((col) => col.name === 'taken_down_by')) {
-    // Both statements run as ONE transaction (PR review fix, minor D) — two
+    // Both statements run as ONE transaction (#886) — two
     // separate db.exec() calls left a crash landing between them able to
     // leave the column present with the backfill permanently skipped: a
     // later boot's PRAGMA table_info guard above would see the column
@@ -1450,7 +1448,7 @@ function ensureTakenDownByColumn() {
 // admin.js/guest.js prepare any statement that reads/writes taken_down_by —
 // db.js fully evaluates this module-load code before any other module's
 // `require('../db')` call returns. Must run AFTER ensureTaskIdNullable()
-// above (PR review fix, minor E — the real constraint, not "matches
+// above (#886 — the real constraint, not "matches
 // convention"): that function rebuilds `submissions` from an explicit
 // column-copy list, so a taken_down_by column added before it runs would be
 // silently DROPPED on any database still needing that rebuild — the same
@@ -1664,8 +1662,8 @@ function openBugCount() {
  * IF NOT EXISTS) — whichever change lands first wins and the other's
  * migration is a no-op. src/services/lockout.js uses this table to persist
  * admin-lockout state (failedAttempts / lockedUntil) across a process
- * restart, replacing the module-scoped scalars src/routes/auth.js used to
- * carry before #283. Exported so tests bind to this real guard rather than
+ * restart, replacing the module-scoped scalars src/routes/auth.js carried
+ * before #283. Exported so tests bind to this real guard rather than
  * an inline copy.
  */
 function ensureSettingsTable() {

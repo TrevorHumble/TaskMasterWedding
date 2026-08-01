@@ -28,10 +28,9 @@ const { db } = require('../db');
 // owns the query that pagination slices.
 const GALLERY_PAGE_SIZE = 60;
 
-// How many photos one /feed page holds (issue #194). The feed used to render
-// every visible submission unpaginated; feedWindow() below slices it into
-// keyset windows of this size so the page's byte weight stays bounded as the
-// weekend's photo count grows.
+// How many photos one /feed page holds (#194): feedWindow() below slices
+// visible submissions into keyset windows of this size so the page's byte
+// weight stays bounded as the weekend's photo count grows.
 const FEED_PAGE_SIZE = 40;
 
 // How many preview tiles a grouped gallery section shows (issue #251): up to
@@ -822,8 +821,7 @@ function buildCrowdFavoriteSection(placing, rowsById) {
  * Rank metric per section:
  *   - Most Liked opener: scoring.crowdFavorites()'s own standard-competition
  *     rank over like_count (issue #625) — the SAME ranking the standings and
- *     the recap read, absorbing what used to be this file's own separate
- *     "top 5 by likes, points tiebreak" sort (see buildCrowdFavoriteSection).
+ *     the recap read (see buildCrowdFavoriteSection).
  *   - Task groups: scoring.photoPoints(photo_bonus, worth, bonus_amount),
  *     ties broken by like_count.
  *

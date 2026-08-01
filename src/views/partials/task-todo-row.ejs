@@ -6,7 +6,7 @@
     fork between the two passes. (The starter profile-photo row in between
     them is a real to-do row too, but a distinct one-off shape — see
     tasks.ejs's own inline <li> for it — so it does not go through this
-    partial; issue #754 review fix, NIT K.)
+    partial; #754.)
 
     Five states, in the order a guest meets them:
       locked      — a one-day-only challenge whose day has not arrived
@@ -32,7 +32,7 @@
     exclusivity is the ROUTE's contract, not this partial's to re-enforce.
 
     bonusMissed is NOT mutually exclusive with the other two by that same
-    construction (issue #926 review fix, MAJOR M3) — isToday/flashActive and
+    construction (#926) — isToday/flashActive and
     a RAW tasks.missedBonusForTask() result can independently both be true on
     one row (see src/routes/guest.js's own comment on that call site for
     exactly how). The route resolves that precedence itself before this
@@ -45,8 +45,7 @@
 %>
 <%
   // Shared by both the locked card's d/h/m/s countdown and the flash
-  // marker's mm:ss/h:mm:ss clock below (issue #762 review fix, NIT --
-  // dropped the identical pad2 that used to live in the flash branch): the
+  // marker's mm:ss/h:mm:ss clock below (#762): the
   // locked and flash markup live in mutually exclusive branches of this one
   // compiled function body, so one `pad` above the branch serves both.
   var pad = function (n) { return n < 10 ? '0' + n : String(n); };
@@ -209,7 +208,7 @@
       <% } %>
       <%# The earn-pitch is the row's own bottom line, spanning the FULL width
           beneath the badge, body, and price alike (.task-link is a grid — see
-          theme.css). task-earn-pitch.ejs (issue #926 review fix, MAJOR M4) is
+          theme.css). task-earn-pitch.ejs (#926) is
           the single owner of its three-span markup — see that partial's own
           header comment for why it is shared with the done-rows loop in
           tasks.ejs rather than each view carrying its own copy. Full badge

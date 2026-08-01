@@ -549,13 +549,13 @@ p {
 
 /* ------------------- Task-complete success card (#255) ------------------- */
 /* Now the LUCKY variant's shell only (issue #611): an ordinary completion is
-   cardless — see .success-beat below. The 4px accent edge this rule used to
-   carry is gone (owner, 2026-07-31: no solid line of colour as card design),
+   cardless — see .success-beat below. The 4px accent edge is gone
+   (owner, 2026-07-31: no solid line of colour as card design),
    which also drops the lucky card's gold edge; the sage ground here, and the
    gold inset ring + clover on --lucky, carry the moment instead. */
 /* The bottom margin is load-bearing (owner, 2026-07-31, second live pass): the
    beat is followed immediately by the guest's own photo, and with the memory
-   prompt that used to pad the card's foot now gone, a 0 bottom margin left the
+   prompt that padded the card's foot now gone, a 0 bottom margin left the
    lucky card's gold INSET RING (not the removed accent edge — that is a
    different thing, see the note above) sitting flush against the photo.
    --space-5 separates the two blocks without opening the page up as much as a
@@ -621,7 +621,7 @@ p {
    the leaderboard champion and the one-day-only chip already use, not a new
    colour. Issue #611 removed this variant's 4px gold accent EDGE along with
    the base card's green one (the owner's no-solid-line-of-colour rule applies
-   to both) and removed the green check an ordinary card used to pair against;
+   to both) and removed the green check that paired with an ordinary card;
    the ring and the clover are what remain, and the owner reviewed the lucky
    card in that state on 2026-07-31. */
 .success-card--lucky {
@@ -1473,7 +1473,7 @@ a.stat:hover {
    rule below, which spans .task-body across the empty badge column too — left
    alone, the grid still reserves that column's gap even with nothing sized to
    fill the column itself, indenting the row's text by the gap width with no
-   content to justify it (issue #926 review fix, MINOR m5). With that rule in
+   content to justify it (#926). With that rule in
    place these rows are flush left, same as before the grid rewrite. */
 .task-link {
   display: grid;
@@ -1526,8 +1526,8 @@ a.stat:hover {
   /* min-width: 0 lets the body column shrink so long titles/descriptions
      cannot push the row wider than the column on narrow screens (a GRID
      property here — .task-link is display:grid). flex: 1 1 auto right below
-     it is a DIFFERENT property for a DIFFERENT context (issue #926 review
-     fix, MAJOR — regression): .task-link-locked (further down) re-declares
+     it is a DIFFERENT property for a DIFFERENT context (#926):
+     .task-link-locked (further down) re-declares
      display:flex for the locked row alone, and in THAT context .task-body is
      the flex item that has to grow to push "+? pts ›" flush right. Grid
      ignores flex, flex ignores grid-area/min-width's grid meaning (min-width
@@ -1564,7 +1564,7 @@ a.stat:hover {
    24px. Fixed size, never shrinks — the body column beside it absorbs every
    width change instead. flex: 0 0 auto carried no weight here even before
    the grid rewrite made this a grid item outright (grid ignores flex) — see
-   n1, issue #926 review fix. */
+   n1, #926. */
 .task-badge-lead {
   grid-area: badge;
   display: flex;
@@ -1588,7 +1588,7 @@ a.stat:hover {
    sentence shape on every row; a long custom badge name shortens with an
    ellipsis instead of wrapping this row taller than its neighbors. The gaps
    stand in for the word spaces the flex items no longer share. Markup lives
-   in src/views/partials/task-earn-pitch.ejs (issue #926 review fix, MAJOR) —
+   in src/views/partials/task-earn-pitch.ejs (#926) —
    the single owner both guest views include rather than each carrying its
    own copy of this structure; see that partial's own header comment. */
 .task-earnable-copy {
@@ -1737,14 +1737,12 @@ a.stat:hover {
   background: linear-gradient(90deg, rgba(200, 162, 76, 0.14), transparent 60%);
 }
 /* Shared pill base for the Today Only flag and the flash marker below
-   (issue #762 review fix, MINOR — collapsed two copies of margin-bottom,
-   padding, border-radius, font-size, font-weight, and letter-spacing into
-   one rule; the DESIGN.md note for #762 already claims flash "reuses the
-   Today Only row's shape wholesale," and this is that claim made real in
-   the stylesheet rather than restated as a second copy). Each marker below
-   adds only what actually differs between them: display/layout and colour.
-   Pixels are unchanged from the pre-fix two-copy version — verified by
-   diffing the computed style. */
+   (#762): the ONE owner of margin-bottom, padding, border-radius,
+   font-size, font-weight, and letter-spacing for both pills — the
+   DESIGN.md note for #762 states flash "reuses the Today Only row's shape
+   wholesale," and this rule is that claim made real, not a second copy.
+   Each marker below adds only what actually differs between them:
+   display/layout and colour. */
 .task-special-flag {
   display: inline-block;
   margin-bottom: var(--space-1);
@@ -1764,11 +1762,11 @@ a.stat:hover {
    "worth more now" signal, owner ruling 2026-07-29) and a missed-bonus row
    (two lines: .task-points-lost struck above the still-earnable base — see
    that class below). This rule supplies layout and ink only, no gold of its
-   own, so it must NOT be named after either feature (review fix -- an
-   earlier name, task-points-today, invited a future reader to add `color:
+   own, so it must NOT be named after either feature — a name like
+   task-points-today would invite a future reader to add `color:
    var(--place-1)` here since the rule sits right after the Today Only block
    above, which would silently paint every flash price tag gold too and
-   break the ember/gold separation the owner explicitly asked for). */
+   break the ember/gold separation the owner explicitly asked for. */
 .task-points-raised {
   grid-area: points;
   flex: 0 0 auto;
@@ -2850,9 +2848,9 @@ body.feed-inserting {
 .feed-edge[hidden] {
   display: none;
 }
-/* Shared ring geometry (#677 PR review dedupe): .btn-uploading::before
+/* Shared ring geometry (#677): .btn-uploading::before
    (#254, the upload-button spinner) and .feed-edge-ring below are the same
-   ring shape, previously declared as two independent copies. `border: 2px
+   ring shape. `border: 2px
    solid` with no color token resolves to currentColor, so each surface
    supplies its own ink with a plain `color` declaration on its own rule
    (.btn-uploading::before above sets --color-on-primary; .feed-edge-ring
@@ -4983,9 +4981,8 @@ body:has(dialog[open]) {
 /* -------- Feed parity: reuses .feed-photo / .like-button / .comment-button --------
    A taken-down photo in the viewer reads identically to the grid tile
    (.admin-tile.is-down): same grayscale + dim (issue #684). Keep this comment
-   free of a comment-closing sequence: an earlier version quoted one mid-sentence,
-   which ended the comment early and voided the rule below so the photo never
-   grayed out. */
+   free of a comment-closing sequence — a mid-sentence one would end the
+   comment early and void the rule below, leaving the photo never grayed out. */
 .admin-feed-item.is-down .feed-photo {
   filter: grayscale(1) brightness(0.55);
 }
@@ -6253,9 +6250,9 @@ body:has(dialog[open]) {
     inset 0 0 0 3px var(--white),
     inset 0 0 0 4px var(--green-300);
 }
-/* Badge detail header (issue #410 phase-2) — the page's hero badge previously
-   rendered a plain 120x120 <img class="badge-detail-art">; a task badge now
-   renders through the medallion component, so this ancestor-scoped override
+/* Badge detail header (#410 phase-2): the page's hero badge renders
+   through the medallion component (not a plain 120x120
+   <img class="badge-detail-art">), so this ancestor-scoped override
    keeps the same 120px size instead of the 48px default. */
 .badge-detail-header .badge-medallion {
   width: 120px;
@@ -6842,9 +6839,8 @@ body:has(dialog[open]) {
 
 /* ---- Special accordion panel (issue #624; #649/#650 reuse it) ----
    One group = one radio option plus the settings that only make sense once
-   that option is picked. Opened by CSS `:has(input:checked)` alone — the same
-   mechanism the radio faces and worth chips already use — so it needs no
-   script and is correct on first paint. */
+   that option is picked. Opened by the `.special-active` class — see the
+   single-owner note on the visibility rule below (#918). */
 .special-option-group {
   display: flex;
   flex-direction: column;
@@ -6860,18 +6856,17 @@ body:has(dialog[open]) {
   border-radius: 0 0 var(--radius-input) var(--radius-input);
   background: var(--green-50);
 }
-/* The accordion's visibility has exactly ONE owner (issue #918):
+/* The accordion's visibility has exactly ONE owner (#918):
    `.special-active`, set by admin-tasks.js's syncSpecialPanels() from the
-   checked MODE radio, on dialog open and on every mode change. This used
-   to be a `:has(input:checked)` selector — pure CSS, correct at first
-   paint — but on a :has()-less phone browser it failed closed: tapping
-   "Flash" showed no panel and no feedback at all, and Save then posted a
-   flash mode with blank fields. A JS class works on every engine, and
-   first paint costs nothing here because the dialog is only ever shown by
-   the same script that sets the class (syncSpecialPanels always runs
-   before showModal()). Do not reintroduce a parallel :has() rule for
-   this — two independently-written statements of one visibility rule can
-   drift (design-philosophy review, #918). */
+   checked MODE radio, on dialog open and on every mode change, not by a
+   `:has(input:checked)` selector — a :has()-less phone browser fails that
+   closed: tapping "Flash" shows no panel and no feedback at all, and Save
+   then posts a flash mode with blank fields. A JS class works on every
+   engine, and first paint costs nothing here because the dialog is only
+   ever shown by the same script that sets the class (syncSpecialPanels
+   always runs before showModal()). Do not reintroduce a parallel :has()
+   rule for this — two independently-written statements of one visibility
+   rule can drift (#918). */
 .special-option-group.special-active .special-panel {
   display: flex;
 }
@@ -7007,9 +7002,9 @@ body:has(dialog[open]) {
 }
 /* Single owner, same rule as .special-active one level up (issue #918):
    `.flash-later-active` is set by syncSpecialPanels() from the Starts
-   "later" radio. Formerly a :has() selector, which failed closed on a
-   :has()-less engine — "Pick a time" revealed nothing and Save posted a
-   `later` flash with no instant. Do not reintroduce a parallel :has()
+   "later" radio, not by a :has() selector — a :has()-less engine fails
+   that closed ("Pick a time" reveals nothing and Save posts a
+   `later` flash with no instant). Do not reintroduce a parallel :has()
    rule. */
 .flash-start-field.flash-later-active .flash-when {
   display: flex;

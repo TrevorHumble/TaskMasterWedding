@@ -9,7 +9,7 @@
   // 2026-07-19): same classes/markup shape, real server-side view/search
   // (GET /admin/photos ?view=/?q=, src/routes/admin.js), real favorite state
   // (src/services/favorites.js), real moderation. The five-code give-a-badge
-  // picker this view used to drive (src/services/photo-badges.js,
+  // picker (src/services/photo-badges.js,
   // badge_winners) is RETIRED (issue #661's one-badge-system consolidation) —
   // ranking and awarding a task's photos now lives on its own page,
   // GET/POST /admin/tasks/:id/rank (linked from this page's task-scoped view,
@@ -75,8 +75,7 @@
 
 <%
   // ---- Gallery tile: square thumbnail (opens the feed at that photo) with a
-  //      hover-reveal quick favorite heart. (The give-a-badge button this
-  //      comment used to also describe is retired — issue #661.) ----
+  //      hover-reveal quick favorite heart. ----
   function adminTile(p, panel) {
 %>
   <figure class="gallery-item admin-tile<%= p.taken_down ? ' is-down' : '' %>">
@@ -225,9 +224,7 @@
 <!-- ===================== FEED (parity with guest feed) ===================== -->
 <!-- Client-side only (no separate route, issue #259): tapping any tile above
      shows this same server-rendered section, scrolled to that photo. Same
-     card shape as src/views/feed.ejs; like -> favorite. (comment ->
-     give-a-badge used to be the second swap here too, before issue #661
-     retired that control.) -->
+     card shape as src/views/feed.ejs; like -> favorite. -->
 <section data-view-panel="feed" hidden>
   <p class="back-link"><a href="?view=<%= view %><%= q ? '&q=' + encodeURIComponent(q) : '' %>" data-feed-back>&larr; Back to photos</a></p>
   <div class="feed">

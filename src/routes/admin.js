@@ -111,7 +111,7 @@ function redirectWithMsg(res, path, msg, anchor) {
   res.redirect(303, path + sep + 'msg=' + encodeURIComponent(msg) + hash);
 }
 
-// Validate and resolve a posted badge-icon pick (review fix, issue #682) —
+// Validate and resolve a posted badge-icon pick (#682) —
 // the ONE place POST /admin/tasks, POST /admin/tasks/:id/edit, and POST
 // /admin/tasks/:id/badge all parse a posted `icon` id against
 // src/services/badge-icons.js's catalog, so the three routes can never drift
@@ -207,10 +207,9 @@ function redirectToPhotos(req, res, msg, submissionId) {
 // path this router doesn't recognize does NOT reach app.js's real 404
 // handler, it falls through into guest.js and comes back as a 302 to /join
 // instead (requireGuest has no guest session to check for an admin-only
-// visitor). Rendering the same 404 view these three retired paths used to
-// return before they existed is not needed for anything else on this
-// router — every path a guest can legitimately reach here still has its own
-// route above/below and never reaches this block.
+// visitor). These three retired paths are the only ones on this router that
+// need the explicit 404 render; every other guest-reachable path has its
+// own route and never reaches this block.
 // ---------------------------------------------------------------------------
 function renderNotFound(req, res) {
   res.status(404).render('404', { url: req.originalUrl });
@@ -226,9 +225,9 @@ router.get('/', (req, res) => {
   // The flat checklist (issue #646): host-checklist.js is the single owner
   // of row definitions, bucket ordering, the bug pin, and the tips gate — it
   // already walks guests/tasks/bug_reports to build those rows, so it is
-  // also the single owner of the three stat-grid counts (`stats`, issue #646
-  // review fix). This route consumes buildRows() once and re-queries none of
-  // its tables itself.
+  // also the single owner of the three stat-grid counts (`stats`, #646).
+  // This route consumes buildRows() once and re-queries none of its tables
+  // itself.
   const { rows, openCount, urgentCount, stats } = hostChecklist.buildRows();
 
   // Pulse line (issue #256): the newest VISIBLE submission. feed.js owns the
@@ -260,8 +259,8 @@ router.get('/', (req, res) => {
 // checked state (issue #646 AC5). The only writer of `settings` keys
 // `checklist.<id>`.
 //
-// Writes the OPPOSITE of the `checked` field the form posts back (issue #646
-// review fix), not the opposite of a fresh isManualChecked() read at request
+// Writes the OPPOSITE of the `checked` field the form posts back (#646),
+// not the opposite of a fresh isManualChecked() read at request
 // time — the form's hidden `checked` field carries the state the page
 // rendered WITH, so a double-tap (two rapid submits of the same rendered
 // button, before the first redirect lands) posts the identical `checked`
@@ -334,8 +333,7 @@ function isConfiguredEventDay(value) {
   return computeEventDays(cfg.startDate, cfg.endDate).some((d) => d.iso === value);
 }
 
-// Reason CODES resolveSpecialPairWrite refuses with (review fix, issue #755
-// design-philosophy pass) — mirrors resolveBadgeIcon's own
+// Reason CODES resolveSpecialPairWrite refuses with (#755) — mirrors resolveBadgeIcon's own
 // `{ok:false, reason:'missing'|'invalid'}` shape a few lines above: the
 // resolver reports WHAT went wrong, never HOW to word it, so create and edit
 // can phrase their own host-facing message. This matters concretely here —
@@ -358,7 +356,7 @@ const PAIR_REASON_LOCKED = 'locked';
 // absent `special_mode` both leave the pair untouched: the RESOLVED
 // `writeDate`/`writeBonus` this function returns on success is the STORED
 // pair unchanged in that case, never a null the caller might mistake for "no
-// value" and use to clobber a real stored date (review fix — the caller no
+// value" and use to clobber a real stored date (the caller no
 // longer branches on a separate `writes` flag to decide this; the resolved
 // pair already IS the answer). A `none` write clears the pair (resolved
 // `writeDate`/`writeBonus` both `null`). An `oneday` write carries the
@@ -729,11 +727,11 @@ function resolveFlashWrite({
 
   // rawMode === 'flash' from here on: an arm or re-arm attempt.
   const minutes = parseWholeNumber(rawMinutes);
-  // The floor (a positive integer) is owned by tasks.flashWindow() (issue
-  // #763 PR review fix, M4) — probing it with the candidate minutes against
-  // a known-valid bonus and instant makes flashWindow() itself the validity
-  // oracle for "is this a duration the engine will ever pay", rather than
-  // re-stating its floor as a bare `minutes < 1` here. Without this, a future
+  // The floor (a positive integer) is owned by tasks.flashWindow() (#763)
+  // — probing it with the candidate minutes against a known-valid bonus
+  // and instant makes flashWindow() itself the validity oracle for "is
+  // this a duration the engine will ever pay", rather than re-stating its
+  // floor as a bare `minutes < 1` here. Without this, a future
   // move of the engine's floor would let the writer save a trio the engine
   // then refuses to ever fire, with no error anywhere. The probe's bonus/
   // instant are fixed to known-good values so a null result here can only
@@ -888,7 +886,7 @@ function checkExclusivity(currentRow, clock, settingKind) {
 }
 
 // The ONE place a posted RAW special_mode maps to the SPECIAL_* kind
-// checkExclusivity is asked to guard (issue #650 PR review fix, Finding C).
+// checkExclusivity is asked to guard (#650).
 // Before this helper existed, the create and edit handlers each carried an
 // identical, hand-written ternary doing this same mapping — character-for-
 // character duplicated, with no shared owner, so a third special type would
@@ -926,7 +924,7 @@ function describeExclusivityRefusal(existingKind) {
         ? 'a flash task'
         : existingKind === tasks.SPECIAL_LUCKY
           ? 'the lucky task'
-          : // Neutral fallback (issue #650 PR review fix, Finding J), never the
+          : // Neutral fallback (#650), never the
             // bare kind string — `existingKind` here would be an unrecognized
             // SPECIAL_RULES `kind` value, and printing it verbatim would render
             // ungrammatical host-facing text like "already flash" (missing its
@@ -936,8 +934,7 @@ function describeExclusivityRefusal(existingKind) {
   return 'This task is already ' + label + ' — cancel that first.';
 }
 
-// This file's one clock (issue #650 plan step 3 — this file previously had
-// none at all). Built the same way src/services/submissions.js's submitPhoto
+// This file's one clock (#650). Built the same way src/services/submissions.js's submitPhoto
 // builds its own clock, around the same two calls submitPhoto assembles:
 // `eventLocalDateString(getEventConfig().timezone)` for the event-local day,
 // `Date.now()` for the instant. Passing `{todayIso}` alone is not a partial
@@ -1357,7 +1354,7 @@ router.get('/tasks', (req, res) => {
   // module required at the top of this file.
   const taskRows = db.prepare('SELECT * FROM tasks ORDER BY sort_order ASC, id ASC').all();
 
-  // This route's one clock (issue #650 PR review fix, Finding A) — hoisted
+  // This route's one clock (#650) — hoisted
   // above the row-building map so every row's specialKind (below) is
   // evaluated against the same instant, the same discipline currentClock()
   // itself documents.
@@ -1378,7 +1375,7 @@ router.get('/tasks', (req, res) => {
     // ribbon art) the first time a task's card is rendered (issue #483) —
     // every task always has a badge to show, never a missing-badge branch.
     const badge = taskBadges.resolveTaskBadge(t.id);
-    // Hoisted (issue #755 review fix — minor) so `oneday`/`dayLabel` below
+    // Hoisted (#755) so `oneday`/`dayLabel` below
     // never evaluate the same guard twice per row.
     const hasDate = tasks.isRealDateString(t.special_date);
 
@@ -1474,7 +1471,7 @@ router.get('/tasks', (req, res) => {
       flashWhenLabel: flashWhenLabel,
       flashStripLabel: flashStripLabel,
       // The server-derived answer to "which Special radio does this task's
-      // edit popup open on" (issue #650 PR review fix, Finding A). Before
+      // edit popup open on" (#650). Before
       // this field existed, admin-tasks.js hand-copied the daily rule's
       // spokenFor predicate (isSealed||isOnDay) client-side to decide whether
       // a stored special_date should win the Lucky radio over a lucky_date —
@@ -1622,11 +1619,10 @@ router.post('/tasks', (req, res) => {
 
   // Exclusivity (issue #650 plan step 3) — CREATE has no stored row, so `{}`;
   // the guard is vacuous by construction here, kept anyway so create and edit
-  // share one shape. specialKindBeingSet() (issue #650 PR review fix, Finding
-  // C) is the one place a posted raw special_mode maps to the SPECIAL_* kind
-  // this guard checks — a future setter (e.g. flash gaining a settable pick)
-  // has that one function to extend, not this ternary duplicated a third
-  // time.
+  // share one shape. specialKindBeingSet() (#650) is the one place a posted
+  // raw special_mode maps to the SPECIAL_* kind this guard checks — a
+  // future setter (e.g. flash gaining a settable pick) has that one
+  // function to extend, not this ternary duplicated a third time.
   const settingKind = specialKindBeingSet(rawSpecialMode);
   if (settingKind) {
     const exclusivity = checkExclusivity({}, clock, settingKind);
@@ -1662,7 +1658,7 @@ router.post('/tasks', (req, res) => {
     order = (maxRow.m == null ? -1 : maxRow.m) + 1;
   }
 
-  // Atomic (review fix): the task INSERT and its badge write are one
+  // Atomic: the task INSERT and its badge write are one
   // transaction — if setTaskBadge threw, a bare sequential pair could commit
   // the task row alone, leaving a task with no badge despite badge being
   // supposedly required. better-sqlite3 nests transaction functions via
@@ -1727,7 +1723,7 @@ router.post('/tasks', (req, res) => {
   // A newly created LIVE task can make an existing COMPLETIONIST holder
   // stale (issue #701 AC1) by growing the active set; a task created Hidden
   // does not change the active set at all, so this stays conditional
-  // (review fix) instead of firing unconditionally on every create. Reuses
+  // instead of firing unconditionally on every create. Reuses
   // createIsLive (computed above for live_since) rather than calling
   // tasks.isTaskLive a second time against the same specialMode value.
   if (createIsLive) {
@@ -1842,14 +1838,14 @@ router.post('/tasks/:id/edit', (req, res) => {
     // which stay refused and unchanged exactly as describeEditPairRefusal
     // already says.
     let msg = describeEditPairRefusal(pairResolved.reason);
-    // Gate on the LUCKY resolver's OWN result (issue #650 PR review fix,
-    // Finding B), not a re-derived `rawSpecialMode === tasks.MODE_NONE` check
-    // — resolveLuckyPairWrite already decided the resolved lucky pair above,
-    // and a resolved-to-null pair on a task that WAS lucky is exactly and
-    // only "this save cancels the lucky pick," across every reachable
-    // rawSpecialMode that can land in this branch (see resolveLuckyPairWrite:
-    // the pair only resolves to null when the raw mode is 'none', or when
-    // there was never a stored pick to preserve).
+    // Gate on the LUCKY resolver's OWN result (#650), not a re-derived
+    // `rawSpecialMode === tasks.MODE_NONE` check — resolveLuckyPairWrite
+    // already decided the resolved lucky pair above, and a resolved-to-null
+    // pair on a task that WAS lucky is exactly and only "this save cancels
+    // the lucky pick," across every reachable rawSpecialMode that can land
+    // in this branch (see resolveLuckyPairWrite: the pair only resolves to
+    // null when the raw mode is 'none', or when there was never a stored
+    // pick to preserve).
     if (luckyPairResolved.writeDate === null && task.lucky_date != null) {
       db.prepare(`UPDATE tasks SET lucky_date = NULL, lucky_bonus = NULL WHERE id = ?`).run(id);
       // Composed from the SAME describer that built `msg` above, rather than
@@ -1935,7 +1931,7 @@ router.post('/tasks/:id/edit', (req, res) => {
     return redirectWithMsg(res, '/admin/tasks', 'That badge icon is not recognized.', 'task-' + id);
   }
 
-  // Atomic (review fix): the task UPDATE and its conditional badge write are
+  // Atomic: the task UPDATE and its conditional badge write are
   // one transaction — if setTaskBadge threw, a bare sequential pair could
   // commit the title/worth/mode change alone while leaving the badge half
   // silently un-applied. better-sqlite3 nests transaction functions via
@@ -1995,7 +1991,7 @@ router.post('/tasks/:id/edit', (req, res) => {
   saveEdit();
 
   // A special_mode change can move the active-task set (issue #701 parity).
-  // issue #755 review fix: a special_date CHANGE must trigger the same
+  // #755: a special_date CHANGE must trigger the same
   // recompute even when the mode string itself is unchanged (e.g. a
   // stale-date repair, or an ordinary/oneday task's date narrowing/widening
   // without a mode flip is not actually possible today, but the pairing rule
@@ -2014,7 +2010,7 @@ router.post('/tasks/:id/edit', (req, res) => {
   // already-lucky task — resolveLuckyPairWrite leaves the pair untouched for
   // any raw mode other than 'lucky'/'none'). Left silent, that parks the
   // day's only lucky slot where no guest can reach it, with no chip and no
-  // checklist row to notice from (issue #650 PR review fix, Finding F) — one
+  // checklist row to notice from (#650) — one
   // extra sentence on the save's own success message is the cheapest place
   // to surface it.
   let successMsg = 'Task updated.';
@@ -2033,7 +2029,7 @@ router.post('/tasks/:id/edit', (req, res) => {
 // rejected upload; a name-only submit (icon absent) is still valid and
 // leaves art_path unchanged, same as setTaskBadge always allowed.
 //
-// RETAINED, no longer a live UI path (issue #682 review fix): the picker's
+// RETAINED, no longer a live UI path (#682): the picker's
 // own submit is now intercepted client-side by admin-tasks.js whenever it was
 // opened from the create wizard or the edit popup (the two ONLY ways a host
 // reaches the picker today), so in practice this route is never hit from the
@@ -2128,7 +2124,7 @@ router.post('/tasks/:id/delete', (req, res) => {
 // special_mode, issue #727 — the route/param name stays "active" for the
 // existing form/URL contract; only the underlying column changed).
 //
-// RETAINED, no longer a live UI path (issue #682 review fix): the redesign's
+// RETAINED, no longer a live UI path (#682): the redesign's
 // Special radio (None/Hidden/One day only, in the create wizard and the edit
 // popup) is now the only host-facing way to change special_mode, and it
 // saves through POST /admin/tasks/:id/edit, not this route — no current view
@@ -2198,7 +2194,7 @@ router.post('/tasks/:id/active', (req, res) => {
 // Body (JSON): { order: [taskId, taskId, ...] } — every entry coerced with
 // parseInt; a non-integer entry is dropped.
 //
-// Set-integrity guard (review fix): the posted id list, once coerced, MUST
+// Set-integrity guard: the posted id list, once coerced, MUST
 // equal the COMPLETE current set of task ids — same length AND every posted
 // id an existing task, with no existing task left out. A stale or partial
 // post (e.g. a second drag racing an in-flight first one, or a client bug
@@ -2207,7 +2203,7 @@ router.post('/tasks/:id/active', (req, res) => {
 // sort_order collided at whatever it already was — a silent, hard-to-notice
 // data corruption a full-page reload would then render in an arbitrary order.
 // The current-set SELECT that guard reads runs INSIDE the same transaction as
-// the write below (review fix) — better-sqlite3 is synchronous and this
+// the write below — better-sqlite3 is synchronous and this
 // process is the only writer, so nothing could interleave between a bare
 // SELECT-then-UPDATE today, but nesting the read makes that a structural
 // guarantee (the whole check-then-write is one atomic unit) rather than an
@@ -2603,9 +2599,9 @@ router.get('/photos', (req, res) => {
   // Real favorite state, attached once so every derived view below (and the
   // inline feed) shares the same row objects — no view can disagree with
   // another about a given photo's state within one request. The give-a-badge
-  // winner state this loop used to attach alongside it (_winnerCodes/_badged)
-  // is retired with the rest of photo-badges.js (issue #661) — task-photo
-  // ranking/award state now lives on GET /admin/tasks/:id/rank instead.
+  // winner state (_winnerCodes/_badged) is retired along with the rest of
+  // photo-badges.js — task-photo ranking/award state now lives on GET
+  // /admin/tasks/:id/rank instead (#661).
   const favIds = favoritesSvc.favoriteIdSet();
   for (const p of photoRows) {
     p._fav = favIds.has(p.id);

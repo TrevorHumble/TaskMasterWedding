@@ -249,8 +249,8 @@ function buildRows(now = new Date()) {
   const doneRows = [];
   let pinnedRow = null;
 
-  // --- Bugs, pinned (AC3). Also the "Open bugs" stat-grid count (issue
-  // #646 review fix) — this module reads db.js's single openBugCount() owner
+  // --- Bugs, pinned (AC3). Also the "Open bugs" stat-grid count (#646) —
+  // this module reads db.js's single openBugCount() owner
   // (issue #686 AC4) once here, and src/routes/admin.js reads it back out of
   // `stats` below instead of calling openBugCount() a second time — one
   // count, computed once, shared by both surfaces. ---
@@ -283,7 +283,7 @@ function buildRows(now = new Date()) {
     });
   }
 
-  // Read once (issue #646 review fix): both the daily-challenge and flash
+  // Read once (#646): both the daily-challenge and flash
   // sections below need the configured timezone, and getEventConfig() is a
   // settings-table read — one lookup per buildRows() call, not one per
   // section. Harmless to compute even when config is unset (it degrades to
@@ -398,11 +398,9 @@ function buildRows(now = new Date()) {
   //
   // The DATED arm's own `<` comparison is tasks.isPastDay(task, rankTodayIso)
   // — that half of the predicate is a raw special_date/todayIso comparison
-  // with no event-level input, so tasks.js is its declared owner (issue #662
-  // review fix — design-philosophy finding, information leakage: this
-  // comparison used to be re-derived here as a bare string compare, when it
-  // already existed, privately, inside SPECIAL_RULES' daily `missed`
-  // predicate in tasks.js; both now call the same exported function). What
+  // with no event-level input, so tasks.js is its declared owner (#662):
+  // both this predicate and SPECIAL_RULES' daily `missed` predicate in
+  // tasks.js now call the same exported function. What
   // stays HERE, on purpose (recorded for the architecture lens in the issue
   // and in DESIGN.md), is the UNDATED arm and the two-case composite:
   // event_end_date is an event-level setting this module already owns
@@ -508,8 +506,8 @@ function buildRows(now = new Date()) {
   }
 
   // --- Manual rows (AC5). `checked` rides on the row so the view can post
-  // it back as the toggle form's hidden "as-rendered state" field (issue
-  // #646 review fix — see POST /admin/checklist/:id/toggle's own comment for
+  // it back as the toggle form's hidden "as-rendered state" field (#646 —
+  // see POST /admin/checklist/:id/toggle's own comment for
   // why: the route computes its write from THIS value, not from a fresh DB
   // read, so two rapid double-taps of the same rendered button both target
   // the same next state instead of racing each other back and forth). ---

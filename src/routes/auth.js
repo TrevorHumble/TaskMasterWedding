@@ -16,9 +16,9 @@ const { setFlash, cookieOpts } = require('../middleware/session');
 const { assertCsrf, rejectCsrf } = require('../middleware/csrf');
 const photos = require('../services/photos');
 const { normalizeContact, isValidPin, makeUniqueToken } = require('../services/identity');
-// Persistent admin-lockout state (issue #283) — replaces the module-scoped
-// failedAttempts/lockedUntil scalars this file used to carry. See
-// src/services/lockout.js's own header comment for the full rationale.
+// Persistent admin-lockout state (#283) lives in src/services/lockout.js,
+// not as module-scoped failedAttempts/lockedUntil scalars here. See that
+// module's own header comment for the full rationale.
 const lockout = require('../services/lockout');
 // Generic counting semaphore (issue #543) -- bounds concurrent bcrypt
 // compares on POST /admin/login below. Imported from src/utils/semaphore.js,
@@ -476,11 +476,11 @@ router._guestLockoutEntryForTest = (contactValue) => {
 
 // --- Retired onboarding step (issue #244) -------------------------------------
 //
-// /onboard used to be the separate first-run form (name/avatar/socials) a
-// guest hit right after their private /j/:token link signed them in. Signup
-// at /join now collects name + avatar in the same POST that creates the
-// account (#240), so there is nothing left for a standalone onboarding step
-// to do — both verbs just send a visitor on to /join.
+// Name/avatar/social collection happens at /join, in the same POST that
+// creates the account (#240) — not on a separate screen, the way the
+// retired /j/:token first-run flow (#244) worked. Nothing is left for
+// a standalone onboarding step to do, so both verbs here just send a
+// visitor on to /join.
 //
 // Issue #409 note: this route is dead (redirect only), so the "award the
 // profile-photo starter point at onboarding" hook lives on POST /join above
@@ -495,11 +495,11 @@ router.post('/onboard', (req, res) => {
 
 // --- Admin login / logout ---------------------------------------------------
 
-// Lockout state persists to SQLite via src/services/lockout.js (issue #283),
-// replacing the module-scoped failedAttempts/lockedUntil scalars this file
-// used to carry — a single-admin app still warrants one global counter (no
-// per-IP tracking needed, see issue #37), but that counter must now survive a
-// process restart (AC5). See lockout.js's own header comment for why.
+// Lockout state persists to SQLite via src/services/lockout.js (#283), not
+// as module-scoped failedAttempts/lockedUntil scalars in this file — a
+// single-admin app still warrants one global counter (no per-IP tracking
+// needed, see issue #37), and that counter must survive a process restart
+// (AC5). See lockout.js's own header comment for why.
 
 const ADMIN_LOGIN_TITLE = 'Admin Login';
 

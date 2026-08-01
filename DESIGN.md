@@ -3241,3 +3241,41 @@ not code shape.
 **Two raw reads outside `src/` are deliberate scope exclusions from #939, not oversights:**
 `tests/loadtest.test.js` and `tests/check-freshness.test.js`. Route them through `stripComments()` the
 next time either file is touched.
+
+## Comment archaeology: present-tense constraints, not review history (#966)
+
+**Date:** 2026-07-31. **Status:** shipped.
+
+**The rule.** A source comment states the current constraint, not the argument that produced it. A
+provenance tag of the shape `(issue #N review fix, SEVERITY)` trims to a bare `(#N)` — the constraint
+stays, the review-round vocabulary goes. A comment narrating what an earlier version of the code, or an
+earlier draft of the comment itself, said — once that fact no longer constrains anything — is rewritten
+to its present-tense fact or deleted outright; a comment recording that behavior moved (e.g. the admin
+brute-force throttle now living in `services/lockout.js` instead of module-scoped scalars in
+`routes/auth.js`) keeps the fact plus a bare `(#N)` pointer, never "used to." Deletion applies to the
+narrating clause only — a comment never loses a constraint that is still true. The narrative is not
+lost, only relocated: it already lives in git history and, for anything architecture-bearing, in this
+file.
+
+**What stays untouched, on purpose.** Rendered copy and string literals (a guest-facing "Delete this
+comment?" confirm dialog is not source commentary). Present-tense self-reference ("this comment already
+warns against X" — a comment pointing at its own surrounding prose, not at history). Domain or purpose
+phrasing a naive sweep could mis-flag as archaeology: "an earlier holder calls release()" (a semaphore's
+own queueing vocabulary), a guest's "previously-second-best" tied photo (a ranking term, not a code
+version), or "used to auto-suggest" in its ordinary functional sense ("is used to do X"), not the
+narrating sense ("this code used to do X, now does Y").
+
+**Scope.** A sweep over 29 candidate files (25 edited) across `src/**/*.js`, `src/views/**/*.ejs`, and
+`src/public/css/*.css`, run against four case-insensitive searches (`used to (say|describe)`,
+`review (fix|finding)`, `this comment`, `used to|previously|formerly|an earlier|a prior`) and the union of
+their matches, each hand-classified against the rule above. `src/services/tasks.js`'s SPECIAL_RULES doc
+comment kept its live claim — flash deliberately does not extend the mode enum — while dropping the
+trailing correction clause a prior sweep had left attached to it; `tests/flash-engine.test.js` pins that
+exact claim and stayed untouched, per #939's "assertions on comment prose stay raw" carve-out.
+
+**The searches are line-based, not phrase-based.** All four patterns match within a single physical line;
+a phrase split across a comment wrap (e.g. `review\n// fix` or `used\n// to`) evades every one of them.
+Two adversarial review rounds on this issue found such wrap-split archaeology the line-based searches
+missed. The honest re-verification tool is a wrap-tolerant re-run of the same patterns, allowing 1-12
+characters of whitespace or a comment leader (`[\s*/#<%-]{1,12}`) between the split words, not a rerun of
+the line-based originals.

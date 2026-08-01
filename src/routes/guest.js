@@ -168,7 +168,7 @@ const socialRateLimiter = createRateLimiter({
 // suppressed.
 //
 // A challenge the guest has already completed is excluded from the sealed
-// set entirely (issue #754 review fix, MAJOR A) — it can never itself be
+// set entirely (#754) — it can never itself be
 // suppressed (so a task re-dated into the future after the guest already
 // submitted for it stays visible in Done, title and all) and it never
 // consumes the one-box slot a still-locked challenge needs (so a completed
@@ -178,7 +178,7 @@ const socialRateLimiter = createRateLimiter({
 // against this situation ever arising; this exclusion is defence in depth,
 // not a substitute for it.
 //
-// The tie-break comparator is total (issue #754 review fix — a second
+// The tie-break comparator is total (#754 — a second
 // challenge sharing the exact same special_date must resolve to one
 // deterministic survivor, not whichever happens to sort first in `rows`):
 // special_date, then sort_order, then id. Earlier versions relied on `rows`
@@ -195,8 +195,8 @@ const socialRateLimiter = createRateLimiter({
 function suppressedChallengeIds(rows, todayIso) {
   const sealed = rows.filter(function (t) {
     // isValidDateString guards the ceiling the same way GET /tasks' own
-    // isDatedChallenge mapping guards locked/isToday/unlockAt below (issue
-    // #754 review fix): special_date is a free-form TEXT column, and
+    // isDatedChallenge mapping guards locked/isToday/unlockAt below
+    // (#754): special_date is a free-form TEXT column, and
     // isSealed's plain string comparison treats a regex-invalid value like
     // '2026-08-1' as sorting ABOVE a valid '2026-08-06' (string '>' compares
     // character by character, and '1' > '0'), which could put a garbage row
@@ -223,7 +223,7 @@ function suppressedChallengeIds(rows, todayIso) {
 }
 
 // ---------------------------------------------------------------------------
-// The reachable-live-task COUNT (issue #754 review fix, MAJOR C): the same
+// The reachable-live-task COUNT (#754): the same
 // "how many live tasks can this guest actually reach" derivation GET / and
 // GET /how-to-play both need — live tasks minus whatever suppressedChallengeIds
 // removes. Before this helper existed, both routes hand-wrote the identical
@@ -268,8 +268,8 @@ router.get('/', function (req, res) {
 
   // Total live tasks (guests only ever see live tasks), minus any sealed
   // one-day-only challenge the mystery-box ceiling suppresses (issue #754) —
-  // reachableLiveTaskCount is the single owner of this derivation (review
-  // fix, MAJOR C), shared with GET /how-to-play, so this progress bar can
+  // reachableLiveTaskCount is the single owner of this derivation (#754),
+  // shared with GET /how-to-play, so this progress bar can
   // never count a challenge a guest can never actually reach.
   const timezone = getEventConfig().timezone;
   const todayIso = eventDays.eventLocalDateString(timezone);
@@ -431,13 +431,12 @@ router.get('/tasks', function (req, res) {
   //              never read undefined/null.
   //
   //   This route deliberately does NOT also emit a render-priority flag
-  //   (issue #762 review fix, MINOR — a prior version carried
-  //   `specialPriority: locked || isToday || flashActive` here, a SECOND
-  //   owner of "which rows are special" alongside tasks.ejs's own
-  //   specialRank() ranking function; a future special type added to rank
-  //   alone, without also widening this flag, would land its row silently in
-  //   ordinaryTodo, un-ranked, in host sort order, with no marker position —
-  //   nothing would fail, the row would just be in the wrong place).
+  //   (#762) — that would be a SECOND owner of "which rows are special"
+  //   alongside tasks.ejs's own specialRank() ranking function; a future
+  //   special type added to rank alone, without also widening this flag,
+  //   would land its row silently in ordinaryTodo, un-ranked, in host sort
+  //   order, with no marker position — nothing would fail, the row would
+  //   just be in the wrong place.
   //   tasks.ejs's specialRank() is now the single owner of both "is this row
   //   special" and "where does it sort": membership is derived FROM the
   //   rank (below the shared ordinary floor) rather than asserted here a
@@ -447,29 +446,28 @@ router.get('/tasks', function (req, res) {
   //   "takes no priority position" clause) — specialRank reads exactly the
   //   same locked/isToday/flashActive booleans this map already computes.
   //
-  // isDatedChallenge (issue #754 review fix, MINOR I) guards all three
+  // isDatedChallenge (#754) guards all three
   // date-derived fields at once: special_date is a free-form TEXT column with
   // no shape constraint, and eventDays.dayOpensAt()'s Intl date math throws a
   // RangeError on a value that isn't a real YYYY-MM-DD string. A malformed
   // special_date is treated as "not a dated challenge at all" — an ordinary
   // row, unlockAt null — rather than taking down /tasks for every guest.
   //
-  // Flash fields (issue #762 plan step 1; review fix -- MAJOR duplicated
-  // ownership) — flashActive, flashEndsAt, flashBonus, flashTotalMs:
+  // Flash fields (#762 plan step 1) — flashActive, flashEndsAt, flashBonus, flashTotalMs:
   //   flashActive/flashBonus — read off tasks.bonusForTask(t, clock), the
   //              declared single owner of "is anything paying, and if so
-  //              what" (src/services/tasks.js). Before this fix, flashActive
-  //              was hand-composed here as
+  //              what" (src/services/tasks.js), not hand-composed here as
   //              `whatSpecial(...) === SPECIAL_FLASH && flashState(...) ===
-  //              FLASH_ACTIVE` — a second copy of the exact precedence-plus-
-  //              paying rule bonusForTask already owns, and flashBonus was
-  //              read straight off the column rather than the amount
-  //              bonusForTask says will actually bank. A future guard added
-  //              to the flash rule's `paying` (SPECIAL_RULES, tasks.js) would
-  //              move bonusForTask's answer without moving this hand-composed
-  //              copy, letting the pill advertise a bonus the submission does
-  //              not pay -- precisely the defect criterion 2 exists to
-  //              prevent, arriving through a second, un-collapsed owner.
+  //              FLASH_ACTIVE` — that would be a second copy of the exact
+  //              precedence-plus-paying rule bonusForTask already owns, with
+  //              flashBonus read straight off the column rather than the
+  //              amount bonusForTask says will actually bank. A future guard
+  //              added to the flash rule's `paying` (SPECIAL_RULES, tasks.js)
+  //              would then move bonusForTask's answer without moving a
+  //              hand-composed copy here, letting the pill advertise a bonus
+  //              the submission does not pay -- precisely the defect
+  //              criterion 2 exists to prevent, arriving through a second,
+  //              un-collapsed owner.
   //              `bonusDecision.reason === tasks.BONUS_REASON_FLASH` (rather
   //              than just `bonusDecision !== null`) is criterion 2's
   //              tie-break: the 'daily' rule can also be the one paying, and
@@ -521,9 +519,8 @@ router.get('/tasks', function (req, res) {
     // Gated on amount > 0: a legacy row carrying a date with a NULL bonus never
     // had anything to miss, and must not render "+0".
     //
-    // NOT mutually exclusive with the live markers by construction (issue #926
-    // review fix, MAJOR M3 — correcting a false claim this comment used to
-    // make). isToday/locked are derived here from tasks.isSealed/isOnDay
+    // NOT mutually exclusive with the live markers by construction (#926).
+    // isToday/locked are derived here from tasks.isSealed/isOnDay
     // directly, while missedBonusForTask() independently walks each rule's OWN
     // `missed` predicate, which does not consult whether that rule is
     // presently "spoken for" (findSpecialRule's separate question). A task
@@ -621,7 +618,7 @@ router.get('/tasks', function (req, res) {
 // the profile menu (a plain GET, no query string). ?first=1 (still honored
 // via req.query.first below) shows the "Skip for now" link for a guest
 // mid-first-run; nothing currently redirects here with it since #244 retired
-// the separate /onboard step that used to.
+// the separate /onboard step.
 //
 // taskCount is the LIVE count of active tasks (owner directive: never a
 // hard-coded number, so the copy tracks admin changes to the task list).
@@ -636,7 +633,7 @@ router.get('/how-to-play', function (req, res) {
   // Same exclusion as GET / and GET /tasks (issue #754) — a sealed one-day-only
   // challenge the mystery-box ceiling suppresses must not inflate this "N
   // photo tasks" count past what a guest can actually reach.
-  // reachableLiveTaskCount is the single owner (review fix, MAJOR C), shared
+  // reachableLiveTaskCount is the single owner (#754), shared
   // with GET /'s progress-bar denominator.
   const timezone = getEventConfig().timezone;
   const todayIso = eventDays.eventLocalDateString(timezone);
@@ -810,7 +807,7 @@ router.get('/tasks/:id', function (req, res) {
   // "not done" and invite a resubmit that would have silently reversed the
   // takedown. task.ejs branches on submission.taken_down to render the
   // "with the hosts" state instead of the ordinary complete state. Loaded
-  // BEFORE the seal gate below (issue #754 review fix, MAJOR A) so the gate
+  // BEFORE the seal gate below (#754) so the gate
   // can tell "sealed, and the guest has no visible submission" apart from
   // "sealed, but the guest already has one" — see that gate's own comment.
   // bonus_amount and photo_bonus (issue #756) are selected here alongside the
@@ -844,7 +841,7 @@ router.get('/tasks/:id', function (req, res) {
   // an early submission (criterion 5) — the submit-side half of this same
   // gate lives in submissions.js's submitPhoto.
   //
-  // EXCEPT (issue #754 review fix, MAJOR A; widened by the #754 re-check) when
+  // EXCEPT (#754) when
   // the guest already holds ANY submission for it — visible or taken down —
   // e.g. a host re-dated the task's special_date to a future day after the
   // guest already completed it. #755's refusal rule (blocking that re-date
@@ -859,8 +856,7 @@ router.get('/tasks/:id', function (req, res) {
   // this render-side gate must let the guest reach the page in both.
   //
   // hasSubmission counts ANY existing row, including a guest-attributed
-  // self-delete (issue #886 PR review fix, minor C — reverting a narrowing
-  // that briefly excluded that case). The premise for excluding it was that
+  // self-delete (#886). The premise for excluding it was that
   // submitPhoto's own isSealed gate would then refuse the upload the guest
   // reached this page to make — but that premise is false: submitPhoto's
   // gate is `tasks.isSealed(task, todayIso) && !existing` (src/services/
@@ -920,7 +916,7 @@ router.get('/tasks/:id', function (req, res) {
     };
   }
 
-  // Issue #886 PR review fix (major B): resolve the guest-clean-slate rule
+  // Issue #886: resolve the guest-clean-slate rule
   // HERE, once, through photos.hiddenByOwningGuest — the single owner of
   // "is this row hidden by the guest who owns it" — instead of handing
   // task.ejs the raw row and letting it re-derive `taken_down_by === 'guest'`
@@ -938,8 +934,8 @@ router.get('/tasks/:id', function (req, res) {
   // row, null or 1-5 = a row with that rank). Rank 1 is gold ("won-first");
   // any other rank, including a possession-only NULL, is an ordinary win
   // ("won-place"); no row at all falls back to the pre-#611 earned/locked
-  // split, which was previously computed in the template as
-  // `submission ? 'earned' : 'locked'` — guestFacingSubmission is that same
+  // split (`submission ? 'earned' : 'locked'`, decided here rather than in
+  // the template) — guestFacingSubmission is that same
   // signal, unaffected by a host takedown (issue #190) since only a guest's
   // own self-delete nulls it.
   const guestBadgeRank = taskBadges.guestBadgeRank(taskBadge.id, guest.id);
@@ -986,12 +982,12 @@ router.get('/tasks/:id', function (req, res) {
 // handler only owns what needs req/res: running multer, the multer-error and
 // missing-file branches, and mapping the returned status to a response.
 //
-// Issue #311 AC1/AC3: the submitPhoto call is wrapped in try/catch (its
-// synchronous better-sqlite3 writes are unguarded, so an unexpected throw --
-// a constraint violation, disk-full mid-write, a future regression -- used
-// to escape this async multer callback as an unhandled rejection and, with
-// no process-level guard existing anywhere in src/ before this, crash the
-// whole process) and run through withUploadSlot, which bounds how many of
+// Issue #311 AC1/AC3: the submitPhoto call is wrapped in try/catch — its
+// synchronous better-sqlite3 writes are unguarded, so an unexpected throw
+// (a constraint violation, disk-full mid-write, a future regression) would
+// otherwise escape this async multer callback as an unhandled rejection and
+// crash the whole process, since no process-level guard exists anywhere
+// else in src/ — and run through withUploadSlot, which bounds how many of
 // these heavy pipelines run at once under a concurrent-upload burst (see
 // src/utils/upload-concurrency.js).
 // ---------------------------------------------------------------------------
@@ -1073,7 +1069,7 @@ router.post('/tasks/:id/submit', uploadRateLimiter, function (req, res) {
     // never gets a flash to also print, avoiding a double-render of the same
     // moment.
     //
-    // guestCleanSlateReplace (issue #886 PR review fix, minor F): a replace
+    // guestCleanSlateReplace (#886): a replace
     // that landed on a row the owning guest had hidden themselves gets the
     // SAME success-card reward path as 'created', reusing setTaskCompleteReward
     // and task.ejs's existing "Task complete!" copy verbatim — no new flash
@@ -1393,7 +1389,7 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
     // guests.avatar_path, and returns the filename. No temp file to read back
     // or clean up.
     let newAvatarPath = guest.avatar_path; // keep existing unless replaced
-    // Issue #929 PR review fix: a gate rejection (photos.saveAvatar resolving
+    // Issue #929: a gate rejection (photos.saveAvatar resolving
     // null, never thrown for AVATAR_QUEUE_BUSY/AVATAR_SLOT_TIMEOUT — see that
     // function's own doc comment) must not cost the guest their name/PIN/
     // social edits from this same POST. This flag is what keeps that case

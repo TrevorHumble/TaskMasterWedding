@@ -175,13 +175,10 @@ function attachGuest(req, res, next) {
   // to compute on every request, including a POST that redirects without
   // ever rendering a page.
   //
-  // recapRows/recapHasMore do NOT live here (issue #644 review — an earlier
-  // version of this file called notifications.getRecap() right alongside
-  // getUnreadCount, on the mistaken belief that getRecap's own PAGE_SIZE cap
-  // already made it cheap; it did not, since getRecap still ran a full
-  // three-source merge-and-sort internally before slicing, unconditionally,
-  // on every single request in the app whether or not that request ever
-  // rendered the recap panel). Assembling the first page is now
+  // recapRows/recapHasMore do NOT live here (#644): getRecap runs a full
+  // three-source merge-and-sort internally before slicing, so calling it
+  // unconditionally on every request — including one that never renders the
+  // recap panel — would not be cheap. Assembling the first page is now
   // src/services/render-locals.js's withBadgeMoment() job instead — the
   // render-time-only helper every guest res.render() already passes through
   // for the unrelated badgeMoment stamp — so it only ever runs for a request
