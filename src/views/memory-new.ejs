@@ -9,7 +9,7 @@
       SOME but not all of a batch's photos saved. Transcribed from the
       owner-approved phase-1 mock (#931 visual gate, 2026-08-01) into real,
       data-driven markup — partialBatch is built by GET /memories/new
-      (src/routes/guest.js) from the one-shot memoryBatchPartial cookie
+      (src/routes/guest/memories.js) from the one-shot memoryBatchPartial cookie
       (src/middleware/session.js), scoped to this guest's own saved photos.
       One-shot: the cookie is already cleared by the time this renders (same
       read-then-clear contract as flash/taskCompleteReward), so a reload
@@ -23,7 +23,7 @@
       // failed file (both the ones whose name is shown AND any the 3000-byte
       // cookie budget dropped) — never just the shown subset, so the guest's
       // count is never an undercount. failedCount is computed once, by
-      // GET /memories/new (src/routes/guest.js), and read here rather than
+      // GET /memories/new (src/routes/guest/memories.js), and read here rather than
       // re-deriving failed.length + droppedCount a second time in this view
       // (#931 review MAJOR 2 — single owner of that formula).
       var _failedTotal = partialBatch.failedCount;
@@ -56,42 +56,61 @@
     <p class="form-error" role="alert"><%= error %></p>
   <% } %>
 
+  <%# Issue #990: form parity with the task-upload form (partials/task-upload-
+      form.ejs, #611 redesign) — same preview-wrap/caption-input/task-upload-
+      actions structure, transcribed from the owner-approved phase-1 mock
+      (2026-08-01, same loop as #931). The memory-only caption-toggle rule
+      (memory-caption.js) and multi-file picker stay unique to this form. %>
   <section class="upload-section">
     <form action="/memories"
           method="POST"
-          enctype="multipart/form-data">
+          enctype="multipart/form-data"
+          class="task-upload-form">
       <%- include('partials/csrf-field') %>
 
-      <div class="form-row">
+      <!-- Live preview target; filled by /js/upload.js -->
+      <div class="preview-wrap">
+        <img id="upload-preview" class="upload-preview" alt="" hidden />
+      </div>
+
+      <div class="form-row" id="caption-field">
+        <textarea id="caption"
+                  name="caption"
+                  rows="2"
+                  maxlength="500"
+                  placeholder="Add a caption"
+                  aria-label="Add a caption"
+                  class="caption-input"></textarea>
+      </div>
+      <p class="form-help caption-batch-note" id="caption-batch-note" hidden>
+        To add a caption, please choose one photo at a time.
+      </p>
+
+      <%# The two actions stacked as one block, mirroring task-upload-form.ejs
+          (owner, 2026-07-31): white choose-photo directly above the green
+          submit. data-uploading-label drives the submit/pageshow handlers in
+          src/public/js/upload.js (issue #990 AC4/AC5). %>
+      <div class="task-upload-actions">
         <%- include('partials/upload-field', {
           id: 'photos',
           name: 'photos',
           accept: 'image/jpeg,image/png,image/webp',
           required: true,
           multiple: true,
+          labelClass: 'btn-secondary btn-block',
           label: 'Choose photos…'
         }) %>
+        <button type="submit" class="btn btn-block" data-uploading-label="Sharing…">Share</button>
       </div>
-
-      <div class="form-row" id="caption-field">
-        <label for="caption" class="form-label">Caption (optional)</label>
-        <input type="text"
-               id="caption"
-               name="caption"
-               maxlength="500"
-               placeholder="Say something about these photos"
-               class="text-input" />
-      </div>
-      <p class="form-help caption-batch-note" id="caption-batch-note" hidden>
-        To add a caption, please choose one photo at a time.
-      </p>
-
-      <button type="submit" class="btn btn-block">Share</button>
     </form>
   </section>
 
-  <!-- Direct include of the filename-label script (see task.ejs's note). -->
+  <!-- Direct include of the filename-label + preview scripts (see task.ejs's
+       note). upload.js's initPreview binds #photos here (issue #990 AC2); the
+       memory-form submit/pageshow uploading-state handlers (AC4/AC5) live in
+       the same file, scoped to this form only. -->
   <script src="/js/upload-filename.js" defer></script>
+  <script src="/js/upload.js" defer></script>
   <!-- Memory-scoped caption toggle (issue #364 AC7/AC8) — not part of the
        shared upload-filename control since no other upload caller has a
        caption box to toggle. -->

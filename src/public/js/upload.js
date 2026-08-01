@@ -1,15 +1,22 @@
 // src/public/js/upload.js
 //
-// Serves two forms: the task-photo upload (#photo on task.ejs) and the
-// profile-edit avatar upload (#avatar on me-edit.ejs / join.ejs). Only one
-// is present per page. This file owns:
+// Serves three forms: the task-photo upload (#photo on task.ejs), the
+// profile-edit avatar upload (#avatar on me-edit.ejs / join.ejs), and the
+// share-a-memory batch upload (#photos on memory-new.ejs). Only one is
+// present per page. This file owns:
 //   1. Live filename-independent image preview for whichever input is present
-//      (pre-existing behavior, unchanged).
+//      (#photo, #avatar, or #photos — the last widened onto this shared path
+//      by issue #990, alongside an onerror fallback and updated alt copy).
 //   2. Pure, DI-friendly downscale helpers (computeTargetSize, shouldDownscale,
 //      downscaleImage) used ONLY by the task-photo submit flow (issue #254).
 //   3. An idempotent fetch-intercepting submit handler scoped to the task
 //      form's #photo input (issue #254). The avatar form's separate
 //      memory-storage server flow is untouched — this handler never binds to it.
+//   4. The memory form's non-intercepted native-submit uploading state
+//      (initMemorySubmit, issue #990): unlike #3, it never calls
+//      preventDefault — the browser's own multipart POST proceeds untouched
+//      (AC6, no-JS parity) — it only toggles the submit button's disabled/
+//      label state while that POST is in flight, plus a pageshow reset.
 'use strict';
 
 // ---------------------------------------------------------------------------
@@ -165,21 +172,65 @@ function downscaleImage(file, opts, env) {
 // DOM wiring.
 // ---------------------------------------------------------------------------
 
+/**
+ * Put a submit button into its in-flight "uploading" state: disabled, its
+ * label swapped, and the shared styling hook added. Shared by initTaskSubmit
+ * (fetch-intercepted) and initMemorySubmit (native submit) so the two flows'
+ * button mechanics can't drift — each keeps its own trigger for calling this.
+ * @param {HTMLButtonElement} btn
+ * @param {string} label
+ */
+function setUploadingState(btn, label) {
+  btn.disabled = true;
+  btn.textContent = label;
+  btn.classList.add('btn-uploading');
+}
+
+/**
+ * Restore a submit button from the uploading state set by setUploadingState
+ * above: enabled, original label, styling hook removed.
+ * @param {HTMLButtonElement} btn
+ * @param {string} label
+ */
+function clearUploadingState(btn, label) {
+  btn.disabled = false;
+  btn.textContent = label;
+  btn.classList.remove('btn-uploading');
+}
+
 function initPreview() {
-  var input = document.getElementById('photo') || document.getElementById('avatar');
+  // Issue #990 AC2: the memory-share form's picker (#photos, multiple files)
+  // previews the same way the task/avatar single-file pickers already do —
+  // same element, same behavior, first selected file only.
+  var input =
+    document.getElementById('photo') ||
+    document.getElementById('avatar') ||
+    document.getElementById('photos');
   var preview = document.getElementById('upload-preview');
 
   if (!input || !preview) {
     return; // No upload form on this page.
   }
 
-  // Idempotent guard: upload.js is loaded twice per page that uses this
-  // form (direct <script> tag + footer's pageScript). Without this, the
-  // second load's addEventListener would double-bind the change listener.
+  // Idempotent guard: upload.js is loaded twice on both task.ejs and
+  // me-edit.ejs (each has a direct <script> tag AND passes pageScript:
+  // 'upload.js' to its route, so footer.ejs's pageScript mechanism adds a
+  // second tag) — /memories/new loads it once, via a single direct tag,
+  // and passes no pageScript. The guard stays regardless of how many times
+  // a given page loads the script, so it is correct either way. Without it,
+  // a double load's addEventListener would double-bind the change listener.
   if (input.dataset.previewBound === 'true') {
     return;
   }
   input.dataset.previewBound = 'true';
+
+  // A file with an empty `type` (some mobile camera-roll pickers omit it)
+  // slips the image-type guard below and reaches an <img> src it can't
+  // decode, leaving a broken-image icon on screen. Hide the slot instead.
+  preview.onerror = function () {
+    preview.hidden = true;
+    preview.removeAttribute('src');
+  };
 
   var lastObjectUrl = null;
 
@@ -207,7 +258,7 @@ function initPreview() {
     lastObjectUrl = URL.createObjectURL(file);
     preview.src = lastObjectUrl;
     preview.hidden = false;
-    preview.alt = 'Preview of the photo you selected';
+    preview.alt = 'Preview of the first photo you selected';
   });
 }
 
@@ -337,9 +388,7 @@ function initTaskSubmit() {
     var originalLabel = submitBtn.textContent;
     var uploadingLabel = submitBtn.getAttribute('data-uploading-label') || 'Uploading…';
 
-    submitBtn.disabled = true;
-    submitBtn.textContent = uploadingLabel;
-    submitBtn.classList.add('btn-uploading');
+    setUploadingState(submitBtn, uploadingLabel);
     if (errorEl) {
       errorEl.hidden = true;
       errorEl.textContent = '';
@@ -421,9 +470,7 @@ function initTaskSubmit() {
         throw guestFacingError(buildMessage ? buildMessage(response) : GENERIC_UPLOAD_ERROR);
       })
       .catch(function (err) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalLabel;
-        submitBtn.classList.remove('btn-uploading');
+        clearUploadingState(submitBtn, originalLabel);
         if (errorEl) {
           // Only an error THIS handler authored carries copy fit for a
           // guest to read. Anything else reaching here is an engine-authored
@@ -441,9 +488,78 @@ function initTaskSubmit() {
   });
 }
 
+/**
+ * Wires the memory-share form's (#photos) submit: a native, non-intercepted
+ * submit — unlike the task form's fetch-based initTaskSubmit above — that
+ * only toggles the button's uploading state (disabled + the label from
+ * data-uploading-label) while the browser's own POST is in flight, plus a
+ * pageshow reset so a bfcache back-navigation to this page never shows a
+ * dead "Sharing…" button (issue #990 AC4/AC5).
+ *
+ * Scoped to the memory form only: #photos is unique to memory-new.ejs. The
+ * task form's uploading state stays owned entirely by initTaskSubmit (its
+ * fetch-intercepted flow already disables/relabels its own button).
+ */
+function initMemorySubmit() {
+  var photosInput = document.getElementById('photos');
+  if (!photosInput) {
+    return; // Not the memory-share page (also excludes the task/avatar forms).
+  }
+  var form = photosInput.closest('form');
+  if (!form) {
+    return;
+  }
+  var submitBtn = form.querySelector('button[type="submit"]');
+  if (!submitBtn) {
+    return;
+  }
+
+  // Idempotent guard: same convention as initPreview/initTaskSubmit above,
+  // so a second script load (were this page ever to gain a footer
+  // pageScript) can't double-bind the submit/pageshow listeners.
+  if (form.dataset.memorySubmitBound === 'true') {
+    return;
+  }
+  form.dataset.memorySubmitBound = 'true';
+
+  var originalLabel = submitBtn.textContent;
+
+  form.addEventListener('submit', function () {
+    if (submitBtn.disabled) {
+      return; // Already in flight.
+    }
+    var uploadingLabel = submitBtn.getAttribute('data-uploading-label') || 'Sharing…';
+    setUploadingState(submitBtn, uploadingLabel);
+    // No preventDefault/fetch: the browser's own POST carries the multipart
+    // body exactly as a no-JS submit would (AC6) — this handler is
+    // presentation-only, unlike initTaskSubmit's intercepted flow.
+    //
+    // Deliberately no timeout-based reset here (issue #990, Recorded
+    // omissions: "Stalled-POST recovery"). If the native POST never
+    // completes on this document (stopped load, wifi stall with no error
+    // navigation), the button stays disabled reading "Sharing…" until
+    // reload — re-enabling it mid-upload on a guess would invite a
+    // duplicate submit of the same batch. A reload, or the server's own
+    // response navigation (the normal case), is what clears it.
+  });
+
+  // AC5: a bfcache restore (back-navigation) re-shows this exact DOM without
+  // re-running init(), so a prior in-flight "Sharing…" state must be reset
+  // here rather than relying on a fresh page load to clear it. Gated on
+  // evt.persisted so this only fires for an actual bfcache restore, not
+  // every ordinary pageshow (which also fires after a normal fresh load).
+  window.addEventListener('pageshow', function (evt) {
+    if (!evt.persisted) {
+      return;
+    }
+    clearUploadingState(submitBtn, originalLabel);
+  });
+}
+
 function init() {
   initPreview();
   initTaskSubmit();
+  initMemorySubmit();
 }
 
 // The script is loaded with defer, but guard anyway for safety.

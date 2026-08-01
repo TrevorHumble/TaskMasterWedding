@@ -400,6 +400,67 @@ describe('AC6: signed-out visitor is gated', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #990 AC1: the share form mirrors partials/task-upload-form.ejs's
+// structure — form class, preview-wrap, caption-input textarea, and the
+// actions stacked white-picker-above-green-Share, with the mock's inert
+// #upload-error dropped and upload.js now loaded so AC2's preview can fire.
+// ---------------------------------------------------------------------------
+describe('#990 AC1: memory form mirrors the task-upload-form structure', () => {
+  it('renders form class, preview-wrap, caption textarea, and stacked task-upload-actions', async () => {
+    const { token } = insertGuest('990 Form Structure Guest');
+    const agent = await agentFor(token);
+
+    const res = await agent.get('/memories/new');
+    expect(res.status).toBe(200);
+
+    const formMatch = res.text.match(/<form[^>]*action="\/memories"[\s\S]*?<\/form>/);
+    expect(formMatch).not.toBeNull();
+    const formHtml = formMatch[0];
+
+    // Parity markers from partials/task-upload-form.ejs, per the approved
+    // screen: preview slot, bordered caption textarea (rows/maxlength/
+    // placeholder/aria-label all match the task form's), and the actions
+    // wrapper. The form carries class="task-upload-form" too (naming
+    // parity, mirroring the task partial's own convention), but that class
+    // has no CSS of its own — the parity test rests on the classes that
+    // actually carry the shared look, not on the unstyled form class.
+    expect(formHtml).toContain('<div class="preview-wrap">');
+    expect(formHtml).toContain('<img id="upload-preview" class="upload-preview" alt="" hidden');
+    expect(formHtml).toMatch(/<textarea id="caption"[^>]*rows="2"[^>]*maxlength="500"/);
+    expect(formHtml).toContain('placeholder="Add a caption"');
+    expect(formHtml).toContain('aria-label="Add a caption"');
+    expect(formHtml).toContain('class="caption-input"');
+    expect(formHtml).toContain('class="task-upload-actions"');
+
+    // The picker renders as the white full-width button, directly above the
+    // green full-width Share button (source order, both inside the actions
+    // wrapper) — "stacked" per the approved screen, not merely both present.
+    const actionsAt = formHtml.indexOf('class="task-upload-actions"');
+    const pickerAt = formHtml.indexOf('btn-secondary btn-block', actionsAt);
+    const shareBtnAt = formHtml.indexOf('<button type="submit"', actionsAt);
+    expect(pickerAt).toBeGreaterThan(actionsAt);
+    expect(shareBtnAt).toBeGreaterThan(pickerAt);
+    expect(formHtml).toContain('Choose photos…');
+
+    // The submit/pageshow uploading-state hook (AC4/AC5) and the memory
+    // form's own uploading label — distinct from the task form's
+    // "Uploading…" so the two forms never show identical in-flight copy.
+    expect(formHtml).toContain('data-uploading-label="Sharing…"');
+    expect(formHtml).not.toContain('data-uploading-label="Uploading…"');
+
+    // Plan step 1: the phase-1 mock's inert #upload-error element is
+    // dropped — the memory form's uploading state is presentation-only
+    // (initMemorySubmit never intercepts submit, so it has no error path to
+    // report into).
+    expect(formHtml).not.toContain('id="upload-error"');
+
+    // AC2 depends on this: without the script tag, initPreview never runs
+    // for #photos on this page.
+    expect(res.text).toContain('<script src="/js/upload.js" defer></script>');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC7 — COMPLETIONIST is unaffected by memory rows (memories don't help or
 // hurt it). The prior MOSTPHOTOS-excludes-memories case here was retired
 // with the MOSTPHOTOS badge itself (#711).
