@@ -150,11 +150,16 @@ it('AC1: a completion earning NO new badge shows "Task complete!" / "+1 point" /
 
   const page = await agent.get(res.headers.location);
   expect(page.text).toContain('Task complete!');
-  expect(page.text).toContain('+1 point');
+  // Issue #611: the earned amount and the "point"/"points" word are two
+  // separate elements now (the display-face number, then the smaller word
+  // beside it), not one "+1 point" run of text — assert both, singular.
+  expect(page.text).toContain('<span class="success-earned-num">+1</span>');
+  expect(page.text).toContain('<span class="success-earned-label">point</span>');
   // Bound to the guest's fresh total (1 completion + 4 bonus = 5), not a
   // stray "5" elsewhere on the page — an inversion-sensitive check: a
-  // stale/wrong total (e.g. still "4 points") would fail this.
-  expect(page.text).toContain('5 points');
+  // stale/wrong total (e.g. still "4 total") would fail this. Issue #611
+  // replaced "5 points" with a quiet "5 total" line under the earned number.
+  expect(page.text).toContain('<p class="success-total"><strong>5</strong> total</p>');
   // AC1's other half: no badge CELEBRATION for a no-badge completion. The
   // shared #badge-dialog shell itself now renders on every signed-in guest
   // page regardless (issue #644 review: it must exist even with nothing
@@ -188,8 +193,10 @@ it('AC2: crossing the BLOOM threshold renders a badge-dialog with the name + hea
   expect([302, 303]).toContain(fifthRes.status);
 
   const fifthPage = await agent.get(fifthRes.headers.location);
-  // The inline card still carries the point (points live ONLY there).
-  expect(fifthPage.text).toContain('+1 point');
+  // The inline card still carries the point (points live ONLY there). Issue
+  // #611: the earned number and its "point" word are two separate elements.
+  expect(fifthPage.text).toContain('<span class="success-earned-num">+1</span>');
+  expect(fifthPage.text).toContain('<span class="success-earned-label">point</span>');
 
   const dialog = extractBadgeDialog(fifthPage.text);
   expect(dialog).not.toBeNull();
@@ -199,7 +206,7 @@ it('AC2: crossing the BLOOM threshold renders a badge-dialog with the name + hea
   // No points language belongs inside the badge dialog (AC2) — an
   // inversion-sensitive check: if the inline card's markup were nested
   // inside the dialog by mistake, this would catch it.
-  expect(dialog).not.toContain('+1 point');
+  expect(dialog).not.toContain('success-earned-num');
   expect(dialog).not.toContain('points');
 
   // A SIXTH completion crosses no new threshold (BOUQUET is at 10) — the
@@ -465,15 +472,20 @@ it('AC-E (#682): a worth-3 task\'s success line reads "+3 points", not a hardcod
 
   const page = await agent.get(res.headers.location);
   expect(page.text).toContain('Task complete!');
-  expect(page.text).toContain('+3 points');
-  // Scope to the success-points paragraph itself (not the whole page): issue
-  // #656 added the memory-payoff line to this same success card, and that
-  // line legitimately contains the literal string "+1 point" ("+1 point for
-  // your first memory each day..."), which would make a whole-page
-  // `not.toContain('+1 point')` assertion fail for a reason unrelated to
-  // this AC's real intent — that the success line reports THIS task's own
-  // worth (+3), not some other per-task figure.
-  const successPointsMatch = /<p class="success-points">[\s\S]*?<\/p>/.exec(page.text);
-  expect(successPointsMatch).not.toBeNull();
-  expect(successPointsMatch[0]).not.toContain('+1 point');
+  // Issue #611: the earned number ("+3") and the "points" word are separate
+  // elements now — the num span carries the display-face figure.
+  expect(page.text).toContain('<span class="success-earned-num">+3</span>');
+  expect(page.text).toContain('<span class="success-earned-label">points</span>');
+  // Scope to the success-earned-num span itself (not the whole page): this
+  // is the inversion-sensitive half of the AC — a hardcoded "+1" leaking
+  // into the display-face number would fail this, proving the line reports
+  // THIS task's own worth (+3), not some other per-task figure. (Issue #611
+  // also removed this page's memory-payoff line entirely, so the old
+  // scoping rationale — a legitimate "+1 point" elsewhere on the page — no
+  // longer applies, but scoping to the exact span stays the tighter check.)
+  const successEarnedNumMatch = /<span class="success-earned-num">([\s\S]*?)<\/span>/.exec(
+    page.text
+  );
+  expect(successEarnedNumMatch).not.toBeNull();
+  expect(successEarnedNumMatch[1]).not.toContain('+1');
 });

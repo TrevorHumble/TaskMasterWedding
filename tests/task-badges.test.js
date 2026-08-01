@@ -672,3 +672,226 @@ describe('#869 PR review finding 2: empty alt on the icon branch renders decorat
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #611: guestBadgeRank() — the task detail page's one read of a
+// guest's OWN award row for a task's badge (undefined = no row, null = a
+// possession-only award with no placement, N = a ranked placement).
+// ---------------------------------------------------------------------------
+describe('issue #611: guestBadgeRank()', () => {
+  it('undefined when the guest holds no award row for this badge', () => {
+    const taskId = makeTask('GBR no-row task');
+    const guestId = makeGuest('GBR No Row Guest');
+    const badge = taskBadges.resolveTaskBadge(taskId);
+    expect(taskBadges.guestBadgeRank(badge.id, guestId)).toBeUndefined();
+  });
+
+  it('null when the guest holds a possession-only award (awardTaskBadge sets no rank)', () => {
+    const taskId = makeTask('GBR possession task');
+    const guestId = makeGuest('GBR Possession Guest');
+    const sub = makeSubmission(guestId, taskId);
+    const badge = taskBadges.awardTaskBadge(taskId, sub, { points: 5 });
+    expect(taskBadges.guestBadgeRank(badge.id, guestId)).toBeNull();
+  });
+
+  it('the numeric rank when the guest holds a ranked award (1st, 2nd, 3rd all distinguishable)', () => {
+    const taskId = makeTask('GBR ranked task');
+    const winner1 = makeGuest('GBR Ranked Winner 1');
+    const winner2 = makeGuest('GBR Ranked Winner 2');
+    const winner3 = makeGuest('GBR Ranked Winner 3');
+    const sub1 = makeSubmission(winner1, taskId);
+    const sub2 = makeSubmission(winner2, taskId);
+    const sub3 = makeSubmission(winner3, taskId);
+    const released = taskBadges.releaseRanking(taskId, [sub1, sub2, sub3]);
+    expect(released).toBeTruthy();
+
+    expect(taskBadges.guestBadgeRank(released.badge.id, winner1)).toBe(1);
+    expect(taskBadges.guestBadgeRank(released.badge.id, winner2)).toBe(2);
+    expect(taskBadges.guestBadgeRank(released.badge.id, winner3)).toBe(3);
+  });
+
+  it('a ranked award still reports its rank after the earning photo is taken down (possession-based, per releaseRanking)', () => {
+    const taskId = makeTask('GBR takedown-survives task');
+    const winner = makeGuest('GBR Takedown Winner');
+    const sub = makeSubmission(winner, taskId);
+    const released = taskBadges.releaseRanking(taskId, [sub]);
+
+    db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(sub);
+    expect(taskBadges.guestBadgeRank(released.badge.id, winner)).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #611: GET /tasks/:id renders the guest's REAL badge state (route-
+// resolved taskBadgeState), not the phase-1 fake per-task-id branch it
+// replaced. Covers AC3's four hero states and the note line each carries.
+// ---------------------------------------------------------------------------
+describe('issue #611: GET /tasks/:id renders the real per-guest badge state', () => {
+  function badgeHeroClass(html) {
+    const m = html.match(/class="task-badge-hero (task-badge-hero--[a-z-]+)"/);
+    return m ? m[1] : null;
+  }
+  function badgeHeroNote(html) {
+    const m = html.match(/<p class="task-badge-hero-note">([\s\S]*?)<\/p>/);
+    return m ? m[1] : null;
+  }
+  let heroSeq = 0;
+  function heroGuest(name) {
+    heroSeq += 1;
+    const token = `611-hero-${heroSeq}`;
+    const guestId = db
+      .prepare('INSERT INTO guests (token, name) VALUES (?, ?)')
+      .run(token, name).lastInsertRowid;
+    return { guestId, agent: signInGuest(app, token) };
+  }
+
+  it('locked (gray), "Best photo wins this badge" — no submission, no award row', async () => {
+    const taskId = makeTask('#611 locked task');
+    const guest = heroGuest('611 Locked Guest');
+
+    const res = await guest.agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    expect(badgeHeroClass(res.text)).toBe('task-badge-hero--locked');
+    expect(badgeHeroNote(res.text)).toBe('Best photo wins this badge');
+  });
+
+  it('earned (gray, same note as locked) — a visible submission but no award row', async () => {
+    const taskId = makeTask('#611 earned task');
+    const guest = heroGuest('611 Earned Guest');
+    makeSubmission(guest.guestId, taskId);
+
+    const res = await guest.agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    expect(badgeHeroClass(res.text)).toBe('task-badge-hero--earned');
+    expect(badgeHeroNote(res.text)).toBe('Best photo wins this badge');
+  });
+
+  it('won-place, "You won this badge — top 5" — a ranked award at rank 3', async () => {
+    const taskId = makeTask('#611 won-place ranked task');
+    const guest = heroGuest('611 Won Place Ranked Guest');
+    const sub = makeSubmission(guest.guestId, taskId);
+    const filler1 = makeGuest('611 Won Place Filler 1');
+    const filler2 = makeGuest('611 Won Place Filler 2');
+    const fillerSub1 = makeSubmission(filler1, taskId);
+    const fillerSub2 = makeSubmission(filler2, taskId);
+    // This guest's own submission is posted LAST, landing at rank 3.
+    taskBadges.releaseRanking(taskId, [fillerSub1, fillerSub2, sub]);
+
+    const res = await guest.agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    expect(badgeHeroClass(res.text)).toBe('task-badge-hero--won-place');
+    expect(badgeHeroNote(res.text)).toBe('You won this badge — top 5');
+  });
+
+  it('won-place — a possession-only award (rank NULL) reads the same as a ranked top-5 win', async () => {
+    const taskId = makeTask('#611 won-place null-rank task');
+    const guest = heroGuest('611 Won Place Null Guest');
+    const sub = makeSubmission(guest.guestId, taskId);
+    taskBadges.awardTaskBadge(taskId, sub, { points: 5 }); // no rank column set -> NULL
+
+    const res = await guest.agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    expect(badgeHeroClass(res.text)).toBe('task-badge-hero--won-place');
+    expect(badgeHeroNote(res.text)).toBe('You won this badge — top 5');
+  });
+
+  it('won-first, "You won this badge — 1st place" — a bundled-icon badge additionally renders the gold medallion', async () => {
+    const taskId = makeTask('#611 won-first icon task');
+    taskBadges.setTaskBadge(taskId, { artPath: '/badges/icons/favorite.svg' });
+    const guest = heroGuest('611 Won First Icon Guest');
+    const sub = makeSubmission(guest.guestId, taskId);
+    taskBadges.releaseRanking(taskId, [sub]);
+
+    const res = await guest.agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    expect(badgeHeroClass(res.text)).toBe('task-badge-hero--won-first');
+    expect(badgeHeroNote(res.text)).toBe('You won this badge — 1st place');
+    // The gold rule is conditional on art kind (AC3): a bundled icon renders
+    // through the medallion component, which theme.css's
+    // .task-badge-hero--won-first .badge-medallion rule recolors gold.
+    expect(res.text).toContain('<span class="badge-medallion">');
+  });
+
+  it('won-first on the default (non-icon) ribbon art renders a plain <img> — no medallion to recolor, but the win itself still shows', async () => {
+    const taskId = makeTask('#611 won-first ribbon task');
+    // No setTaskBadge call: resolveTaskBadge's lazy insert leaves art_path at
+    // the default ribbon SVG, which badgeIsIcon() reads as NOT an icon.
+    const guest = heroGuest('611 Won First Ribbon Guest');
+    const sub = makeSubmission(guest.guestId, taskId);
+    taskBadges.releaseRanking(taskId, [sub]);
+
+    const res = await guest.agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    expect(badgeHeroClass(res.text)).toBe('task-badge-hero--won-first');
+    expect(badgeHeroNote(res.text)).toBe('You won this badge — 1st place');
+    expect(res.text).not.toContain('badge-medallion');
+    expect(res.text).toMatch(
+      /<img class="task-badge-hero-art"[^>]*src="\/badges\/default-ribbon\.svg"/
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #611: the replace-photo <details> disclosure renders only once a
+// submission exists, and the caption field round-trips an existing caption.
+// ---------------------------------------------------------------------------
+describe('issue #611: replace disclosure gated on a submission; caption round-trip', () => {
+  let formSeq = 0;
+  function formGuest(name) {
+    formSeq += 1;
+    const token = `611-form-${formSeq}`;
+    const guestId = db
+      .prepare('INSERT INTO guests (token, name) VALUES (?, ?)')
+      .run(token, name).lastInsertRowid;
+    return { guestId, agent: signInGuest(app, token) };
+  }
+
+  it('a guest with no submission gets the plain form — no <details class="replace-disclosure">', async () => {
+    const taskId = makeTask('#611 no-submission upload task');
+    const guest = formGuest('611 No Sub Guest');
+
+    const res = await guest.agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('replace-disclosure');
+    expect(res.text).toContain('Upload &amp; complete');
+  });
+
+  it('a guest with a visible submission gets the form inside <details class="replace-disclosure">, submit reads "Upload & replace"', async () => {
+    const taskId = makeTask('#611 has-submission upload task');
+    const guest = formGuest('611 Has Sub Guest');
+    makeSubmission(guest.guestId, taskId);
+
+    const res = await guest.agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('<details class="replace-disclosure">');
+    expect(res.text).toContain('Upload &amp; replace');
+    expect(res.text).not.toContain('Upload &amp; complete');
+  });
+
+  it('the caption field round-trips an existing caption into the textarea', async () => {
+    const taskId = makeTask('#611 caption round-trip task');
+    const guest = formGuest('611 Caption Guest');
+    const subId = makeSubmission(guest.guestId, taskId);
+    db.prepare('UPDATE submissions SET caption = ? WHERE id = ?').run(
+      'Cutting the cake together!',
+      subId
+    );
+
+    const res = await guest.agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    const textareaMatch = res.text.match(/<textarea id="caption"[\s\S]*?>([\s\S]*?)<\/textarea>/);
+    expect(textareaMatch).not.toBeNull();
+    expect(textareaMatch[1]).toBe('Cutting the cake together!');
+  });
+
+  it('a guest with no caption yet round-trips an empty textarea, not the literal word "undefined" or "null"', async () => {
+    const taskId = makeTask('#611 caption empty round-trip task');
+    const guest = formGuest('611 Empty Caption Guest');
+
+    const res = await guest.agent.get(`/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    const textareaMatch = res.text.match(/<textarea id="caption"[\s\S]*?>([\s\S]*?)<\/textarea>/);
+    expect(textareaMatch).not.toBeNull();
+    expect(textareaMatch[1]).toBe('');
+  });
+});

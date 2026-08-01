@@ -2,13 +2,41 @@
 <%- include('partials/head', { title: title }) %>
 <%- include('partials/header') %>
 
-  <% if (typeof taskComplete !== 'undefined' && taskComplete) { %>
-    <!-- Success card (issue #255): the reward moment for a just-created
-         completion, and (issue #886) for a guest-clean-slate replace. The
-         route (src/routes/guest.js) writes a one-shot taskComplete payload
-         instead of setFlash when result.status === 'created' OR
-         result.guestCleanSlateReplace is true, so res.locals.flash is null
-         here and header.ejs's flash bar does not also render. -->
+  <p class="back-link"><a href="/tasks">&#8592; All tasks</a></p>
+
+  <h1 class="page-title center"><%= task.title %></h1>
+
+  <%# Issue #611: the task's badge, art only — no name, no "best photos earn"
+      sentence (owner, 2026-07-31: show, don't tell). State does the talking:
+      locked/earned (gray) until the guest WINS the badge — completing the
+      task alone does not recolor it — color once they win any placement,
+      gold ring + glyph only for 1st place. taskBadgeState is resolved by the
+      route (src/routes/guest.js), never branched on here. Tapping the badge
+      opens the badge page, which carries the name and the explanation. %>
+  <%# 'won-place' has no CSS modifier rule of its own — the base medallion
+      treatment IS the ordinary-win look, and only 'won-first' overrides it. %>
+  <% var badgeHeroNote = {
+       locked: 'Best photo wins this badge',
+       earned: 'Best photo wins this badge',
+       'won-first': 'You won this badge — 1st place',
+       'won-place': 'You won this badge — top 5',
+     }[taskBadgeState]; %>
+  <a class="task-badge-hero task-badge-hero--<%= taskBadgeState %>" href="/badge/<%= taskBadge.code %>" aria-label="<%= taskBadge.name %> badge">
+    <%- include('partials/badge-art', { badge: taskBadge, alt: '', imgClass: 'task-badge-hero-art', width: 72, height: 72 }) %>
+  </a>
+  <%# One short line of context (owner, 2026-07-31: the badge alone doesn't
+      explain itself — "this is probably the one place that could use a short
+      amount of text"). State picks the line. %>
+  <p class="task-badge-hero-note"><%= badgeHeroNote %></p>
+
+  <% if (taskComplete) { %>
+    <!-- Success beat (issue #255, redesigned by #611): the reward moment for a
+         just-created completion, and (issue #886) for a guest-clean-slate
+         replace. The route (src/routes/guest.js) writes a one-shot
+         taskComplete payload instead of setFlash when result.status ===
+         'created' OR result.guestCleanSlateReplace is true, so
+         res.locals.flash is null here and header.ejs's flash bar does not
+         also render. -->
     <%# Issue #650: the lucky treatment. `taskComplete.luckyBonus` is set by
         src/routes/guest.js ONLY when this submission banked the lucky bonus;
         it is absent on every ordinary completion, which is what keeps the
@@ -16,7 +44,10 @@
         (1-3), so `lucky` is null for every ordinary card and the whole gold
         treatment below collapses back to the green check. %>
     <% var lucky = taskComplete.luckyBonus ? { bonus: taskComplete.luckyBonus } : null; %>
-    <section class="success-card<%= lucky ? ' success-card--lucky' : '' %>" role="status">
+    <%# Cardless (owner, 2026-07-31): the ordinary beat sits straight on the
+        page — heading + points, nothing else. Only lucky keeps its approved
+        #650 card. %>
+    <section class="<%= lucky ? 'success-card success-card--lucky' : 'success-beat' %>" role="status">
       <% if (lucky) { %>
         <%# The lucky mark (issue #650): a gold four-leaf clover REPLACING the
             green check, so a lucky win reads as a different, rarer moment from
@@ -31,32 +62,40 @@
             <path d="M12 12C8.22 8.85 6.33 6.65 6.33 4.44A2.52 2.52 0 0 1 12 2.87A2.52 2.52 0 0 1 17.67 4.44C17.67 6.65 15.78 8.85 12 12Z" transform="rotate(270 12 12)" />
           </g>
         </svg>
+        <h2 class="success-heading">You found the lucky task!</h2>
       <% } else { %>
-        <svg class="success-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
+        <%# No checkmark (owner, 2026-07-31): it said the same thing as the
+            heading. The words carry the beat. %>
+        <h2 class="success-heading">Task complete!</h2>
       <% } %>
-      <h2 class="success-heading"><%= lucky ? 'You found the lucky task!' : 'Task complete!' %></h2>
-      <p class="success-points">
-        <%# Issue #756: taskComplete.earned is what THIS submission actually
-            banked (task.worth plus any admin/on-day bonus,
-            src/routes/guest.js) — never task.worth alone (issue #682 AC-E),
-            which would under-report a bonus submission. taskComplete.points
-            is a different number: the guest's grand total after this
-            submission. Both live on the same taskComplete object so this
-            block can't read one without the other. %>
-        <% if (lucky) { %>
-          <%# The lucky win shows the split, not one merged number (owner,
-              2026-07-21): the whole point is that the bonus is visible as a
-              bonus. %>
+      <%# Issue #756: taskComplete.earned is what THIS submission actually
+          banked (task.worth plus any admin/on-day bonus,
+          src/routes/guest.js) — never task.worth alone (issue #682 AC-E),
+          which would under-report a bonus submission. taskComplete.points
+          is a different number: the guest's grand total after this
+          submission. Both live on the same taskComplete object so this
+          block can't read one without the other. %>
+      <% if (lucky) { %>
+        <%# The lucky win shows the split, not one merged number (owner,
+            2026-07-21): the whole point is that the bonus is visible as a
+            bonus. %>
+        <p class="success-points">
           <%= taskComplete.earned - lucky.bonus %> + <strong><%= lucky.bonus %> bonus</strong>
           point<%= lucky.bonus === 1 ? '' : 's' %>! You're at <%= taskComplete.points %>!
-        <% } else { %>
-          +<%= taskComplete.earned %> point<%= taskComplete.earned === 1 ? '' : 's' %> &mdash; you're at <%= taskComplete.points %> point<%= taskComplete.points === 1 ? '' : 's' %>
-        <% } %>
-      </p>
-      <p class="success-memory-prompt">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
-      <%- include('partials/memory-payoff') %>
+        </p>
+      <% } else { %>
+        <%# Issue #611: the points beat — earned as the hero number, running
+            total as a quiet second line, replacing the flat one-sentence
+            treatment the owner rejected 2026-07-18. %>
+        <p class="success-earned">
+          <span class="success-earned-num">+<%= taskComplete.earned %></span>
+          <span class="success-earned-label">point<%= taskComplete.earned === 1 ? '' : 's' %></span>
+        </p>
+        <p class="success-total"><strong><%= taskComplete.points %></strong> total</p>
+      <% } %>
+      <%# No badge repeat here (owner, 2026-07-31: "badge again — this is a
+          crazy stack"): a just-won badge is celebrated by the hero badge above
+          (gold state) and the #badge-dialog modal, not a third rendering. %>
     </section>
   <% } %>
 
@@ -67,24 +106,9 @@
       this very submission just earned — see render-locals.js's withBadgeMoment) and
       whether to include badge-moment.js. Nothing left to render here. %>
 
-  <p class="back-link"><a href="/tasks">&#8592; All tasks</a></p>
-  <p class="back-link"><a href="/gallery?task=<%= task.id %>">See photos for this task</a></p>
-
-  <h1 class="page-title center"><%= task.title %></h1>
-  <div class="heart-divider" style="color:var(--color-primary);"><%- include('partials/heart', { size: 20 }) %></div>
-
   <% if (task.description) { %>
     <p class="task-detail-desc center"><%= task.description %></p>
   <% } %>
-
-  <p class="task-detail-badge center">
-    Best photos earn
-    <a href="/badge/<%= taskBadge.code %>">
-      <%- include('partials/badge-art', { badge: taskBadge, alt: '', imgClass: 'task-badge-icon', width: 24, height: 24 }) %>
-      <%= taskBadge.name %>
-    </a>
-    + bonus points
-  </p>
 
   <%# A guest who deleted their own photo gets the clean slate back: the task
       reads exactly as it did before they ever uploaded. The row and the file
@@ -96,9 +120,8 @@
       photos.hiddenByOwningGuest (the single owner of the "is this row hidden
       by the guest who owns it" predicate, also consumed by submissions.js
       and community.js), and passes `submission` here already null when that
-      is the case. Every branch below AND the upload-section heading fall
-      through to the never-submitted shape for free, with no local
-      reassignment needed here.
+      is the case. Every branch below falls through to the never-submitted
+      shape for free, with no local reassignment needed here.
 
       A host takedown (taken_down_by = 'admin', or an unattributed row) still
       arrives here non-null and keeps the sticky "with the hosts" branch
@@ -115,61 +138,34 @@
         they take a look. No need to resubmit, but you're welcome to replace it below.
       </p>
     </section>
+    <section class="upload-section">
+      <%- include('partials/task-upload-form', { task: task, submission: submission }) %>
+    </section>
   <% } else if (submission) { %>
     <section class="existing-submission">
-      <h2 class="section-title">Your photo</h2>
       <img src="/uploads/<%= submission.photo_path %>"
            alt="Your submitted photo for <%= task.title %>"
            class="submission-full" />
       <% if (submission.caption) { %>
         <p class="submission-caption"><%= submission.caption %></p>
       <% } %>
-      <p class="muted">This task is complete. You can replace your photo below.</p>
-      <% if (!(typeof taskComplete !== 'undefined' && taskComplete)) { %>
-        <%# The success card above already carries this prompt for a fresh
-            'created' completion (issue #255) — only repeat it here for a
-            return visit / replace, so it never prints twice on one page. %>
-        <p class="muted">Got more from tonight? <a href="/memories/new">Share a memory</a></p>
-        <%- include('partials/memory-payoff') %>
-      <% } %>
+    </section>
+    <%# Issue #611: a completed task hides the whole upload form behind one
+        button — no "Replace your photo" section heading, no second form
+        staring at a guest who is done. <details> keeps it no-JS. %>
+    <details class="replace-disclosure">
+      <summary class="btn btn-block replace-summary">Replace photo</summary>
+      <%- include('partials/task-upload-form', { task: task, submission: submission }) %>
+    </details>
+  <% } else { %>
+    <section class="upload-section">
+      <%- include('partials/task-upload-form', { task: task, submission: submission }) %>
     </section>
   <% } %>
 
-  <section class="upload-section">
-    <h2 class="section-title"><%= submission ? 'Replace your photo' : 'Upload a photo to complete this task' %></h2>
-
-    <form action="/tasks/<%= task.id %>/submit"
-          method="POST"
-          enctype="multipart/form-data">
-      <%- include('partials/csrf-field') %>
-
-      <div class="form-row">
-        <%- include('partials/upload-field', { id: 'photo', name: 'photo', accept: 'image/*', required: true }) %>
-      </div>
-
-      <!-- Live preview target; filled by /js/upload.js -->
-      <div class="preview-wrap">
-        <img id="upload-preview" class="upload-preview" alt="" hidden />
-      </div>
-
-      <div class="form-row">
-        <label for="caption" class="form-label">Caption (optional)</label>
-        <input type="text"
-               id="caption"
-               name="caption"
-               maxlength="500"
-               placeholder="Say something about this photo"
-               value="<%= submission ? submission.caption : '' %>"
-               class="text-input" />
-      </div>
-
-      <p id="upload-error" class="form-error" role="alert" hidden></p>
-
-      <button type="submit" class="btn btn-block" data-uploading-label="Uploading…">
-        <%= submission ? 'Replace photo' : 'Upload & complete' %>
-      </button>
-    </form>
-  </section>
+  <%# No share-a-memory nudge on this page at all (owner, 2026-07-31) — /tasks
+      carries the standalone CTA, and /how-to-play and /memories/new fold the
+      same promise into their own prose. %>
 
   <!-- Direct include of the preview script (belt-and-suspenders alongside
        the footer's page-script mechanism; see section intro note). -->

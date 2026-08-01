@@ -932,12 +932,43 @@ router.get('/tasks/:id', function (req, res) {
   const guestFacingSubmission =
     submission && photos.hiddenByOwningGuest(submission) ? null : submission;
 
+  // The task-badge hero's state (issue #611 AC3), resolved HERE rather than
+  // in the view so task.ejs branches on nothing: taskBadges.guestBadgeRank
+  // reads this guest's own award row for this task's badge (undefined = no
+  // row, null or 1-5 = a row with that rank). Rank 1 is gold ("won-first");
+  // any other rank, including a possession-only NULL, is an ordinary win
+  // ("won-place"); no row at all falls back to the pre-#611 earned/locked
+  // split, which was previously computed in the template as
+  // `submission ? 'earned' : 'locked'` — guestFacingSubmission is that same
+  // signal, unaffected by a host takedown (issue #190) since only a guest's
+  // own self-delete nulls it.
+  const guestBadgeRank = taskBadges.guestBadgeRank(taskBadge.id, guest.id);
+  let taskBadgeState;
+  if (guestBadgeRank === undefined) {
+    taskBadgeState = guestFacingSubmission ? 'earned' : 'locked';
+  } else if (taskBadges.isFirstPlaceRank(guestBadgeRank)) {
+    // What the number 1 MEANS is task-badges.js's to own (it writes the
+    // column), not this route's to re-test — see isFirstPlaceRank's comment.
+    taskBadgeState = 'won-first';
+  } else {
+    // Every other award row — ranks 2-5, and a possession-only row whose rank
+    // is NULL — is an ordinary win (issue #611 AC3). The NULL case is
+    // unreachable today: awardTaskBadge, the only writer that leaves rank
+    // unset, has no route callers, so no guest can currently be shown the
+    // "top 5" line without a real placement behind it. Parked on #588 rather
+    // than pre-solved here, since resolving it means deciding what a
+    // placement-less award should say — a question that only becomes real if
+    // that write path is ever wired up.
+    taskBadgeState = 'won-place';
+  }
+
   res.render(
     'task',
     withBadgeMoment(req, res, {
       title: task.title,
       task: task,
       taskBadge: taskBadge, // this task's badge — always present, unlike badgeMoment
+      taskBadgeState: taskBadgeState, // one of locked/earned/won-first/won-place (issue #611 AC3)
       submission: guestFacingSubmission, // null if none yet, OR the guest hid it themselves
       taskComplete: taskComplete, // null unless a 'created' submit OR a guest-clean-slate replace (issue #886) just redirected here; carries both .points and .earned
       pageScript: 'upload.js', // bare filename; footer.ejs prepends /js/

@@ -344,7 +344,10 @@ describe('POST /tasks/:id/submit — status to response mapping (issue #106)', (
     // tests/rewards.test.js for the full AC1-AC5 coverage.
     const page = await agent.get(res.headers.location);
     expect(page.text).toContain('Task complete!');
-    expect(page.text).toContain('+1 point');
+    // Issue #611: the earned figure and the "point"/"points" word are two
+    // separate elements now, not one "+1 point" run of text.
+    expect(page.text).toContain('<span class="success-earned-num">+1</span>');
+    expect(page.text).toContain('<span class="success-earned-label">point</span>');
     expect(page.text).not.toContain('flash-ok');
   });
 

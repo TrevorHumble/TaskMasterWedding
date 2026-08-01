@@ -456,6 +456,66 @@ function victoryRankBySubmission() {
   return lookup;
 }
 
+// One guest's own award row for one badge — the task detail page's read
+// (issue #611), distinct from stmtVictoryRanks above (which is unscoped by
+// guest, feeds the gallery tile) and from currentRanking (scoped by task,
+// feeds the admin rank page). Selects rank alone: whether a row exists at
+// all, and what rank it carries if so, are the only two facts the task page
+// needs to pick its badge-hero state.
+const stmtGuestBadgeRank = db.prepare(
+  'SELECT rank FROM guest_badges WHERE badge_id = ? AND guest_id = ?'
+);
+
+/**
+ * Does this placement `rank` mean first place? The SINGLE owner of that
+ * decode (issue #611 design review): `guest_badges.rank` is written here by
+ * releaseRanking (1 = best), so what the number 1 MEANS belongs to this
+ * module rather than being re-tested as `rank === 1` at each display site.
+ *
+ * ONE consumer today: src/routes/guest.js's GET /tasks/:id, for the task
+ * page's badge-hero state. The other place that decodes first-place —
+ * src/views/partials/badge-victory-mark.ejs (the gallery tile's gold mark)
+ * — still inlines `Number(rank) === 1`; it predates this function and sits
+ * outside issue #611's Touches, so adopting this helper there is parked on
+ * issue #588 rather than done here. Do not read this comment as saying the
+ * tile is already routed through it.
+ *
+ * Number()-coerced rather than a strict `=== 1` so the parked tile caller
+ * can adopt it unchanged: its `rank` reaches the template as an EJS local
+ * and is compared there with an explicit Number() today. The current caller
+ * passes the INTEGER column value (or null) straight off
+ * stmtGuestBadgeRank.get(), for which the coercion is a no-op.
+ *
+ * @param {number|string|null|undefined} rank
+ * @returns {boolean}
+ */
+function isFirstPlaceRank(rank) {
+  return Number(rank) === 1;
+}
+
+/**
+ * Badge `badgeId` — held by guest `guestId`, or not? Returns the
+ * award row's `rank` (an integer 1-5, or `null` for a possession-only award
+ * with no placement) when a `guest_badges` row exists for this
+ * (guest, badge) pair, and `undefined` when no such row exists at all —
+ * keeping "no award" (undefined) distinguishable from "award, no rank"
+ * (null), which src/routes/guest.js's task-badge-state mapping (issue #611
+ * AC3) depends on to tell "never won" apart from "won, ranked 2nd-5th".
+ *
+ * Possession-based on purpose, not resubmission: releaseRanking's own
+ * contract (see that function's doc comment) keeps a guest's award row even
+ * once the winning photo is taken down, so a badge a guest already won does
+ * not disappear from their task page just because a host hid the photo.
+ *
+ * @param {number} badgeId
+ * @param {number} guestId
+ * @returns {number|null|undefined}
+ */
+function guestBadgeRank(badgeId, guestId) {
+  const row = stmtGuestBadgeRank.get(badgeId, guestId);
+  return row ? row.rank : undefined;
+}
+
 // A placement's own submission, gated on belonging to THIS task and being
 // currently visible — releaseRanking's per-entry validity check (below).
 const stmtSubmissionForRanking = db.prepare(
@@ -692,6 +752,8 @@ module.exports = {
   foldRankedPlacements,
   releaseRanking,
   victoryRankBySubmission,
+  guestBadgeRank,
+  isFirstPlaceRank,
   // orphaned-art cleanup (issue #501) — exported for admin.js's task-delete
   // handler and for direct unit testing.
   isUploadedArtPath,
