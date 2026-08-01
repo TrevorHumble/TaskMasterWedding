@@ -122,52 +122,82 @@ describe('AC2: uploading-state hooks exist in source', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC3: dispatching submit disables the button (jsdom, real module).
+// Shared jsdom harness for every describe below that loads the real
+// src/public/js/upload.js and drives the task form. Defined once here rather
+// than per-describe: the readyState wait in particular is subtle enough that
+// two copies would drift apart the first time jsdom's timing changes.
 // ---------------------------------------------------------------------------
-describe('AC3: submitting the task form disables the button', () => {
-  function installDomGlobals(dom) {
-    const keys = ['window', 'document', 'navigator'];
-    const saved = {};
-    keys.forEach((key) => {
-      saved[key] = Object.getOwnPropertyDescriptor(global, key);
-      const value = key === 'window' ? dom.window : dom.window[key];
-      Object.defineProperty(global, key, { value, configurable: true, writable: true });
-    });
-    return function restore() {
-      keys.forEach((key) => {
-        if (saved[key]) {
-          Object.defineProperty(global, key, saved[key]);
-        } else {
-          delete global[key];
-        }
-      });
-    };
-  }
 
-  // jsdom's readyState transition to "complete" is asynchronous even for a
-  // static HTML string, so upload.js's `document.readyState === 'loading'`
-  // guard may defer init() to a DOMContentLoaded listener that fires after
-  // this synchronous test body returns. Wait for it before dispatching, so
-  // the submit listener is guaranteed bound.
-  function waitForReady(dom) {
-    if (dom.window.document.readyState !== 'loading') {
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-      dom.window.document.addEventListener('DOMContentLoaded', resolve, { once: true });
-    });
-  }
-
-  it('disabled becomes true synchronously on submit', async () => {
-    const dom = new JSDOM(
-      `<form id="task-form" action="/tasks/1/submit" method="POST" enctype="multipart/form-data">
+/** The task form's markup, reduced to the ids and attributes upload.js reads. */
+function buildTaskFormDom() {
+  return new JSDOM(
+    `<form id="task-form" action="/tasks/1/submit" method="POST" enctype="multipart/form-data">
          <input type="file" id="photo" name="photo" />
          <img id="upload-preview" hidden />
          <p id="upload-error" hidden></p>
          <button type="submit" data-uploading-label="Uploading…">Upload &amp; complete</button>
        </form>`,
-      { url: 'http://localhost/' }
-    );
+    { url: 'http://localhost/' }
+  );
+}
+
+/**
+ * Point the globals upload.js reads at `dom`, returning a restore().
+ *
+ * `windowOverride` swaps in a stand-in for `global.window` while leaving
+ * `document`/`navigator` bound to the real jsdom ones. The success path
+ * assigns `window.location = '<task path>'`, which jsdom's real Location
+ * setter treats as cross-document navigation it does not implement: it logs
+ * "Not implemented: navigation to another Document" and leaves `location`
+ * untouched, so a test cannot tell "navigated" from "did nothing". upload.js
+ * only ever reads `window.csrfHeader` and assigns `window.location` — never
+ * anything tied to Window/Document identity — so a plain object makes that
+ * assignment an ordinary property write a test can assert on.
+ */
+function installDomGlobals(dom, windowOverride) {
+  const keys = ['window', 'document', 'navigator'];
+  const saved = {};
+  keys.forEach((key) => {
+    saved[key] = Object.getOwnPropertyDescriptor(global, key);
+    let value;
+    if (key === 'window') {
+      value = windowOverride || dom.window;
+    } else {
+      value = dom.window[key];
+    }
+    Object.defineProperty(global, key, { value, configurable: true, writable: true });
+  });
+  return function restore() {
+    keys.forEach((key) => {
+      if (saved[key]) {
+        Object.defineProperty(global, key, saved[key]);
+      } else {
+        delete global[key];
+      }
+    });
+  };
+}
+
+// jsdom's readyState transition to "complete" is asynchronous even for a
+// static HTML string, so upload.js's `document.readyState === 'loading'`
+// guard may defer init() to a DOMContentLoaded listener that fires after
+// a synchronous test body returns. Wait for it before dispatching, so
+// the submit listener is guaranteed bound.
+function waitForReady(dom) {
+  if (dom.window.document.readyState !== 'loading') {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    dom.window.document.addEventListener('DOMContentLoaded', resolve, { once: true });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// AC3: dispatching submit disables the button (jsdom, real module).
+// ---------------------------------------------------------------------------
+describe('AC3: submitting the task form disables the button', () => {
+  it('disabled becomes true synchronously on submit', async () => {
+    const dom = buildTaskFormDom();
     const restore = installDomGlobals(dom);
 
     // Downstream of the synchronous disable, the handler chains into
@@ -198,15 +228,7 @@ describe('AC3: submitting the task form disables the button', () => {
   });
 
   it('idempotent binding: loading the script twice does not double-fire fetch on one submit', async () => {
-    const dom = new JSDOM(
-      `<form id="task-form" action="/tasks/1/submit" method="POST" enctype="multipart/form-data">
-         <input type="file" id="photo" name="photo" />
-         <img id="upload-preview" hidden />
-         <p id="upload-error" hidden></p>
-         <button type="submit" data-uploading-label="Uploading…">Upload &amp; complete</button>
-       </form>`,
-      { url: 'http://localhost/' }
-    );
+    const dom = buildTaskFormDom();
     const restore = installDomGlobals(dom);
 
     const savedFetch = global.fetch;
@@ -421,6 +443,274 @@ describe('AC4 + AC5: downscaleImage and its extracted pure helpers', () => {
 
     const result = await downscaleImage(inputFile, {}, env);
     expect(result).toBe(inputFile);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #932: the submit handler's fetch-resolution branching.
+//   AC1 — a followed-redirect success (`type: 'basic', ok: true`) navigates
+//         as success: no error text, and the submit button is never
+//         returned to its idle state (so a second click can't fire).
+//   AC2 — 404/413/429/403 render the owner-approved copy exactly and (like
+//         every other non-ok status) re-enable the button with its original
+//         label via the shared `.catch`; an unmapped status (500) keeps
+//         today's generic fallback copy.
+//   AC3 — a genuine network failure (fetch rejects) renders the generic
+//         copy and re-enables the button with its original label, whatever
+//         wording the engine's own rejection carries.
+//
+// These drive the shared harness above (buildTaskFormDom / installDomGlobals /
+// waitForReady). AC1 needs the harness's window-override: see installDomGlobals'
+// own comment for why jsdom cannot observe the success navigation otherwise.
+// ---------------------------------------------------------------------------
+describe('#932: submit handler maps fetch outcomes to actionable copy', () => {
+  // No file is selected in these DOMs (the #photo input has no files), so
+  // the handler's `prepared` promise resolves immediately with `null` --
+  // downscaleImage never runs -- and two macrotask ticks is enough for the
+  // fetch -> then/catch chain to settle (same wait pattern as the
+  // idempotent-binding test above).
+  async function submitAndSettle(dom) {
+    const form = dom.window.document.getElementById('task-form');
+    form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  /** Loads a fresh upload.js against `dom` with fetchImpl stubbed, returns
+   * the elements under test plus a restore() that undoes every global patch. */
+  async function setUp(dom, fetchImpl) {
+    const fakeWindow = { location: '' };
+    const restoreGlobals = installDomGlobals(dom, fakeWindow);
+    const savedFetch = global.fetch;
+    const savedFormData = global.FormData;
+    global.fetch = fetchImpl;
+    global.FormData = dom.window.FormData;
+
+    delete require.cache[require.resolve('../src/public/js/upload.js')];
+    require('../src/public/js/upload.js');
+    await waitForReady(dom);
+
+    const form = dom.window.document.getElementById('task-form');
+    return {
+      form,
+      button: form.querySelector('button[type="submit"]'),
+      errorEl: dom.window.document.getElementById('upload-error'),
+      fakeWindow,
+      restore() {
+        global.fetch = savedFetch;
+        global.FormData = savedFormData;
+        restoreGlobals();
+      },
+    };
+  }
+
+  it('AC1: a followed-redirect success (type basic, ok true) navigates and never re-enables the button', async () => {
+    const dom = buildTaskFormDom();
+    const { form, button, errorEl, fakeWindow, restore } = await setUp(dom, () =>
+      Promise.resolve({ type: 'basic', ok: true, status: 200 })
+    );
+    try {
+      await submitAndSettle(dom);
+
+      // Success navigation: the handler assigns window.location to the
+      // form's action with "/submit" stripped -- "/tasks/1/submit" -> "/tasks/1".
+      expect(fakeWindow.location).toBe('/tasks/1');
+      expect(form.getAttribute('action')).toBe('/tasks/1/submit');
+
+      // No error text rendered.
+      expect(errorEl.hidden).toBe(true);
+      expect(errorEl.textContent).toBe('');
+
+      // The button is never returned to its idle state on success -- it
+      // stays disabled in its uploading label, so a second click can't
+      // re-fire the submit while the real navigation is in flight.
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toBe('Uploading…');
+    } finally {
+      restore();
+    }
+  });
+
+  it.each([
+    [404, "This task isn't available anymore."],
+    [413, 'That photo is too large. Try a smaller one.'],
+    [403, 'Session hiccup. Refresh this page and try again.'],
+  ])(
+    'AC2: a %i response renders the owner-approved message and re-enables the button',
+    async (status, expectedMessage) => {
+      const dom = buildTaskFormDom();
+      const { button, errorEl, restore } = await setUp(dom, () =>
+        Promise.resolve({ type: 'basic', ok: false, status })
+      );
+      try {
+        await submitAndSettle(dom);
+
+        expect(errorEl.hidden).toBe(false);
+        expect(errorEl.textContent).toBe(expectedMessage);
+
+        // Every non-ok case shares this one .catch: original label restored,
+        // re-clickable.
+        expect(button.disabled).toBe(false);
+        expect(button.textContent).toBe('Upload & complete');
+      } finally {
+        restore();
+      }
+    }
+  );
+
+  // The 429 copy quotes no configured limit — that fact belongs to config.js,
+  // and the shared upload/profile budget means no single number describes
+  // "uploads" anyway. It reads the wait the server actually computed and sent
+  // (src/middleware/rate-limit.js's Retry-After), so these cases pin the
+  // header-to-words mapping, including what happens when a proxy sends a 429
+  // with no usable header at all.
+  it.each([
+    ['240', 'about 4 minutes'],
+    ['600', 'about 10 minutes'],
+    ['61', 'about 2 minutes'],
+    ['60', 'about a minute'],
+    ['1', 'about a minute'],
+    [null, 'a few minutes'],
+    ['', 'a few minutes'],
+    ['0', 'a few minutes'],
+    ['-30', 'a few minutes'],
+    ['Wed, 21 Oct 2026 07:28:00 GMT', 'a few minutes'],
+  ])(
+    'AC2: a 429 carrying Retry-After %s tells the guest to wait %s',
+    async (retryAfter, expectedPhrase) => {
+      const dom = buildTaskFormDom();
+      const { button, errorEl, restore } = await setUp(dom, () =>
+        Promise.resolve({
+          type: 'basic',
+          ok: false,
+          status: 429,
+          headers: { get: (name) => (name === 'Retry-After' ? retryAfter : null) },
+        })
+      );
+      try {
+        await submitAndSettle(dom);
+
+        expect(errorEl.hidden).toBe(false);
+        expect(errorEl.textContent).toBe(
+          `Too many uploads in a row. Please wait ${expectedPhrase}. Our little site needs a breather. Thanks!`
+        );
+        // No configured limit is quoted, whatever the header said.
+        expect(errorEl.textContent).not.toMatch(/\b20\b/);
+
+        expect(button.disabled).toBe(false);
+        expect(button.textContent).toBe('Upload & complete');
+      } finally {
+        restore();
+      }
+    }
+  );
+
+  it('AC2: a 429 with no headers object at all still renders readable copy', async () => {
+    const dom = buildTaskFormDom();
+    const { button, errorEl, restore } = await setUp(dom, () =>
+      Promise.resolve({ type: 'basic', ok: false, status: 429 })
+    );
+    try {
+      await submitAndSettle(dom);
+
+      expect(errorEl.hidden).toBe(false);
+      expect(errorEl.textContent).toBe(
+        'Too many uploads in a row. Please wait a few minutes. Our little site needs a breather. Thanks!'
+      );
+
+      expect(button.disabled).toBe(false);
+      expect(button.textContent).toBe('Upload & complete');
+    } finally {
+      restore();
+    }
+  });
+
+  // A status naming an Object.prototype member must not resolve up the
+  // prototype chain and print a function's source into the page.
+  it('AC2: a status colliding with an inherited property keeps the generic copy', async () => {
+    const dom = buildTaskFormDom();
+    const { errorEl, restore } = await setUp(dom, () =>
+      Promise.resolve({ type: 'basic', ok: false, status: 'toString' })
+    );
+    try {
+      await submitAndSettle(dom);
+
+      expect(errorEl.hidden).toBe(false);
+      expect(errorEl.textContent).toBe('That photo could not be uploaded. Please try again.');
+    } finally {
+      restore();
+    }
+  });
+
+  it('AC2: an unmapped status (500) keeps the generic fallback copy and re-enables the button', async () => {
+    const dom = buildTaskFormDom();
+    const { button, errorEl, restore } = await setUp(dom, () =>
+      Promise.resolve({ type: 'basic', ok: false, status: 500 })
+    );
+    try {
+      await submitAndSettle(dom);
+
+      expect(errorEl.hidden).toBe(false);
+      expect(errorEl.textContent).toBe('That photo could not be uploaded. Please try again.');
+
+      expect(button.disabled).toBe(false);
+      expect(button.textContent).toBe('Upload & complete');
+    } finally {
+      restore();
+    }
+  });
+
+  // A dropped connection rejects with the ENGINE's own wording, not ours:
+  // Chrome throws `TypeError: Failed to fetch`, Firefox `NetworkError when
+  // attempting to fetch resource`, Safari `Load failed`. The generic copy has
+  // to win over every one of them (issue #932) -- a guest must never be shown
+  // browser diagnostics -- so these cases assert a message-BEARING rejection,
+  // which is what a real network failure actually produces. A message-less
+  // Error covers the degenerate case.
+  it.each([
+    ['Chrome', new TypeError('Failed to fetch')],
+    ['Firefox', new TypeError('NetworkError when attempting to fetch resource')],
+    ['Safari', new TypeError('Load failed')],
+    ['no message', new Error()],
+  ])(
+    'AC3: a %s network failure renders the generic copy, never the engine text, and re-enables the button',
+    async (_engine, rejection) => {
+      const dom = buildTaskFormDom();
+      const { button, errorEl, restore } = await setUp(dom, () => Promise.reject(rejection));
+      try {
+        await submitAndSettle(dom);
+
+        expect(errorEl.hidden).toBe(false);
+        expect(errorEl.textContent).toBe('That photo could not be uploaded. Please try again.');
+
+        expect(button.disabled).toBe(false);
+        expect(button.textContent).toBe('Upload & complete');
+      } finally {
+        restore();
+      }
+    }
+  );
+
+  // The same guard, from the other side: a bug in the handler's own chain
+  // arrives at the .catch as an ordinary TypeError with a developer-facing
+  // message. It must read as the generic failure too, not as a stack-trace
+  // fragment printed into the page.
+  it('AC3: an internal TypeError in the chain renders the generic copy, not the developer text', async () => {
+    const dom = buildTaskFormDom();
+    const { button, errorEl, restore } = await setUp(dom, () => {
+      throw new TypeError("Cannot read properties of undefined (reading 'append')");
+    });
+    try {
+      await submitAndSettle(dom);
+
+      expect(errorEl.hidden).toBe(false);
+      expect(errorEl.textContent).toBe('That photo could not be uploaded. Please try again.');
+
+      expect(button.disabled).toBe(false);
+      expect(button.textContent).toBe('Upload & complete');
+    } finally {
+      restore();
+    }
   });
 });
 

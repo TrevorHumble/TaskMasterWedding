@@ -211,6 +211,81 @@ function initPreview() {
   });
 }
 
+// The one message for every failure this client cannot name more precisely
+// (issue #932): a 5xx, an unmapped status, a network drop, an internal
+// TypeError. Named once so the two places that render it cannot drift apart.
+var GENERIC_UPLOAD_ERROR = 'That photo could not be uploaded. Please try again.';
+
+/**
+ * Wrap guest-readable copy in an Error the submit chain's .catch can tell
+ * apart from an engine-authored rejection (issue #932). Without this marker
+ * the catch cannot distinguish "the string I threw two lines ago, written for
+ * a guest" from "the browser's own network-failure wording" — and it renders
+ * whatever it gets straight into the page.
+ * @param {string} message - copy the guest is meant to read
+ * @returns {Error}
+ */
+function guestFacingError(message) {
+  var err = new Error(message);
+  err.guestFacing = true;
+  return err;
+}
+
+/**
+ * How long a throttled guest should wait, in words, taken from the server's
+ * own `Retry-After` header (issue #932).
+ *
+ * The alternative — naming the configured cap in the copy ("20 uploads per 10
+ * minutes") — restates a fact `config.js` owns via RATE_LIMIT_UPLOAD_MAX /
+ * RATE_LIMIT_WINDOW_MS, and gets it wrong even at stock config: that budget is
+ * ONE per-guest counter shared across the photo submit, profile edit, and
+ * avatar delete routes, so a guest who edited their profile is throttled well
+ * short of any number this copy could quote. src/middleware/rate-limit.js
+ * already computes the real seconds remaining and sends them; read that
+ * instead of guessing.
+ *
+ * @param {Response} response - the 429 whose Retry-After to read
+ * @returns {string} a phrase that completes "Please wait ___."
+ */
+function retryWaitPhrase(response) {
+  var headers = response && response.headers;
+  var raw = headers && typeof headers.get === 'function' ? headers.get('Retry-After') : null;
+  var seconds = parseInt(raw, 10);
+  // No header, an unparseable one, or the HTTP-date form a foreign proxy may
+  // send instead of seconds: say something true but vague rather than a number
+  // that would be invented.
+  if (!isFinite(seconds) || seconds <= 0) {
+    return 'a few minutes';
+  }
+  var minutes = Math.ceil(seconds / 60);
+  return minutes <= 1 ? 'about a minute' : 'about ' + minutes + ' minutes';
+}
+
+// Guest-facing copy for the status classes this client can name (issue #932),
+// owner-approved. Every value is a function of the response so the 429 case
+// can read the wait the server actually computed; the other three ignore
+// their argument. The 404 copy stays neutral about cause: the same status
+// covers both a task deactivated mid-party and a malformed task id, and the
+// client cannot tell which.
+var MESSAGES_BY_STATUS = {
+  403: function () {
+    return 'Session hiccup. Refresh this page and try again.';
+  },
+  404: function () {
+    return "This task isn't available anymore.";
+  },
+  413: function () {
+    return 'That photo is too large. Try a smaller one.';
+  },
+  429: function (response) {
+    return (
+      'Too many uploads in a row. Please wait ' +
+      retryWaitPhrase(response) +
+      '. Our little site needs a breather. Thanks!'
+    );
+  },
+};
+
 /**
  * Wires the task form's (#photo) submit: downscale -> fetch -> follow
  * redirect, with an uploading state on the button and idempotent binding
@@ -316,21 +391,50 @@ function initTaskSubmit() {
         // response. Do a real navigation to the task page so the browser
         // consumes the one-shot cookie and runs badge-moment.js. The redirect
         // always targets this task's page (form action minus the /submit).
-        if (response.type === 'opaqueredirect') {
+        //
+        // Issue #932: on an engine or venue proxy that transparently follows
+        // the redirect despite redirect:'manual', the same success comes back
+        // as an ordinary ok response instead — treat that as success too,
+        // never as a failure (a false "try again" here invites a duplicate
+        // submission). Whatever one-shot cookie the redirect carried was
+        // already spent by that followed GET, so this upload skips it: the
+        // task-complete card on a success, or — since the four flash-and-
+        // redirect failure paths in POST /tasks/:id/submit look identical
+        // from here — the error flash the server set on a rejected upload,
+        // leaving that guest to navigate with nothing shown. Accepted
+        // degradation on this engine class only, with the reasoning in the
+        // issue's "Recorded degradations on the followed-redirect engine".
+        if (response.type === 'opaqueredirect' || response.ok) {
           window.location = form.getAttribute('action').replace(/\/submit$/, '');
           return;
         }
-        // Anything else is an error the endpoint rendered directly (e.g. an
-        // inactive-task 404) — surface it inline without navigating.
-        throw new Error('That photo could not be uploaded. Please try again.');
+        // A non-redirect answer is an error the endpoint (or a proxy in
+        // front of it) rendered directly. Map the known status classes to
+        // what the guest should actually DO; anything else keeps the
+        // generic copy. hasOwnProperty, not a bare lookup: a status that
+        // happened to name an Object.prototype member would otherwise
+        // resolve to an inherited function and print its source into the
+        // page — the exact outcome the .catch below exists to prevent.
+        var buildMessage = Object.prototype.hasOwnProperty.call(MESSAGES_BY_STATUS, response.status)
+          ? MESSAGES_BY_STATUS[response.status]
+          : null;
+        throw guestFacingError(buildMessage ? buildMessage(response) : GENERIC_UPLOAD_ERROR);
       })
       .catch(function (err) {
         submitBtn.disabled = false;
         submitBtn.textContent = originalLabel;
         submitBtn.classList.remove('btn-uploading');
         if (errorEl) {
+          // Only an error THIS handler authored carries copy fit for a
+          // guest to read. Anything else reaching here is an engine-authored
+          // rejection — a real network drop rejects with the browser's own
+          // wording ("Failed to fetch", "NetworkError when attempting to
+          // fetch resource"), and a bug in the code above would arrive as a
+          // TypeError. Printing either into the page would put developer
+          // text in front of a guest, so those all fall back to the one
+          // generic line.
           errorEl.textContent =
-            (err && err.message) || 'That photo could not be uploaded. Please try again.';
+            err && err.guestFacing && err.message ? err.message : GENERIC_UPLOAD_ERROR;
           errorEl.hidden = false;
         }
       });
