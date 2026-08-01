@@ -345,10 +345,9 @@ const stmtVisibleLikeCounts = db.prepare(`
  * `like_count DESC, submission_id ASC`, so that order makes the FIRST row
  * seen for a given guest_id exactly that guest's best photo — the dedupe
  * below is a single pass keeping only first-seen guest_ids, no second query
- * and no re-sort. Dedupe happens BEFORE ranking, so a guest who used to sweep
- * several of the top spots with their own photos now consumes only the one
- * rank their best photo earns; nobody else's rank shifts as a result except
- * by that guest's other photos simply not being counted.
+ * and no re-sort. Dedupe happens BEFORE ranking, so each guest consumes only
+ * the one rank their best photo earns; nobody else's rank shifts as a result
+ * except by that guest's other photos simply not being counted.
  *
  * Standard-competition ranking (rank.standardRank, deliberately NOT the
  * leaderboard's dense rank, #626) then runs over the DEDUPED list: a tie
@@ -1394,9 +1393,7 @@ function compareBadgeMoment(a, b) {
  *
  * Returns `[]` immediately for an empty or non-array `codes`, before calling
  * getGuestBadges — a no-badge submit is the common case (every ordinary task
- * completion) and must not gain a query the deleted BADGE_MOMENT_PRIORITY
- * route guard used to skip via its own `if (reward.newBadgeIds.length > 0)`
- * check (issue #714).
+ * completion) and must not gain a getGuestBadges query on that path (#714).
  *
  * @param {number} guestId
  * @param {Array<string>} codes - candidate badge codes to rank. A code the

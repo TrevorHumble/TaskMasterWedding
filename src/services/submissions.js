@@ -77,7 +77,7 @@ const stmtExistingSubmission = db.prepare(
 );
 
 // Sticky-takedown replace (issue #190): deliberately does NOT touch
-// taken_down. Forcing taken_down = 0 here (as this statement used to) is
+// taken_down. Forcing taken_down = 0 here is
 // exactly the bug #190 fixed — it let any resubmit silently reverse an
 // admin's takedown. Whatever taken_down was before the replace, it still is
 // after; only resubmitted (set by stmtMarkResubmitted below, conditionally)
@@ -117,7 +117,7 @@ const stmtBankBonus = db.prepare(
 // convention (see their doc comments in src/services/photos.js).
 
 // Replace + (conditional) bank + (conditional) resubmitted-mark as ONE
-// atomic unit (issue #753 review fix). Before this, stmtReplaceSubmission ran
+// atomic unit (#753). Before this, stmtReplaceSubmission ran
 // and committed the new photo_path on its own, uncoordinated with
 // stmtBankBonus a few lines later -- if stmtBankBonus threw (e.g. a legacy
 // row whose special_bonus was NULL despite its special_date being set,
@@ -136,19 +136,17 @@ const stmtBankBonus = db.prepare(
 // happen together. better-sqlite3 transactions are synchronous and nest fine
 // inside the async submitPhoto function below -- nothing here awaits.
 //
-// Issue #886's un-hide is DELIBERATELY NOT part of this transaction (PR
-// review fix, MAJOR A) — it used to call photos.restoreSubmission(existing.id)
-// as this transaction's last write, but restoreSubmission reaches
-// scoring.recomputeAfterSubmissionChange and scoring.recordCrowdFavoriteChanges
-// UNGUARDED, so a throw from either of those rolled back this ENTIRE
-// transaction, and the catch around replaceAndBank at the call site below
-// then deleted the guest's just-written new original + thumbnail from disk —
-// the exact "a badge recount must never cost the guest their photo" failure
-// this file's own submitPhoto doc comment already guards against for the
-// ORDINARY per-submit recompute (see the try/catch around
-// scoring.recomputeAfterSubmissionChange in submitPhoto below). The un-hide
-// now runs at the call site, AFTER this transaction has committed, wrapped in
-// the identical log-and-swallow shape — see that call site's own comment.
+// Issue #886's un-hide is DELIBERATELY NOT part of this transaction.
+// restoreSubmission reaches scoring.recomputeAfterSubmissionChange and
+// scoring.recordCrowdFavoriteChanges UNGUARDED, so it runs at the call site,
+// AFTER this transaction has committed, wrapped in the identical
+// log-and-swallow shape — see that call site's own comment. A throw inside
+// THIS transaction rolls it back, and the call-site catch around
+// replaceAndBank then deletes the guest's just-written original + thumbnail
+// (the #886 data-loss path) — folding the un-hide back in here would let a
+// scoring-side throw (a different failure domain, touching other guests'
+// standings) trigger that same delete for a photo save that otherwise
+// succeeded.
 const replaceAndBank = db.transaction((photoPath, thumbPath, cap, existing, bankArgs) => {
   stmtReplaceSubmission.run(photoPath, thumbPath, cap, existing.id);
   if (bankArgs) {
@@ -182,7 +180,7 @@ const CAPTION_MAX_LENGTH = 500;
 // The bonus_reason literals the 'daily' and 'flash' rules bank (issue #753's
 // design: "#649 and #650 write their own literals into this same shared
 // column, so the vocabulary starts here"). tasks.js is the single OWNER of
-// these two literals (issue #761 review fix — all three reviewers): its
+// these two literals (#761): its
 // SPECIAL_RULES entries' `reason` fields are what bonusForTask() actually
 // writes into submissions.bonus_reason, so this file re-exports the same two
 // constants tasks.js declares rather than carrying its own independent
@@ -203,7 +201,7 @@ const { BONUS_REASON_ONEDAY, BONUS_REASON_FLASH, BONUS_REASON_LUCKY } = tasks;
 /**
  * Trim and cap a caption to the stored column's limit. A missing or non-string
  * caption (the field is optional in the upload form) becomes '' rather than
- * throwing, mirroring the defensive read the route used to do inline.
+ * throwing.
  * @param {*} caption - req.body.caption, or any caller-supplied value
  * @returns {string} the value to store, always a string of length <= CAPTION_MAX_LENGTH
  */
@@ -219,16 +217,16 @@ function normalizeCaption(caption) {
  * the caller never has to catch — see the read-me at the top of this file):
  *   1. The task must exist and be active. If it is (issue #753) a sealed
  *      one-day-only challenge for the event-local "today" AND the guest holds
- *      no existing (guestId, taskId) row (issue #754 review fix — a guest who
+ *      no existing (guestId, taskId) row (#754 — a guest who
  *      already has a submission, e.g. a task re-dated into the future after
  *      they completed it, may still replace their own photo), the passed-in
  *      original file is deleted and the call returns 'task_inactive',
  *      exactly the same outcome as a hidden task, so a guessed task URL
  *      cannot bank an early submission before its date. Checking this here
- *      (not before the file is written) is what closes the orphan-file leak
- *      the route used to have: multer writes the original to disk BEFORE
- *      this function is ever called, so this is the first point that knows
- *      enough to say the upload was pointless and clean it up.
+ *      (not before the file is written) is what avoids an orphan-file leak:
+ *      multer writes the original to disk BEFORE this function is ever
+ *      called, so this is the first point that knows enough to say the
+ *      upload was pointless and clean it up.
  *   2. A thumbnail is generated from the original. If that throws, the
  *      original is deleted and the call returns 'thumb_failed'.
  *   3. The caption is normalized (see normalizeCaption).
@@ -240,7 +238,7 @@ function normalizeCaption(caption) {
  *      'guest') is the one exception — it comes back visible on a replace,
  *      per the owner-approved "delete means delete" design (issue #886),
  *      via a GUARDED un-hide that runs after the replace itself has
- *      committed (PR review fix, MAJOR A) — a badge-recount failure there is
+ *      committed (#886) — a badge-recount failure there is
  *      logged and swallowed, never allowed to cost the guest the photo just
  *      saved — or a new row is inserted. When the replaced row stays sticky,
  *      resubmitted is also set so /admin/photos can flag it for a
@@ -291,8 +289,8 @@ function normalizeCaption(caption) {
  *        (src/routes/guest.js's POST /tasks/:id/submit handler, outside this
  *        issue's Touches) passes no `nowMs` key, so a required parameter
  *        would arrive `undefined` there and no flash would ever bank for a
- *        real guest. Explicitly falling back on `null` too (issue #761
- *        review fix), not merely `undefined`: a default parameter
+ *        real guest. Explicitly falling back on `null` too (#761),
+ *        not merely `undefined`: a default parameter
  *        (`nowMs = Date.now()`) only fires for `undefined`, so a caller that
  *        passes `nowMs: null` would otherwise reach tasks.flashState() with
  *        a `null` clock, which that function now deliberately throws on
@@ -303,8 +301,8 @@ function normalizeCaption(caption) {
  *        override, so a caller handing it an explicit non-value is read as
  *        "no override," not as a request to crash.
  *
- *        A `NaN` `nowMs`, by contrast, is NOT treated as "not passed" (issue
- *        #761 review fix): it means the caller computed a clock and
+ *        A `NaN` `nowMs`, by contrast, is NOT treated as "not passed" (#761):
+ *        it means the caller computed a clock and
  *        got garbage, and silently substituting the real clock would bank
  *        (or fail to bank) against an instant the caller never asked for.
  *        `NaN` falls through unchanged to tasks.flashState()'s own
@@ -325,7 +323,7 @@ function normalizeCaption(caption) {
  *   status is 'created' AND the presently-paying rule is lucky — `undefined`
  *   for every ordinary completion and for any replace (lucky never banks on
  *   a replace; see banksOnReplace on tasks.js's SPECIAL_RULES lucky entry).
- *   guestCleanSlateReplace (issue #886 PR review fix) is true only when
+ *   guestCleanSlateReplace (#886) is true only when
  *   status is 'replaced', the row this replace landed on was hidden by the
  *   OWNING GUEST's own delete, AND the guarded un-hide (photos.restoreSubmission)
  *   actually returned — the one 'replaced' case src/routes/guest.js treats as
@@ -343,8 +341,8 @@ function normalizeCaption(caption) {
 async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
   // Only nullish (absent/undefined, or explicit null) means "use the real
   // clock" — see the nowMs param doc above for why this is not simply a
-  // `nowMs = Date.now()` destructuring default (issue #761 review fix). A
-  // NaN nowMs is deliberately NOT caught here (issue #761 review fix): it
+  // `nowMs = Date.now()` destructuring default (#761). A
+  // NaN nowMs is deliberately NOT caught here (#761): it
   // falls through unchanged to tasks.flashState()'s own
   // Number.isFinite guard, which throws — a caller-computed garbage clock is
   // a caller bug to report, not a "not passed" signal to mask with the real
@@ -362,7 +360,7 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
   // decision, so the two can never disagree about what day it is.
   const todayIso = eventDays.eventLocalDateString(getEventConfig().timezone);
 
-  // Looked up BEFORE the seal check (issue #754 review fix) so the seal gate
+  // Looked up BEFORE the seal check (#754) so the seal gate
   // can fall through for a guest who already holds a row for this task —
   // mirrors the GET /tasks/:id gate in src/routes/guest.js, which lets that
   // same guest reach the detail page (and its "Replace your photo" form) for
@@ -392,29 +390,18 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
 
   const cap = normalizeCaption(caption);
 
-  // The single banking decision (issue #761 plan step 3; review fix):
+  // The single banking decision (#761 plan step 3):
   // tasks.bonusForTask() derives
   // {amount, reason} directly from the SAME SPECIAL_RULES list and the same
   // ordered findSpecialRule walk tasks.whatSpecial() (the exclusivity guard)
   // uses, reading the column/reason straight off whichever rule is
   // presently paying — so this banking decision and the guard can never
-  // independently drift out of step the way a hand-restated precedence here
-  // once did, AND a new rule (#650's 'lucky') is fully wired for banking by
-  // adding ONE SPECIAL_RULES entry in tasks.js, not a second hand-written
-  // mapping here. Concretely: a task with special_date set to a FUTURE day
-  // (sealed) whose flash window is simultaneously active, submitted by a
-  // guest who already holds a row on this task (the only way to reach the
-  // seal gate's existing-row fall-through above), used to bank 'flash' here
-  // under the old isOnDay-then-flashActive hand fork — isOnDay was false
-  // (the date is in the future) so it fell straight to flashActive (true) —
-  // while tasks.whatSpecial() answered 'daily' for the identical row and
-  // instant. bonusForTask() closes that gap: 'daily' owns the row (it is
-  // sealed), so 'flash''s paying condition is never even consulted, and
-  // 'daily' itself isn't paying yet (isOnDay is false), so bonusForTask()
-  // returns null and nothing banks — matching the guard instead of silently
-  // disagreeing with it. `null` means neither rule is presently paying — an
-  // ordinary submission, one that is off-day and out-of-window, or one that
-  // is sealed/scheduled but not yet in its own paying instant.
+  // independently drift out of step, AND a new rule (#650's 'lucky') is
+  // fully wired for banking by adding ONE SPECIAL_RULES entry in tasks.js,
+  // not a second hand-written mapping here. `null` means neither rule is
+  // presently paying — an ordinary submission, one that is off-day and
+  // out-of-window, or one that is sealed/scheduled but not yet in its own
+  // paying instant.
   const bonusDecision = tasks.bonusForTask(task, { todayIso, nowMs: clockMs });
 
   // The lucky-win flag (issue #650 plan step 4, DESIGN.md's exact prescribed
@@ -432,7 +419,7 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
 
   let status;
   let submissionId;
-  // Issue #886 PR review fix (minor F): true only when this replace landed
+  // Issue #886 (minor F): true only when this replace landed
   // on a row the owning guest had hidden themselves — the one case where the
   // guest-facing reward on redirect should read as a first-time completion
   // (the "clean slate" design), not the plain "Photo replaced!" flash. Stays
@@ -442,7 +429,7 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
   if (existing) {
     submissionId = existing.id;
 
-    // Issue #886 PR review fix (minor 1): `existing` was read BEFORE the
+    // Issue #886 (minor 1): `existing` was read BEFORE the
     // awaited makeThumb above — tens to hundreds of ms for a phone photo —
     // and the takedown attribution can legitimately move in that window (a
     // host taking this exact photo down from /admin/photos mid-upload).
@@ -459,22 +446,22 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
     // only when bonusDecision names one (the task is presently paying) AND
     // the existing row has not already banked one (existing.bonus_amount ===
     // 0) -- a resubmit on a later, off-day/out-of-window date must never
-    // overwrite (or zero out) a bonus already banked (issue #753 review fix,
+    // overwrite (or zero out) a bonus already banked (#753,
     // generalized by #761 plan step 3 to whichever rule bonusDecision
     // names). bonusDecision.amount itself is always a plain number here,
     // never null/undefined -- tasks.bonusForTask() (src/services/tasks.js)
-    // is the owner of that guarantee now (issue #761 review fix): it
+    // is the owner of that guarantee now (#761): it
     // coalesces the 'daily' rule's special_bonus column to 0 for a
     // legacy pre-chk_special_pairing row (special_date set, special_bonus
     // still NULL), and needs no such coalesce for 'flash' because
     // tasks.flashState() -- and so tasks.bonusForTask() -- already
     // refuse to pay 'flash' unless flash_bonus is an integer in [1, 3]
-    // (issue #761 review fix). See SPECIAL_RULES' two entries in
+    // (#761). See SPECIAL_RULES' two entries in
     // tasks.js for the full reasoning; this file no longer carries its own
     // copy.
     //
-    // bonusReason comes straight off bonusDecision.reason (issue #761 review
-    // fix) -- tasks.bonusForTask() is now the single owner of "no
+    // bonusReason comes straight off bonusDecision.reason (#761) --
+    // tasks.bonusForTask() is now the single owner of "no
     // reason beside a zero amount" (see its own doc comment), already
     // returning `reason: null` whenever `amount` coalesced to 0 on that same
     // legacy-row shape. This branch no longer re-applies its own `> 0` guard
@@ -516,8 +503,8 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
       throw err;
     }
 
-    // Issue #886's un-hide, GUARDED and OUTSIDE replaceAndBank's transaction
-    // (PR review fix, MAJOR A). replaceAndBank above has already committed by
+    // Issue #886's un-hide, GUARDED and OUTSIDE replaceAndBank's transaction.
+    // replaceAndBank above has already committed by
     // this point, so the guest's new photo_path/thumb_path/bonus are safely
     // on the DB row and the superseded-file cleanup below can run regardless
     // of what happens next. A row the owning GUEST hid themselves comes back
@@ -594,7 +581,7 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
     // unconditionally (`isOnDay ? BONUS_REASON_ONEDAY : null`) beside an
     // amount that coalesces to 0 on a legacy row whose special_bonus is
     // NULL — exactly the reason-beside-zero state tasks.bonusForTask() now
-    // forbids by construction (issue #761 review fix: see that
+    // forbids by construction (#761: see that
     // function's own doc comment). bonusReason comes straight off
     // bonusDecision.reason, with no `> 0` guard re-applied here — both
     // branches now defer to the SAME producer-owned rule instead of each

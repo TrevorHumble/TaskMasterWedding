@@ -38,19 +38,18 @@
     size local here — this partial only decides WHICH shape renders, never
     how big.
 
-    Icon-branch accessibility (#869 review fix): the old `<img alt="">` was
-    treated as decorative and skipped by assistive tech whenever a caller
-    passed an empty alt (e.g. task.ejs passes alt: '' because the badge is
-    already named next to it — issue #611 removed that page's visible badge
-    name, so what names it there now is the wrapping link's own aria-label;
-    either way the icon itself would be redundant noise for a screen reader).
+    Icon-branch accessibility (#869): an empty alt on a plain `<img>` is
+    treated as decorative and skipped by assistive tech (e.g. task.ejs
+    passes alt: '' because the badge is already named next to it — the
+    wrapping link's own aria-label names it there, per #611 — either way
+    the icon itself would be redundant noise for a screen reader).
     `role="img" aria-label=""`
     is NOT
     auto-demoted the same way — it reads as an unnamed graphic — so the
-    masked <span> below branches explicitly: a non-empty alt gets
+    masked <span> below must branch explicitly: a non-empty alt gets
     `role="img"` + `aria-label`, an empty one gets `aria-hidden="true"` and
     neither attribute, mirroring the two shapes `<img alt="">` vs.
-    `<img alt="non-empty">` already gave the composed-image branch.
+    `<img alt="non-empty">` give the composed-image branch.
 %>
 <% var badgeArtIcon = badge && badgeIsIcon(badge.art_path); %>
 <% var badgeArtAlt = typeof alt !== 'undefined' ? alt : (badge ? badge.name : ''); %>

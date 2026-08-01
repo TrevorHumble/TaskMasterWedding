@@ -1,8 +1,8 @@
 // src/services/lockout.js
 //
-// Persistent admin-login lockout state (issue #283), replacing the
-// module-scoped `failedAttempts`/`lockedUntil` scalars src/routes/auth.js
-// used to carry (issue #49's original brute-force throttle). Backed by the
+// Persistent admin-login lockout state (#283) lives here, not as the
+// module-scoped `failedAttempts`/`lockedUntil` scalars in
+// src/routes/auth.js (#49's original brute-force throttle). Backed by the
 // `settings` key/value table (src/db.js's ensureSettingsTable) so the lockout
 // survives a process restart (AC5) — the one piece of rate-limiting state in
 // this app worth persisting: everything in src/middleware/rate-limit.js and

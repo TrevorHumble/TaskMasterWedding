@@ -188,7 +188,7 @@ function eventLocalDateString(timezone, instant) {
 function wallClockParts(timezone, utcMs) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
-    // hourCycle: 'h23' (issue #753 review fix, replacing hour12: false) makes
+    // hourCycle: 'h23' (#753, replacing hour12: false) makes
     // local midnight unrepresentable as anything but "00" -- hour12: false
     // could format it as "24" in some ICU builds, which needed a separate
     // 24->0 correction below. h23 removes the case entirely rather than

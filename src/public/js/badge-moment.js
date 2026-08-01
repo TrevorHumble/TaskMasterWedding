@@ -9,12 +9,9 @@
 // src/views/partials/header.ejs (issue #644 plan step 4), so this script is
 // now included by header.ejs — every guest page, not just the task page —
 // but ONLY when a badgeMoment is owed, so #badge-dialog always exists
-// (already populated server-side) when this file runs. Looked up by ID (the
-// element carries both `id="badge-dialog"` and `class="badge-dialog"`, but
-// the id is the unique one — issue #902 PR review, minor: an earlier version
-// of this file looked it up by class while the click delegation below
-// already matched on `#badge-dialog .badge-continue`, two different ways of
-// naming the same element for no reason).
+// (already populated server-side) when this file runs. Looked up by ID —
+// the element carries both `id="badge-dialog"` and `class="badge-dialog"`,
+// but the id is the unique one (#902).
 //
 // The 'playing' class gates the bloom animation in theme.css (itself gated
 // under prefers-reduced-motion: no-preference); adding it under reduced
@@ -30,10 +27,9 @@
 // drives the "Continue — N more" -> ... -> "Done" advance-in-place flow the
 // owner approved on the ?badge-demo=1 mock (recap.js, now removed): each tap
 // repaints the dialog via src/public/js/recap.js's shared window.paintBadge
-// (issue #902 PR review, major finding 2 — the .badge-title/.badge-sub/
-// .badge-sway swap used to be hand-written independently here AND in
-// recap.js's own openBadgeDialog; one function now owns it, called from
-// both) and posts POST /badge-moment/celebrated for the badge just revealed
+// (#902) — one function now owns the .badge-title/.badge-sub/.badge-sway
+// swap, called from both here and recap.js's own openBadgeDialog — and
+// posts POST /badge-moment/celebrated for the badge just revealed
 // (AC3 — a stamp fires only once a badge is actually SHOWN, never before,
 // and is not retried on failure, matching POST /recap/seen's own
 // fire-and-forget posture). A single-badge celebration (no queue) behaves

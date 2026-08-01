@@ -160,10 +160,8 @@ function markBadgeCelebrated(guestId, code) {
  * and this single query covers all three sources without asking which one
  * fired (issue #644 AC1).
  *
- * Issue #902: previously (#644) only the single winner was resolved and
- * stamped, and every OTHER owed badge stayed untouched for a later page to
- * pick up one at a time (the "drip"). The dialog now drives a client-side
- * continue-through queue instead, so this function resolves and orders the
+ * Issue #902 replaces #644's single-winner-per-page "drip" with a
+ * client-side continue-through queue: this function resolves and orders the
  * WHOLE owed set up front — via scoring.rankBadgeCandidates, built from
  * getGuestBadges's row shape (carries the `type`/`threshold`
  * compareBadgeMoment ranks on; the bare stmtOwedBadges projection above does
@@ -258,7 +256,7 @@ function resolveBadgeMoment(guestId) {
  * routes through) computes the full body then discards it for a HEAD
  * request, but it discards it AFTER this function has already run — so
  * without this guard, a HEAD request carrying a guest cookie would stamp a
- * badge's celebrated_at (issue #644 review finding) and consume a
+ * badge's celebrated_at (#644) and consume a
  * celebration the guest never actually received. Since nothing computed
  * here can ever reach a HEAD response body, skip both queries entirely
  * rather than merely skipping the stamp.

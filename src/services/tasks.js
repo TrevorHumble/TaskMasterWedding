@@ -31,7 +31,7 @@ const MODE_NONE = 'none';
 const MODE_HIDDEN = 'hidden';
 const MODE_ONEDAY = 'oneday';
 
-// Every mode this build's JS layer recognizes (issue #682 review fix — the
+// Every mode this build's JS layer recognizes (#682 — the
 // WRITE-side counterpart to liveTaskWhere/isTaskLive's READ-side ownership).
 // normalizeMode/isValidMode below are the two consumers of THIS list, and
 // they pick up a new value automatically once it is added here — but this
@@ -47,10 +47,9 @@ const MODE_ONEDAY = 'oneday';
 // that sets special_date does so through the paired write those handlers
 // share with the guard below.
 //
-// The inert state this comment used to describe as the ONLY way to reach
-// 'oneday' — special_mode='oneday' with special_date left NULL — is still
-// reachable, deliberately not closed off by #755's validation (architecture
-// review note): a hand-crafted EDIT POST that carries special_mode=oneday
+// special_mode='oneday' with special_date left NULL is reachable,
+// deliberately not closed off by #755's validation (architecture review
+// note): a hand-crafted EDIT POST that carries special_mode=oneday
 // while omitting/blanking special_date on a task ALREADY stored with a NULL
 // pair (an ordinary task) posts a pair equal to what is already stored, so
 // resolveSpecialPairWrite's pairChanged is false and its validation never
@@ -60,9 +59,9 @@ const MODE_ONEDAY = 'oneday';
 // before this issue.
 //
 // Flash (issue #761) deliberately does NOT extend this list, and needs
-// NEITHER by-hand update below — a correction to what this comment used to
-// predict. The owner's rule is that a flash task reverts to no-special
-// automatically the instant its window ends, with no stale state; a stored
+// NEITHER by-hand update below. The owner's rule is that a flash task
+// reverts to no-special automatically the instant its window ends, with no
+// stale state; a stored
 // enum value cannot expire on its own without either a scheduler (this app
 // has none) or a write on every read, so flash is read-time-evaluated state
 // instead (flashState()/whatSpecial() below), decorated onto an
@@ -133,11 +132,7 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  */
 function isSealed(taskRow, todayIso) {
   // Validate todayIso the same way sealedTaskWhere() below does, and fail
-  // the same way (issue #753 review fix): before this, an undefined or
-  // malformed todayIso here silently compared as `undefined > todayIso` /
-  // string-mismatched and fell through to `false` -- reporting "not sealed"
-  // for a task that IS a one-day-only challenge, while sealedTaskWhere threw
-  // on the identical bad input. Two owners of one rule must not disagree
+  // the same way (#753): two owners of one rule must not disagree
   // about invalid input; both now throw.
   if (!ISO_DATE_RE.test(todayIso)) {
     throw new Error(`isSealed: todayIso must be YYYY-MM-DD, got ${JSON.stringify(todayIso)}`);
@@ -146,7 +141,7 @@ function isSealed(taskRow, todayIso) {
 }
 
 /**
- * The ONE owner of "is taskRow's day today" (issue #754 review fix, MAJOR B):
+ * The ONE owner of "is taskRow's day today" (#754):
  * true exactly when `taskRow.special_date` equals `todayIso`. Two callers
  * need this identical calendar fact — src/services/submissions.js's on-day
  * bonus banking (does the bonus actually get banked) and
@@ -169,8 +164,7 @@ function isOnDay(taskRow, todayIso) {
 }
 
 /**
- * The ONE owner of "is taskRow's day strictly in the past" (issue #662
- * review fix — design-philosophy finding, information leakage): true exactly
+ * The ONE owner of "is taskRow's day strictly in the past" (#662): true exactly
  * when `taskRow.special_date` is a REAL calendar date (isRealDateString
  * below, not the shape-only isValidDateString — special_date is a free-form
  * TEXT column that can hold a regex-shaped-but-impossible value like
@@ -203,14 +197,14 @@ function isPastDay(taskRow, todayIso) {
 }
 
 /**
- * True for a value shaped like a real YYYY-MM-DD date string (issue #754
- * review fix, MINOR I) — the same shape ISO_DATE_RE already validates
- * `todayIso` against above. Exported so a caller holding a task row's OWN
- * `special_date` (a free-form TEXT column with no shape constraint — see
- * isSealed's doc comment) can defensively check it before doing date math
- * that would otherwise throw on a malformed value, e.g.
- * eventDays.dayOpensAt()'s Intl.DateTimeFormat calls, which throw a
- * RangeError on an instant built from an unparseable date.
+ * True for a value shaped like a real YYYY-MM-DD date string (#754) — the
+ * same shape ISO_DATE_RE already validates `todayIso` against above.
+ * Exported so a caller holding a task row's OWN `special_date` (a
+ * free-form TEXT column with no shape constraint — see isSealed's doc
+ * comment) can defensively check it before doing date math that would
+ * otherwise throw on a malformed value, e.g. eventDays.dayOpensAt()'s
+ * Intl.DateTimeFormat calls, which throw a RangeError on an instant built
+ * from an unparseable date.
  *
  * @param {unknown} value
  * @returns {boolean}
@@ -228,11 +222,11 @@ function isValidDateString(value) {
  * do date math / render a label from this value" needs the stronger check,
  * not just the shape one.
  *
- * The ONE owner of this combined check (issue #755 review fix — architecture
- * lens): before this function existed, `src/routes/admin.js` carried its own
- * local `isRealDate()` (round-tripping the parsed y/m/d through
- * `Date.UTC()`) for exactly this purpose, duplicating logic this module
- * already owns every other piece of. `src/routes/guest.js:176`/`:398` still
+ * The ONE owner of this combined check (#755): `src/routes/admin.js` calls
+ * `tasks.isRealDateString()` here rather than keeping its own local
+ * `isRealDate()` (round-tripping the parsed y/m/d through `Date.UTC()`),
+ * so this module owns every piece of this logic, not a duplicate.
+ * `src/routes/guest.js:176`/`:398` still
  * check shape ONLY (`isValidDateString`), not reality — a value that passes
  * shape but fails reality (e.g. `'2026-13-45'`) is not on guest.js's Touches
  * list for this issue and is left exactly as it was, deliberately not
@@ -271,7 +265,7 @@ function sealedTaskWhere(alias, todayIso) {
     );
   }
   const prefix = alias ? `${alias}.` : '';
-  // Parenthesized as one atom (issue #753 review fix): liveTaskWhere()
+  // Parenthesized as one atom (#753): liveTaskWhere()
   // returns a single atom, but this fragment is two ANDed conditions. A
   // caller building `WHERE ... AND NOT ${sealedTaskWhere(...)}` (the
   // exclusion shape this function's own consumers use, e.g. #754's guest
@@ -285,8 +279,8 @@ function sealedTaskWhere(alias, todayIso) {
 }
 
 /**
- * The ONE owner of "is this task a one-day-only challenge" (issue #753
- * review fix): true whenever `taskRow` carries a `special_date`, regardless
+ * The ONE owner of "is this task a one-day-only challenge" (#753): true
+ * whenever `taskRow` carries a `special_date`, regardless
  * of whether it is presently sealed. `special_date` is the single
  * authoritative "this is a challenge" fact (see the doc comment on the
  * `tasks.special_date` column, `src/db.js`) -- `special_mode`'s `'oneday'`
@@ -326,12 +320,10 @@ function challengeTaskWhere(alias) {
 // groups both to check the shape and to reconstruct the instant for the
 // strict real-date check, and flashState() and the exported
 // isValidFlashInstant() both delegate to it rather than each carrying their
-// own shape-then-reality pair (issue #761 review fix — this comment used to
-// describe flashState() and isValidFlashInstant() as splitting that work
-// between them; neither does its own parsing anymore).
+// own shape-then-reality pair (#761).
 const FLASH_INSTANT_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z$/;
 
-// Exported (issue #761 review fix) for the identical reason
+// Exported (#761) for the identical reason
 // isValidFlashInstant is exported: #763 is the flash_bonus write path and
 // its own Touches cannot reach this file, so #763's host-facing 1-3 bonus
 // picker validates against THESE two constants rather than hand-copying the
@@ -354,7 +346,7 @@ const FLASH_SCHEDULED = 'scheduled';
 const FLASH_ACTIVE = 'active';
 const FLASH_EXPIRED = 'expired';
 
-// The two SPECIAL_RULES `kind` literals (issue #761 review fix),
+// The two SPECIAL_RULES `kind` literals (#761),
 // exported alongside the four FLASH_* window-state constants above for the
 // same reason: MODE_* and BONUS_REASON_* are both exported so a consumer
 // compares against a named constant rather than hand-writing the bare
@@ -367,7 +359,7 @@ const SPECIAL_FLASH = 'flash';
 const SPECIAL_LUCKY = 'lucky';
 
 // The bonus_reason literals SPECIAL_RULES' `reason` fields write into
-// submissions.bonus_reason (issue #761 review fix — all three reviewers).
+// submissions.bonus_reason (#761).
 // THIS file is the single owner: SPECIAL_RULES' entries below reference
 // these two constants instead of hand-writing the strings a second time, and
 // src/services/submissions.js re-exports them (destructured from this
@@ -402,16 +394,15 @@ const BONUS_REASON_LUCKY = 'lucky';
 /**
  * True for a value that is BOTH shaped like the pinned flash-instant form,
  * `YYYY-MM-DDTHH:MM:SS.sssZ` (issue #761 Design — the serialization form is
- * part of the contract), AND names a real calendar instant (issue #761
- * review fix). Before this fix this check was shape-only and
- * accepted an impossible-but-pinned-shape instant like
+ * part of the contract), AND names a real calendar instant (#761). A
+ * shape-only check would accept an impossible-but-pinned-shape instant like
  * `2026-02-31T00:00:00.000Z` — #763, the exported owner's sole consumer,
- * would then have stored that value and flashState() below would have read
- * it as 'none' forever (parseFlashInstant() rejects it), silently never
- * firing with no error anywhere. Delegating to parseFlashInstant() (below —
+ * would then store that value and flashState() below would read it as
+ * 'none' forever (parseFlashInstant() rejects it), silently never firing
+ * with no error anywhere. Delegating to parseFlashInstant() (below —
  * hoisted, so declaration order here doesn't matter) means this exported
  * validator and flashState()'s own read-side check can never drift apart on
- * what counts as "valid": both are now the same one function.
+ * what counts as "valid": both are the same one function.
  *
  * Exported (issue #761 plan step 2) so #763, the only writer of
  * flash_start_at, consults THIS whole check rather than hand-deriving its
@@ -444,7 +435,7 @@ function isValidFlashInstant(value) {
  * (the leading regex match below) and reality (the round-trip check) — so
  * isValidFlashInstant() above and flashState() below both delegate to this
  * single function rather than each layering their own shape-then-reality
- * pair and risking the two disagreeing (issue #761 review fix).
+ * pair and risking the two disagreeing (#761).
  * Safe to call on any value, well-formed or not: an unmatched shape returns
  * null exactly like an impossible date does, so a caller never needs to
  * shape-check before calling this.
@@ -556,15 +547,13 @@ function flashWindow(taskRow) {
  * so a partially-populated row is a legal database state this function must
  * survive.
  *
- * `nowMs` IS validated, unlike `taskRow`'s fields above (issue #761 review
- * fix): it is a caller-supplied clock, not row data, and an invalid
- * one is a caller bug, not a legitimately malformed database row. Before
- * this fix, an undefined or NaN `nowMs` made both window comparisons below
- * false and this function silently answered 'expired' for a genuinely
- * ACTIVE flash — the exact double-booking whatSpecial()'s exclusivity guard
- * exists to prevent — with no error anywhere; a `null` nowMs coerced to 0 in
- * the comparisons and answered 'scheduled' instead. This mirrors the
- * discipline isSealed()/isOnDay() already apply to their own clock parameter
+ * `nowMs` IS validated (#761), unlike `taskRow`'s fields above: it is a
+ * caller-supplied clock, not row data, so an invalid one is a caller bug,
+ * not a legitimately malformed database row — this function throws rather
+ * than silently answering 'expired' for a genuinely ACTIVE flash (the exact
+ * double-booking whatSpecial()'s exclusivity guard exists to prevent) or
+ * 'scheduled' for a `null` clock coerced to 0. This mirrors the discipline
+ * isSealed()/isOnDay() already apply to their own clock parameter
  * (`todayIso`): "two owners of one rule must not disagree about invalid
  * input" applies just as much to a single owner's own single clock
  * parameter — silently answering *something* for a broken clock is worse
@@ -605,22 +594,12 @@ function flashState(taskRow, nowMs) {
 }
 
 /**
- * The ONE ordered list a task's special state is derived from (issue #761
- * review fix). Before this fix, "who is this task spoken for by"
- * (whatSpecial, the exclusivity guard) and "who is paying right now"
- * (submissions.js's banking decision) were two hand-written precedences in
- * two files, each carrying a comment claiming they "can never disagree" —
- * a claim that was already false: a task with `special_date` set to a
- * FUTURE day (sealed, so spokenFor answers 'daily') whose flash window is
- * simultaneously active, submitted by a guest who already holds a row on
- * that task (the only way to reach the seal gate's existing-row
- * fall-through, submissions.js's submitPhoto), used to bank 'flash' — the
- * hand-written banking logic checked isOnDay (false; the date is in the
- * future) and fell straight to flashActive (true) — while whatSpecial
- * answered 'daily' for the identical row and instant. Both questions now
- * walk this ONE list (via findSpecialRule below) so they can never
- * independently drift apart again; #650 adds 'lucky' as one more entry
- * here, not two hand-edits kept in step by discipline alone.
+ * The ONE ordered list a task's special state is derived from (#761).
+ * "Who is this task spoken for by" (whatSpecial, the exclusivity guard) and
+ * "who is paying right now" (submissions.js's banking decision) both walk
+ * this ONE list (via findSpecialRule below) so they can never independently
+ * drift apart; #650 adds 'lucky' as one more entry here, not a hand-edit
+ * kept in step by discipline alone.
  *
  * The two questions stay genuinely different, though, and both must remain
  * answerable per-rule:
@@ -643,21 +622,15 @@ function flashState(taskRow, nowMs) {
  * no bonus of ANY kind banks, matching whatSpecial's 'daily' answer instead
  * of silently falling through to flash.
  *
- * Each entry ALSO carries `bonusColumn` and `reason` (issue #761 review
- * fix): the task-row column this rule pays from and the bonus_reason
- * literal it writes. Before these two fields existed, "who is spoken for /
- * who is paying" lived here while "what does paying actually bank" was a
- * SEPARATE hand-written `if (paying === 'daily') ... else if (paying ===
- * 'flash') ...` in submissions.js — a claim above that "#650 adds 'lucky' as
- * one more entry, not two hand-edits" was already false, because that third
- * thing, the banking switch, was never one of the "two" it was counting.
- * Adding 'lucky' to this list alone would have made the paying rule resolve
- * to 'lucky', both arms of that switch miss, and a lucky task bank nothing
- * while whatSpecial reported it spoken-for. bonusForTask() below reads
- * `bonusColumn`/`reason` off whichever rule is presently paying, so
- * submissions.js's banking decision is now wired by this SAME entry too —
- * #650 truly does add one entry, not one entry plus a second hand-edit
- * elsewhere.
+ * Each entry ALSO carries `bonusColumn` and `reason` (#761): the task-row
+ * column this rule pays from and the bonus_reason literal it writes. This
+ * keeps "who is spoken for / who is paying" and "what does paying actually
+ * bank" wired from the SAME entry, so a rule can never drift out of step
+ * with its own banking logic in submissions.js. bonusForTask() below reads
+ * `bonusColumn`/`reason` off whichever rule is presently paying — adding a
+ * new rule to this list is the single edit that wires both its exclusivity
+ * and its banking; #650's 'lucky' entry is a live example of this staying
+ * one entry, not one entry plus a second hand-edit elsewhere.
  */
 const SPECIAL_RULES = [
   {
@@ -675,8 +648,7 @@ const SPECIAL_RULES = [
     spokenFor: (row, clock) => isSealed(row, clock.todayIso) || isOnDay(row, clock.todayIso),
     paying: (row, clock) => isOnDay(row, clock.todayIso),
     // The window has CLOSED and can never pay again: this challenge's day is
-    // strictly in the past. Delegates to isPastDay (issue #662 review fix —
-    // design-philosophy finding, information leakage): before isPastDay
+    // strictly in the past. Delegates to isPastDay (#662): before isPastDay
     // existed, this predicate carried its own inline isRealDateString-guarded
     // `<` comparison — the isRealDateString guard matters because
     // special_date is a free-form column that can hold anything, including a
@@ -697,8 +669,7 @@ const SPECIAL_RULES = [
     // already refuses to answer 'active' unless flash_bonus is an integer in
     // [1, 3], and `paying` below only fires when flashState() says 'active',
     // so this column can never be null or undefined by the time
-    // bonusForTask() reads it. No coalesceNullAmount needed here (issue #761
-    // review fix).
+    // bonusForTask() reads it. No coalesceNullAmount needed here (#761).
     bonusColumn: 'flash_bonus',
     reason: BONUS_REASON_FLASH,
     spokenFor: (row, clock) => {
@@ -784,13 +755,13 @@ function assertClock(clock, caller) {
  * impossible for either question to disagree about which rule owns a given
  * row.
  *
- * `clock.nowMs` is validated here, up front, before the walk (issue #761
- * review fix) — not left to flashState() to catch lazily partway through.
- * Before this fix, an invalid `nowMs` only surfaced as a throw when the walk
- * actually reached 'flash''s `spokenFor` (the only rule that reads
- * `clock.nowMs`; 'daily''s `spokenFor` reads only `clock.todayIso`), so the
- * SAME caller mistake — a clock object built with `todayIso` but no `nowMs`
- * — silently passed for a sealed or on-day row (findSpecialRule stops at
+ * `clock.nowMs` is validated here, up front, before the walk (#761) — not
+ * left to flashState() to catch lazily partway through. Left unvalidated,
+ * an invalid `nowMs` would only surface as a throw when the walk actually
+ * reached 'flash''s `spokenFor` (the only rule that reads `clock.nowMs`;
+ * 'daily''s `spokenFor` reads only `clock.todayIso`), so the SAME caller
+ * mistake — a clock object built with `todayIso` but no `nowMs` — would
+ * silently pass for a sealed or on-day row (findSpecialRule stops at
  * 'daily' and never reaches 'flash') while throwing for an ordinary or
  * flash-armed row. Two callers of one function must not get a different
  * outcome for an identical bug decided only by which row they happened to
@@ -835,7 +806,7 @@ function whatSpecial(taskRow, clock) {
 
 /**
  * The ONE owner of "how much does `rule` bank on `taskRow`, and what reason
- * goes beside it" (issue #926 review fix, MAJOR M2) — the {reason, amount}
+ * goes beside it" (#926) — the {reason, amount}
  * shaping bonusForTask() and missedBonusForTask() both need once they have
  * already decided WHICH rule applies (this helper does not decide that; it
  * takes the already-matched `rule` as a parameter). `reason` is null whenever
@@ -845,10 +816,8 @@ function whatSpecial(taskRow, clock) {
  * (bonus_reason has no reader anywhere in the tree yet, but is read by
  * literal, not derived) that a rule paid out when nothing was banked.
  *
- * See bonusForTask's own doc comment below for the defect class this
- * collapses: this exact shaping used to be typed out twice, once in
- * bonusForTask and once in missedBonusForTask, with nothing enforcing the two
- * copies agreed.
+ * bonusForTask() and missedBonusForTask() below both call this helper
+ * instead of each carrying its own copy of this shaping.
  *
  * @param {{bonusColumn: string, reason: string, coalesceNullAmount?: boolean}} rule
  * @param {object} taskRow
@@ -862,7 +831,7 @@ function bonusAmountFor(rule, taskRow) {
 
 /**
  * The banking descriptor for whichever rule is presently paying on
- * `taskRow` (issue #761 review fix) — the single place that maps a paying
+ * `taskRow` (#761) — the single place that maps a paying
  * rule to the column it pays from and the bonus_reason literal it writes,
  * derived from the same findSpecialRule walk whatSpecial uses. Before this
  * function existed, submissions.js hand-wrote `if (paying === 'daily') ...
@@ -886,18 +855,14 @@ function bonusAmountFor(rule, taskRow) {
  * one that is off-day and out-of-window, or one that is sealed/scheduled
  * but not yet in its own paying instant.
  *
- * The {reason, amount} shaping is bonusAmountFor()'s job now, not this
- * function's own (issue #926 review fix, MAJOR M2 — see that helper's doc
- * comment above). Before this fix, BOTH consumers (src/services/
- * submissions.js's insert and replace branches) independently re-applied an
- * `amount > 0 ? rule.reason : null` guard around this same return value — two
- * call sites carrying one rule, with nothing stopping a THIRD consumer from
- * forgetting it and writing the exact reason-beside-zero state both branches'
- * comments forbade. That third consumer arrived: missedBonusForTask() below
- * (issue #926) shipped its own copy of this exact `raw`/`coalesceNullAmount`/
- * `reason` shaping instead of reusing this function's — the SAME defect class
- * landing a second time, caught in review and collapsed into bonusAmountFor()
- * above, which both functions now call.
+ * The {reason, amount} shaping is bonusAmountFor()'s job (#926 — see that
+ * helper's doc comment above), not this function's own or any caller's:
+ * src/services/submissions.js's insert and replace branches and
+ * missedBonusForTask() below both consume bonusAmountFor() rather than
+ * each re-applying their own `amount > 0 ? rule.reason : null` guard
+ * around this return value — one rule, one owner, so a future consumer
+ * can never independently drift into writing the reason-beside-zero state
+ * bonusAmountFor() forbids.
  *
  * `banksOnReplace` is passed through UNCHANGED from the matched rule (issue
  * #650 plan step 2) -- never defaulted here. Daily and flash omit the key
@@ -940,22 +905,20 @@ function bonusForTask(taskRow, clock) {
  * A rule with no `missed` predicate is never missed — see the lucky entry's own
  * comment for why it declines one.
  *
- * Amount handling is IDENTICAL to bonusForTask's, not merely similar — both
- * call the shared bonusAmountFor() helper (issue #926 review fix, MAJOR M2;
- * see bonusForTask's own doc comment above for the defect class this
- * collapses) rather than each carrying its own copy of the raw-column-read /
- * coalesceNullAmount / reason-beside-zero shaping. `reason` is null beside a
- * zero amount so a caller can never render "you missed +0". A caller wanting
- * a yes/no answer checks `missedBonusForTask(...) !== null` — but should gate
- * its MARKER on `amount > 0`, since a legacy row with a date and no bonus
+ * Amount handling is IDENTICAL to bonusForTask's, not merely similar —
+ * both call the shared bonusAmountFor() helper (#926; see bonusForTask's
+ * own doc comment above for the defect class this collapses) rather than
+ * each carrying its own copy of the raw-column-read / coalesceNullAmount /
+ * reason-beside-zero shaping. `reason` is null beside a zero amount so a
+ * caller can never render "you missed +0". A caller wanting a yes/no
+ * answer checks `missedBonusForTask(...) !== null` — but should gate its
+ * MARKER on `amount > 0`, since a legacy row with a date and no bonus
  * never had anything to miss.
  *
  * `clock.todayIso` is validated here too (issue #926 plan step 1), unlike
- * bonusForTask/whatSpecial above — this function's own `'daily'` walk used to
- * check `isValidDateString(clock.todayIso)` INSIDE that rule's `missed`
- * predicate and just answer "not missed" (silently falling through to the
- * next rule) for a missing or malformed `todayIso`, which would let every
- * passed daily challenge quietly lose its marker with no error anywhere —
+ * bonusForTask/whatSpecial above: a missing or malformed `todayIso` here
+ * would let every passed daily challenge quietly lose its marker with no
+ * error anywhere —
  * the caller would never learn its clock was built wrong. The sibling live
  * walk already refuses to guess here: isSealed()/isOnDay() both throw on an
  * invalid `todayIso` rather than silently reporting "not sealed" — two
@@ -1012,7 +975,7 @@ function isValidMode(value) {
 
 /**
  * The WRITE-side owner of "what special_mode value does a posted field
- * become" (issue #682 review fix): a valid MODES member passes through
+ * become" (#682): a valid MODES member passes through
  * unchanged; anything else (missing, empty, unrecognized, a future mode this
  * build doesn't know yet) falls back to `fallback`. src/routes/admin.js's
  * create and edit handlers BOTH route their posted `special_mode` through
@@ -1048,7 +1011,7 @@ function normalizeMode(value, fallback) {
 
 /**
  * The WRITE-side owner of "what worth value does a posted field become"
- * (issue #682 review fix), mirroring normalizeMode's shape: parses `raw` as
+ * (#682), mirroring normalizeMode's shape: parses `raw` as
  * an integer and returns it only when it falls within [MIN_WORTH,
  * MAX_WORTH]; anything else (missing, non-numeric, out of range) falls back
  * to `fallback`. src/routes/admin.js's create (fallback DEFAULT_WORTH) and

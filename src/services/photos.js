@@ -300,7 +300,7 @@ const storage = multer.diskStorage({
  * `resolveUploadedFile` (called from the `upload`/`uploadMemoryBatch`
  * wrappers below). A candidate that turns out NOT to be real HEIC (and is
  * not one of our real mimetypes) is rejected there instead, with the same
- * BAD_IMAGE_TYPE code and message this function used to produce directly —
+ * BAD_IMAGE_TYPE code and message a direct rejection here would carry —
  * the guest sees an identical outcome, just decided one step later.
  *
  * On rejection we pass an Error whose .message is safe to show the guest,
@@ -490,11 +490,9 @@ function assertHeicDecodeAllowed(guestId) {
   }
 }
 
-// Serializes HEIC decodes to at MOST ONE concurrent decode (issue #930:
-// replaces the hand-rolled heicDecodeChain promise chain + pendingHeicDecodes
-// counter this comment used to describe, with the repo's existing, audited
-// Semaphore primitive — src/utils/semaphore.js, the same primitive
-// withUploadSlot/withAvatarSlot already standardize on,
+// Serializes HEIC decodes to at MOST ONE concurrent decode (#930), using the
+// repo's existing, audited Semaphore primitive (src/utils/semaphore.js, the
+// same primitive withUploadSlot/withAvatarSlot already standardize on,
 // src/utils/upload-concurrency.js). The decode itself runs in a worker thread
 // (see decodeHeicInWorker / heic-worker.js), so this bounds how many WORKERS
 // run at once to one: a single decode transiently wants a few hundred MB of
@@ -1090,8 +1088,8 @@ const rawUploadMemoryBatch = multerMemoryBatchInstance.array('photos');
  * src/routes/guest.js's POST /memories only calls its own cleanup helper
  * (cleanupBatchOriginals) for the rate-limit/disk-space guards — on a plain
  * callback error it just flashes a message, trusting that no file was left
- * behind. That trust used to be earned by multer's own abort; it is earned
- * here instead, now that the HEIC decision happens after multer is done.
+ * behind. That trust is now earned here instead of by multer's own abort,
+ * now that the HEIC decision happens after multer is done.
  */
 function uploadMemoryBatch(req, res, cb) {
   rawUploadMemoryBatch(req, res, async function (err) {
@@ -1388,10 +1386,9 @@ const _clearResubmitted = db.prepare('UPDATE submissions SET resubmitted = 0 WHE
 const VALID_TAKEN_DOWN_BY = new Set(['admin', 'guest']);
 
 // The SINGLE owner of the Attribution convention's "is this row hidden by
-// the guest who owns it" predicate (issue #886 PR review fix — the rule had
-// been hand-typed independently at more than one call site, in mixed
-// polarity). This codebase already had this exact duplicated-visibility-rule
-// problem once — see src/services/feed.js's own file comment on why
+// the guest who owns it" predicate (#886). This codebase already had this
+// exact duplicated-visibility-rule problem once — see src/services/feed.js's
+// own file comment on why
 // taken_down itself has exactly one owner — so the fix here is the same
 // move: one function, consumed everywhere the question is asked, rather than
 // independent copies of `taken_down === 1 && taken_down_by === 'guest'`
@@ -1418,9 +1415,9 @@ function hiddenByOwningGuest(row) {
 // guest's own delete. Composes hiddenByOwningGuest above rather than letting
 // a caller re-type the conjunction — a duplicated
 // `taken_down === 1 && !hiddenByOwningGuest(row)` expression hand-typed
-// independently at more than one call site was a PR-review finding on issue
-// #886 (both reviewers): a third attribution value added later that updates
-// only one site would silently let a guest launder a non-guest takedown into
+// independently at more than one call site (#886): a third attribution
+// value added later that updates only one site would silently let a
+// guest launder a non-guest takedown into
 // their own, reopening the hole AC4 exists to close. Not enumerated by
 // caller here either, for the same reason hiddenByOwningGuest's own comment
 // gives above.
@@ -1776,8 +1773,8 @@ module.exports = {
   // takedown / restore (flag flip + auto-badge recount, atomic; files kept)
   hideSubmission,
   restoreSubmission,
-  // the single owner of the "hidden by the owning guest" predicate (issue
-  // #886 PR review fix), and its composed "is this row sticky" predicate —
+  // the single owner of the "hidden by the owning guest" predicate (#886),
+  // and its composed "is this row sticky" predicate —
   // callers use these instead of each re-deriving the conjunction.
   hiddenByOwningGuest,
   isStickyTakedown,

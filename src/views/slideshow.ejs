@@ -48,7 +48,7 @@
             <div class="scrim"></div>
             <img class="photo" src="/uploads/<%= item.photo_path %>" alt="<%= item.task_title || 'a shared memory' %>">
             <% if (item.rank) { %>
-              <%# Rank marker, top-left (where the badge used to sit). The
+              <%# Rank marker, top-left. The
                   section's #1 gets the gold trophy + winner label; 2nd–5th
                   show their place, so a section plays as a countdown. %>
               <div class="rank-tag<%= item.winner ? ' rank-tag-winner' : '' %>">

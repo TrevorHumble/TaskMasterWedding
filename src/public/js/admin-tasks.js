@@ -59,7 +59,7 @@
   // whatever src/routes/admin.js's GET /admin/tasks actually rendered — the
   // one owner of "what is the first configured day" stays server-side.
   //
-  // Scoped to `.day-chips` (review fix, issue #755) — the hidden stale-date
+  // Scoped to `.day-chips` (#755) — the hidden stale-date
   // input (`#task-edit-special-date-stale`) shares the exact same
   // `name="special_date"`, and an unqualified `dialog.querySelector` would
   // only avoid matching it by document order (it happens to render AFTER
@@ -130,10 +130,10 @@
       var active = radio.checked;
       // The class IS the accordion's visibility (issue #918): theme.css
       // shows .special-panel only under .special-active, and this toggle is
-      // the single owner that sets it. (Formerly a CSS :has() rule, which
-      // failed closed on a :has()-less phone browser -- tapping "Flash"
-      // showed no panel at all and Save posted a flash mode with blank
-      // fields. One owner now, by design-philosophy review.)
+      // the single owner that sets it, not a CSS :has() rule -- a
+      // :has()-less phone browser fails that closed (tapping "Flash" would
+      // show no panel at all and Save would post a flash mode with blank
+      // fields). One owner now.
       group.classList.toggle('special-active', active);
       panel.querySelectorAll('input:not([type="hidden"]), select, textarea').forEach(function (el) {
         el.disabled = !active;
@@ -180,8 +180,7 @@
     // edit popup open on" (tasks.whatSpecial(), emitted as data-special-kind
     // by GET /admin/tasks — see that route's own comment). Hoisted here
     // (issue #763) so both the flash override below AND the lucky override
-    // further down can read the SAME value; previously only the lucky block
-    // computed it.
+    // further down can read the SAME value.
     var specialKind = g('special-kind');
 
     // Day/bonus chips (issue #755 criteria 1-3b): clear BOTH groups first,
@@ -364,11 +363,7 @@
     // stores special_mode='none' (or 'hidden'), so the `modeRadio` line
     // above never checks Lucky on its own. A stored special_date wins the
     // radio over the lucky pick, though, whenever daily currently owns the
-    // task. issue #650 PR review fix (Finding A): this used to hand-copy the
-    // daily rule's spokenFor predicate here (isSealed||isOnDay, computed
-    // against a data-today attribute) — a second owner of a rule
-    // src/services/tasks.js's whatSpecial() already owns, and one that could
-    // not see a live flash window at all. The server now does that walk once
+    // task (#650). The server does that walk once
     // (GET /admin/tasks, tasks.whatSpecial(t, clock)) and emits its answer as
     // data-special-kind; this script only reads it back, so "which rule owns
     // this task" has exactly one owner.
@@ -855,7 +850,7 @@
   // never changes which tasks are active, so no recompute runs (issue #682
   // AC-C).
   //
-  // A NON-ok response (review fix) is NOT silently discarded: the route's
+  // A NON-ok response is NOT silently discarded: the route's
   // set-integrity guard refuses a stale/partial post (e.g. a second host
   // added or deleted a task while this host was mid-drag), and in that case
   // the DOM the drag just settled into is now WRONG relative to the server —

@@ -82,7 +82,7 @@
                   <span class="task-title-text"><%= t.title %></span>
                 </span>
                 <%# Same earn-pitch line as the to-do row — task-earn-pitch.ejs
-                    (issue #926 review fix, MAJOR M4) is the single owner of its
+                    (#926) is the single owner of its
                     three-span markup now, included here and from
                     task-todo-row.ejs rather than each view carrying its own
                     copy; see that partial's own header comment. A done row
@@ -104,13 +104,12 @@
           // above the starter profile-photo row and every ordinary task —
           // because they are the ones that expire or unlock. specialRank()
           // is the ONE owner of both "is this row special" and "where does
-          // it sort" (issue #762 criterion 7; review fix, MINOR — a prior
-          // version answered the first question separately, via a
-          // `specialPriority` flag src/routes/guest.js emitted alongside
-          // this rank function, so a future special type added to rank
-          // alone, without also widening that flag, would land its row
-          // silently in ordinaryTodo, un-ranked, in host sort order — nothing
-          // would fail, the row would just render in the wrong place).
+          // it sort" (#762 criterion 7): membership is derived FROM the
+          // rank — every row ranked below ORDINARY_RANK is special — so a
+          // future special type is one entry in specialRank() and nothing
+          // else. A second, separately-emitted "is special" flag would be
+          // a second owner and is deliberately absent (see
+          // src/routes/guest.js's own comment on this same rule).
           // ORDINARY_RANK is the shared floor: every row ranked below it is
           // special and gets sorted; every row ranked AT it is ordinary and
           // keeps host sort order untouched. Lucky (#650) deliberately adds
@@ -199,9 +198,9 @@
     <% } %>
   <% } %>
 
-  <%# The standalone "Share a memory" button that used to sit here is gone
-      (owner call, 2026-07-21): it is now the last row of the to-do list
-      above, so the page has ONE place to share a memory, not two. The
+  <%# The standalone "Share a memory" button is gone (owner call, 2026-07-21):
+      sharing a memory is now the last row of the to-do list above, so the
+      page has ONE place to do it, not two. The
       finished-all card at the top of the page still carries its own button
       for the case where the to-do list is empty and never renders. %>
 

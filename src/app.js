@@ -91,7 +91,7 @@ app.locals.initials = initials;
 // available to every EJS template as a callable local, so badge-art.ejs (the
 // single place that decides how a badge's art_path renders) derives the
 // bundled-icon-path prefix test from badge-icons.js rather than restating
-// the literal inline (issue #410 review fix).
+// the literal inline (#410).
 app.locals.badgeIsIcon = badgeIcons.isIconArtPath;
 
 // The single owner (#869) of the `--icon-src` CSS value an icon glyph's
@@ -195,9 +195,7 @@ app.use((req, res, next) => {
 //     res.locals.isStag is a SECOND, derived local — the pre-computed
 //     `variant === 'stag'` boolean — set alongside variant so every view
 //     that only ever needs the yes/no question can read one boolean instead
-//     of re-deriving it from the raw string (PR review finding: ~13 views
-//     were each writing their own `(typeof variant !== 'undefined' &&
-//     variant === 'stag')` local). config.VARIANT stays the single source
+//     of re-deriving it from the raw string. config.VARIANT stays the single source
 //     of truth; both res.locals keys are just its per-request mirrors —
 //     views needing the raw string (e.g. a future third variant) still have
 //     `variant` available.
