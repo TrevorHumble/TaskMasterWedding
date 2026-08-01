@@ -147,7 +147,7 @@ function generateToken() {
 /**
  * True when this request's Content-Type is multipart/form-data — the shape
  * every disk/memory-storage multer instance in this app expects (see
- * services/photos.js). Checked the same way admin.js already distinguishes a
+ * services/photos/intake.js). Checked the same way admin.js already distinguishes a
  * multipart POST /admin/tasks/:id/badge from a plain one (prefix match, not
  * an exact equal, since a real multipart Content-Type always carries a
  * trailing `; boundary=...`).

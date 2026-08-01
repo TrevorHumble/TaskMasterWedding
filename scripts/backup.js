@@ -6,8 +6,8 @@
 //     comments). `--db-only` snapshots app.db (WAL-safe, via better-sqlite3's
 //     online backup) plus admin.hash into a new timestamped folder under
 //     BACKUP_DIR, and is cheap enough to run often.
-//   - PHOTOS are write-once (src/services/photos.js:203-236 never rewrites an
-//     existing stored file) and can be large. `--photos-only` copies newly
+//   - PHOTOS are write-once (src/services/photos/naming.js's randomFilename
+//     never rewrites an existing stored file) and can be large. `--photos-only` copies newly
 //     seen files into ONE shared, append-only store at
 //     BACKUP_DIR/photos/{uploads,thumbs} -- skip-if-exists, never a fresh
 //     per-run copy -- so a repeat run costs only what changed since the last
@@ -58,7 +58,7 @@ function copyFileIfPresent(srcFile, destFile) {
  * List the plain filenames directly inside `dir` (non-recursive -- uploads/
  * and thumbs/ are always flat; every stored file gets a random
  * hex-plus-timestamp name with no subdirectories, see
- * src/services/photos.js's randomFilename). A missing dir is not an error --
+ * src/services/photos/naming.js's randomFilename). A missing dir is not an error --
  * there is simply nothing there yet.
  * @param {string} dir
  * @returns {string[]}
@@ -101,9 +101,9 @@ function sizeOfDirFiles(dir) {
  * the single owner of the skip-if-exists test that both the sizing pre-flight
  * (sizeOfNewFiles) and the actual copy (copyNewFiles) consume, so the bytes a
  * run is sized for can never drift from the files it copies. Photos are
- * write-once (src/services/photos.js:203-236), so "already present at this
- * name" is a sound proxy for "already backed up" -- content hashing is
- * deliberately not used.
+ * write-once (src/services/photos/naming.js's randomFilename), so "already
+ * present at this name" is a sound proxy for "already backed up" -- content
+ * hashing is deliberately not used.
  * @param {string} srcDir
  * @param {string} destDir
  * @returns {string[]}

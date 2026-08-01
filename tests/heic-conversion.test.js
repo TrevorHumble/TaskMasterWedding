@@ -292,12 +292,12 @@ describe('#463 AC3: bounded header sniff, full read only on the HEIC-confirmed b
   // name while explaining the design can neither be miscounted as a call nor
   // fool the "next top-level function" boundary search below.
   const source = stripComments(
-    fs.readFileSync(path.join(__dirname, '../src/services/photos.js'), 'utf8')
+    fs.readFileSync(path.join(__dirname, '../src/services/photos/heic.js'), 'utf8')
   );
 
   function extractFunction(fnName) {
     const start = source.indexOf(`async function ${fnName}(`);
-    expect(start, `${fnName} not found in photos.js`).toBeGreaterThanOrEqual(0);
+    expect(start, `${fnName} not found in photos/heic.js`).toBeGreaterThanOrEqual(0);
     // The next top-level "\nasync function " or "\nfunction " marks the start
     // of the following function — a simple, sufficient bound for this file's
     // style (one function per top-level declaration, no nesting that deep).

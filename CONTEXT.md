@@ -49,7 +49,7 @@ _Avoid_: the admin role's pre-#354 two-word brand name (retired at the 2026-07-1
 The one-click ZIP the Wedding Master generates after the event — `weddingmaster-export-<date>.zip`, containing per-guest photos plus a `summary.xlsx` (`streamExportZip` in `src/services/export.js`). "Keepsake" is the product word for this artifact.
 
 **Memory**:
-A guest photo shared straight to the gallery with no matching task — a `submissions` row with `task_id = NULL` (issue #247). Shared via `GET /memories/new` → `POST /memories` (`src/services/photos.js`'s `uploadMemoryBatch`, up to 10 photos per batch, `src/routes/guest.js`). A memory earns no task-completion base point, but the guest's first VISIBLE memory each event-local day pays +1 (`scoring.memoryDaysFor`/`memoryDayCount`) — capped at one point per day, not per memory. A memory competes in crowd favorites exactly like a task photo.
+A guest photo shared straight to the gallery with no matching task — a `submissions` row with `task_id = NULL` (issue #247). Shared via `GET /memories/new` → `POST /memories` (`src/services/photos/intake.js`'s `uploadMemoryBatch`, up to 10 photos per batch, `src/routes/guest.js`). A memory earns no task-completion base point, but the guest's first VISIBLE memory each event-local day pays +1 (`scoring.memoryDaysFor`/`memoryDayCount`) — capped at one point per day, not per memory. A memory competes in crowd favorites exactly like a task photo.
 _Avoid_: Extra photo, bonus photo.
 
 **One-day challenge** ("mystery box"):

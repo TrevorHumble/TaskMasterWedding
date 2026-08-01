@@ -14,7 +14,7 @@ const path = require('path');
 const request = require('supertest');
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
 
-// Realistic stored filenames (must match the allowlist regexes in photos.js).
+// Realistic stored filenames (must match the allowlist regexes in src/services/photos/naming.js).
 const PHOTO_NAME = 'd4e5f6071819a1b2-1719500000010.jpg';
 const THUMB_NAME = 'd4e5f6071819a1b2-1719500000010.jpg.jpg';
 const LIVE_PHOTO_NAME = 'e5f6071819a1b2c3-1719500000011.jpg';

@@ -17,7 +17,7 @@ const sharp = require('sharp');
 const { loadApp, signInGuest } = require('./helpers/testApp');
 
 // Regex that every app-generated filename must match.
-// Matches the shape produced by randomFilename in src/services/photos.js:
+// Matches the shape produced by randomFilename in src/services/photos/naming.js:
 // 16 hex chars + '-' + millisecond timestamp + a lowercase-alnum extension.
 const SAFE_NAME_RE = /^[0-9a-f]{16}-\d+\.[a-z0-9]+$/;
 

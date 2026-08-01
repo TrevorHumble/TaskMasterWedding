@@ -36,9 +36,13 @@ Per module — higher is better:
 | `services/scoring.js`     | 85.82% | Scoring is well defended                               |
 | `services/submissions.js` | 82.69% | Solid, with the file-cleanup gap noted below           |
 | `routes/auth.js`          | 72.15% | Login works, but boundary conditions slip through      |
-| `services/photos.js`      | 68.86% | Core moderation caught; some edges slip                |
+| `services/photos.js`\*    | 68.86% | Core moderation caught; some edges slip                |
 | `services/qr.js`          | 35.71% | QR generation is barely defended                       |
 | `services/export.js`      | 16.06% | The keepsake export is nearly undefended — biggest gap |
+
+\* This baseline predates issue #979's module split: `services/photos.js` is now the thin
+re-export entry, and the measured code this row describes lives under `src/services/photos/`
+(constants.js, naming.js, heic.js, intake.js, processing.js, paths.js, moderation.js).
 
 ## The three hand-made probes (from the 2026-07-04 review) — reproduced
 

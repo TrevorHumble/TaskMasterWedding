@@ -350,7 +350,7 @@ const config = {
   // Global cap on the number of PENDING (queued + in-flight) HEIC decodes
   // across ALL guests (issue #281, raised 8 -> 12 and re-derived by #930).
   // HEIC decodes are serialized one-at-a-time via heicDecodeSemaphore
-  // (src/services/photos.js). The per-guest rate limit bounds how fast one
+  // (src/services/photos/heic.js). The per-guest rate limit bounds how fast one
   // guest enqueues, but not the total queue DEPTH, so this cap is what bounds
   // total held decode memory regardless of how many guests flood.
   //
@@ -395,7 +395,7 @@ const config = {
   HEIC_QUEUE_WAIT_MS: parseInt(process.env.HEIC_QUEUE_WAIT_MS, 10) || 45000,
 
   // HEIC_ADMISSION_SNIFF_BYTES (issue #930): size of the POSITIONED,
-  // bounded read src/services/photos.js takes from a HEIC candidate BEFORE a
+  // bounded read src/services/photos/heic.js takes from a HEIC candidate BEFORE a
   // decode slot is requested, so the pixel-bomb check (assertHeicPixelsWithinCap)
   // can run a cheap "stage 1" pass on just this prefix — refusing an
   // honestly-oversized HEIC at admission, consuming no slot at all, for the
@@ -441,7 +441,7 @@ const config = {
   // Avatar processing concurrency gate (issue #929) -- a SEPARATE, smaller
   // bound from MAX_CONCURRENT_UPLOADS above. src/utils/upload-concurrency.js's
   // withAvatarSlot wraps only the sharp .rotate()/attention-crop pipeline
-  // inside src/services/photos.js's saveAvatar (the HEIC conversion above it
+  // inside src/services/photos/processing.js's saveAvatar (the HEIC conversion above it
   // is deliberately outside this gate -- it already has its own decode-chain
   // serialization, pixel cap, and per-guest rate limit).
   //

@@ -106,8 +106,8 @@ describe('AC2: revoking BLOOM on takedown removes the +1 from both totals', () =
     expect(scoring.getPoints(guest)).toBe(6); // 5 worth + 1 BLOOM
 
     // Admin takes down one submission — hideSubmission's shared transaction
-    // (src/services/photos.js) recomputes badges as part of the same write,
-    // matching how a real takedown reaches this code path.
+    // (src/services/photos/moderation.js) recomputes badges as part of the
+    // same write, matching how a real takedown reaches this code path.
     photos.hideSubmission(submissionIds[0]);
 
     expect(heldCodes(guest)).not.toContain('BLOOM');

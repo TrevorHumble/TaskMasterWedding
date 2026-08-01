@@ -150,16 +150,21 @@ describe('AC4: docs/deploy.md covers the required setup surface', () => {
   });
 
   describe('client_max_body_size derivation guard (issue #936)', () => {
-    // Owner of the ceiling is src/services/photos.js. This catches the app
+    // Owner of the ceiling is src/services/photos/constants.js (MAX_UPLOAD_BYTES)
+    // and src/services/photos/intake.js (MEMORY_BATCH_MAX_FILES) — issue #979
+    // split the two literals into separate internals. This catches the app
     // ceiling moving above the documented proxy cap — the drift direction
     // that produces a guest-visible 413 (the app would accept a batch nginx
     // rejects before the app ever sees it). Pattern precedent:
     // tests/avatar-upload-limit.test.js derives its assertion from the same
     // owner rather than re-stating the number.
-    const photosSource = readRoot(path.join('src', 'services', 'photos.js'));
+    const photosConstantsSource = readRoot(path.join('src', 'services', 'photos', 'constants.js'));
+    const photosIntakeSource = readRoot(path.join('src', 'services', 'photos', 'intake.js'));
 
-    const mbPerFileMatch = photosSource.match(/const MAX_UPLOAD_BYTES = (\d+) \* 1024 \* 1024;/);
-    const maxFilesMatch = photosSource.match(/const MEMORY_BATCH_MAX_FILES = (\d+);/);
+    const mbPerFileMatch = photosConstantsSource.match(
+      /const MAX_UPLOAD_BYTES = (\d+) \* 1024 \* 1024;/
+    );
+    const maxFilesMatch = photosIntakeSource.match(/const MEMORY_BATCH_MAX_FILES = (\d+);/);
     // Match inside the isolated nginx block, not the whole document — same
     // isolation reasoning as the literals suite above.
     const nginxBlock = deployDoc.split('```').find((block) => block.includes('proxy_pass'));

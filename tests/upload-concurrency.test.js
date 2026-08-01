@@ -11,7 +11,7 @@
 // same module -- most of its tests below are unit-level, same rationale as
 // #311 above. AC3 ("no avatar-gate slot is held during the HEIC decode") is
 // the one exception: that acceptance criterion is about the real wiring
-// between src/services/photos.js's saveAvatar and this gate, not about the
+// between src/services/photos/processing.js's saveAvatar and this gate, not about the
 // Semaphore primitive itself, so it drives a real HEIC decode through the
 // real photos.saveAvatar (same real fixture tests/heic-conversion.test.js
 // uses) instead of a fake.
@@ -195,7 +195,7 @@ describe('withUploadSlot', () => {
 // ---------------------------------------------------------------------------
 // withBoundedSlot — the shared "ceiling check -> acquire -> timeout-recode ->
 // run -> release" primitive both withAvatarSlot (above/below, 'pending' mode)
-// and src/services/photos.js's HEIC decode gate ('occupancy' mode) are thin
+// and src/services/photos/heic.js's HEIC decode gate ('occupancy' mode) are thin
 // callers of (issue #930 round-2 review: those two gates had independently
 // hand-rolled the identical shape and drifted apart). withAvatarSlot's own
 // suites already exercise 'pending' mode end-to-end through real avatar

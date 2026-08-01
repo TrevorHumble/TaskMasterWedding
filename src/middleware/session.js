@@ -218,7 +218,7 @@ function requireGuest(req, res, next) {
 /**
  * The single owner of "is this request an authenticated admin" — a valid
  * signed `admin` cookie equal to "1". requireAdmin (below) and the
- * taken-down file guards in services/photos.js (issue #191) both need this
+ * taken-down file guards in services/photos/moderation.js (issue #191) both need this
  * exact predicate; both import it from here rather than re-testing the
  * cookie in more than one place.
  */

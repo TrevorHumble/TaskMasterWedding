@@ -1,9 +1,10 @@
 // tests/photos-branches.test.js
-// Issue #305 — branch coverage for src/services/photos.js fallback/edge arms
-// not exercised by the existing upload/access suites: the URL builders'
-// empty-input short-circuit, saveAvatar's empty-buffer guard, hardDelete's
-// missing-row and missing-file-field guards, and the cleanup helpers'
-// empty/already-removed no-ops.
+// Issue #305 — branch coverage for the photo pipeline's fallback/edge arms
+// not exercised by the existing upload/access suites (issue #979 split: now
+// spread across src/services/photos/paths.js, processing.js, and
+// moderation.js): the URL builders' and cleanup helpers' empty-input
+// short-circuits (paths.js), saveAvatar's empty-buffer guard (processing.js),
+// and hardDelete's missing-row and missing-file-field guards (moderation.js).
 //
 // REQUIRE ORDER: config/db/photos are required only AFTER loadApp() sets
 // DATA_DIR/DB_PATH env vars (same pattern as tests/photo-access.test.js).
