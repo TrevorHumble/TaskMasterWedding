@@ -23,10 +23,19 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const request = require('supertest');
+const { evictDbModules } = require('./helpers/db-boot');
 
 const CONFIG_PATH = require.resolve('../config');
 const APP_PATH = require.resolve('../src/app');
-const DB_MODULE_PATH = require.resolve('../src/db');
+// Issue #969 AC5 / PR review fix: db.js's own db-handle open+pragmas live in
+// src/db/connection.js, a separate module.cache entry — evicting src/db.js
+// alone would leave connection.js cached, so a second bootApp() in this same
+// process would silently reuse the FIRST instance's already-open handle
+// instead of a real second connection at the new DATA_DIR/DB_PATH (AC6's own
+// "never share a database row" guarantee). evictDbModules()
+// (tests/helpers/db-boot.js) is the single owner of that eviction pairing —
+// it supersedes the DB_MODULE_PATH/DB_CONNECTION_PATH consts this file used
+// to hand-resolve and delete individually.
 
 /**
  * Boot a fresh app instance against a brand-new temp DATA_DIR, with VARIANT
@@ -47,7 +56,7 @@ function bootApp(variant) {
   }
   delete require.cache[CONFIG_PATH];
   delete require.cache[APP_PATH];
-  delete require.cache[DB_MODULE_PATH];
+  evictDbModules();
   const app = require('../src/app');
   const { db } = require('../src/db');
   const config = require('../config');
@@ -61,7 +70,7 @@ afterAll(() => {
   delete process.env.VARIANT;
   delete require.cache[CONFIG_PATH];
   delete require.cache[APP_PATH];
-  delete require.cache[DB_MODULE_PATH];
+  evictDbModules();
 });
 
 describe('#640 AC1: VARIANT unset or non-"stag" renders byte-identical wedding output', () => {

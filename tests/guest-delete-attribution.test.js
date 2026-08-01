@@ -30,6 +30,7 @@ const sharp = require('sharp');
 const Database = require('better-sqlite3');
 const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 const { stripComments } = require('./helpers/source-text');
+const { evictDbModules } = require('./helpers/db-boot');
 
 let app;
 let db;
@@ -511,7 +512,12 @@ describe('AC7: an existing (pre-#886) database migrates taken_down_by correctly 
     seedDb.close();
 
     delete require.cache[require.resolve('../config')];
-    delete require.cache[require.resolve('../src/db')];
+    // Issue #969 AC5 / PR review fix: also evict the connection singleton
+    // (see tests/flash-migration.test.js's identical comment for why) so
+    // this second boot opens a real second connection against dbPath.
+    // evictDbModules() is the single owner of this eviction pairing
+    // (tests/helpers/db-boot.js).
+    evictDbModules();
     process.env.DATA_DIR = dir;
     process.env.DB_PATH = dbPath;
 
@@ -585,14 +591,22 @@ describe('AC7: an existing (pre-#886) database migrates taken_down_by correctly 
     // declaration and this drift guard would stop guarding anything. The
     // constraint/set literal themselves live in template-literal/array
     // syntax, which stripComments preserves untouched.
+    //
+    // Reads src/db/migrations-submissions.js, not src/db.js (issue #969
+    // split, domain-regrouped by the PR review fix): the CHECK constraint
+    // lives in ensureTakenDownByColumn()'s ALTER TABLE, and that migration's
+    // definition lives in migrations-submissions.js — the entry (src/db.js)
+    // now only calls it, it no longer contains the SQL text.
     const dbSrc = stripComments(
-      fs.readFileSync(path.join(__dirname, '..', 'src', 'db.js'), 'utf8')
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'db', 'migrations-submissions.js'), 'utf8')
     );
     const checkMatch = dbSrc.match(
       /CHECK \(taken_down_by IS NULL OR taken_down_by IN \(([^)]+)\)\)/
     );
     if (!checkMatch) {
-      throw new Error('Could not locate the taken_down_by CHECK constraint in src/db.js');
+      throw new Error(
+        'Could not locate the taken_down_by CHECK constraint in src/db/migrations-submissions.js'
+      );
     }
     const checkValues = [...checkMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
 

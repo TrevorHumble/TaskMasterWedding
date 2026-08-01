@@ -16,6 +16,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
+const { evictDbModules } = require('./helpers/db-boot');
 
 const GUESTS_SQL = `
   CREATE TABLE guests (
@@ -63,7 +64,12 @@ function bootFreshDb(seedFn) {
   seedDb.close();
 
   delete require.cache[require.resolve('../config')];
-  delete require.cache[require.resolve('../src/db')];
+  // Issue #969 AC5 / PR review fix: also evict the connection singleton (see
+  // tests/flash-migration.test.js's identical comment for why) so this
+  // second boot opens a real second connection against dbPath.
+  // evictDbModules() is the single owner of this eviction pairing
+  // (tests/helpers/db-boot.js).
+  evictDbModules();
   process.env.DATA_DIR = dir;
   process.env.DB_PATH = dbPath;
 

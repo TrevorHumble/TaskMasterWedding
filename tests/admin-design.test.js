@@ -3,6 +3,7 @@
 'use strict';
 
 const { loadApp, seed, makeAdminAgent } = require('./helpers/testApp');
+const { themeSheetNames } = require('./helpers/theme-css');
 const request = require('supertest');
 
 let app;
@@ -39,12 +40,41 @@ describe('admin design system — AC4: admin pages render with a session', () =>
 
   routes.forEach((route) => {
     // Issue #252 self-hosted every font (no more per-page Google Fonts link);
-    // EB Garamond's @font-face now lives in theme.css, so "renders on-brand"
-    // is now verified by the theme.css stylesheet link being present.
-    it(`GET ${route} returns 200 and links theme.css`, async () => {
+    // EB Garamond's @font-face now lives in base.css, so "renders on-brand"
+    // is now verified by the theme stylesheet link SET being present. Issue
+    // #969 split theme.css into slices (base/guest/feed/admin/admin-tasks.css),
+    // linked as five plain <link> tags in head.ejs -- assert the whole set,
+    // in that order, not the single retired theme.css link.
+    it(`GET ${route} returns 200 and links every theme stylesheet slice`, async () => {
       const res = await adminAgent.get(route);
       expect(res.status).toBe(200);
-      expect(res.text).toContain('<link rel="stylesheet" href="/css/theme.css">');
+      expect(res.text).toContain('<link rel="stylesheet" href="/css/base.css">');
+      expect(res.text).toContain('<link rel="stylesheet" href="/css/guest.css">');
+      expect(res.text).toContain('<link rel="stylesheet" href="/css/feed.css">');
+      expect(res.text).toContain('<link rel="stylesheet" href="/css/admin.css">');
+      expect(res.text).toContain('<link rel="stylesheet" href="/css/admin-tasks.css">');
+    });
+
+    // PR review fix: the assertions above only prove each slice's <link> is
+    // PRESENT, not that they're in the right ORDER -- and order is exactly
+    // what makes the split cascade-correct (DESIGN.md's #969 section,
+    // "cascade-safe by construction, not by content"). Cross-checks against
+    // themeSheetNames() (tests/helpers/theme-css.js), which parses this same
+    // head.ejs for its own order, rather than hard-coding a second copy of
+    // the five names here that could drift from the real link set.
+    it(`GET ${route} links every theme stylesheet slice in head.ejs's own order`, async () => {
+      const res = await adminAgent.get(route);
+      expect(res.status).toBe(200);
+      const names = themeSheetNames();
+      const indexes = names.map((name) =>
+        res.text.indexOf(`<link rel="stylesheet" href="/css/${name}">`)
+      );
+      indexes.forEach((idx, i) => {
+        expect(idx).toBeGreaterThan(-1);
+        if (i > 0) {
+          expect(idx).toBeGreaterThan(indexes[i - 1]);
+        }
+      });
     });
   });
 });

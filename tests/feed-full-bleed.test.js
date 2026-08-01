@@ -1,8 +1,9 @@
 // tests/feed-full-bleed.test.js
 // Covers issue #612 (full-bleed feed photos) acceptance criteria against the
-// already-authored, owner-approved CSS in src/public/css/theme.css. This is a
-// tests-only phase-2 issue — theme.css is frozen; do not edit it here. Pattern
-// (parse theme.css text, extract balanced rule blocks) mirrors
+// already-authored, owner-approved CSS in src/public/css/ (theme.css split
+// into slices by issue #969). This is a tests-only phase-2 issue — the theme
+// stylesheet is frozen; do not edit it here. Pattern (parse the theme
+// stylesheet text, extract balanced rule blocks) mirrors
 // tests/feed-card.test.js's AC4/AC6/AC9 blocks.
 //
 //   AC1 — the desktop `.feed-item { max-width: 560px; margin-inline: auto }`
@@ -30,10 +31,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readThemeCss } = require('./helpers/theme-css');
 
-const THEME_CSS_PATH = path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css');
 const ADMIN_PHOTOS_EJS_PATH = path.join(__dirname, '..', 'src', 'views', 'admin-photos.ejs');
-const THEME_CSS_SOURCE = fs.readFileSync(THEME_CSS_PATH, 'utf8');
+// Issue #969: theme.css split into slices under src/public/css/ -- read via
+// the shared helper (concatenated in head.ejs's own link order) so this
+// scan still runs over the whole stylesheet.
+const THEME_CSS_SOURCE = readThemeCss();
 const ADMIN_PHOTOS_EJS_SOURCE = fs.readFileSync(ADMIN_PHOTOS_EJS_PATH, 'utf8');
 
 /** Find the balanced {...} block whose '{' is the first at or after fromIndex. */

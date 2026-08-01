@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
+const { themeSheetNames } = require('./helpers/theme-css');
 
 // ---------------------------------------------------------------------------
 // Realistic stored filenames (must match allowlist regex).
@@ -246,12 +247,19 @@ it('#937 AC1: live thumbnail → Cache-Control public, max-age=604800, immutable
 
 // #937 AC2: the CSS/JS public asset mount is untouched by this change — still
 // today's max-age=0 behavior (a test would fail if the immutable options were
-// accidentally applied to config.PUBLIC_DIR too).
-it('#937 AC2: public CSS asset → Cache-Control unchanged (public, max-age=0)', async () => {
-  const res = await request(app).get('/css/theme.css');
-  expect(res.status).toBe(200);
-  expect(res.headers['cache-control']).toBe('public, max-age=0');
-});
+// accidentally applied to config.PUBLIC_DIR too). Issue #969 split theme.css
+// into slices under src/public/css/ — asserted per sheet, on EVERY sheet
+// (themeSheetNames(), derived from head.ejs's own link order), not just one:
+// this is a per-file mount-config contract, not a whole-stylesheet content
+// guard, so a single-sheet fetch would leave the other four unchecked.
+it.each(themeSheetNames())(
+  '#937 AC2: public CSS asset (%s) → Cache-Control unchanged (public, max-age=0)',
+  async (sheetName) => {
+    const res = await request(app).get('/css/' + sheetName);
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toBe('public, max-age=0');
+  }
+);
 
 // #937 AC3: an authenticated admin's bypassed fetch (of a taken-down file, so
 // the assertion only holds if the bypass branch — not stage 2 — is what ran)

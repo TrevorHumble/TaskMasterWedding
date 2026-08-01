@@ -40,10 +40,9 @@
 // tests/helpers/testApp.js's own header comment.
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const { JSDOM } = require('jsdom');
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
+const { readThemeCss } = require('./helpers/theme-css');
 
 let app;
 let db;
@@ -336,9 +335,7 @@ it('Results view lists a taken-down winner alongside the visible one; edit mode 
 // JS-hidden foot button actually paints hidden (root cause 1 of issue #892:
 // `.btn`'s own `display` rule otherwise beats the UA's `[hidden]` rule).
 // ---------------------------------------------------------------------------
-describe('AC8: the .rank-award-foot .btn[hidden] guard exists in theme.css', () => {
-  const THEME_PATH = path.join(__dirname, '../src/public/css/theme.css');
-
+describe('AC8: the .rank-award-foot .btn[hidden] guard exists in the theme stylesheet', () => {
   function ruleBlock(source, selector) {
     const start = source.indexOf(selector + ' {');
     if (start === -1) return null;
@@ -347,7 +344,8 @@ describe('AC8: the .rank-award-foot .btn[hidden] guard exists in theme.css', () 
   }
 
   it('.rank-award-foot .btn[hidden] sets display: none', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    // Issue #969: theme.css split into slices -- read via the shared helper.
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.rank-award-foot .btn[hidden]');
     expect(block).not.toBeNull();
     expect(block).toMatch(/display:\s*none/);

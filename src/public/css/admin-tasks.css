@@ -1,0 +1,1496 @@
+.lightbox[open] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lightbox::backdrop {
+  background: rgba(16, 24, 20, 0.96);
+}
+
+.lightbox-figure {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.lightbox-img {
+  max-width: 100vw;
+  max-height: 100vh;
+  max-height: 100dvh;
+  object-fit: contain;
+  display: block;
+}
+
+.lightbox-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: var(--space-5) var(--space-5) calc(var(--space-5) + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(16, 24, 20, 0.85), rgba(16, 24, 20, 0));
+  color: var(--white);
+  text-align: center;
+  pointer-events: none;
+}
+.lightbox-by {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: rgba(255, 255, 255, 0.82);
+}
+.lightbox-text {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  color: var(--white);
+}
+.lightbox-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-5);
+  margin-top: var(--space-3);
+}
+.lightbox-like,
+.lightbox-comment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-small);
+  color: rgba(255, 255, 255, 0.9);
+}
+.lightbox-heart,
+.lightbox-bubble {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1.6;
+}
+.lightbox-like.is-liked .lightbox-heart {
+  fill: #e8607d;
+  stroke: #e8607d;
+}
+
+/* Close (top-right) and Prev/Next (side rails). Circular, translucent, large
+   enough for a thumb; sit above the caption gradient. */
+.lightbox-close,
+.lightbox-nav {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: rgba(16, 24, 20, 0.5);
+  color: var(--white);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--dur-fast) var(--ease-soft);
+}
+.lightbox-close {
+  top: calc(var(--space-3) + env(safe-area-inset-top));
+  right: var(--space-3);
+  width: 44px;
+  height: 44px;
+  font-size: 28px;
+  line-height: 1;
+}
+.lightbox-nav {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  font-size: 32px;
+  line-height: 1;
+}
+.lightbox-prev {
+  left: var(--space-3);
+}
+.lightbox-next {
+  right: var(--space-3);
+}
+.lightbox-close:hover,
+.lightbox-nav:not(:disabled):hover {
+  background: rgba(16, 24, 20, 0.78);
+}
+.lightbox-nav:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+.lightbox-close:focus-visible,
+.lightbox-nav:focus-visible {
+  outline: 2px solid var(--white);
+  outline-offset: 2px;
+}
+
+/* The admin inline-feed photo is a lightbox trigger (issue #673) — reset the
+   <button> so it lays out exactly like the guest feed's photo, edge to edge. */
+.admin-feed-photo-btn {
+  display: block;
+  position: relative;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.admin-feed-photo-btn .feed-photo {
+  display: block;
+  width: 100%;
+}
+.admin-feed-photo-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* -------------------- Badge medallion (#410) --------------------
+   The reusable badge shape: a bundled bare icon centered inside the garden
+   ring (green outer ring + sage inner hairline over white), matching the
+   hand-drawn badge frame. One component for the picker preview, the admin
+   task card, and — in phase-2 — every guest surface that shows a badge, so
+   the ring is defined in exactly one place instead of baked into each SVG. */
+.badge-medallion {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--white);
+  border: 2px solid var(--color-primary);
+  box-shadow:
+    inset 0 0 0 2px var(--white),
+    inset 0 0 0 3px var(--green-300);
+}
+/* Bundled badge-icon glyph (#410, recolorable #869). Rendered as a masked box,
+   not an <img>: the monochrome icon SVG is the mask, and the fill comes from
+   --badge-icon-color (green on wedding, gold on stag) so one theme variable
+   owns the color instead of it being baked per-file. The per-icon SVG url is
+   passed in via the --icon-src custom property (inline style server-side, or
+   set by the picker JS for the live preview). Falls back to no mask when
+   --icon-src is unset (the empty/hidden preview state). */
+.badge-medallion-icon {
+  width: 62%;
+  height: 62%;
+  background-color: var(--badge-icon-color);
+  -webkit-mask-image: var(--icon-src, none);
+  mask-image: var(--icon-src, none);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+/* Gallery victory mark (issue #893): inside the 26px tile disc the masked
+   glyph is a fixed 16px, not the 62% component default. Sits AFTER the base
+   rule above — the stag guardrail slices this file's first opening of the
+   rule name and must land on the component rule, not this adaptation. */
+.tile-victory-badge .badge-medallion-icon {
+  width: 16px;
+  height: 16px;
+}
+/* Empty state: a soft dashed ring, no icon (task has no badge yet / nothing
+   picked). */
+.badge-medallion-empty {
+  border-style: dashed;
+  border-color: var(--green-300);
+  box-shadow: none;
+}
+.badge-medallion-lg {
+  width: 108px;
+  height: 108px;
+  border-width: 3px;
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--green-300);
+}
+/* Badge detail header (#410 phase-2): the page's hero badge renders
+   through the medallion component (not a plain 120x120
+   <img class="badge-detail-art">), so this ancestor-scoped override
+   keeps the same 120px size instead of the 48px default. */
+.badge-detail-header .badge-medallion {
+  width: 120px;
+  height: 120px;
+  border-width: 3px;
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--green-300);
+}
+
+/* -------------------- Badge icon picker (#410) --------------------
+   A native <dialog> (same tokens as .comments-dialog): a live ring preview +
+   name field at the top, a search box, then a dense grid of bare icon glyphs.
+   Picking a glyph populates the ring preview. The grid is a radiogroup; the
+   :checked tile is the only selection affordance, no per-icon JS. */
+.badge-picker-dialog {
+  width: min(560px, 100vw - 32px);
+  max-height: 88vh;
+  max-height: 88dvh;
+  margin: auto;
+  padding: 0;
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-raise);
+  background: var(--white);
+  color: var(--color-text);
+}
+.badge-picker-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.badge-picker-dialog::backdrop {
+  background: rgba(20, 30, 24, 0.55);
+}
+.badge-picker-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.badge-picker-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-2);
+}
+.badge-picker-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.badge-picker-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  color: var(--color-heading);
+}
+.badge-picker-context {
+  margin: 2px 0 0;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.badge-picker-close {
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: none;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.badge-picker-close:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+/* Stage: the live preview medallion beside the name field. */
+.badge-picker-stage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4) var(--space-4);
+}
+.badge-picker-stage .badge-picker-name {
+  flex: 1 1 auto;
+}
+.badge-picker-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.badge-picker-name input {
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font-body);
+  color: var(--color-text);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+.badge-picker-search-row {
+  padding: 0 var(--space-4) var(--space-3);
+}
+.badge-picker-search {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font-body);
+  color: var(--color-text);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+.badge-picker-search:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+/* Dense glyph grid — small tap tiles, no per-cell circle or label; the ring
+   lives only in the preview above. Scrolls inside the capped dialog. */
+.badge-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: var(--space-1);
+  padding: 0 var(--space-4) var(--space-3);
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.badge-picker-cell {
+  position: relative; /* containing block for the absolute radio, so focusing
+                         it on click never scrolls the page (the select-jumps-
+                         to-bottom bug) */
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-input);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.badge-picker-cell[hidden] {
+  display: none;
+}
+.badge-picker-radio {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.badge-picker-glyph {
+  width: 60%;
+  height: 60%;
+  background-color: var(--badge-icon-color);
+  -webkit-mask-image: var(--icon-src, none);
+  mask-image: var(--icon-src, none);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+.badge-picker-cell:hover {
+  background: var(--green-50);
+  border-color: var(--green-300);
+}
+.badge-picker-cell:has(.badge-picker-radio:checked) {
+  background: var(--green-50);
+  border-color: var(--color-primary);
+}
+.badge-picker-cell:has(.badge-picker-radio:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.badge-picker-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: var(--space-4) 0;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--fs-small);
+}
+.badge-picker-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: var(--border-hairline);
+}
+
+/* ===========================================================
+   Admin Tasks redesign (#682) — WYSIWYG card list, edit popup,
+   step-through create. Reuses the guest task-card look
+   (.task-title-text/.task-points/.badge-medallion — no admin view emits
+   .task-earnable-copy, the guest-only earn-pitch line)
+   and the shared design tokens.
+   =========================================================== */
+
+/* ---- List header ---- */
+.admin-tasks-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 var(--space-3);
+}
+.admin-tasks-count {
+  margin: 0;
+  font-size: var(--fs-small);
+}
+
+/* ---- The card list ---- */
+.admin-task-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+}
+.admin-task-card {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  grid-template-rows: auto auto;
+  align-items: stretch;
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--white);
+  box-shadow: var(--shadow-card);
+  margin-bottom: var(--space-3);
+  transition: transform var(--dur-base) var(--ease-soft);
+}
+.admin-task-card.is-hidden {
+  opacity: 0.6;
+}
+/* While dragging: the card lifts and follows the pointer (transform set in
+   admin-tasks.js). It must NOT run the reorder slide-transition on itself. */
+.admin-task-card.is-dragging {
+  transition: none;
+  position: relative;
+  z-index: 5;
+  box-shadow: var(--shadow-raise);
+  cursor: grabbing;
+}
+.admin-task-drag {
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-hairline);
+  cursor: grab;
+  touch-action: none;
+}
+.admin-task-drag:active {
+  cursor: grabbing;
+}
+.admin-task-drag svg {
+  fill: currentColor;
+}
+.admin-task-open {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-3) var(--space-2) 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.admin-task-open::after {
+  content: '\203A'; /* right chevron */
+  flex: 0 0 auto;
+  font-size: var(--fs-h3);
+  color: var(--color-text-muted);
+}
+/* Badge column: a slightly larger medallion with its name beneath (small). */
+.admin-task-badge-col {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 60px;
+}
+.admin-task-badge-col .badge-medallion {
+  width: 44px;
+  height: 44px;
+}
+.admin-task-badge-name {
+  max-width: 60px;
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: center;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  /* A long single-word badge name (e.g. one the host types) must break so it
+     wraps within the narrow column and the 2-line clamp can ellipsize it,
+     instead of rendering one unbreakable line that clips hard mid-word. */
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.admin-task-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.admin-task-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 2px;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.admin-task-open .task-points {
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+
+/* ---- Admin chip strip (row 2: state left, photo count bottom-right) ---- */
+.admin-chip-strip {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  /* Wrap on narrow phones (issue #918): with a live "Flash · N min left"
+     chip in the row, an unwrappable strip pushed the rank-and-award link
+     past the card edge on small screens. */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3) 0;
+}
+.admin-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.admin-chip-hidden {
+  background: var(--green-900);
+  color: var(--white);
+}
+/* One-day-only challenge (issue #624): gold, matching the guest card's
+   "Today only" flag so the host recognises the same lever on both sides. */
+.admin-chip-oneday {
+  background: var(--place-1);
+  color: var(--place-1-ink);
+}
+/* Flash window (issue #649): the same ember the guest task row already wears
+   for a live flash, so the host recognises one lever on both sides — the same
+   reasoning .admin-chip-oneday follows for gold. A SCHEDULED flash has not
+   started yet, so it wears the ember as an outline rather than a fill: armed,
+   not burning. */
+.admin-chip-flash {
+  background: var(--flash-1);
+  color: var(--flash-1-ink);
+}
+.admin-chip-flash-scheduled {
+  border: 1px solid var(--flash-1);
+  color: var(--flash-1);
+  background: transparent;
+}
+.admin-task-photos {
+  margin-left: auto;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+}
+.admin-task-empty {
+  list-style: none;
+  padding: var(--space-5);
+  text-align: center;
+  border: 1px dashed var(--color-hairline);
+  border-radius: var(--radius-card);
+}
+
+/* ===========================================================
+   Shared task dialog (edit popup + create wizard)
+   Mirrors .badge-picker-dialog structure/tokens.
+   =========================================================== */
+.task-dialog {
+  width: min(460px, 100vw - 32px);
+  max-height: 90vh;
+  max-height: 90dvh;
+  margin: auto;
+  padding: 0;
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-raise);
+  background: var(--white);
+  color: var(--color-text);
+}
+.task-dialog::backdrop {
+  background: rgba(20, 30, 24, 0.55);
+}
+.task-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow-y: auto;
+  padding: var(--space-4);
+  /* Kill double-tap-to-zoom for every tap target inside both task dialogs
+     (issue #918): the flash minutes stepper is the app's only rapid-tap
+     control, and without this a host's quick -/+ taps on a phone read as
+     double-tap-zoom -- alternate taps get swallowed and the dialog zooms
+     instead of stepping. Scoped to the dialog form, not the page: pinch
+     zoom still works, and page-level double-tap behavior is untouched. */
+  touch-action: manipulation;
+}
+.task-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.task-dialog-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  color: var(--color-heading);
+}
+.task-dialog-close {
+  min-width: 44px;
+  min-height: 44px;
+  margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0 0;
+  border: none;
+  background: none;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.task-dialog-close:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+/* Reuses .form-error's ink/size; only the margin differs in the dialog
+   footer context (issue #918). Hidden by default via the `hidden`
+   attribute; admin-tasks.js reveals it on a blocked native submit. */
+.dialog-validation-note {
+  margin: 0;
+}
+
+/* ---- Form fields ---- */
+.field {
+  display: block;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+.field-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.field-optional {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+.field input[type='text'],
+.field textarea {
+  width: 100%;
+}
+
+/* ---- Worth chips (1/2/3) ---- */
+.worth-chips {
+  display: flex;
+  /* Wrap on very narrow phones (issue #918): the flash bonus row's three
+     "+N pts" faces overflow the dialog's usable width at <=320px, and this
+     row -- unlike .day-chips, which already wraps -- had no wrap. */
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.worth-chip {
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.worth-chip input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.worth-chip-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-bg);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.worth-chip:has(input:checked) .worth-chip-face {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.worth-chip:has(input:focus-visible) .worth-chip-face {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ---- Badge field row ---- */
+.badge-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.badge-field-row .badge-medallion {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+}
+.badge-field-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-small);
+}
+
+/* ---- Special radio (None / Hidden; accordion-ready) ---- */
+.special-radio {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.special-option {
+  display: block;
+  cursor: pointer;
+}
+.special-option input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.special-option-face {
+  display: block;
+  padding: var(--space-3);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-input);
+  background: var(--color-bg);
+}
+.special-option:has(input:checked) .special-option-face {
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+.special-option:has(input:focus-visible) .special-option-face {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.special-option-title {
+  display: block;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.special-option-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+
+/* ---- Special accordion panel (issue #624; #649/#650 reuse it) ----
+   One group = one radio option plus the settings that only make sense once
+   that option is picked. Opened by the `.special-active` class — see the
+   single-owner note on the visibility rule below (#918). */
+.special-option-group {
+  display: flex;
+  flex-direction: column;
+}
+.special-panel {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: calc(-1 * var(--radius-input));
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  border: 1px solid var(--color-primary);
+  border-top: none;
+  border-radius: 0 0 var(--radius-input) var(--radius-input);
+  background: var(--green-50);
+}
+/* The accordion's visibility has exactly ONE owner (#918):
+   `.special-active`, set by admin-tasks.js's syncSpecialPanels() from the
+   checked MODE radio, on dialog open and on every mode change, not by a
+   `:has(input:checked)` selector — a :has()-less phone browser fails that
+   closed: tapping "Flash" shows no panel and no feedback at all, and Save
+   then posts a flash mode with blank fields. A JS class works on every
+   engine, and first paint costs nothing here because the dialog is only
+   ever shown by the same script that sets the class (syncSpecialPanels
+   always runs before showModal()). Do not reintroduce a parallel :has()
+   rule for this — two independently-written statements of one visibility
+   rule can drift (#918). */
+.special-option-group.special-active .special-panel {
+  display: flex;
+}
+/* Square off the face's bottom corners so the open panel reads as one
+   attached sheet rather than two stacked boxes. */
+.special-option-group.special-active .special-option-face {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.special-panel-field {
+  display: flex;
+  flex-direction: column;
+}
+.day-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+/* Day chips are worth chips carrying "Aug 7" instead of "1 pt": wider text,
+   so they trade side padding for it and keep a three-day weekend on one row
+   inside the dialog. More days than fit simply wrap. */
+.day-chip .worth-chip-face {
+  min-width: 0;
+  padding: 0 var(--space-3);
+}
+/* ---- Flash panel (issue #649) ----
+   Lives inside the shared .special-panel accordion above — same sheet, same
+   chips, same hint. Only the three controls one-day-only does not have are
+   new: a free-entry duration, the Now/Pick-a-time switch, and the status
+   strip an already-armed flash shows. */
+.flash-state-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-input);
+  background: var(--flash-1-wash);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.flash-state-text {
+  color: var(--flash-1);
+}
+.flash-state-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--flash-1);
+}
+/* Scheduled: armed but not burning — hollow dot, matching the board chip's
+   outline-vs-fill distinction. */
+.flash-state-scheduled .flash-state-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--flash-1);
+}
+.flash-cancel-btn {
+  margin-left: auto;
+}
+/* Duration stepper: two thumb-sized targets flanking the value, not the
+   native number spinner (stacked 12px arrows — a mouse control on a screen
+   the host is holding in one hand). 56px square clears the 44px floor the
+   worth chips already set. */
+.flash-minutes-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.flash-step-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg);
+  color: var(--color-primary);
+  cursor: pointer;
+}
+.flash-step-btn svg {
+  fill: currentColor;
+}
+.flash-step-btn:active {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+/* The value sits between them and takes the leftover width, so the two
+   buttons stay pinned left and right where the thumbs are. */
+.flash-minutes-value {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.flash-minutes-input {
+  width: 3.5ch;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  text-align: right;
+}
+/* Kill the native spinner — the buttons above replaced it, and leaving both
+   gives the same control two different affordances. */
+.flash-minutes-input::-webkit-outer-spin-button,
+.flash-minutes-input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+.flash-minutes-input[type='number'] {
+  appearance: textfield;
+}
+.flash-minutes-unit {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+/* Day + time reveal: same JS-class accordion mechanism as .special-panel
+   itself, one level down (issue #918) — keyed to the START chips only, so
+   the bonus and day radios in the same panel can never hold it open. */
+.flash-when {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+/* Single owner, same rule as .special-active one level up (issue #918):
+   `.flash-later-active` is set by syncSpecialPanels() from the Starts
+   "later" radio, not by a :has() selector — a :has()-less engine fails
+   that closed ("Pick a time" reveals nothing and Save posts a
+   `later` flash with no instant). Do not reintroduce a parallel :has()
+   rule. */
+.flash-start-field.flash-later-active .flash-when {
+  display: flex;
+}
+.flash-time-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.flash-time-label {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.flash-time-input {
+  min-height: 44px;
+}
+.special-panel-hint {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-small);
+  line-height: var(--lh-snug);
+  color: var(--color-text-muted);
+}
+
+/* ---- Dialog footer ---- */
+.task-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+.task-dialog-foot-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+.task-dialog-foot-split {
+  display: flex;
+  gap: var(--space-2);
+}
+.task-dialog-foot-split > .btn {
+  flex: 1 1 0;
+}
+
+/* ---- Create wizard ---- */
+.wizard-progress {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wizard-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-hairline);
+}
+.wizard-dot.is-current {
+  background: var(--color-primary);
+}
+.wizard-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.wizard-step[hidden] {
+  display: none;
+}
+.wizard-hint {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.wizard-badge-row {
+  justify-content: flex-start;
+}
+.wizard-badge-row .badge-medallion-lg {
+  width: 56px;
+  height: 56px;
+}
+
+/* ----------------------- Admin dashboard: nudge + checklist (issue #646) -----------------------
+   Owner-approved on the live preview, 2026-07-21; frozen by
+   tools/persist-visual-approval.ps1. */
+.stat-grid-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* Checklist rows reuse the menu-list hairline rhythm, with a check box in the
+   icon slot instead of a glyph. */
+.check-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+}
+.check-row {
+  border-bottom: var(--border-hairline);
+}
+.check-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 13px var(--space-1);
+  text-decoration: none;
+  color: var(--color-text);
+}
+a.check-link:hover {
+  background: var(--green-50);
+  text-decoration: none;
+}
+a.check-link::after {
+  content: '\203A';
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: var(--fs-h3);
+  color: var(--color-text-muted);
+}
+.check-box {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-hairline);
+  border-radius: 4px;
+  color: var(--color-primary);
+}
+.check-body {
+  display: flex;
+  flex-direction: column;
+}
+.check-label {
+  font-weight: 600;
+}
+.check-sub {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.check-done .check-box {
+  border-color: var(--color-primary);
+}
+.check-done .check-label {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+.check-urgent .check-box {
+  border-color: var(--err-ink);
+}
+.check-urgent .check-label {
+  color: var(--err-ink);
+}
+.check-tip .check-box {
+  border-color: transparent;
+  color: var(--color-text-muted);
+}
+.check-tip .check-label {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+/* Nudge row: one full-width cell across the bottom of the stat grid. */
+.stat-nudge {
+  grid-column: 1 / -1;
+  background: var(--white);
+  padding: var(--space-4) var(--space-3);
+  text-align: center;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.stat-nudge:hover {
+  background: var(--green-50);
+  text-decoration: none;
+}
+.stat-nudge-urgent {
+  background: var(--err-bg);
+  color: var(--err-ink);
+}
+.stat-nudge-urgent:hover {
+  background: var(--err-bg);
+}
+
+/* Manual checklist rows (issue #646): the only rows with a tappable
+   checkbox, posted via a plain form instead of a navigation link. The
+   <button> needs a full style reset before .check-link's own rules (above)
+   can apply -- browsers give a bare <button> border/background/font that a
+   <span> or <a> never carries -- so it renders pixel-identical to every
+   other check-link row rather than looking like a form control. Additive
+   only: no existing .check-* rule above is touched. */
+.check-manual-form {
+  margin: 0;
+}
+button.check-link {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 13px var(--space-1);
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+}
+button.check-link:hover {
+  background: var(--green-50);
+}
+
+/* ===================== Recap strip + panel (issue #644) =====================
+   Owner-approved 2026-07-21/22, transcribed from the phase-1 preview to real
+   data by this issue's phase 2 — markup and classes unchanged from the
+   frozen approval. The recap strip is a temporary band under the header: it
+   exists only when something happened, so the header itself is untouched
+   the rest of the time. */
+.recap-strip {
+  display: flex;
+  align-items: stretch;
+  background: var(--color-surface);
+  border-bottom: var(--border-hairline);
+}
+.recap-strip-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-2) var(--space-3) var(--gutter);
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  text-align: left;
+  cursor: pointer;
+}
+.recap-strip-glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-primary);
+}
+.recap-strip-glyph svg {
+  width: 20px;
+  height: 20px;
+}
+.recap-strip-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: var(--lh-snug);
+}
+.recap-strip-chevron {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+.recap-strip-chevron svg {
+  width: 18px;
+  height: 18px;
+}
+.recap-strip-dismiss {
+  flex: none;
+  width: 44px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.recap-panel {
+  width: min(92vw, var(--app-max-width));
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-card);
+  background: var(--white);
+  box-shadow: var(--shadow-raise);
+  color: var(--color-text);
+}
+.recap-panel::backdrop {
+  background: rgba(42, 67, 53, 0.4);
+}
+.recap-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: var(--border-hairline);
+}
+.recap-panel-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  color: var(--color-heading);
+}
+.recap-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.recap-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.recap-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-hairline);
+}
+.recap-row:last-child {
+  border-bottom: none;
+}
+.recap-row-unread {
+  background: var(--color-surface);
+}
+.recap-thumb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-input);
+  object-fit: cover;
+}
+.recap-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--white);
+  border: var(--border-hairline);
+  color: var(--color-primary);
+}
+.recap-icon svg {
+  width: 22px;
+  height: 22px;
+}
+.recap-row-body {
+  min-width: 0;
+}
+.recap-row-text {
+  margin: 0;
+  font-size: var(--fs-small);
+  line-height: var(--lh-snug);
+}
+.recap-row-when {
+  margin: 2px 0 0;
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+}
+
+/* Permanent home for the recap: an always-present row on the profile, so a
+   dismissed strip is never a dead end (phase-1 preview, issue #644). */
+.notifications-section {
+  margin-bottom: var(--space-5);
+}
+.notifications-entry {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--white);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+.notifications-entry-glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-primary);
+}
+.notifications-entry-glyph svg {
+  width: 22px;
+  height: 22px;
+}
+.notifications-entry-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.notifications-entry-count {
+  flex: none;
+  min-width: 24px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: var(--fs-eyebrow);
+  text-align: center;
+}
+.notifications-entry-chevron {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+.notifications-entry-chevron svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Every recap row is a link to the thing that changed (phase-1, issue #644). */
+.recap-row {
+  display: block;
+  padding: 0;
+}
+.recap-row-link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.recap-row-link:hover {
+  text-decoration: none;
+  background: var(--green-50);
+}
+.recap-row-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+}
+.recap-row-text,
+.recap-row-when {
+  display: block;
+}
+.recap-row-chevron {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-hairline);
+}
+.recap-row-chevron svg {
+  width: 18px;
+  height: 18px;
+}
+/* Paging feedback lives INSIDE the scrolling list and always occupies the same
+   height, so a batch arriving never resizes the panel (phase-1, issue #644). */
+.recap-foot {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--fs-eyebrow);
+  text-align: center;
+}
+/* The list grows with its rows up to 60vh, then pins there — so a guest with
+   two notifications gets a short panel, while a long list stays a fixed
+   viewport and nothing shifts under the thumb as batches arrive. */
+.recap-list {
+  max-height: 60vh;
+  overscroll-behavior: contain;
+}
+
+/* Row kinds (phase-1, issue #644): an announcement is not a personal event, a
+   loss is not a reward — each reads differently at a glance. */
+.recap-row-announce .recap-row-link {
+  border-left: 3px solid var(--color-primary);
+  background: var(--green-50);
+}
+.recap-row-announce .recap-icon {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.recap-row-loss .recap-row-text {
+  color: var(--color-text-muted);
+}
+.recap-row-loss .recap-icon {
+  color: var(--color-text-muted);
+}
+.recap-icon-gold {
+  color: #b8912f;
+  border-color: #d9bd76;
+}
+.recap-row-gold .recap-row-text strong {
+  color: #b8912f;
+}
+
+/* A notification whose subject no longer exists (a taken-down photo): shown,
+   but inert — no cursor, no hover, nowhere to go (phase-1, issue #644). */
+.recap-row-inert {
+  cursor: default;
+}
+.recap-row-inert:hover {
+  background: none;
+}
+.recap-row-inert .recap-thumb {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+/* Zero-event recap (phase-1, issue #644). */
+.recap-empty {
+  margin: 0;
+  padding: var(--space-7) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--fs-small);
+  text-align: center;
+}

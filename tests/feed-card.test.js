@@ -44,12 +44,15 @@ const request = require('supertest');
 const { JSDOM } = require('jsdom');
 const { loadApp, signInGuest } = require('./helpers/testApp');
 const { stripComments } = require('./helpers/source-text');
+const { readThemeCss } = require('./helpers/theme-css');
 
-const THEME_CSS_PATH = path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css');
 const FEED_EJS_PATH = path.join(__dirname, '..', 'src', 'views', 'feed.ejs');
 const FEED_JS_PATH = path.join(__dirname, '..', 'src', 'public', 'js', 'feed.js');
 const COMMUNITY_ROUTE_PATH = path.join(__dirname, '..', 'src', 'routes', 'community.js');
-const THEME_CSS_SOURCE = fs.readFileSync(THEME_CSS_PATH, 'utf8');
+// Issue #969: theme.css split into slices under src/public/css/ -- read via
+// the shared helper (concatenated in head.ejs's own link order) instead of
+// one file off disk, so this scan still runs over the whole stylesheet.
+const THEME_CSS_SOURCE = readThemeCss();
 const FEED_EJS_SOURCE = fs.readFileSync(FEED_EJS_PATH, 'utf8');
 const FEED_JS_SOURCE = fs.readFileSync(FEED_JS_PATH, 'utf8');
 // Comment-stripped (issue #939) -- a backend src/routes/*.js read; THEME_CSS/FEED_EJS/FEED_JS above stay raw (out of scope).

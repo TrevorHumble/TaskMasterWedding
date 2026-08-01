@@ -128,7 +128,7 @@
       var panel = group.querySelector('.special-panel');
       if (!radio || !panel) return;
       var active = radio.checked;
-      // The class IS the accordion's visibility (issue #918): theme.css
+      // The class IS the accordion's visibility (issue #918): admin-tasks.css
       // shows .special-panel only under .special-active, and this toggle is
       // the single owner that sets it, not a CSS :has() rule -- a
       // :has()-less phone browser fails that closed (tapping "Flash" would
@@ -300,7 +300,7 @@
     // Visibility is an INLINE style (`element.style.display`), not the
     // `hidden` property/attribute: special-flash-option.ejs's own initial
     // render uses the identical inline-style technique for the SAME reason
-    // (see that partial's own comment) — theme.css's `.flash-state-strip {
+    // (see that partial's own comment) — admin-tasks.css's `.flash-state-strip {
     // display: flex }` class rule would otherwise outrank the low-priority
     // `[hidden]` UA style, and an inline style needs no accompanying CSS
     // change to win that fight either way.
@@ -841,7 +841,7 @@
   // and the cards it displaces SLIDE into place via a First-Last-Invert-Play
   // transition, so the reorder reads the way the old native drag ghost did.
   // setPointerCapture keeps move/up on the handle even as the finger travels
-  // over other cards; touch-action:none on .admin-task-drag (theme.css) stops
+  // over other cards; touch-action:none on .admin-task-drag (admin-tasks.css) stops
   // the page scrolling mid-drag.
   //
   // On drop (endDrag below), the DOM's current card order — already correct,

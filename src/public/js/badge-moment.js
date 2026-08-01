@@ -13,7 +13,7 @@
 // the element carries both `id="badge-dialog"` and `class="badge-dialog"`,
 // but the id is the unique one (#902).
 //
-// The 'playing' class gates the bloom animation in theme.css (itself gated
+// The 'playing' class gates the bloom animation in base.css (itself gated
 // under prefers-reduced-motion: no-preference); adding it under reduced
 // motion is harmless since no rule in that media block ever matches.
 //

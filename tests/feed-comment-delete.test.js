@@ -31,14 +31,13 @@
 // DATA_DIR / DB_PATH. Do not hoist requires above the loadApp() call.
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const request = require('supertest');
 const { JSDOM } = require('jsdom');
 const { loadApp, signInGuest } = require('./helpers/testApp');
+const { readThemeCss } = require('./helpers/theme-css');
 
-const THEME_CSS_PATH = path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css');
-const THEME_CSS_SOURCE = fs.readFileSync(THEME_CSS_PATH, 'utf8');
+// Issue #969: theme.css split into slices -- read via the shared helper.
+const THEME_CSS_SOURCE = readThemeCss();
 
 let app;
 let db;

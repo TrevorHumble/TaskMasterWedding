@@ -26,6 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
 const { loadApp, signInGuest } = require('./helpers/testApp');
+const { readThemeCss } = require('./helpers/theme-css');
 
 let app;
 let db;
@@ -58,7 +59,6 @@ async function signedInAgent(token) {
 // half of AC1). Paths are relative to this test file, matching the
 // convention other file-content-checking tests in this repo would use.
 const HEADER_PATH = path.join(__dirname, '../src/views/partials/header.ejs');
-const THEME_PATH = path.join(__dirname, '../src/public/css/theme.css');
 const HEAD_PATH = path.join(__dirname, '../src/views/partials/head.ejs');
 const FOOTER_PATH = path.join(__dirname, '../src/views/partials/footer.ejs');
 const FONTS_DIR = path.join(__dirname, '../src/public/fonts');
@@ -84,7 +84,7 @@ describe('AC1: script-faced "Wedding Master" wordmark, old brand markup retired'
 
   test('the old .brand/.brand-text top-level brand markup no longer exists anywhere', () => {
     const headerSrc = fs.readFileSync(HEADER_PATH, 'utf8');
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     // The exact old pattern: a top-level element carrying class="brand-text".
     // (Admin kept its own brand LINE, but renamed off this class — see
     // .admin-brand-text — so this substring is gone from both files.)
@@ -145,7 +145,7 @@ describe('AC3: self-hosted script font, no Google Fonts CDN request', () => {
   });
 
   test('theme.css @font-faces it with font-display: swap', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const rule = /@font-face\s*{[^}]*url\('\/fonts\/wedding-script\.woff2'\)[^}]*}/.exec(themeSrc);
     expect(rule).not.toBeNull();
     expect(rule[0]).toMatch(/font-display:\s*swap/);
@@ -155,7 +155,7 @@ describe('AC3: self-hosted script font, no Google Fonts CDN request', () => {
     const sources = [
       fs.readFileSync(HEAD_PATH, 'utf8'),
       fs.readFileSync(HEADER_PATH, 'utf8'),
-      fs.readFileSync(THEME_PATH, 'utf8'),
+      readThemeCss(),
     ];
     for (const src of sources) {
       expect(src).not.toMatch(/fonts\.googleapis\.com/);
@@ -218,7 +218,7 @@ describe('AC5: footer brand line', () => {
 
 describe('AC6: .site-header is opaque and non-sticky', () => {
   test('theme.css .site-header has no position: sticky and no rgba/transparent background', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const start = themeSrc.indexOf('.site-header {');
     expect(start).toBeGreaterThan(-1);
     const end = themeSrc.indexOf('}', start);

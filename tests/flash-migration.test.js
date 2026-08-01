@@ -40,6 +40,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
+const { evictDbModules } = require('./helpers/db-boot');
 
 const GUESTS_SQL = `
   CREATE TABLE guests (
@@ -89,7 +90,13 @@ function bootFreshDb(seedFn) {
   seedDb.close();
 
   delete require.cache[require.resolve('../config')];
-  delete require.cache[require.resolve('../src/db')];
+  // Issue #969 AC5 / PR review fix: db.js's own db-handle open+pragmas live
+  // in src/db/connection.js, a separate module.cache entry — evicting the
+  // entry alone would leave connection.js cached, so the second boot below
+  // would silently reuse boot 1's already-migrated handle instead of
+  // opening a real second connection against dbPath. evictDbModules() is the
+  // single owner of this eviction pairing (tests/helpers/db-boot.js).
+  evictDbModules();
   process.env.DATA_DIR = dir;
   process.env.DB_PATH = dbPath;
 

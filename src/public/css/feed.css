@@ -1,0 +1,1520 @@
+/* Points is metadata, not an action — right-justified, alone, as the last
+   flex child of the action row (design-language rule: actions left,
+   metadata right). */
+.points-count {
+  margin-left: auto;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* Like + comment buttons: 44px minimum tap target (the old bare like button
+   measured 24x21px). The heart is a rounder inline SVG (#248 — the shipped
+   &hearts; text glyph read as too pointy): outline sage when not yet liked,
+   solid sage once liked (aria-pressed carries the same state). The comment
+   count still sits beside its glyph, inside .comment-button; the like count
+   moved OUT of .like-button into the sibling .likes-link (#890) — the heart
+   toggles, the count is a separate tap target that opens the likers list. */
+.like-button,
+.comment-button {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: none;
+  background: none;
+  padding: 0 var(--space-1);
+  cursor: pointer;
+  color: var(--color-primary);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+}
+/* #890 spacing (owner annotation 2026-07-28): the heart glyph sits flush with
+   the photo's left edge — no centered dead-space inside its tap box — and the
+   "N likes" text follows tight. Vertical tap size keeps the 44px minimum.
+   Keyed off the same .admin-feed-item hook as the padding-inline rules
+   above (not a second, independent exclusion on .admin-feed-fav) — one hook
+   decides guest-vs-admin everywhere in this file, so the admin favorite
+   button keeps its padded pill look (#890 AC7) for the same reason its
+   action bar keeps its gutter. */
+.feed-item:not(.admin-feed-item) .feed-actionbar .like-button {
+  min-width: 0;
+  justify-content: flex-start;
+  padding: 0;
+}
+.like-heart {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 1.6;
+}
+.like-button-liked .like-heart {
+  fill: var(--color-primary);
+  stroke: var(--color-primary);
+}
+.comment-bubble {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  fill: var(--color-primary);
+}
+.like-count,
+.comment-count {
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* Applied by /js/feed.js on the like TOGGLE only — never to the liked
+     state itself, so hearts that arrive already-liked don't pop on load.
+     Scoped to the heart glyph, not the whole button, so the count beside it
+     never scales along with the pop (#248). */
+  .like-button-pop .like-heart {
+    animation: heart-pop 200ms ease-out;
+  }
+  @keyframes heart-pop {
+    0% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.25);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  /* Blocked self-like (#788): the server refuses a like on your own photo
+     (#712, 403). /js/feed.js adds .like-button-nope so the heart shakes "no"
+     and records nothing, instead of the ordinary pop. */
+  .like-button-nope .like-heart {
+    animation: like-nope 400ms ease;
+  }
+  @keyframes like-nope {
+    0%,
+    100% {
+      transform: translateX(0) rotate(0);
+    }
+    20% {
+      transform: translateX(-3px) rotate(-7deg);
+    }
+    40% {
+      transform: translateX(3px) rotate(7deg);
+    }
+    60% {
+      transform: translateX(-2px) rotate(-4deg);
+    }
+    80% {
+      transform: translateX(2px) rotate(4deg);
+    }
+  }
+}
+
+/* Up to 4 most-recent comments as single-line clamped rows (#248 — "4
+   lines, not 4 comments": the block's height never varies regardless of
+   thread length). The full, unclamped thread lives in the dialog below. */
+.feed-comments {
+  margin-top: var(--space-2);
+}
+.feed-comment {
+  margin: 0 0 2px;
+  font-size: var(--fs-small);
+}
+.feed-comment a {
+  font-weight: 600;
+}
+.feed-comment-row {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.see-all-comments {
+  display: block;
+  margin-top: 2px;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+.see-all-comments:hover {
+  color: var(--color-primary);
+}
+
+.feed-task-line {
+  margin-top: var(--space-2);
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+}
+.feed-task-line a {
+  color: var(--color-text-muted);
+}
+.feed-task-line a:hover {
+  color: var(--color-primary);
+}
+
+/* Comments dialog (#248 amendment 2026-07-08): a native <dialog> opened via
+   showModal() — top-layer rendering escapes .feed-item's paint containment
+   (content-visibility made each card the containing block for position:
+   fixed, so the old "fixed" scrim/panel pinned to the card, not the
+   viewport), centers the panel in the viewport, and keeps the background
+   inert so exactly one dialog is open at a time. Closed by Escape (native),
+   the close button, or a backdrop click (src/public/js/feed.js). */
+.comments-dialog {
+  width: min(430px, 100vw - 32px);
+  max-height: 72vh; /* dvh fallback for older engines */
+  max-height: 72dvh;
+  margin: auto;
+  padding: 0;
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-raise);
+  background: var(--white);
+  color: var(--color-text);
+}
+/* Scoped to [open] so the UA's dialog:not([open]) { display: none } keeps
+   winning while the dialog is closed. */
+.comments-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.comments-dialog::backdrop {
+  background: rgba(20, 30, 24, 0.55);
+}
+/* Lock the page scroll while a dialog is open — the top layer scrolls its
+   own thread, the feed behind it stays put. */
+body:has(dialog[open]) {
+  overflow: hidden;
+}
+/* Header: the photo's own thumbnail carries the context; the title stays
+   the generic "<Name>'s photo". */
+.comments-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-hairline);
+}
+.comments-dialog-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.comments-dialog-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-h3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comments-dialog-close {
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+/* .likes-thread (issue #890) shares this shell — same scroll/padding — but
+   is deliberately a SEPARATE class, not a second class on the same element:
+   a photo's article renders both a comments dialog and a likes dialog, and
+   feed.js/tests both look up "the" .comments-dialog-thread within an article
+   expecting exactly one match. */
+.comments-dialog-thread,
+.likes-thread {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+.comments-dialog-empty {
+  margin: 0;
+}
+/* One thread row = the comment paragraph plus its own-comment ⋯ actions menu
+   (#338, revised to the kebab pattern 2026-07-10) — position: relative so the
+   menu panel below can anchor to this row's end without reflowing siblings. */
+.feed-comment-item {
+  position: relative;
+  margin-bottom: var(--space-2);
+  padding-right: 1.5em;
+}
+.feed-comment-item:last-child {
+  margin-bottom: 0;
+}
+/* The ⋯ trigger (#338): a native <summary>, quiet sage-muted, anchored to
+   the row's end. The default disclosure marker (a triangle, or
+   ::-webkit-details-marker on Safari/Chrome) is hidden — the ⋯ glyph itself
+   is the only affordance, matching the Instagram/Bluesky reference. */
+.comment-menu {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+.comment-menu-trigger {
+  display: block;
+  list-style: none;
+  cursor: pointer;
+  padding: 0 var(--space-1);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+.comment-menu-trigger::-webkit-details-marker {
+  display: none;
+}
+.comment-menu-trigger:hover {
+  color: var(--color-primary);
+}
+/* The open menu panel: floats over the thread (not in normal flow) so
+   opening it never shoves neighboring rows — AC7/the issue's "must not
+   reflow the thread" requirement. */
+.comment-menu[open] .comment-delete-form {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1;
+  margin: 2px 0 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+/* Delete (#338): quiet plain text — no button box — same no-box/tap-
+   highlight/focus-visible treatment as .comment-post above. */
+.comment-delete {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.comment-delete:hover {
+  color: var(--color-primary);
+}
+
+/* ---------------- Photo owner menu (⋯, issue #387) ----------------
+   The ⋯ menu on a photo the signed-in guest posted — two items: Edit caption
+   (opens the .caption-dialog popup) and Delete. Mirrors the own-comment
+   .comment-menu pattern: a native <details>/<summary> whose disclosure marker
+   is hidden so the ⋯ glyph is the only affordance, anchored on the same line
+   opposite the uploader's name, floating a small panel over the card so
+   opening it never reflows neighbors. */
+.feed-by {
+  display: flex;
+  align-items: center;
+}
+.photo-detail-byrow {
+  display: flex;
+  align-items: center;
+}
+.photo-owner-menu {
+  position: relative;
+  /* Pushed to the end of the name row so the ⋯ sits opposite the name. */
+  margin-left: auto;
+}
+.photo-owner-menu-trigger {
+  display: block;
+  list-style: none;
+  cursor: pointer;
+  padding: 0 var(--space-1);
+  font-size: var(--fs-body);
+  line-height: 1.2;
+  color: var(--color-text-muted);
+  -webkit-tap-highlight-color: transparent;
+}
+.photo-owner-menu-trigger::-webkit-details-marker {
+  display: none;
+}
+.photo-owner-menu-trigger:hover {
+  color: var(--color-primary);
+}
+.photo-owner-menu-trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+/* The open panel floats over the card (not in normal flow) so opening the
+   menu never shoves the photo below it. A tight two-row list. */
+.photo-owner-menu[open] .photo-owner-menu-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 2;
+  margin: 2px 0 0;
+  padding: var(--space-2) 0;
+  min-width: 9rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.photo-owner-delete-form {
+  margin: 0;
+}
+/* Each menu row: a full-width quiet text row, no button box. */
+.photo-owner-menu-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text);
+  padding: var(--space-2) var(--space-3);
+}
+.photo-owner-menu-item:hover {
+  background: var(--green-50);
+}
+.photo-owner-delete {
+  color: var(--color-danger, #b3261e);
+}
+
+/* ---------------- Edit-caption popup (issue #387) ----------------
+   A native <dialog> centered by showModal(); the same modal treatment the
+   comments dialog uses. */
+.caption-dialog {
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  padding: 0;
+  width: min(28rem, 92vw);
+  box-shadow: var(--shadow-card);
+}
+.caption-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+.caption-dialog-form {
+  margin: 0;
+  padding: var(--space-5);
+}
+.caption-dialog-title {
+  font-family: var(--font-display, var(--font-body));
+  font-size: var(--fs-h3);
+  margin: 0 0 var(--space-3);
+  color: var(--color-text);
+}
+.caption-dialog-input {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  line-height: 1.5;
+}
+.caption-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-5);
+  margin-top: var(--space-4);
+}
+.caption-dialog-cancel {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+/* Save reuses the app's primary .btn pill; this only softens the default
+   block padding to sit neatly in the dialog action row. */
+.caption-dialog-save {
+  padding: 12px 24px;
+}
+
+/* Composer, Instagram pattern: viewer avatar left, borderless auto-growing
+   textarea (grown by feed.js from scrollHeight; the max-height caps it at
+   ~5 lines, after which it scrolls internally), Post as a plain text
+   control — no box, no border, no background — muted while empty. */
+.comments-dialog-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--border-hairline);
+}
+.comments-dialog-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--green-50);
+}
+.comments-dialog-avatar-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: var(--fs-small);
+  color: var(--color-primary);
+}
+.comments-dialog-form textarea {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: var(--space-2) 0;
+  min-height: 24px;
+  max-height: 120px;
+  overflow-y: auto;
+  resize: none;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  line-height: var(--lh-snug);
+}
+.comments-dialog-form textarea:focus {
+  outline: none;
+}
+.comment-post {
+  border: none;
+  background: none;
+  padding: 0 var(--space-1);
+  min-height: 44px;
+  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+.comment-post:disabled {
+  color: var(--color-hairline);
+  cursor: default;
+}
+
+/* ----------------------- Leaderboard ----------------------- */
+/* podium (#626) — dense-ranked medal podium: a crowned champion, each tier
+   grows to fit its tie (capped at 9 faces + "+N"). Places are colored in the
+   brand palette: 1st gold, 2nd primary green, 3rd light green. Ink colors are
+   paired for WCAG-AA contrast on each band. */
+:root {
+  --place-1: #c8a24c; /* gold */
+  --place-1-ink: var(--green-900); /* dark ink on gold */
+  --place-2: var(--color-primary); /* primary green */
+  --place-2-ink: var(--white);
+  --place-3: var(--green-300); /* light green */
+  --place-3-ink: var(--green-900); /* dark ink on light green */
+}
+.podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: var(--space-3);
+  margin: var(--space-6) 0;
+}
+.podium-slot {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* Champion crown, floated just above the gold cluster. */
+.podium-crown {
+  color: var(--place-1);
+  line-height: 0;
+  margin-bottom: var(--space-1);
+}
+.podium-crown svg {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.12));
+}
+
+/* Avatar cluster — the whole tie, wrapped. More tied guests = a taller,
+   bushier cluster; the slot grows upward while the blocks stay bottom-aligned
+   (the .podium flex is align-items: flex-end). */
+.podium-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+.podium-cluster-avatar {
+  display: block;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--green-50);
+  border: 2px solid var(--place-2);
+}
+.podium-cluster-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.podium-cluster-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-display);
+  font-size: var(--fs-small);
+  color: var(--color-primary);
+}
+/* 1st-place avatars are gold-ringed whether it's a lone champion or a tie of
+   co-champions. */
+.podium-slot.rank-1 .podium-cluster-avatar {
+  border-color: var(--place-1);
+}
+.podium-slot.rank-3 .podium-cluster-avatar {
+  border-color: var(--place-3);
+}
+/* A LONE champion (no tie) gets the hero size + lift under the crown. A
+   first-place TIE keeps every co-champion at normal cluster size so the gold
+   tier stays a proportionate cluster, not a tower. */
+.podium-slot.rank-1 .podium-cluster:not(.is-tie) .podium-cluster-avatar {
+  width: 72px;
+  height: 72px;
+  border-width: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* "+N" chip when a tie exceeds the 9-face cap. Pill (auto width) so "+15"
+   reads cleanly; tinted to its tier. */
+.podium-cluster-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  height: 42px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--green-50);
+  border: 2px solid var(--place-2);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--fs-small);
+  color: var(--color-primary);
+}
+.podium-slot.rank-1 .podium-cluster-more {
+  border-color: var(--place-1);
+}
+.podium-slot.rank-3 .podium-cluster-more {
+  border-color: var(--place-3);
+}
+
+/* The plinth: solid medal band, place + points in one label. Height alone
+   ranks the plinths; the medal color names the place. */
+.podium-block {
+  width: 100%;
+  border-radius: var(--radius-input) var(--radius-input) 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--white);
+  padding: var(--space-2) var(--space-1);
+}
+.podium-place {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  line-height: 1;
+}
+.podium-points {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  opacity: 0.92;
+}
+.podium-slot.rank-1 .podium-block {
+  height: 92px;
+  background: var(--place-1);
+  color: var(--place-1-ink);
+}
+.podium-slot.rank-2 .podium-block {
+  height: 66px;
+  background: var(--place-2);
+  color: var(--place-2-ink);
+}
+.podium-slot.rank-3 .podium-block {
+  height: 50px;
+  background: var(--place-3);
+  color: var(--place-3-ink);
+}
+
+/* Overflow chip when a row holds more badges than the per-row cap. */
+.lb-badge-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--space-1);
+  /* Round like the badge medallions beside it (owner call, #891 loop) —
+     the pill token so a two-digit +N relaxes to a pill instead of an oval. */
+  border-radius: var(--radius-pill);
+  /* It's a link now (to the guest's profile) — keep the chip look. */
+  text-decoration: none;
+  background: var(--green-50);
+  border: var(--border-hairline);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* Section heading above the full standings list — subordinate to the page
+   title, marking the list as the complete field below the podium highlight. */
+.lb-standings-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: var(--space-6) 0 var(--space-3);
+}
+
+/* leaderboard rows (rank 4+) */
+.leaderboard {
+  width: 100%;
+  border-collapse: collapse;
+}
+.leaderboard th,
+.leaderboard td {
+  padding: var(--space-4) var(--space-1);
+  text-align: left;
+  border-bottom: var(--border-hairline);
+  vertical-align: middle;
+}
+.leaderboard th {
+  font-family: var(--font-body);
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.leaderboard tr:last-child td {
+  border-bottom: none;
+}
+.leaderboard .rank {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  width: 36px;
+  text-align: center;
+}
+.leaderboard .pts {
+  text-align: right;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.leaderboard .who {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.leaderboard tr.is-me td {
+  background: var(--green-50);
+}
+
+/* leaderboard list (used in leaderboard.ejs) */
+.leaderboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-1);
+  border-bottom: var(--border-hairline);
+}
+.leaderboard-row:first-child {
+  border-top: var(--border-hairline);
+}
+.leaderboard-row.is-me {
+  background: var(--green-50);
+}
+.rank-1 .rank,
+.rank-1.rank {
+  color: var(--color-primary);
+}
+.rank-2 .rank,
+.rank-2.rank {
+  color: var(--color-text-muted);
+}
+.rank-3 .rank,
+.rank-3.rank {
+  color: var(--color-text-muted);
+}
+.rank-n .rank,
+.rank-n.rank {
+  color: var(--color-hairline);
+}
+.lb-guest {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  /* min-width: 0 lets this flex child shrink below its content so a long
+     name truncates instead of pushing the row wider than the phone (#891). */
+  min-width: 0;
+  text-decoration: none;
+  color: var(--color-text);
+}
+.lb-guest .lb-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The avatar keeps its circle when the row squeezes (#891) — only the name
+   gives ground. */
+.lb-guest .lb-avatar,
+.lb-guest .lb-avatar-empty {
+  flex-shrink: 0;
+}
+.lb-guest:hover {
+  text-decoration: none;
+}
+/* Same override for the +N chip link — an underline would slice the pill. */
+.lb-badge-more:hover {
+  text-decoration: none;
+}
+.lb-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: var(--border-hairline);
+  background: var(--green-50);
+}
+.lb-avatar-empty {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--green-50);
+  border: var(--border-hairline);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--color-primary);
+}
+.lb-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+}
+.lb-badges {
+  display: flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  /* A near-cap badge cluster wraps into a second short line rather than
+     overflowing the row on narrow phones (#891). */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 38%;
+}
+/* Each icon is wrapped in an <a href="/badge/:code"> (issue #488). */
+.lb-badges a {
+  display: inline-flex;
+  line-height: 0;
+}
+.lb-badge-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+/* Issue #410 phase-2: a task badge in the leaderboard row now renders
+   through the medallion component; match lb-badge-icon's 24px size. */
+.lb-badges .badge-medallion {
+  width: 24px;
+  height: 24px;
+  border-width: 1px;
+  box-shadow:
+    inset 0 0 0 1px var(--white),
+    inset 0 0 0 2px var(--green-300);
+}
+.lb-points {
+  flex-shrink: 0;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  text-align: right;
+}
+.lb-points strong {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+.lb-points-label {
+  font-size: var(--fs-eyebrow);
+}
+
+/* ----------------------- Profile ----------------------- */
+.profile-header {
+  text-align: center;
+  padding-bottom: var(--space-6);
+  border-bottom: var(--border-hairline);
+  margin-bottom: var(--space-6);
+}
+.profile-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--white);
+  box-shadow: var(--shadow-card);
+  background: var(--green-50);
+  margin: 0 auto var(--space-4);
+}
+.profile-avatar-empty {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 42px;
+  color: var(--white);
+  margin: 0 auto var(--space-4);
+}
+.profile-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin-bottom: var(--space-2);
+}
+.profile-points {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-4);
+}
+.profile-meta {
+  margin-bottom: var(--space-4);
+}
+.profile-socials {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
+}
+.profile-badges,
+.profile-photos {
+  margin-top: var(--space-6);
+}
+.section-heading {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 500;
+  color: var(--color-primary);
+  margin-bottom: var(--space-4);
+  border-bottom: var(--border-hairline);
+  padding-bottom: var(--space-3);
+}
+
+/* guest-home profile section */
+.profile-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding-bottom: var(--space-6);
+  border-bottom: var(--border-hairline);
+  margin-bottom: var(--space-6);
+}
+.profile-avatar-wrap {
+  flex-shrink: 0;
+}
+.profile-info {
+  flex: 1;
+}
+.profile-name-home {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin: 0 0 var(--space-2);
+}
+/* Points + edit-profile link on a single line, separated by a mid-dot. */
+.profile-meta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: nowrap;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+.profile-points-inline {
+  white-space: nowrap;
+}
+.profile-meta-sep {
+  color: var(--color-hairline);
+  flex-shrink: 0;
+}
+.progress-section {
+  margin-bottom: var(--space-6);
+}
+.progress-label {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+}
+.badges-section {
+  margin-bottom: var(--space-6);
+}
+.my-photos-section {
+  margin-bottom: var(--space-6);
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 500;
+  color: var(--color-primary);
+  margin-bottom: var(--space-4);
+  border-bottom: var(--border-hairline);
+  padding-bottom: var(--space-3);
+}
+/* ---- Profile bottom menu (issue #252) ----
+   Replaces the old stacked home-nav buttons: a bordered list, hairline
+   separators, icon + label + chevron. Last row (Report a bug) is muted. */
+.menu-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  border-top: var(--border-hairline);
+}
+.menu-row {
+  border-bottom: var(--border-hairline);
+}
+.menu-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 13px var(--space-1);
+  text-decoration: none;
+  color: var(--color-text);
+}
+.menu-link:hover {
+  background: var(--green-50);
+  text-decoration: none;
+}
+/* Chevron affordance, same pattern as .task-link::after. */
+.menu-link::after {
+  content: '\203A';
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: var(--fs-h3);
+  color: var(--color-text-muted);
+}
+.menu-icon {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+}
+.menu-label {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+.menu-link-muted .menu-icon {
+  color: var(--color-text-muted);
+}
+.menu-link-muted .menu-label {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+.menu-logout-form {
+  margin: 0;
+}
+/* The logout menu row is a real POST button (issue #529); reset the native
+   button box so it reads identically to the <a class="menu-link"> rows. */
+.menu-link-button {
+  width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.btn-primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.btn-primary:hover {
+  background: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+/* ----------------------- Admin card lists (guests + tasks) -----------------
+   Phone-first replacements for the old admin tables (issues #257/#258,
+   design-language rule 12: no multi-column tables at phone width). Every
+   control inside a card meets the 44px tap-target floor (rule 3). */
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+
+.guest-search {
+  margin-bottom: var(--space-4);
+}
+
+.guest-list,
+.task-admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.guest-card,
+.task-admin-card {
+  background: var(--white);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The live search hides cards via the HTML hidden attribute. The display:flex
+   above would beat the UA's plain [hidden] { display: none } rule on engines
+   that don't mark it !important (WebKit; pre-until-found Firefox), so restate
+   it with !important here — the one place author CSS must not win. */
+.guest-card[hidden] {
+  display: none !important;
+}
+
+/* 44px tap-target floor for everything interactive inside a card. */
+.guest-card .btn,
+.guest-card input,
+.guest-card select,
+.task-admin-card .btn,
+.task-admin-card input[type='text'] {
+  min-height: 44px;
+}
+
+.guest-name-form {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.guest-name-form input {
+  flex: 1 1 auto;
+  width: 70%;
+  min-width: 0;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font-body);
+  font-weight: 600;
+  color: var(--color-text);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+/* "Pin first in the gallery" checkbox (issue #251) — its own full-width row
+   under the name input, sized to a comfortable tap target. */
+.guest-pin-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-basis: 100%;
+  min-height: 44px;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.guest-name-form input[type='checkbox'] {
+  flex: none;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
+  accent-color: var(--color-primary);
+}
+
+.guest-meta,
+.task-meta {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+
+.guest-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.guest-points-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.guest-points-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--fs-small);
+}
+.guest-points-form input[type='number'] {
+  width: 72px;
+  padding: 10px 8px;
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+.badge-award-form {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex: 1 1 100%;
+}
+.badge-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 8px;
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text);
+  background: var(--white);
+}
+
+/* Collapsible setup sections below the guest list. */
+.setup-details {
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--green-50);
+  margin-bottom: var(--space-3);
+}
+.setup-details summary {
+  cursor: pointer;
+  padding: var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.setup-details .inline-form {
+  border: none;
+  background: transparent;
+  padding-top: 0;
+}
+
+/* Task cards. */
+.task-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.task-edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.task-edit-form input[type='text'],
+.task-edit-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font-body);
+  color: var(--color-text);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+/* Task badge row (issue #483): full-width row inside each task-admin-card
+   showing the task's own badge art + name, and — only while the badge is
+   still the shared default — an inline upload control. Column layout is the
+   phone-first default; the "wider screens" media query below switches it to
+   a single row. */
+.task-badge-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--green-50);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+.task-badge-row-current {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.task-badge-row .badge-art {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+}
+.task-badge-upload-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.task-badge-upload-form input[type='text'] {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  font-family: var(--font-body);
+  color: var(--color-text);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+}
+.task-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+/* Counts are metadata: pushed right, muted (design-language rule 6). */
+.task-card-actions .task-meta {
+  margin-left: auto;
+}
+.task-move-row {
+  display: flex;
+  gap: var(--space-2);
+}
+.stacked-form .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ----------------------- Footer ----------------------- */
+.site-footer {
+  text-align: center;
+  padding: var(--space-6) var(--gutter) var(--space-8);
+  color: var(--color-text-muted);
+  border-top: var(--border-hairline);
+}
+.footer-line {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  margin: 0;
+  color: var(--color-primary);
+}
+
+/* ----------------------- Social links ----------------------- */
+.social-links {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.social-instagram,
+.social-facebook,
+.social-website {
+  display: inline-block;
+  padding: 7px 16px;
+  background: var(--green-50);
+  color: var(--color-primary);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-eyebrow);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+.social-instagram:hover,
+.social-facebook:hover,
+.social-website:hover {
+  background: var(--green-300);
+  text-decoration: none;
+  color: var(--color-primary);
+}
+
+/* ---- Admin alert / lead helpers (admin pages use these) ---- */
+.lead {
+  font-size: var(--fs-body);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-5);
+}
+.display-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  color: var(--color-primary);
+  text-align: center;
+  margin-bottom: var(--space-4);
+}
+.page-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-bottom: var(--space-5);
+}
+.form-input {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  color: var(--color-text);
+  background: var(--white);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+  padding: 13px 16px;
+}
+.form-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+/* btn--primary is used in admin-login.ejs, join.ejs, and login.ejs */
+.btn--primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  display: inline-block;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--fs-small);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1;
+  padding: 14px 28px;
+  border: none;
+  border-radius: var(--radius-input);
+  cursor: pointer;
+  text-align: center;
+  width: 100%;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.btn--primary:hover {
+  background: var(--color-primary-hover);
+}
+
+/* ----------------------- Admin inline / stacked forms in cells ---- */
+/* Two side-by-side "add one" and "bulk create" forms on the guests page */
+.admin-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+.admin-form-row .inline-form {
+  flex: 1 1 200px;
+}
+
+/* Inline form inside a table cell: input + button on one line */
+.inline-form {
+  background: var(--green-50);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+}
+.inline-form h2 {
+  margin-top: 0;
+  font-size: var(--fs-h3);
+}
+
+/* Stacked add-a-task form above the card list */
+.stacked-form {
+  background: var(--green-50);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.stacked-form h2 {
+  margin: 0;
+}
+.stacked-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--fs-body);
+  color: var(--color-text);
+}
+
+/* Inactive task card: dimmed */
+.row-inactive {
+  opacity: 0.5;
+}
+.row-inactive:hover {
+  opacity: 1;
+}
+
+/* ----------------------- Admin photo moderation grid ---- */
+.photo-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+.photo-admin-card {
+  background: var(--white);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  box-shadow: var(--shadow-card);
+}
+.photo-admin-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radius-input);
+  border: var(--border-hairline);
+}
+.photo-admin-card.is-down {
+  opacity: 0.55;
+  border-color: var(--err-ink);
+}
+.photo-meta {
+  font-size: var(--fs-small);
+  color: var(--color-text);
+  margin: 0;
+  line-height: var(--lh-snug);
+}
+.status-down {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--err-ink);
+  font-weight: 600;
+  margin: 0;
+}
+
+/* ----------------------- Admin comment moderation ---- */
+.comment-admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}

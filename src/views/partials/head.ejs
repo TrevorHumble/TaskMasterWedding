@@ -3,7 +3,7 @@
   // Issue #640: data-theme="stag" ONLY when the request is running the
   // black-tie bachelor-party variant — an unset/non-'stag' variant emits
   // nothing here, so <html> stays byte-identical to before this issue
-  // (AC1). theme.css's [data-theme='stag'] block is the only CSS this
+  // (AC1). base.css's [data-theme='stag'] block is the only CSS this
   // attribute unlocks; it never applies without it. Reads the pre-derived
   // res.locals.isStag (src/app.js), not the raw `variant` string — the
   // `typeof ... !== 'undefined'` guard still stands for a standalone/test
@@ -11,7 +11,7 @@
   //
   // The <meta name="theme-color"> tag below is the mobile browser-toolbar
   // tint: wedding green by default, the black-tie near-black ground on the
-  // stag variant, matching theme.css's [data-theme='stag'] --green-900
+  // stag variant, matching base.css's [data-theme='stag'] --green-900
   // value (kept as a literal there, not a CSS var — this meta tag is read
   // by the OS chrome before any stylesheet loads). This comment lives here,
   // in the already-slurped scriptlet block (renders nothing), rather than
@@ -39,7 +39,18 @@
   <title><%= (typeof title !== 'undefined' && title) ? title : (_isStag ? 'Stag Master' : 'Wedding Master') %></title>
   <%# Every font (display, body, and the masthead script face) is self-hosted
       under src/public/fonts/ — no external font-CDN request at the venue
-      (issue #252 AC3). @font-face rules live in theme.css. %>
-  <link rel="stylesheet" href="/css/theme.css">
+      (issue #252 AC3). @font-face rules live in base.css. %>
+  <%# theme.css split into contiguous, order-preserving slices (issue #969):
+      plain <link> tags in this exact order so the browser's parallel-fetch
+      concatenation reproduces theme.css's original rule order exactly —
+      cascade-correct by construction, not by content (see DESIGN.md). This
+      link SET, in THIS order, is the one and only owner of sheet order:
+      tests/helpers/theme-css.js's readThemeCss() derives its own order by
+      parsing these href attributes, so the two can never drift. %>
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/guest.css">
+  <link rel="stylesheet" href="/css/feed.css">
+  <link rel="stylesheet" href="/css/admin.css">
+  <link rel="stylesheet" href="/css/admin-tasks.css">
 </head>
 <body>

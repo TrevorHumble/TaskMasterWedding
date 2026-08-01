@@ -20,10 +20,9 @@
 // DATA_DIR / DB_PATH. Do not hoist requires above the loadApp() call.
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const request = require('supertest');
 const { loadApp, signInGuest } = require('./helpers/testApp');
+const { readThemeCss } = require('./helpers/theme-css');
 
 let app;
 let db;
@@ -158,8 +157,6 @@ describe('leaderboard overflow chip is a profile link (#891)', () => {
 // tests/masthead-overflow.test.js guards .site-nav-row's flex-wrap.
 // ---------------------------------------------------------------------------
 describe('CSS guardrail: the shrink/wrap rules the #891 fix depends on', () => {
-  const THEME_PATH = path.join(__dirname, '../src/public/css/theme.css');
-
   // Pull a top-level CSS rule block out of the stylesheet source by selector
   // text (same helper as tests/masthead-overflow.test.js's ruleBlock).
   function ruleBlock(source, selector) {
@@ -170,14 +167,14 @@ describe('CSS guardrail: the shrink/wrap rules the #891 fix depends on', () => {
   }
 
   test('.lb-guest sets min-width: 0 so the name column can shrink below its content', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.lb-guest');
     expect(block).not.toBeNull();
     expect(block).toMatch(/min-width:\s*0/);
   });
 
   test('.lb-badges wraps and is capped to 38% width instead of forcing row overflow', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.lb-badges');
     expect(block).not.toBeNull();
     expect(block).toMatch(/flex-wrap:\s*wrap/);
@@ -185,7 +182,7 @@ describe('CSS guardrail: the shrink/wrap rules the #891 fix depends on', () => {
   });
 
   test('.lb-guest .lb-name truncates with an ellipsis on one line', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.lb-guest .lb-name');
     expect(block).not.toBeNull();
     expect(block).toMatch(/overflow:\s*hidden/);
@@ -197,7 +194,7 @@ describe('CSS guardrail: the shrink/wrap rules the #891 fix depends on', () => {
     // This rule's selector spans two lines (a grouped selector), so it can't
     // use the single-line `selector + ' {'` lookup ruleBlock relies on —
     // locate the block by its distinctive first selector line instead.
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const start = themeSrc.indexOf('.lb-guest .lb-avatar,');
     expect(start).toBeGreaterThan(-1);
     const end = themeSrc.indexOf('}', start);
@@ -207,7 +204,7 @@ describe('CSS guardrail: the shrink/wrap rules the #891 fix depends on', () => {
   });
 
   test('.lb-badge-more is a pill (--radius-pill) and keeps no underline on hover', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.lb-badge-more');
     expect(block).not.toBeNull();
     expect(block).toMatch(/border-radius:\s*var\(--radius-pill\)/);

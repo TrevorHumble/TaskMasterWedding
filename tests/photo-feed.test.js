@@ -14,10 +14,9 @@
 // DATA_DIR / DB_PATH. Do not hoist requires above the loadApp() call.
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const request = require('supertest');
 const { loadApp, signInGuest } = require('./helpers/testApp');
+const { readThemeCss } = require('./helpers/theme-css');
 
 let agent;
 let db;
@@ -122,11 +121,9 @@ describe('AC2: feed item is an anchor target', () => {
     expect(res.text).toContain('id="photo-' + idC + '"');
   });
 
-  it('theme.css sets scroll-margin-top on the feed item', () => {
-    const css = fs.readFileSync(
-      path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css'),
-      'utf8'
-    );
+  it('the theme stylesheet sets scroll-margin-top on the feed item', () => {
+    // Issue #969: theme.css split into slices -- read via the shared helper.
+    const css = readThemeCss();
     expect(css).toContain('scroll-margin-top');
   });
 });

@@ -61,12 +61,12 @@
         and fill per task, not markup that only exists for whichever state
         this particular server render happened to pass. Unconditionally
         hidden at first paint via an INLINE style, not the `hidden`
-        attribute: theme.css's own `.flash-state-strip { display: flex }`
+        attribute: admin-tasks.css's own `.flash-state-strip { display: flex }`
         rule (an author rule) would otherwise outrank the browser's
-        low-priority `[hidden]` UA style — the same hazard theme.css already
+        low-priority `[hidden]` UA style — the same hazard feed.css already
         documents (and restates with `!important`) for `.guest-card[hidden]`
         — and an inline `style="display:none"` needs no accompanying
-        `theme.css` change to win that fight, which matters because this
+        CSS change to win that fight, which matters because this
         screen's CSS is part of the owner-approved visual surface recorded in
         `.review_state/visual-approval/` (NOT the governance freeze, which
         covers no file under `src/`): an added rule there drifts the approval
