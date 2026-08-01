@@ -21,16 +21,13 @@
 // or db (see tests/helpers/testApp.js).
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
 const { JSDOM } = require('jsdom');
 const { nameMatchesQuery } = require('../src/public/js/filter');
+const { readThemeCss } = require('./helpers/theme-css');
 
-const THEME_CSS = fs.readFileSync(
-  path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css'),
-  'utf8'
-);
+// Issue #969: theme.css split into slices -- read via the shared helper.
+const THEME_CSS = readThemeCss();
 
 // Extract the body of the first CSS rule whose selector line contains `selector`.
 function cssRuleBody(selector) {

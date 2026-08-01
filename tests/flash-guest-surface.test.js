@@ -29,6 +29,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { loadApp, signInGuest, suppressAnnouncementsForGuest } = require('./helpers/testApp');
+const { themeSheetNames } = require('./helpers/theme-css');
 
 let app;
 let db;
@@ -541,7 +542,14 @@ describe('criterion 8: no phase-1 scaffold ships in any of the four touched file
       'src/views/tasks.ejs',
       'src/views/partials/task-todo-row.ejs',
       'src/public/js/task-countdown.js',
-      'src/public/css/theme.css',
+      // theme.css split into slices (issue #969) -- check every slice, not
+      // just the one that happens to carry the flash-strip rule, so a
+      // scaffold marker landing in any of them still fails this guard.
+      // Derived from themeSheetNames() (tests/helpers/theme-css.js, itself
+      // parsed from head.ejs) rather than a second hard-coded list of five
+      // filenames, so a future slice rename/add/remove can't silently drop a
+      // sheet out of this guard (PR review fix).
+      ...themeSheetNames().map((name) => 'src/public/css/' + name),
     ];
 
     for (const relPath of touchedFiles) {

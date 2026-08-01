@@ -4,7 +4,7 @@
 // property encoding — the live-preview half of the masked-glyph recolor
 // (src/services/badge-icons.js's iconMaskStyle owns the server-rendered
 // half; see that function's doc comment for the shared contract:
-// .badge-medallion-icon / .badge-picker-glyph in theme.css mask an
+// .badge-medallion-icon / .badge-picker-glyph in admin-tasks.css mask an
 // element's `--icon-src` and fill from --badge-icon-color, instead of an
 // <img src> baking a color into the served file).
 //
@@ -28,7 +28,7 @@
    * source the CSS rule reads. A falsy artPath clears the property instead
    * (same as clearBadgeIconMask) rather than emitting `url('')`, which
    * would mask the box down to nothing rather than falling back to
-   * `--icon-src, none` (theme.css's default for the empty/hidden state).
+   * `--icon-src, none` (admin-tasks.css's default for the empty/hidden state).
    *
    * Unlike the server-side encoder (src/services/badge-icons.js's
    * iconMaskStyle), this does not need to defend against a hostile

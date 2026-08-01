@@ -540,7 +540,7 @@ function isIconArtPath(artPath) {
 /**
  * The SINGLE owner (#869) of how an icon `art_path` becomes the inline
  * `--icon-src` CSS custom property the server-rendered glyph carries (see
- * theme.css's `.badge-medallion-icon` / `.badge-picker-glyph` mask rules).
+ * admin-tasks.css's `.badge-medallion-icon` / `.badge-picker-glyph` mask rules).
  * badge-art.ejs and badge-picker.ejs both call this instead of hand-writing
  * `url('<%= art_path %>')`, so a future change to the quoting/escaping rule
  * has exactly one place to land.

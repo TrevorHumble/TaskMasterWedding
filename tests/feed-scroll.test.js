@@ -1,14 +1,14 @@
 // tests/feed-scroll.test.js
 // Covers issue #677 — bidirectional in-place loading for the full-screen
 // /feed. src/public/js/feed-scroll.js, the sentinels/indicators/pager
-// classes in src/views/feed.ejs, and the theme.css rules were owner-approved
+// classes in src/views/feed.ejs, and the theme stylesheet rules were owner-approved
 // and phase-1 frozen 2026-07-29; a PR review round on the phase-2 branch
 // found real defects in the frozen module and was authorized to fix them in
 // place: a scroll-anchoring redesign (a toggled body.feed-inserting class
 // replaces a static, page-leaking overflow-anchor:none), a dead-field
 // rename (appended/prepended -> inserted), a cross-edge stall (the in-flight
 // guard is now per-edge, not shared), a window.fetch/bare-fetch mismatch,
-// plus one theme.css ring-geometry dedupe and one feed.ejs assistive-tech
+// plus one theme-stylesheet ring-geometry dedupe and one feed.ejs assistive-tech
 // fix. All of it is captured in the tests below and in DESIGN.md's #677
 // entry. Structure mirrors tests/gallery-show-more.test.js (issue #610's
 // sibling module, gallery-more.js).
@@ -55,7 +55,7 @@
 //       hidden, the sentinel is unobserved, and no further fetch fires
 //     - document.body carries .feed-inserting for exactly the tick that
 //       processes one insert (native CSS scroll anchoring is suppressed
-//       only for that tick — see theme.css's body.feed-inserting rule and
+//       only for that tick — see guest.css's body.feed-inserting rule and
 //       DESIGN.md's #677 entry), and it is cleared again once the tick
 //       settles — including when edge.insert() itself throws
 //

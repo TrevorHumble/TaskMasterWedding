@@ -120,12 +120,18 @@ describe('submission lifecycle — issue #105', () => {
     expect(holdsBadge(guestId, earlybirdBadgeId)).toBe(true);
   });
 
-  it('AC4: src/routes/admin.js contains no UPDATE submissions SET taken_down SQL', () => {
+  it('AC4: src/routes/admin/moderation.js contains no UPDATE submissions SET taken_down SQL', () => {
+    // Reads admin/moderation.js, not admin.js (issue #969 split): the mount
+    // file (src/routes/admin.js) now contains no route handler bodies at
+    // all, so asserting against it would go vacuously green regardless of
+    // whether the real takedown/restore handlers still route through
+    // photos.hideSubmission/restoreSubmission — moderation.js is where those
+    // handlers (and this SQL, if it ever regressed back in) actually live.
     const fs = require('fs');
     const path = require('path');
     const { stripComments } = require('./helpers/source-text');
     const source = stripComments(
-      fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'admin.js'), 'utf8')
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'admin', 'moderation.js'), 'utf8')
     );
     expect(source).not.toMatch(/UPDATE\s+submissions\s+SET\s+taken_down/i);
   });

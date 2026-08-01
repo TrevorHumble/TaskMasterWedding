@@ -38,6 +38,7 @@ const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
 const { loadApp, signInGuest } = require('./helpers/testApp');
+const { readThemeCss } = require('./helpers/theme-css');
 
 let app;
 let db;
@@ -343,10 +344,10 @@ it('AC4b: replaced_hidden (resubmit onto a taken-down row) keeps its plain flash
 it.each(['badge-pop', 'badge-sway', 'badge-ring', 'spark'])(
   'AC5: @keyframes %s is nested inside a prefers-reduced-motion: no-preference media block',
   (keyframeName) => {
-    const css = fs.readFileSync(
-      path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css'),
-      'utf8'
-    );
+    // Issue #969: theme.css split into slices -- read via the shared helper
+    // (concatenated in head.ejs's own link order) so this scan still runs
+    // over the whole stylesheet.
+    const css = readThemeCss();
 
     const keyframeIndex = css.indexOf(`@keyframes ${keyframeName}`);
     expect(keyframeIndex).toBeGreaterThan(-1);

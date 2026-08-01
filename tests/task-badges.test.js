@@ -568,7 +568,7 @@ describe('AC10: task board shows the badge slot', () => {
 // ---------------------------------------------------------------------------
 // #869 PR review, finding 5: the only existing test touching
 // .badge-picker-glyph (tests/variant-stag.test.js) asserts the CSS RULE
-// exists in theme.css, never that the picker GRID actually renders a masked
+// exists in admin-tasks.css, never that the picker GRID actually renders a masked
 // span. Reverting badge-picker.ejs's grid glyph back to <img src> would keep
 // every other test green while silently re-breaking the stag recolor for
 // the picker surface specifically — this covers the rendered markup itself.
@@ -807,7 +807,7 @@ describe('issue #611: GET /tasks/:id renders the real per-guest badge state', ()
     expect(badgeHeroClass(res.text)).toBe('task-badge-hero--won-first');
     expect(badgeHeroNote(res.text)).toBe('You won this badge — 1st place');
     // The gold rule is conditional on art kind (AC3): a bundled icon renders
-    // through the medallion component, which theme.css's
+    // through the medallion component, which base.css's
     // .task-badge-hero--won-first .badge-medallion rule recolors gold.
     expect(res.text).toContain('<span class="badge-medallion">');
   });

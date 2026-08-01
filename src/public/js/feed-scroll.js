@@ -17,7 +17,7 @@
 // .feed-inserting only while at least one insert holds it (hold taken just
 // before the DOM mutation in load() below, released two animation frames
 // later; a counter, so overlapping inserts from the two edges never strip
-// the class out from under each other) — see theme.css's body.feed-inserting
+// the class out from under each other) — see guest.css's body.feed-inserting
 // rule for why this is a toggle rather than a static suppression, and
 // prependNewer's own doc comment for how the two mechanisms divide the work.
 'use strict';
@@ -90,7 +90,7 @@ function appendOlder(doc, feedEl) {
  * two mechanisms never stack and double-correct. Native anchoring is back on
  * the instant the tick ends, and stays the one to compensate for anything
  * that resizes LATER (e.g. a lazily-resolving image height above the
- * viewport) — see theme.css's body.feed-inserting rule for the full
+ * viewport) — see guest.css's body.feed-inserting rule for the full
  * division of labor.
  *
  * @param {Function} [scrollBy] scroll-adjust hook, defaults to

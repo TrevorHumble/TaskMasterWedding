@@ -170,13 +170,10 @@ describe('AC7: grouped views — no per-thumbnail caption, headings remain', () 
 // ---------------------------------------------------------------------------
 // AC1 / AC3 — structural CSS assertions (theme.css literal rules)
 // ---------------------------------------------------------------------------
-describe('AC1/AC3: theme.css gallery grid rules', () => {
-  const fs = require('fs');
-  const path = require('path');
-  const css = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css'),
-    'utf8'
-  );
+describe('AC1/AC3: theme stylesheet gallery grid rules', () => {
+  // Issue #969: theme.css split into slices -- read via the shared helper.
+  const { readThemeCss } = require('./helpers/theme-css');
+  const css = readThemeCss();
 
   it('base .gallery-grid is a 3-column wall whose tiles can shrink (#251)', () => {
     // minmax(0, 1fr) — not bare 1fr — is what lets tiles shrink below their

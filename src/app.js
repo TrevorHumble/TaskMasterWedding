@@ -180,7 +180,7 @@ app.use((req, res, next) => {
 // ---------------------------------------------------------------------------
 // 3a. Variant flag (issue #640). Expose config.VARIANT to every render as
 //     res.locals.variant — the single per-request write site, so every view
-//     (header.ejs, heart.ejs, theme.css's [data-theme] block, ...) reads the
+//     (header.ejs, heart.ejs, base.css's [data-theme] block, ...) reads the
 //     same value instead of each re-deriving it from config. Placed here,
 //     ahead of the static mounts, /healthz, maintenance mode (4b), and
 //     attachGuest (5), so a response that can be sent before attachGuest ever

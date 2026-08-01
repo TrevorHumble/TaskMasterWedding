@@ -17,7 +17,7 @@
 // The overlay is built once, lazily, and reused. showModal() renders it in
 // the top layer (escaping .feed-item's content-visibility containment, the
 // same reason the #248 comments dialog is a <dialog>), makes the background
-// inert, and closes on Escape natively; theme.css's `body:has(dialog[open])`
+// inert, and closes on Escape natively; feed.css's `body:has(dialog[open])`
 // rule freezes the page scroll while it is open, so the underlying page is
 // exactly where it was when the overlay closes.
 //

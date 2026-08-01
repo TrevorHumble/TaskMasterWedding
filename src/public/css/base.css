@@ -1,0 +1,1507 @@
+/* src/public/css/theme.css */
+
+/* ===========================================================
+   Lilly & Axel · Wedding Master
+   Design tokens, typography, and all shared components.
+   Mobile-first: base rules target phones; centered column
+   on wider screens.
+   =========================================================== */
+
+:root {
+  /* ---- Brand color ramp ---- */
+  --green-900: #2a4335; /* darkest — button hover / press, strong ink */
+  --green-700: #467058; /* PRIMARY — names, headings, buttons, links */
+  --green-500: #6e8478; /* muted — body text, secondary labels */
+  --green-300: #aebbb2; /* hairlines, disabled, placeholder text */
+  --green-50: #f0f4f2; /* ACCENT surface — cards, input wells, panels */
+  --white: #ffffff; /* BACKGROUND + secondary color */
+
+  /* ---- Semantic aliases ---- */
+  --color-bg: var(--white);
+  --color-surface: var(--green-50);
+  --color-primary: var(--green-700);
+  --color-primary-hover: var(--green-900);
+  --color-heading: var(--green-700);
+  --color-text: var(--green-700);
+  --color-text-muted: var(--green-500);
+  --color-hairline: var(--green-300);
+  --color-on-primary: var(--white);
+
+  /* Strongest ink on the page ground — one step past --color-text, for the
+     rare figure that has to outrank ordinary body copy (the raised price tag
+     on a Today Only / flash task row). Semantic, not a raw ramp reach-in: on
+     the stag variant --green-900 is remapped to the near-black PAGE GROUND,
+     so a rule that inks text with the ramp directly renders black on black
+     there (#878). */
+  --color-ink-strong: var(--green-900);
+
+  /* Bundled badge-icon glyph fill (#869). The single owner of the color the
+     ~349 pickable Material icons render in, via the CSS mask technique on
+     .badge-medallion-icon / .badge-picker-glyph — so the wedding instance
+     keeps its green-700 glyphs and the stag theme (below) can drive them gold
+     from one place, with no second recolored icon set to bundle or keep in
+     sync. */
+  --badge-icon-color: var(--green-700);
+
+  /* ---- Functional accents ---- */
+  --ok-bg: #e3f1de;
+  --ok-ink: #2a5a22;
+  --err-bg: #fbe5e5;
+  --err-ink: #7a2020;
+
+  /* ---- Type ---- */
+  --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  --font-body: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  --font-script: 'Wedding Script', cursive;
+
+  --fs-display: 56px;
+  --fs-h1: 34px;
+  --fs-h2: 24px;
+  --fs-h3: 19px;
+  --fs-body: 18px;
+  --fs-small: 15px;
+  --fs-eyebrow: 13px;
+
+  --lh-tight: 1.05;
+  --lh-snug: 1.3;
+  --lh-body: 1.6;
+
+  --tracking-display: 0.04em;
+  --tracking-eyebrow: 0.22em;
+
+  /* ---- Spacing (8pt base) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  /* ---- Radius ---- */
+  --radius-input: 4px;
+  --radius-card: 14px;
+  --radius-pill: 999px;
+
+  /* ---- Borders ---- */
+  --border-hairline: 1px solid var(--green-300);
+
+  /* ---- Shadow (used sparingly) ---- */
+  --shadow-card: 0 1px 3px rgba(42, 67, 53, 0.06);
+  --shadow-raise: 0 6px 24px rgba(42, 67, 53, 0.1);
+
+  /* ---- Layout ---- */
+  --app-max-width: 430px;
+  --gutter: 24px;
+
+  /* ---- Motion ---- */
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-fast: 140ms;
+  --dur-base: 240ms;
+}
+
+/* ----------------------- Stag Master variant (issue #640) ---------------------
+   Bachelor-party second-instance palette. Applies ONLY when the <html>
+   element carries data-theme="stag" (src/views/partials/head.ejs emits that
+   attribute only when res.locals.isStag is true — the wedding instance
+   never emits it, so every rule below is inert there and the :root block
+   above stays byte-identical, AC1). Black-tie strict monochrome ground with
+   one gold accent; values transcribed from the owner-approved 2026-07-23
+   live preview (issue #640 context). */
+[data-theme='stag'] {
+  /* Black-tie: strict monochrome. Black ground, white ink, silver-gray
+     supporting tones. No color anywhere except the gold accent and the
+     functional ok/err reads, kept desaturated. */
+  --green-900: #0a0a0a; /* page ground — near-black */
+  --green-700: #f2f2f2; /* PRIMARY — headings, links, buttons (white on black) */
+  --green-500: #9a9a9a; /* muted — secondary labels, silver-gray */
+  --green-300: #2e2e2e; /* hairlines, disabled */
+  --green-50: #161616; /* raised surface — cards, input wells, panels */
+  --white: #0a0a0a; /* background alias flips dark */
+
+  --color-bg: #0a0a0a;
+  --color-surface: #161616;
+  --color-primary: #f2f2f2;
+  --color-primary-hover: #ffffff;
+  --color-heading: #fafafa;
+  --color-text: #e4e4e4;
+  --color-text-muted: #9a9a9a;
+  --color-hairline: #2e2e2e;
+  --color-on-primary: #0a0a0a;
+
+  /* Strong ink runs the other way here: on black, "stronger" is brighter than
+     --color-text, not darker. Without this the shared alias would resolve
+     through the remapped --green-900 above and paint the raised price tag the
+     same near-black as the page (#878). */
+  --color-ink-strong: #fafafa;
+
+  /* Black-tie gold — the one accent color allowed on the monochrome ground. */
+  --gold: #c8a24c;
+  --gold-dim: #8a7136;
+
+  /* Bundled badge-icon glyphs render gold on stag, not the wedding green
+     (#869) — matches the three gold milestone medallions so the ~349 pickable
+     custom icons stop leaking wedding green into the tasks, admin board, and
+     badge builder. */
+  --badge-icon-color: var(--gold);
+
+  --ok-bg: #1d261d;
+  --ok-ink: #b9ccb4;
+  --err-bg: #2a1414;
+  --err-ink: #e2938a;
+  --color-danger: #cf6f5f;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-raise: 0 6px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* Stag-theme scoped overrides for hard-coded light-theme colors. */
+/* How-to-play rule circles: green ramp -> gold ramp (glyph ink flips to
+   black via the base rule's var(--white)). */
+[data-theme='stag'] .rule-icon-1 {
+  background: #c8a24c;
+}
+[data-theme='stag'] .rule-icon-2 {
+  background: #a8852f;
+}
+[data-theme='stag'] .rule-icon-3 {
+  background: #8a7136;
+}
+[data-theme='stag'] .rule-icon-4 {
+  background: #6b592e;
+}
+/* Badge medallion ring: gold ring + dim-gold inner hairline over the dark
+   ground (the light theme's green-over-white garden ring). */
+[data-theme='stag'] .badge-medallion {
+  border-color: var(--gold);
+  box-shadow:
+    inset 0 0 0 2px var(--white),
+    inset 0 0 0 3px var(--gold-dim);
+}
+[data-theme='stag'] .badge-medallion-empty {
+  border-color: var(--gold-dim);
+  box-shadow: none;
+}
+[data-theme='stag'] .badge-medallion-lg {
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--gold-dim);
+}
+[data-theme='stag'] .badge-detail-header .badge-medallion {
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--gold-dim);
+}
+/* Danger reads deep wine on black-tie, not the light theme's pink fills. */
+[data-theme='stag'] .btn-danger {
+  background: #6e2222;
+  color: #f2f2f2;
+}
+[data-theme='stag'] .btn-danger:hover {
+  background: #8a2a2a;
+}
+[data-theme='stag'] .admin-tile-resub {
+  background: #6e2222;
+}
+[data-theme='stag'] .admin-fav-on {
+  background: rgba(150, 45, 45, 0.95);
+}
+[data-theme='stag'] .admin-feed-fav.like-button-liked .like-heart {
+  fill: #b85050;
+  stroke: #b85050;
+}
+
+/* ----------------------- Self-hosted fonts (issue #252) -----------------------
+   Every font this app uses — display, body, and the masthead script face —
+   is self-hosted here as a latin-subset woff2 under src/public/fonts/. No
+   view or stylesheet makes an external font-CDN request at the venue (AC3).
+   --font-display and --font-body (defined above) each resolve to a variable
+   font covering their whole requested weight range in one file. */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  src: url('/fonts/cormorant-garamond.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Cormorant Garamond';
+  src: url('/fonts/cormorant-garamond-italic.woff2') format('woff2');
+  font-weight: 400 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/eb-garamond.woff2') format('woff2');
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('/fonts/eb-garamond-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+/* The masthead script face — used ONLY for the words "Wedding Master"
+   (.brand-script is its sole consumer). */
+@font-face {
+  font-family: 'Wedding Script';
+  src: url('/fonts/wedding-script.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ----------------------- Reset-ish ----------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--color-text);
+  background: var(--color-bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* ----------------------- Typography ----------------------- */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--color-heading);
+  line-height: var(--lh-snug);
+  margin: 0 0 0.4em;
+}
+h1 {
+  font-size: var(--fs-h1);
+}
+h2 {
+  font-size: var(--fs-h2);
+}
+h3 {
+  font-size: var(--fs-h3);
+}
+
+p {
+  margin: 0 0 1em;
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+.center {
+  text-align: center;
+}
+.eyebrow {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* ----------------------- Layout shell ----------------------- */
+.page {
+  display: block;
+  max-width: var(--app-max-width);
+  margin: 0 auto;
+  padding: var(--space-6) var(--gutter) var(--space-8);
+}
+
+.page--narrow {
+  max-width: 360px;
+}
+
+.section {
+  margin-bottom: var(--space-6);
+}
+
+/* ----------------------- Header / nav ----------------------- */
+/* Opaque, non-sticky (issue #252 — the old translucent sticky treatment let
+   photos ghost through the nav text). The header simply scrolls away with
+   the page like the footer already does. */
+.site-header {
+  background: var(--white);
+  border-bottom: var(--border-hairline);
+}
+.site-header-inner {
+  max-width: var(--app-max-width);
+  margin: 0 auto;
+  padding: var(--space-4) var(--gutter);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* ---- Admin brand line (renamed off the old brand wrapper/label pair so
+   that pair is fully retired — see issue #252 AC1; wordmark added for brand
+   parity with the guest masthead, issue #354) ---- */
+.admin-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+  color: var(--color-primary);
+}
+.admin-brand:hover {
+  text-decoration: none;
+}
+.brand-heart {
+  width: 20px;
+  height: 20px;
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+.admin-brand-text {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--color-primary);
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+}
+/* The same script wordmark as the guest masthead, sized down and stacked
+   over the couple's names to sit on the compact admin brand row instead of
+   the guest page's large centered treatment (issue #354 / #426). The
+   wordmark rule is scoped under .admin-brand so it wins over the later
+   .brand-script guest-scale rule (equal single-class specificity would lose
+   to source order). */
+.admin-brand-stack {
+  display: flex;
+  flex-direction: column;
+}
+.admin-brand .admin-brand-wordmark {
+  font-size: 24px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.admin-brand-stack .admin-brand-text {
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+}
+/* ---- Guest masthead (issue #252) ----
+   Script wordmark over a letter-spaced names line, hearts both sides. */
+.masthead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+}
+.masthead:hover {
+  text-decoration: none;
+}
+.brand-script {
+  font-family: var(--font-script);
+  font-size: 40px;
+  line-height: 1.15;
+  color: var(--color-primary);
+}
+.masthead-names {
+  font-size: 16px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+/* Two centered rows of two links each (Tasks/Gallery, Leaderboard/My Profile). */
+.site-nav-guest {
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+/* flex-wrap (issue #388): at >=430px (the #252-approved width) each row's two
+   links already fit on one line, so wrap never triggers there — this only
+   engages below that width, where the unwrappable row was forcing the whole
+   page to scroll sideways (#388 AC1/AC2). It never narrows the row itself,
+   so it cannot force a wrap that didn't already happen at 430px (AC3). */
+.site-nav-row {
+  display: flex;
+  /* Row-gap is deliberately much smaller than column-gap: when a row wraps at
+     narrow widths the 32px column gap was also applying vertically, stranding
+     the wrapped link ~60px below its partner. */
+  gap: var(--space-1) var(--space-6);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.nav-link {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
+}
+/* Guest-nav-only override (issue #388): a single guest nav-link label (e.g.
+   "MY PROFILE") is allowed to wrap onto a second line rather than clip, on
+   the rare narrow viewport where letter-spacing pushes even one label past
+   the content width. Scoped to .site-nav-guest so the shared admin masthead
+   (.site-nav .nav-link, no -guest class) keeps its original nowrap/no-wrap
+   single-line treatment untouched. */
+.site-nav-guest .nav-link {
+  white-space: normal;
+  text-align: center;
+}
+.nav-link:hover {
+  color: var(--color-primary);
+  text-decoration: none;
+  border-bottom-color: var(--color-primary);
+}
+/* Active section (issue #252 AC2) — the only place this underline is drawn. */
+.nav-link[aria-current='page'] {
+  color: var(--color-primary);
+  border-bottom: 2px solid var(--color-primary);
+  border-radius: 0;
+}
+.nav-logout {
+  margin: 0;
+}
+.nav-link-button {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 2px solid transparent;
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
+}
+.nav-link-button:hover {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+/* ----------------------- Heart divider ----------------------- */
+.heart-divider {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-5) 0;
+  color: var(--color-primary);
+}
+.heart-divider svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ----------------------- Flash messages ----------------------- */
+.flash {
+  max-width: var(--app-max-width);
+  margin: var(--space-4) auto 0;
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-input);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+}
+.flash-ok {
+  background: var(--ok-bg);
+  color: var(--ok-ink);
+}
+.flash-err {
+  background: var(--err-bg);
+  color: var(--err-ink);
+}
+
+/* ------------------- Task-complete success card (#255) ------------------- */
+/* Now the LUCKY variant's shell only (issue #611): an ordinary completion is
+   cardless — see .success-beat below. The 4px accent edge is gone
+   (owner, 2026-07-31: no solid line of colour as card design),
+   which also drops the lucky card's gold edge; the sage ground here, and the
+   gold inset ring + clover on --lucky, carry the moment instead. */
+/* The bottom margin is load-bearing (owner, 2026-07-31, second live pass): the
+   beat is followed immediately by the guest's own photo, and with the memory
+   prompt that padded the card's foot now gone, a 0 bottom margin left the
+   lucky card's gold INSET RING (not the removed accent edge — that is a
+   different thing, see the note above) sitting flush against the photo.
+   --space-5 separates the two blocks without opening the page up as much as a
+   full section break (--space-6) would. */
+.success-card {
+  max-width: var(--app-max-width);
+  margin: var(--space-4) auto var(--space-5);
+  padding: var(--space-5);
+  background: var(--green-50);
+  border-radius: var(--radius-card);
+  text-align: center;
+}
+/* Cardless ordinary beat (issue #611, owner 2026-07-31): heading + points
+   straight on the page ground — no container, no check, no extra lines. */
+.success-beat {
+  max-width: var(--app-max-width);
+  /* Same bottom margin as .success-card above, for the same reason — see its
+     comment. The beat has no container edge of its own, but its last line
+     would otherwise still butt straight into the photo below. */
+  margin: var(--space-4) auto var(--space-5);
+  text-align: center;
+}
+.success-heading {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  color: var(--color-heading);
+}
+.success-points {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-body);
+  color: var(--color-text);
+}
+/* The points beat (issue #611): the earned amount is the hero — display face,
+   primary green, sized between the heading and the badge modal's 32px title —
+   with the running total as a quiet muted line under it, replacing the flat
+   one-sentence points line the owner rejected. */
+.success-earned {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-display);
+  color: var(--color-primary);
+  line-height: 1;
+}
+.success-earned-num {
+  font-size: 40px;
+  font-weight: 600;
+  /* Lining figures: Cormorant's default "1" reads as a Roman I at this size. */
+  font-variant-numeric: lining-nums;
+}
+.success-earned-label {
+  font-size: var(--fs-body);
+  color: var(--color-text);
+}
+.success-total {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+/* The lucky treatment (issue #650): the ONLY place a guest is ever told a task
+   was lucky, so it takes over the whole success card rather than adding a line
+   to it — a gold inset ring and gold clover, so a lucky win is a visibly
+   different, rarer moment at first glance. Gold is --place-1, the same token
+   the leaderboard champion and the one-day-only chip already use, not a new
+   colour. Issue #611 removed this variant's 4px gold accent EDGE along with
+   the base card's green one (the owner's no-solid-line-of-colour rule applies
+   to both) and removed the green check that paired with an ordinary card;
+   the ring and the clover are what remain, and the owner reviewed the lucky
+   card in that state on 2026-07-31. */
+.success-card--lucky {
+  background: var(--white);
+  box-shadow: 0 0 0 1px var(--place-1) inset;
+}
+.success-clover {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto var(--space-3);
+  color: var(--place-1);
+  display: block;
+}
+/* Gold is used on the clover and the card edge ONLY, never on text (owner,
+   2026-07-21): --place-1 (#c8a24c) on white is ~2.3:1, well under the WCAG AA
+   4.5:1 floor for body copy. The points line keeps the ordinary text colour
+   and earns its emphasis from weight instead. */
+.success-card--lucky .success-points {
+  font-weight: 600;
+}
+/* ---- Task badge hero (issue #611) ---- */
+/* The task's badge as art alone under the title — no name, no sentence; its
+   state talks instead: locked/earned (gray) until the guest WINS the badge —
+   completing the task alone does not recolor it — color once they win any
+   placement, gold ring + glyph only for 1st place. Links to the badge page
+   for the words. */
+.task-badge-hero {
+  display: block;
+  width: 72px;
+  margin: 0 auto var(--space-4);
+  text-decoration: none;
+}
+.task-badge-hero-art {
+  width: 72px;
+  height: 72px;
+  display: block;
+}
+/* Not won = grayed out — locked and merely-completed read the same; the note
+   line under the badge carries the words (owner, 2026-07-31). */
+.task-badge-hero--locked,
+.task-badge-hero--earned {
+  filter: grayscale(1) opacity(0.4);
+}
+/* Hero-size medallion (badge-art.ejs's ancestor-scoped sizing convention —
+   see "Badge medallion (#410)"). The SAME ring as the task board — no extra
+   circles for a win (owner, 2026-07-31: "that is busy"). */
+.task-badge-hero .badge-medallion {
+  width: 72px;
+  height: 72px;
+  border-width: 3px;
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--green-300);
+}
+/* Wins are the proper color, nothing more: 1st place is the gold medallion
+   (ring + glyph), a top-5 win is the standard green one. Gold never inks
+   text (the #650/#878 rule) — only the ring and glyph here. */
+.task-badge-hero--won-first .badge-medallion {
+  border-color: var(--place-1);
+  /* The inner hairline goes gold too — a green line inside a gold ring reads
+     as a leftover (owner, 2026-07-31). */
+  box-shadow:
+    inset 0 0 0 3px var(--white),
+    inset 0 0 0 4px var(--place-1);
+  /* Set on the medallion, not on .badge-medallion-icon: the glyph reads this
+     custom property by inheritance, and naming that class here would put an
+     earlier textual match in front of the icon rule tests/variant-stag.test.js
+     locates by first occurrence. */
+  --badge-icon-color: var(--place-1);
+}
+/* One short line under the hero badge (owner, 2026-07-31): the art alone
+   doesn't explain itself. */
+.task-badge-hero-note {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+  text-align: center;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+
+/* ---- Replace-photo disclosure (issue #611) ---- */
+/* A completed task shows one button; the form only exists once it's opened.
+   <summary> restyled as the standard button — marker hidden both ways. */
+.replace-disclosure {
+  max-width: var(--app-max-width);
+  margin: var(--space-4) auto;
+}
+.replace-summary {
+  list-style: none;
+  text-align: center;
+  cursor: pointer;
+}
+.replace-summary::-webkit-details-marker {
+  display: none;
+}
+.replace-disclosure[open] .replace-summary {
+  margin-bottom: var(--space-4);
+}
+
+/* ---- Task caption field (issue #611) ---- */
+/* Short bordered textarea instead of a single line that scrolls forever — the
+   full box so its edges are visible (owner, 2026-07-31). Box, type and focus
+   ring all come from the shared `textarea` element rule further down this
+   file; only what genuinely differs from it is declared here, so an a11y or
+   token change to the shared control reaches this field too instead of being
+   silently overridden by a restated copy. */
+.caption-input {
+  padding: var(--space-2) 16px;
+  max-height: 120px;
+  overflow-y: auto;
+  resize: none;
+  line-height: var(--lh-snug);
+}
+
+/* ---- Stacked form actions (issue #611) ---- */
+/* Choose-photo (white, via the btn-secondary + btn-block labelClass
+   task-upload-form.ejs passes to upload-field) sits directly above the green
+   submit as one block. The picker label's own full-width treatment comes from
+   .btn-block itself, not from a restatement here — only the wrapper needs
+   unpicking from its inline-flex default so the label can fill the row. */
+.task-upload-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.task-upload-actions .upload-field {
+  display: block;
+}
+.task-upload-actions .upload-filename {
+  display: block;
+  text-align: center;
+  margin-top: var(--space-1);
+}
+.task-upload-actions .upload-filename:empty {
+  display: none;
+}
+
+/* The memory payoff line (issue #656, src/views/partials/memory-payoff.ejs).
+   One rule for every CTA that includes the partial, so the line reads the
+   same at each — today that is the finished-all-tasks card on /tasks alone
+   (src/views/tasks.ejs); issue #611 removed the task detail page's two
+   prompts, and /how-to-play and /memories/new deliberately fold the same
+   promise into their own prose instead of including the partial (see its own
+   header comment). Muted, small treatment; no separate note style. */
+.memory-payoff {
+  margin: var(--space-2) 0 var(--space-1);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+
+/* The payoff line captions the button it sits above (the finished-all card),
+   so the gap between the pair collapses to nothing and the two read as one
+   thing rather than two stacked blocks. */
+.memory-payoff + .btn {
+  margin-top: 0;
+}
+
+/* -------------------- Badge-earned modal (#255) -------------------- */
+/* A native <dialog> matching the #248 comments dialog (.comments-dialog
+   above): same width/radius/shadow/::backdrop tokens, centered by the UA,
+   background made inert by showModal(). Opened/closed by
+   src/public/js/badge-moment.js. Fires only for submission-earned badges
+   (BLOOM/BOUQUET/GARDEN/COMPLETIONIST); admin-awarded 'special'
+   badges never go through this modal. No points language belongs in here —
+   points live only in .success-card above. */
+/* EVERY rule below is scoped under .badge-dialog on purpose: `.badge-art` and
+   `.badge-name` are GLOBAL classes owned by the profile badge grids (their
+   60px art / small name live later in this file), so an unscoped modal rule
+   would lose the cascade to them and the modal badge would shrink to 60px.
+   Scoping raises specificity so the modal owns its own art/title, and nothing
+   here leaks back onto the grids. */
+.badge-dialog {
+  width: min(360px, 100vw - 32px);
+  margin: auto;
+  padding: 0;
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-raise);
+  background: var(--white);
+  color: var(--color-text);
+  overflow: hidden;
+}
+.badge-dialog[open] {
+  display: block;
+}
+/* badge-moment.js moves focus to the dialog itself (tabindex=-1) on open so
+   the auto-focus ring never lands on the Continue button; the container needs
+   no visible ring of its own. */
+.badge-dialog:focus {
+  outline: none;
+}
+.badge-dialog::backdrop {
+  background: rgba(20, 30, 24, 0.55);
+}
+
+.badge-dialog .badge-card {
+  padding: 32px 28px 28px;
+  text-align: center;
+}
+
+/* 1 — Eyebrow. Type comes from the shared .eyebrow class (serif, tracked,
+   uppercase — the masthead-names treatment); this only nudges it a touch
+   larger and sets the modal's muted color + spacing. */
+.badge-dialog .badge-eyebrow {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  margin: 0 0 8px;
+}
+
+/* 2 — Title: the badge NAME (plus a celebratory !) in the display face. */
+.badge-dialog .badge-title {
+  font-family: var(--font-display);
+  font-size: 32px;
+  line-height: 1.15;
+  color: var(--color-primary);
+  margin: 0 0 18px;
+}
+
+/* 3 — Stage: the (large) badge art, its glow ring, and the sparkle burst.
+   Art size lives HERE, outside the reduced-motion block, so a reduced-motion
+   guest still gets a large badge — just without the pop/sway/sparkle. */
+.badge-dialog .badge-stage {
+  position: relative;
+  width: 190px;
+  height: 190px;
+  margin: 0 auto 13px;
+}
+.badge-dialog .badge-ring {
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(70, 112, 88, 0.16) 0%, rgba(70, 112, 88, 0) 70%);
+}
+.badge-dialog .badge-sway {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.badge-dialog .badge-art {
+  width: 168px;
+  height: 168px;
+  display: block;
+}
+/* Badge-earned moment (issue #410 phase-2) — a task badge now renders as a
+   bare icon inside the medallion ring rather than .badge-art's own composed
+   circle; same 168px size as the composed-badge branch above. */
+.badge-dialog .badge-medallion {
+  width: 168px;
+  height: 168px;
+  border-width: 4px;
+  box-shadow:
+    inset 0 0 0 4px var(--white),
+    inset 0 0 0 5px var(--green-300);
+}
+
+/* Sparkles/petals radiating from the badge center. Each starts invisible
+   (opacity 0) — the reduced-motion-gated `spark` keyframe is the only thing
+   that ever reveals one, so reduced-motion guests see no sparkle. Each span
+   carries its own --dx/--dy/--rot/--sd inline vars (task.ejs). */
+.badge-dialog .spark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.badge-dialog .spark.gold {
+  color: #d8b26a;
+}
+.badge-dialog .spark.sage {
+  color: #6e8478;
+}
+.badge-dialog .spark.mint {
+  color: #aebbb2;
+}
+
+/* 4 — Subtitle: the badge's own catalog description, body face, muted. Sized
+   with --fs-body (NOT --fs-small) so it reads a step larger than, and is
+   decoupled from, the button's font. */
+.badge-dialog .badge-sub {
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  margin: 0 0 16px;
+  padding: 0 6px;
+}
+
+/* 5 — Action: the shared .btn component (markup carries `btn`), no extra
+   sizing. Its keyboard focus ring is the app's shared :focus-visible outline
+   group (search "focus-visible" — .badge-dialog .badge-continue is a member), so
+   it matches every other control and never shows the stray UA black outline. */
+
+/* The bloom: a springy scale-up with overshoot (badge-pop), a staggered
+   sparkle burst (spark), a soft glow ring (badge-ring), then a settle into a
+   gentle continuous breeze sway (badge-sway) — plus a text rise-in for the
+   eyebrow/heading/name/sub/button. Every rule here is scoped under
+   .playing, the class src/public/js/badge-moment.js adds right after
+   showModal() — so nothing plays until the script runs, and it plays exactly
+   once per page load. Timings/easing match the owner-approved prototype
+   (src/public/demo-255.html) exactly. Gated under
+   prefers-reduced-motion: no-preference (AC5) — under reduced motion the
+   badge and its text simply appear via the unconditional base rules above. */
+@media (prefers-reduced-motion: no-preference) {
+  /* Reveal order: eyebrow, then title, THEN the badge blooms as the payoff,
+     then the description and button settle in. */
+  .playing .badge-eyebrow {
+    animation: rise 560ms ease-out 120ms both;
+  }
+  .playing .badge-title {
+    animation: rise 560ms ease-out 240ms both;
+  }
+  .playing .badge-art {
+    animation: badge-pop 1050ms cubic-bezier(0.22, 1, 0.36, 1) 360ms both;
+  }
+  .playing .badge-ring {
+    animation: badge-ring 1000ms ease-out 360ms both;
+  }
+  /* Sparkles ripple outward alongside the pop — each spark's own --sd staggers
+     its start, offset to fire with the (delayed) bloom. */
+  .playing .spark {
+    animation: spark 1150ms ease-out both;
+    animation-delay: calc(var(--sd, 140ms) + 320ms);
+  }
+  /* gentle breeze sway begins once the pop fully settles */
+  .playing .badge-sway {
+    animation: badge-sway 4.2s ease-in-out 1500ms infinite;
+  }
+  .playing .badge-sub {
+    animation: rise 620ms ease-out 1180ms both;
+  }
+  .playing .badge-continue {
+    animation: rise 620ms ease-out 1320ms both;
+  }
+
+  @keyframes badge-pop {
+    0% {
+      transform: scale(0) rotate(-26deg);
+      opacity: 0;
+    }
+    50% {
+      transform: scale(1.18) rotate(9deg);
+      opacity: 1;
+    }
+    68% {
+      transform: scale(0.93) rotate(-5deg);
+    }
+    84% {
+      transform: scale(1.05) rotate(2deg);
+    }
+    100% {
+      transform: scale(1) rotate(0);
+    }
+  }
+  @keyframes badge-sway {
+    0%,
+    100% {
+      transform: rotate(-2.6deg);
+    }
+    50% {
+      transform: rotate(2.6deg);
+    }
+  }
+  @keyframes badge-ring {
+    0% {
+      transform: scale(0.35);
+      opacity: 0.75;
+    }
+    100% {
+      transform: scale(1.7);
+      opacity: 0;
+    }
+  }
+  @keyframes spark {
+    0% {
+      transform: translate(-50%, -50%) scale(0) rotate(0);
+      opacity: 0;
+    }
+    25% {
+      opacity: 1;
+    }
+    100% {
+      transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1)
+        rotate(var(--rot, 90deg));
+      opacity: 0;
+    }
+  }
+  @keyframes rise {
+    0% {
+      transform: translateY(9px);
+      opacity: 0;
+    }
+    100% {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+}
+
+/* ----------------------- Buttons ----------------------- */
+.btn {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--fs-small);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1;
+  padding: 14px 28px;
+  border: none;
+  border-radius: var(--radius-input);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.btn:hover {
+  background: var(--color-primary-hover);
+  text-decoration: none;
+  color: var(--color-on-primary);
+}
+.btn:active {
+  background: var(--green-900);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+.btn-secondary:hover {
+  background: var(--green-50);
+  color: var(--color-primary);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: var(--border-hairline);
+}
+.btn-ghost:hover {
+  background: var(--green-50);
+  color: var(--color-primary);
+}
+.btn-danger {
+  background: var(--err-ink);
+}
+.btn-danger:hover {
+  background: #5a1515;
+}
+.btn-block {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+.btn-sm {
+  padding: 8px 16px;
+  font-size: var(--fs-eyebrow);
+}
+
+/* Uploading state (issue #254): a small ring before the label. The label
+   text itself already changes to data-uploading-label via JS, so a
+   reduced-motion user still gets the disabled state + label change even
+   though the ring doesn't spin for them.
+   Ring geometry (border/border-top-color/border-radius) and the spin
+   animation are declared ONCE, shared with .feed-edge-ring (#677 PR review
+   dedupe) — see the Photo feed section below for the shared
+   `.btn-uploading::before, .feed-edge-ring` rule and its own comment. Only
+   this surface's size/position and its `color` (which the shared rule's
+   colorless `border: 2px solid` resolves to via currentColor) live here. */
+.btn-uploading {
+  position: relative;
+  padding-left: 44px;
+}
+.btn-uploading::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  color: var(--color-on-primary);
+}
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.form-error {
+  color: var(--err-ink);
+  font-size: var(--fs-small);
+  margin: -8px 0 16px;
+}
+
+/* ---- Legacy aliases so admin views keep working ---- */
+.btn-sage {
+  background: var(--green-500);
+}
+.btn-sage:hover {
+  background: var(--green-700);
+}
+
+/* ----------------------- How to play (#246) -----------------------
+   Three rule rows, each an icon circle + title + one line, stacked above the
+   full-width CTA. .rule-icon carries the 44px tap-target floor even though it
+   is not interactive itself, matching every other circular glyph in the app. */
+.rule-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.rule-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--white);
+}
+.rule-icon-1 {
+  background: #47664f;
+}
+.rule-icon-2 {
+  background: #6b8e7b;
+}
+.rule-icon-3 {
+  background: #8fa99a;
+}
+.rule-icon-4 {
+  background: #b3c6ba;
+}
+.rule-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rule-title {
+  font-weight: 600;
+  color: var(--color-heading);
+}
+.rule-desc {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+
+/* The second of the two stacked full-width CTAs on the How-to-play card —
+   spacing above whichever button sits second in the stack. */
+.how-to-cta-2 {
+  margin-top: var(--space-3);
+}
+
+/* ----------------------- How to earn points -----------------------
+   The dedicated points-breakdown page reached from the How-to-play card's
+   second button. No icons. Each row is a full-width block: title, then the
+   reward tags in the subtitle slot beneath it — a points tag (always shown,
+   with its range) plus a filled Badge tag where a badge is earned — then the
+   description. Hairline dividers separate the rows. */
+.points-intro {
+  margin: 0 0 var(--space-5);
+}
+.points-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+}
+.points-row {
+  padding: var(--space-5) 0;
+  border-top: var(--border-hairline);
+}
+.points-row:first-child {
+  border-top: none;
+  padding-top: var(--space-2);
+}
+.points-title {
+  display: block;
+  font-weight: 600;
+  color: var(--color-heading);
+}
+.points-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.points-tag {
+  white-space: nowrap;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: var(--radius-pill);
+  padding: 4px 12px;
+}
+.points-tag-points {
+  color: var(--green-700);
+  background: var(--green-50);
+  border: 1px solid var(--green-300);
+}
+.points-tag-badge {
+  color: var(--white);
+  background: var(--green-700);
+  border: 1px solid var(--green-700);
+}
+.points-desc {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  margin-top: var(--space-3);
+}
+
+/* ----------------------- Cards ----------------------- */
+.card {
+  background: var(--color-surface);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-5) var(--space-5);
+  margin-bottom: var(--space-5);
+}
+.card-title {
+  margin-top: 0;
+}
+.card-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+/* ----------------------- Stat grid ----------------------- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--color-hairline);
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-5) var(--space-3);
+  background: var(--white);
+  text-align: center;
+}
+.stat-num {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: 500;
+  color: var(--color-primary);
+  line-height: var(--lh-tight);
+}
+.stat-label {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+/* Issue #256 — every stat cell is a tappable <a>; strip the link chrome so it
+   reads as a card, not a hyperlink, and lift on hover for a tap affordance. */
+a.stat {
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+a.stat:hover {
+  background: var(--green-50);
+  text-decoration: none;
+}
+/* Open-bug-reports count turns red only when there is something to act on;
+   at zero it stays the ordinary primary green (AC2). */
+.stat-num-danger {
+  color: var(--err-ink);
+}
+
+/* ---- Admin bug queue (issue #686) ----
+   Each open report carries two side-by-side actions: a link out to a
+   prefilled GitHub new-issue form and a "close — not an issue" button. */
+.bug-admin-row {
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-5);
+  border-bottom: var(--border-hairline);
+}
+.bug-admin-row:last-child {
+  border-bottom: none;
+}
+.bug-admin-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.bug-admin-actions .btn {
+  white-space: nowrap;
+}
+/* The Handled group sits below the open queue with a clear gap. */
+.bug-admin-handled-list {
+  margin-top: var(--space-4);
+}
+.bug-admin-handled-list > * {
+  margin-bottom: var(--space-4);
+}
+/* Handled reports stay visible. A closed one is struck through (kept as a
+   record, not deleted); a tracked one is tagged as handed to GitHub. */
+.bug-closed {
+  text-decoration: line-through;
+}
+.bug-tracked-tag {
+  margin-left: var(--space-2);
+}
+
+/* Activity pulse line under the stat grid. */
+.pulse-line {
+  margin: var(--space-3) 0 var(--space-5);
+  text-align: center;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+
+/* ----------------------- Progress bar ----------------------- */
+.progress {
+  width: 100%;
+  height: 6px;
+  background: var(--green-50);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  border: var(--border-hairline);
+}
+.progress-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-base) var(--ease-soft);
+}
+.progress-caption {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  margin-top: var(--space-2);
+}
+
+/* ----------------------- Task list ----------------------- */
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-3);
+  border-bottom: var(--border-hairline);
+  text-decoration: none;
+  color: var(--color-text);
+}
+.task-item:first-child {
+  border-top: var(--border-hairline);
+}
+.task-item:hover {
+  background: var(--green-50);
+  text-decoration: none;
+}
+.task-check {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: var(--border-hairline);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-small);
+  color: transparent;
+}
+.task-title {
+  font-weight: 600;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+}
+.task-desc {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-small);
+  line-height: var(--lh-snug);
+  color: var(--color-text-muted);
+  /* Wrapped, clamped to 2 lines — never lets a long description set the row's
+     intrinsic width (the old nowrap rule forced 566px pages on 375px phones). */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.task-item.done {
+  color: var(--color-text-muted);
+}
+.task-item.done .task-check {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--white);
+}
+.task-item.done .task-title {
+  color: var(--color-text-muted);
+}
+
+/* ---- Row variants used by tasks.ejs ---- */
+.task-row {
+  border-bottom: var(--border-hairline);
+}
+.task-row:first-child {
+  border-top: var(--border-hairline);
+}
+.task-row:hover {
+  background: var(--green-50);
+}
+.task-row.task-done .task-title-text {
+  color: var(--color-text-muted);
+}
+.task-row.task-todo .task-title-text {
+  color: var(--color-text);
+}
+/* Two-row grid, not a flex line: the badge, body, and price share the top row,
+   and the earn-pitch takes a full-width bottom row spanning UNDER the badge and
+   price gutters as well. That full width is what keeps the pitch on one line at
+   phone widths — squeezed into the body column beside the price it wrapped. A
+   row with no earn-pitch (locked, starter, share-a-memory) simply leaves the
+   bottom row unoccupied and collapses to zero height. A row with no leading
+   badge/thumb element EITHER (the starter and share-a-memory rows — .task-body
+   is their first child there) is handled by the .task-link > .task-body:first-child
+   rule below, which spans .task-body across the empty badge column too — left
+   alone, the grid still reserves that column's gap even with nothing sized to
+   fill the column itself, indenting the row's text by the gap width with no
+   content to justify it (#926). With that rule in
+   place these rows are flush left, same as before the grid rewrite. */
+.task-link {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  grid-template-areas:
+    'badge body points chevron'
+    'earn  earn earn   earn';
+  align-items: center;
+  gap: 0 var(--space-3);
+  padding: var(--space-4) var(--space-3);
+  text-decoration: none;
+  color: inherit;
+}
+/* See the .task-link comment above: a row with no badge/thumb element leading
+   it has .task-body as .task-link's literal first child, and would otherwise
+   sit indented by the empty badge column's gap. Spanning it across both
+   columns removes that gap. The locked row (.task-link-locked, further down)
+   is unaffected — it re-declares display:flex, which ignores grid-column
+   entirely, and its own .task-body is never the first child there regardless
+   (task-lock-wrap leads it).
+
+   Grid placement convention for this row (issue #926 re-check, nit N2): every
+   task-row child declares its own grid-area inside its OWN rule block — there
+   is no shared placement group, so deleting a class's block can never orphan a
+   placement declaration elsewhere. */
+.task-link > .task-body:first-child {
+  grid-column: badge-start / body-end;
+}
+.task-link:hover {
+  text-decoration: none;
+}

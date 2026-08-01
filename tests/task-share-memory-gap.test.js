@@ -13,10 +13,9 @@
 // see tests/helpers/testApp.js "REQUIRE ORDER MATTERS".
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const request = require('supertest');
 const { loadApp, signInGuest } = require('./helpers/testApp');
+const { readThemeCss } = require('./helpers/theme-css');
 
 let app;
 let db;
@@ -26,8 +25,6 @@ beforeAll(() => {
   app = loaded.app;
   db = loaded.db;
 });
-
-const THEME_PATH = path.join(__dirname, '../src/public/css/theme.css');
 
 // Pull a top-level CSS rule block out of the stylesheet source by selector
 // text, the same helper approach tests/masthead-overflow.test.js uses.
@@ -65,7 +62,8 @@ async function signedInAgent(token) {
 // to-do list.
 describe('AC471(1) retired by #656: .task-share-memory CSS rule is gone', () => {
   test('no .task-share-memory rule remains in theme.css', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    // Issue #969: theme.css split into slices -- read via the shared helper.
+    const themeSrc = readThemeCss();
     expect(ruleBlock(themeSrc, '.task-share-memory')).toBeNull();
   });
 });
@@ -92,7 +90,8 @@ describe('AC471(2) retired by #656: no standalone .task-share-memory button; the
 
 describe('AC471(3): the allDone .tasks-memory-cta path is untouched', () => {
   test('.tasks-memory-cta keeps its original margin/padding/background, no added margin-top rule', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    // Issue #969: theme.css split into slices -- read via the shared helper.
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.tasks-memory-cta');
     expect(block).not.toBeNull();
 

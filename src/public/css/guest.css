@@ -1,0 +1,1497 @@
+/* Chevron affordance on every row: the whole row is one link. Explicitly placed
+   in the grid's own chevron cell (see .task-link): on a full row auto-placement
+   happens to land it in the same cell, but a row missing a price tag would
+   auto-flow the chevron into the empty points cell — explicit placement keeps
+   it in its own column regardless of which siblings a row variant renders. */
+.task-link::after {
+  content: '\203A'; /* › */
+  grid-area: chevron;
+  /* flex kept alongside grid-area: the locked row carries BOTH .task-link and
+     .task-link-locked, and the latter re-declares display:flex — so this
+     pseudo-element is a flex item there and a grid item everywhere else. Each
+     context ignores the other's property. */
+  flex: 0 0 auto;
+  font-size: var(--fs-h3);
+  color: var(--color-text-muted);
+}
+.task-body {
+  grid-area: body;
+  /* min-width: 0 lets the body column shrink so long titles/descriptions
+     cannot push the row wider than the column on narrow screens (a GRID
+     property here — .task-link is display:grid). flex: 1 1 auto right below
+     it is a DIFFERENT property for a DIFFERENT context (#926):
+     .task-link-locked (further down) re-declares
+     display:flex for the locked row alone, and in THAT context .task-body is
+     the flex item that has to grow to push "+? pts ›" flush right. Grid
+     ignores flex, flex ignores grid-area/min-width's grid meaning (min-width
+     itself is a normal box property both contexts honor) — so one rule can
+     safely carry both declarations; each display mode simply reads the
+     property it understands and ignores the other. */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.task-title-text {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+}
+.task-points {
+  grid-area: points;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+/* Issue #624 (absorbing #752): on the GUEST list the points are the reason to
+   play, and 12px made them the smallest text on a row whose title is 17px.
+   Scoped to .task-row so the admin task board — which reuses .task-points
+   inside .admin-task-card, where the number is reference data, not a reward —
+   keeps its own denser scale. */
+.task-row .task-points {
+  font-size: 16px;
+  font-weight: 700;
+}
+/* The earnable badge as the row's leading anchor: the reward is the reason to
+   play, so its art leads the row at 52px instead of riding a caption line at
+   24px. Fixed size, never shrinks — the body column beside it absorbs every
+   width change instead. flex: 0 0 auto carried no weight here even before
+   the grid rewrite made this a grid item outright (grid ignores flex) — see
+   n1, #926. */
+.task-badge-lead {
+  grid-area: badge;
+  display: flex;
+  align-items: center;
+}
+.task-badge-lead .badge-art,
+.task-badge-lead .badge-medallion {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+}
+.task-badge-lead .badge-medallion {
+  border-width: 1px;
+  box-shadow:
+    inset 0 0 0 1px var(--white),
+    inset 0 0 0 2px var(--green-300);
+}
+/* One line, always. The caption is three spans — fixed lead, badge name, fixed
+   tail — laid out as a nowrap flex line where ONLY the name (the one
+   variable-width part) may shrink and ellipsize. Guests see the identical
+   sentence shape on every row; a long custom badge name shortens with an
+   ellipsis instead of wrapping this row taller than its neighbors. The gaps
+   stand in for the word spaces the flex items no longer share. Markup lives
+   in src/views/partials/task-earn-pitch.ejs (#926) —
+   the single owner both guest views include rather than each carrying its
+   own copy of this structure; see that partial's own header comment. */
+.task-earnable-copy {
+  grid-area: earn;
+  display: flex;
+  /* The earn-pitch row spans task-link's full width, but .task-earnable-copy
+     is still itself a flex line one level down — min-width: 0 lets IT shrink
+     narrower than its children's natural (unwrapped) width too, which is
+     what actually gives task-earnable-name's ellipsis rule below room to
+     engage before the line would otherwise overflow. */
+  min-width: 0;
+  gap: 0.3em;
+  margin-top: 2px;
+  white-space: nowrap;
+  /* One notch below --fs-small (owner wording, 2026-07-29: the full "Best
+     photos earn [name] + bonus points" sentence stays). At --fs-small the
+     fixed words alone leave ~84px for the name on a 375px phone, so even
+     ten-character default names ellipsized; at eyebrow size every stock name
+     fits whole and only genuinely long custom names shorten. */
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+}
+.task-earnable-lead,
+.task-earnable-tail {
+  flex: 0 0 auto;
+}
+.task-earnable-name {
+  flex: 0 1 auto;
+  min-width: 2ch; /* never vanish entirely — at least a hint of the name survives */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+/* ---- One-day-only challenge rows (issue #624) ---- */
+/* Locked: the day has not arrived. A mystery box — no title, no badge, not a
+   link (the detail page 404s until its day). Muted well so it reads as "not
+   yet" rather than "broken", with the lock where a done row carries its
+   thumbnail, so the leading column stays visually consistent down the list. */
+.task-row.task-locked {
+  background: var(--green-50);
+}
+.task-row.task-locked:hover {
+  background: var(--green-50);
+}
+.task-link-locked {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-3);
+  cursor: default;
+}
+/* The chevron stays, dimmed. It is doing layout work as well as signalling
+   affordance: every other row ends points-then-chevron, so dropping it here
+   pulled the locked row's points out of the column the whole list shares.
+   Greyed rather than removed — present for alignment, visibly inert. */
+.task-link-locked::after {
+  color: var(--green-300);
+}
+.task-lock-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--white);
+  border: var(--border-hairline);
+}
+.task-lock-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-muted);
+}
+.task-row.task-locked .task-title-text {
+  color: var(--color-text-muted);
+}
+.task-points-locked {
+  /* grid-area is inert on the locked row itself (.task-link-locked is flex)
+     but keeps this class placement-complete should a grid row ever carry it —
+     same own-block placement convention as every other task-row child. */
+  grid-area: points;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+/* The countdown is the point of a locked card — it is what turns "come back
+   later" into "come back in fourteen hours". So it outranks the title in
+   weight and size, and its digits are tabular so the row does not twitch
+   sideways every time a number ticks over. */
+.task-countdown {
+  display: block;
+  margin-top: var(--space-1);
+}
+.task-countdown-label {
+  display: block;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.task-countdown-clock {
+  display: flex;
+  align-items: baseline;
+  /* Four units have to sit on one line at 375px inside a ~190px body column,
+     so the gap is tight by necessity, not by taste. */
+  gap: var(--space-1);
+  font-family: var(--font-display);
+  color: var(--color-primary);
+}
+.cd-part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+}
+.cd-num {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  /* Tabular figures are load-bearing here, not a nicety: the seconds digit
+     changes every tick, and proportional numerals would jitter the whole row
+     sideways once a second. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+.cd-unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+/* The moment it hits zero, before the page pulls the real card in. Words, not
+   digits, so they take a readable size instead of the numeral scale. */
+.task-countdown.is-unlocking .task-countdown-clock {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+/* Today: its day is now, so the bonus is live. Gold is the site's prize
+   accent (--place-1, the leaderboard's first-place colour) — the same signal
+   the guest already reads as "this one is worth more". */
+.task-row.task-today {
+  background: linear-gradient(90deg, rgba(200, 162, 76, 0.14), transparent 60%);
+}
+/* Shared pill base for the Today Only flag and the flash marker below
+   (#762): the ONE owner of margin-bottom, padding, border-radius,
+   font-size, font-weight, and letter-spacing for both pills — the
+   DESIGN.md note for #762 states flash "reuses the Today Only row's shape
+   wholesale," and this rule is that claim made real, not a second copy.
+   Each marker below adds only what actually differs between them:
+   display/layout and colour. */
+.task-special-flag {
+  display: inline-block;
+  margin-bottom: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-eyebrow);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.task-today-flag {
+  background: var(--place-1);
+  color: var(--place-1-ink);
+}
+/* Feature-neutral column-flex shape shared by two DIFFERENT price-tag states
+   (issue #926 review note): a live raised total (Today Only / an active
+   flash — one line, no struck base; the pill above the title is the sole
+   "worth more now" signal, owner ruling 2026-07-29) and a missed-bonus row
+   (two lines: .task-points-lost struck above the still-earnable base — see
+   that class below). This rule supplies layout and ink only, no gold of its
+   own, so it must NOT be named after either feature — a name like
+   task-points-today would invite a future reader to add `color:
+   var(--place-1)` here since the rule sits right after the Today Only block
+   above, which would silently paint every flash price tag gold too and
+   break the ember/gold separation the owner explicitly asked for. */
+.task-points-raised {
+  grid-area: points;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 12px;
+  font-weight: 700;
+  /* Semantic alias, never the raw ramp: --green-900 is dark ink on the wedding
+     instance but the near-black PAGE GROUND on stag, so inking with it directly
+     rendered the raised total black on black there (#878). */
+  color: var(--color-ink-strong);
+}
+
+/* ---- Flash marker (issue #762) ----
+   Says the same thing a Today Only row says — "this one is worth more right
+   now" — so it reuses that row's SHAPE (the pill, its position above the
+   title, the struck-through price tag) rather than inventing a second
+   vocabulary for the same idea. What separates flash from Today Only is that
+   it expires in MINUTES, not a calendar day, so a live clock carries the
+   urgency instead of a static label. */
+.task-flash-flag {
+  /* .task-special-flag above supplies margin-bottom, the base padding,
+     border-radius, font-size, font-weight, and letter-spacing; this rule
+     overrides only what a bolt-plus-clock pill actually needs beyond the
+     shared shape. */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: 6px; /* tighter than the shared base's left padding, to make room for the bolt glyph */
+}
+.task-flash-bolt {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+}
+.task-flash-bolt svg {
+  width: 100%;
+  height: 100%;
+}
+.task-flash-clock {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* Flash's own hue (owner, 2026-07-21): a dark ember orange, not the
+   leaderboard gold Today Only uses. First built sharing --place-1 on the
+   reasoning that hue should stay shared and motion should do the
+   differentiating; seen live beside a gold Today Only row, the two read as
+   the same thing, and the owner asked for the separation to be carried by
+   colour after all (see DESIGN.md). Held in its own token group rather than
+   a raw hex at each use so a hue change is a THREE-line edit inside this one
+   block (--flash-1, --flash-1-spent, --flash-1-wash each re-express the same
+   value rather than deriving the washes with color-mix(), which is newer
+   than some guest phones will be at this wedding). */
+:root {
+  --flash-1: #b5401a; /* ember — dark fiery orange (owner, 2026-07-21) */
+  --flash-1-ink: var(--white);
+  --flash-1-spent: rgba(181, 64, 26, 0.22); /* the drained half of the pill */
+  --flash-1-wash: rgba(181, 64, 26, 0.12); /* the row tint behind it */
+}
+.task-row.task-flash {
+  background: linear-gradient(90deg, var(--flash-1-wash), transparent 60%);
+}
+.task-flash .task-flash-flag {
+  background: var(--flash-1);
+  color: var(--flash-1-ink);
+}
+
+/* DRAIN: the pill's fill recedes as the window burns down, so how much time
+   is left is readable without reading the digits. One ember at two
+   densities; --flash-left is repainted each tick by task-countdown.js. The
+   motion carries information rather than decorating — which is also why
+   reduced motion (below) costs this treatment nothing: the fill is a STATE,
+   not an animation. Two motion-only candidates (an escalating breath, a
+   shimmer) were built and rejected live because both collapse to a plain
+   pill under prefers-reduced-motion, taking their whole differentiator with
+   them; drain survives it, since only the TWEEN between per-second repaints
+   is dropped. */
+.task-flash-drain .task-flash-flag {
+  background: linear-gradient(
+    90deg,
+    var(--flash-1) 0,
+    var(--flash-1) var(--flash-left, 100%),
+    var(--flash-1-spent) var(--flash-left, 100%)
+  );
+  /* The fill slides rather than stepping, so a once-per-second repaint does
+     not read as a stutter. */
+  transition: background 900ms linear;
+}
+
+/* Ended: the window closed while the guest was sitting on the page. The page
+   deliberately does not reload itself, so the pill has to stop looking like a
+   live offer on its own — it drops to a quiet spent state rather than keeping
+   the ember it no longer earns. A reload renders no marker at all. */
+.task-flash-flag.is-ended {
+  background: var(--flash-1-spent);
+  color: var(--color-text-muted);
+}
+.task-flash-flag.is-ended .task-flash-bolt {
+  opacity: 0.5;
+}
+
+/* ---- Flash MISSED (FOMO) ----
+   Quiet variant: an otherwise ordinary row carries the miss on ONE signal —
+   the lost bonus, greyed and struck through, above the base points that are
+   still there to bank. No ember pill, no cooled title. */
+.task-points-lost {
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-flash-drain .task-flash-flag {
+    transition: none;
+  }
+}
+
+/* Done rows: the guest's own photo is the completion indicator — a 40px
+   thumbnail with a small sage check-badge overlapping its corner. No pills,
+   no placeholder squares. */
+.task-thumb-wrap {
+  grid-area: badge;
+  position: relative;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+}
+.task-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.task-thumb-check {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: var(--white);
+  border: 2px solid var(--color-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* .task-share-memory (issue #471) is gone with its button: issue #656 made
+   "Share a memory" the last row of the to-do list itself, so there is no
+   standalone button below the list left to space away from it. */
+
+/* ---- Task filter chips + section furniture ---- */
+.task-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 var(--space-5);
+}
+.chip-filter {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-bg);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  text-decoration: none;
+}
+.chip-filter:hover {
+  text-decoration: none;
+}
+.chip-filter-active {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+/* All-done nudge on the task board (issue #247): once every task is complete,
+   the memory invitation is promoted to the top as a sage card. */
+.tasks-memory-cta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4);
+  background: var(--green-50);
+  border-radius: var(--radius-input);
+  text-align: center;
+}
+.tasks-memory-cta-title {
+  margin-bottom: var(--space-3);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.task-progress-meta {
+  margin-left: auto;
+  font-size: var(--fs-small);
+}
+/* ---- Task detail page ---- */
+.back-link {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-5);
+}
+.back-link a {
+  color: var(--color-text-muted);
+}
+.back-link a:hover {
+  color: var(--color-primary);
+}
+/* The "Best photos earn <badge> + bonus points" line these rules styled was
+   removed from the task page by issue #611 (owner, 2026-07-31: the badge art
+   and its own one-line note say it instead), leaving .task-detail-badge and
+   .task-badge-icon with no markup anywhere — both deleted rather than left as
+   dead weight. The task badge's own hero treatment lives under
+   ".task-badge-hero" above. */
+.task-detail-desc {
+  color: var(--color-text-muted);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  margin-bottom: var(--space-6);
+}
+.upload-section {
+  margin-top: var(--space-6);
+}
+.existing-submission {
+  margin-bottom: var(--space-6);
+}
+.submission-full {
+  width: 100%;
+  border-radius: var(--radius-card);
+  border: var(--border-hairline);
+}
+.submission-caption {
+  margin-top: var(--space-2);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+.upload-preview {
+  width: 100%;
+  border-radius: var(--radius-card);
+  border: var(--border-hairline);
+  margin-top: var(--space-4);
+}
+.preview-wrap {
+  margin-bottom: var(--space-4);
+}
+
+/* ----------------------- Forms ----------------------- */
+.form-group {
+  margin-bottom: var(--space-5);
+}
+.form-row {
+  margin-bottom: var(--space-5);
+}
+label,
+.form-label {
+  display: block;
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+input[type='text'],
+input[type='password'],
+input[type='url'],
+input[type='number'],
+input[type='email'],
+textarea,
+select {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  color: var(--color-text);
+  background: var(--white);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+  padding: 13px 16px;
+  transition: border-color var(--dur-fast) var(--ease-soft);
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-hairline);
+}
+textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+/* ---- Styled upload control (issue #79) ---- */
+/* Off-screen, not display:none: the input must stay focusable/tabbable and
+   keep participating in required-field validation. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.upload-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.upload-filename {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.text-input {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  color: var(--color-text);
+  background: var(--white);
+  border: var(--border-hairline);
+  border-radius: var(--radius-input);
+  padding: 13px 16px;
+}
+.text-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+.field-hint,
+.form-help {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  margin-top: var(--space-2);
+}
+/* ---- Re-entry code field (issue #243) ---- */
+.pin-field {
+  position: relative;
+}
+.pin-field .text-input {
+  padding-right: 48px; /* room for the reveal button */
+}
+.pin-reveal {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+/* Batch-caption note (issue #364 AC7): hidden by default via the [hidden]
+   attribute set server-side; memory-caption.js toggles it against the
+   caption input on the 1-vs-2+ file boundary. */
+.caption-batch-note {
+  font-style: italic;
+}
+
+/* ---- Form well (green-50 background) ---- */
+.form-well {
+  background: var(--green-50);
+  border-radius: var(--radius-card);
+  padding: var(--space-5);
+}
+
+.form-fieldset,
+.socials-fieldset {
+  border: var(--border-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.form-legend {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: 0 var(--space-2);
+}
+
+.req {
+  color: var(--err-ink);
+}
+
+.alert {
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-input);
+  margin-bottom: var(--space-5);
+  font-size: var(--fs-small);
+}
+.alert--error {
+  background: var(--err-bg);
+  color: var(--err-ink);
+}
+
+/* ----------------------- Avatar ----------------------- */
+.avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--white);
+  box-shadow: var(--shadow-card);
+  background: var(--green-50);
+}
+.avatar-lg {
+  width: 96px;
+  height: 96px;
+}
+.avatar-sm {
+  width: 40px;
+  height: 40px;
+  border-width: 2px;
+}
+.avatar-circle {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 42px;
+  color: var(--white);
+  margin: 0 auto var(--space-4);
+  flex-shrink: 0;
+}
+.avatar-circle-sm {
+  width: 48px;
+  height: 48px;
+  font-size: 22px;
+}
+
+/* ---- Avatar in onboard / me-edit ---- */
+.avatar-img {
+  border-radius: 50%;
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border: 3px solid var(--white);
+  box-shadow: var(--shadow-card);
+}
+.avatar-placeholder {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--green-50);
+  border: var(--border-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+}
+.avatar-current {
+  margin-bottom: var(--space-4);
+}
+/* ---------------- Remove profile photo (issue #528) ----------------
+   Quiet destructive text under the current avatar on /me/edit, its own
+   standalone form (see me-edit.ejs), shown only when an avatar is set. Same
+   no-box treatment as .comment-delete. */
+.avatar-remove-form {
+  margin: var(--space-2) 0 0;
+}
+.avatar-remove {
+  display: inline-block;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.avatar-remove:hover {
+  color: var(--color-primary);
+}
+/* .avatar-remove joins the shared tap-highlight-transparent and :focus-visible
+   selector groups below (the repo's single-source treatment for quiet no-box
+   controls) rather than re-declaring those properties here. */
+
+/* ----------------------- Badges / pill chips ----------------------- */
+/* badge-item (issue #487, restyled to a divider row by #518): a clean row
+   per badge on guest-home and public-profile — same-size icon on the left,
+   a title (with a conditional "+N pts" suffix) and a description stacked
+   to its right. No background box on the row itself (AC5); rows are
+   separated by a single hairline BETWEEN them, matching the
+   .holder-row/.award-row treatment on the badge-detail page, so the list
+   reads as a quiet column rather than a stack of tiles. */
+.badge-grid {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* badge-item: used in guest-home and public-profile badge grids. Each item's
+   content (issue #486's badge art + name/points/description) is wrapped in an
+   <a href="/badge/:code"> (issue #488), so the flex row layout lives on the
+   anchor. Vertical padding carries the row's own rhythm; the first row's
+   padding-top is zeroed so the list sits tight beneath its section heading. */
+.badge-item {
+  padding: var(--space-4) 0;
+}
+.badge-item + .badge-item {
+  border-top: var(--border-hairline);
+}
+.badge-item:first-child {
+  padding-top: 0;
+}
+.badge-item a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: left;
+  text-decoration: none;
+  color: inherit;
+}
+.badge-art {
+  /* Fixed, equal width/height so a mismatched source image (any badge art
+     upload) can never change the row's height (AC4). */
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.badge-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.badge-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-small);
+  color: var(--color-primary);
+  font-weight: 600;
+  line-height: var(--lh-snug);
+}
+.badge-points {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+.badge-desc {
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+  line-height: var(--lh-snug);
+}
+
+/* small inline badge row */
+.badge-row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.badge-row img {
+  width: 30px;
+  height: 30px;
+}
+
+/* pill chip — for profile badges-as-pills treatment */
+.pill-chip {
+  display: inline-block;
+  font-size: var(--fs-eyebrow);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  background: var(--green-50);
+  border-radius: var(--radius-pill);
+  padding: 7px 16px;
+}
+
+/* ----------------------- Gallery ----------------------- */
+/* Instagram-style photo wall: gapless square tiles, full-bleed on phones
+   (the mobile viewport IS the frame), capped and centred on desktop via the
+   700px breakpoint below. Captions live on the photo-detail page, not here —
+   the grid is photos only. */
+.gallery-grid {
+  display: grid;
+  /* minmax(0, 1fr), not bare 1fr: the 0 floor lets tiles shrink below their
+     intrinsic size, which is what keeps three columns inside a 375px
+     viewport (issue #251 — intrinsic tile widths forced a 522px layout). */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  width: 100vw;
+  margin-inline: calc(50% - 50vw);
+}
+.gallery-item {
+  position: relative;
+  display: block;
+  margin: 0;
+  aspect-ratio: 1 / 1;
+  background: var(--green-50);
+  content-visibility: auto;
+  /* Height-only placeholder (~one 375px-viewport tile). Never give the width
+     component a fixed px — an intrinsic tile width wider than a third of the
+     viewport re-creates the 522px overflow this rule fixed (issue #251). */
+  contain-intrinsic-size: auto 124px;
+}
+/* "+N" scrim on a grouped preview's last tile when the group holds more
+   photos than the six-tile preview shows. */
+.tile-more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 30, 24, 0.45);
+  color: #fff;
+  font-size: var(--fs-h3);
+  font-weight: 600;
+}
+/* Crowd-favorite crown on a top-5 photo (#788). One mark, shared across the
+   gallery / feed / profile tiles. Rank 1 wears it gold; 2–5 read plain white —
+   the same "only the winner is gold" rule the slideshow uses (--slideshow-gold
+   / --place-1). The dark disc keeps the crown legible on any photo. */
+.cf-crown {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(20, 30, 24, 0.55);
+  color: #fff;
+  pointer-events: none;
+}
+.cf-crown svg {
+  display: block;
+}
+.cf-crown-gold {
+  color: var(--place-1);
+  background: rgba(20, 30, 24, 0.62);
+  box-shadow: 0 0 0 1.5px var(--place-1);
+}
+/* Task-badge-victory medal on a ranked photo's tile. Same disc + "only the
+   winner is gold" language as the crowd-favorite crown above, but seated in
+   the like-count slot (bottom-left) rather than the top corner: a ranked
+   photo shows its victory medal in place of its like tally. */
+.tile-victory {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(20, 30, 24, 0.55);
+  color: #fff;
+  pointer-events: none;
+}
+.tile-victory-gold {
+  color: var(--place-1);
+  background: rgba(20, 30, 24, 0.62);
+  box-shadow: 0 0 0 1.5px var(--place-1);
+}
+/* Issue #893 (owner direction): the mark is the EXACT crown treatment — same
+   dark disc, white glyph, gold-with-ring for the sole winner — only the glyph
+   is the actual badge's icon and the seat is bottom-left. The medallion's
+   white circle/ring is stripped inside the disc; the masked icon takes its
+   fill from currentColor via --badge-icon-color, so .tile-victory's own
+   white/gold color drives it exactly like the crown's SVG. */
+.tile-victory-badge .badge-medallion {
+  width: 100%;
+  height: 100%;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  --badge-icon-color: currentColor;
+}
+/* The 16px glyph sizing for this mark lives beside the base
+   .badge-medallion-icon rule far below: per-surface adaptations sit with
+   the component, and the stag guardrail test slices the first opening of
+   that rule name in this file — a scoped rule (or even the literal text of
+   its opening line) appearing here would hijack that slice. */
+.tile-victory-badge .tile-victory-art {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+/* Likers list (issue #890): the "N likes" tap target in the feed action bar
+   and the Instagram-style rows inside the likes dialog. */
+.likes-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.likes-link:hover {
+  text-decoration: underline;
+}
+/* Admin inline feed's like count (issue #953): reuses .likes-link's resting
+   look but opens nothing — no likers dialog behind it, unlike the guest
+   feed's clickable version. This two-declaration override removes the
+   "tap to see who liked this" affordance so the cursor/hover state matches
+   what actually happens on click (nothing). Resting pixels are unchanged. */
+.admin-likes-count {
+  cursor: default;
+}
+.admin-likes-count:hover {
+  text-decoration: none;
+}
+.likes-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  text-decoration: none;
+  color: var(--color-text);
+}
+/* Not expressed as a modifier over .comments-dialog-avatar (the comment
+   composer's own avatar, ~3135 below): the two differ in every dimension
+   that would matter for a shared base — 36px vs. 32px, a border vs. none,
+   font-weight 600 vs. unset, --color-text-muted vs. --color-primary — and
+   the composer avatar is a bare <img>/<span>, never a wrapping circle around
+   an <img> child the way this row's avatar is (the wrapper is what makes
+   overflow: hidden + the img's own border-radius work together). Basing one
+   on the other would mean overriding every property that differs, which
+   removes no real duplication and risks drifting the owner-approved 36px
+   circle (#890) if the shared base ever changes for the composer's sake.
+   Kept as its own block instead. */
+.likes-row-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--green-50);
+  border: var(--border-hairline);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.likes-row-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.likes-row-name {
+  font-weight: 600;
+}
+
+.gallery-thumb-btn {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  position: absolute;
+  inset: 0;
+}
+.gallery-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  aspect-ratio: 1;
+  display: block;
+}
+/* The view switcher (Recent / By task / By person) renders the app-wide
+   .chip-filter pattern (see "Task filter chips" above) — no gallery-specific
+   switcher styles. */
+
+/* Header count line: "Gallery" (serif) + "427 photos" on one baseline. */
+.gallery-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.gallery-count {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* Grouped-section header row: title (serif) grows, count + chevron sit
+   right-justified as muted metadata (actions left, metadata right). */
+.gallery-group-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-height: 44px;
+  margin: var(--space-6) 0 var(--space-3);
+  text-decoration: none;
+  color: inherit;
+}
+.gallery-group-head:hover {
+  text-decoration: none;
+}
+.gallery-group-heading {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  color: var(--color-heading);
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+.gallery-group-count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+/* Same compact count, but tappable: it links to the task's rank & award page
+   (issue #661). An underline is the only affordance added — size/placement stay
+   identical to the plain count beside it. */
+.gallery-group-rank {
+  text-decoration: underline;
+  cursor: pointer;
+}
+.gallery-group-chevron {
+  color: var(--color-text-muted);
+  font-size: var(--fs-h3);
+  line-height: 1;
+}
+.gallery-person-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--green-50);
+  color: var(--color-primary);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.gallery-person-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Centered "Show more" pagination button under the recent wall. */
+.show-more {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-6);
+}
+
+/* Search field above the grouped views (live person filter + no-JS ?q=).
+   No boxed well: a soft-grey magnifying glass + hairline underline that
+   deepens to green on focus, matching the app's editorial serif type. */
+.gallery-search {
+  position: relative;
+  margin-bottom: var(--space-5);
+}
+/* Magnifying-glass icon: the SVG shape is masked, not stroked, so its
+   visible color always derives from --color-hairline (green-300) rather
+   than a hardcoded hex baked into the data URI. */
+.gallery-search::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  background-color: var(--color-hairline);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' fill='none'%3E%3Ccircle cx='7.5' cy='7.5' r='5.5' stroke='%23000' stroke-width='1.7'/%3E%3Cline x1='11.6' y1='11.6' x2='16' y2='16' stroke='%23000' stroke-width='1.7' stroke-linecap='round'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' fill='none'%3E%3Ccircle cx='7.5' cy='7.5' r='5.5' stroke='%23000' stroke-width='1.7'/%3E%3Cline x1='11.6' y1='11.6' x2='16' y2='16' stroke='%23000' stroke-width='1.7' stroke-linecap='round'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: 18px;
+  mask-size: 18px;
+  pointer-events: none;
+}
+.gallery-search input[type='search'] {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--white);
+  border: none;
+  border-bottom: 1px solid var(--color-hairline);
+  border-radius: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  color: var(--color-text);
+  padding: var(--space-2) 2px var(--space-2) 28px;
+}
+.gallery-search input[type='search']:focus {
+  outline: none;
+  border-bottom: 2px solid var(--color-primary);
+}
+.gallery-search input[type='search']::placeholder {
+  color: var(--color-hairline);
+}
+.gallery-search input[type='search']::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-5);
+  margin-top: var(--space-6);
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.page-link {
+  color: var(--color-primary);
+}
+.page-link.disabled {
+  color: var(--color-hairline);
+  pointer-events: none;
+}
+.page-status {
+  color: var(--color-text-muted);
+}
+
+/* ----------------------- Photo detail page ----------------------- */
+.photo-nav-bar {
+  margin-bottom: var(--space-4);
+}
+
+.photo-detail {
+  margin: 0 0 var(--space-5);
+}
+
+.photo-detail-img {
+  width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: var(--radius-card);
+  border: var(--border-hairline);
+  background: var(--green-50);
+}
+
+.photo-detail-caption {
+  margin-top: var(--space-4);
+}
+
+.photo-detail-task {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 0 0 var(--space-2);
+}
+
+.photo-detail-text {
+  font-style: italic;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.photo-detail-by {
+  font-size: var(--fs-small);
+  margin: 0;
+}
+
+.photo-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-6);
+  font-size: var(--fs-small);
+}
+
+.photo-prev,
+.photo-next {
+  color: var(--color-primary);
+}
+
+.photo-nav-disabled {
+  color: var(--color-hairline);
+  pointer-events: none;
+}
+
+/* ----------------------- Photo feed ----------------------- */
+/* Full-screen vertical scroll (issue #84). Card v2 (#248): guest name,
+   photo, caption, one action row, up to 4 clamped comment rows, task line —
+   in that order, top to bottom. Each .feed-item is a fragment target
+   (#photo-<id>) that the gallery grid links to directly, so
+   scroll-margin-top gives breathing room above a scrolled-to target — sized
+   for the tallest header state (mobile, where brand + nav stack to two rows)
+   so the landed-on photo isn't flush against the viewport edge.
+   content-visibility keeps a long, fully-unpaginated feed (every visible
+   photo, per AC1/AC2) cheap to render off-screen. */
+.feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  /* Break the feed column out of the .page horizontal gutter so photos can
+     bleed to the page edge (screen edge on mobile, column edge on desktop),
+     #612. .page has no paint containment, so this overflow is NOT clipped
+     (unlike overflowing the content-visibility:auto .feed-item). The photo then
+     fills its card at width:100%; only the text rows are re-indented below. */
+  margin-inline: calc(-1 * var(--gutter));
+}
+
+/* #677 PR review: scroll-anchoring suppression is a TOGGLED body class, not
+   a static rule on .feed. Two problems with the static version this
+   replaces (both real, not hypothetical):
+     (a) .feed is not unique to this page — src/views/admin-photos.ejs
+         renders its own .feed for the moderation view, and that surface
+         must keep native anchoring; a static `.feed { overflow-anchor: none }`
+         silently broke it there too.
+     (b) suppressing anchoring page-wide, permanently, also removed the
+         browser's own compensation for photos ABOVE the viewport that
+         resolve to their real height AFTER paint (issue #612's
+         contain-intrinsic-size: 600px estimate on .feed-item is only an
+         estimate) — with anchoring off at all times, a guest scrolling up
+         through freshly-prepended cards would see the page drift as those
+         cards resolve, with nothing left to correct it.
+   overflow-anchor: none on one element excludes that element AND its whole
+   subtree from anchor candidacy, so toggling it on <body> covers every
+   candidate on the page (sentinels, edges, pager, footer) in one place. It
+   is set for exactly the tick that processes one insert — added by
+   feed-scroll.js's load() right before the DOM mutation, removed two
+   animation frames later — so native anchoring stays OFF only while the
+   module's own measure-and-adjust (prependNewer) is doing the correcting,
+   and is back on the rest of the time to do its normal job. Without this
+   suppression during that one tick, Chrome was observed (headless, phase-1
+   preview, 2026-07-29) anchoring an append on the bottom sentinel instead —
+   yanking the guest past all 40 new photos and pinning the sentinel in view,
+   permanently stalling the observer chain — and on a prepend, double-
+   correcting the jump on top of the module's own scrollBy. */
+body.feed-inserting {
+  overflow-anchor: none;
+}
+
+/* In-place loading edges (issue #677): the sentinel is the invisible strip
+   feed-scroll.js watches to know the guest is nearing an edge; the ring is
+   the loading affordance shown at that edge while the next window is being
+   fetched (owner amendment 2026-07-19). Same ring as .btn-uploading::before
+   (#254) — shared btn-spin keyframes, muted ink on the page ground — and the
+   same reduced-motion behavior: the ring shows but does not spin. */
+.feed-sentinel {
+  /* 1px, not 0: a zero-area target makes IntersectionObserver's
+     isIntersecting semantics browser-dependent — give it real area. */
+  height: 1px;
+}
+.feed-edge {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4) 0;
+}
+.feed-edge[hidden] {
+  display: none;
+}
+/* Shared ring geometry (#677): .btn-uploading::before
+   (#254, the upload-button spinner) and .feed-edge-ring below are the same
+   ring shape. `border: 2px
+   solid` with no color token resolves to currentColor, so each surface
+   supplies its own ink with a plain `color` declaration on its own rule
+   (.btn-uploading::before above sets --color-on-primary; .feed-edge-ring
+   below sets --color-text-muted) instead of re-touching border-color or
+   border-top-color here — which would have re-colored the transparent top
+   edge along with the other three sides and broken the spinner gap. Sizes
+   also stay per-surface (16px button / 20px feed, set on each rule below).
+   Pixel-identical to the two-copy version this replaces. */
+.btn-uploading::before,
+.feed-edge-ring {
+  border: 2px solid;
+  border-top-color: transparent;
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .btn-uploading::before,
+  .feed-edge-ring {
+    animation: btn-spin 0.7s linear infinite;
+  }
+}
+.feed-edge-ring {
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-muted);
+}
+/* Re-indent the non-photo rows by the gutter the .feed just broke out of, so
+   text keeps its margin while the photo stays full-bleed (#612). The action
+   bar is NOT in this shared list (#890, owner annotation 2026-07-28): the
+   guest feed's action bar sits flush on the photo's own edge line instead —
+   see the two rules below, both keyed off the SAME single hook
+   (.admin-feed-item, admin-photos.ejs) that distinguishes the admin
+   moderation feed's cards from the guest feed's. */
+.feed-by,
+.feed-caption,
+.feed-comments,
+.feed-task-line,
+.admin-feed-downline {
+  padding-inline: var(--gutter);
+}
+/* Admin moderation feed: unaffected by the guest flush treatment below — its
+   action bar keeps the same gutter indent every other row here gets (#890
+   AC7, "read unchanged"). */
+.admin-feed-item .feed-actionbar {
+  padding-inline: var(--gutter);
+}
+/* Guest feed only (i.e. NOT .admin-feed-item): the action bar itself goes
+   flush against the photo's own edge line, and its like button loses its
+   centered padding so the heart glyph sits flush at that same edge — the
+   heart at the left, the points chip flush at the right (#890 AC7). */
+.feed-item:not(.admin-feed-item) .feed-actionbar {
+  padding-inline: 0;
+}
+/* Kill the mobile tap-flash box (#248 owner visual gate): without this the
+   card's controls inherit the browser default -webkit-tap-highlight-color
+   (rgba(51,181,229,.4)), so every tap flashes a light-blue rectangle. */
+.feed-by a,
+.feed-photo-link,
+.feed-comment a,
+.feed-task-line a,
+.like-button,
+.comment-button,
+.see-all-comments,
+.comment-post,
+.comment-delete,
+.comment-menu-trigger,
+.comments-dialog-close,
+.comments-dialog-thread .feed-comment a,
+.avatar-remove {
+  -webkit-tap-highlight-color: transparent;
+}
+/* Keyboard users still need a visible focus ring — :focus-visible (not
+   :focus) shows it on Tab but stays invisible on mouse/touch activation, so
+   no box returns on plain click/tap. */
+.feed-by a:focus-visible,
+.feed-photo-link:focus-visible,
+.feed-comment a:focus-visible,
+.feed-task-line a:focus-visible,
+.like-button:focus-visible,
+.comment-button:focus-visible,
+.see-all-comments:focus-visible,
+.comment-post:focus-visible,
+.comment-delete:focus-visible,
+.comment-menu-trigger:focus-visible,
+.comments-dialog-close:focus-visible,
+.comments-dialog-thread .feed-comment a:focus-visible,
+.badge-dialog .badge-continue:focus-visible,
+.avatar-remove:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.feed-item {
+  margin: 0;
+  scroll-margin-top: 140px;
+  content-visibility: auto;
+  /* `auto 600px`, not bare `600px` (#248 amendment AC9): the auto keyword
+     makes the browser remember a card's real rendered height once painted,
+     so scrolling back up never re-estimates and jumps. */
+  contain-intrinsic-size: auto 600px;
+}
+.feed-by {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  margin: 0 0 var(--space-3);
+}
+.feed-photo-link {
+  display: block;
+  /* Anchor the crowd-favorite crown (#788) to the photo's corner. */
+  position: relative;
+}
+/* The feed photo is large, so its crown sits a little further in and larger
+   than the dense-grid gallery/profile tiles. */
+.feed-photo-link .cf-crown {
+  top: 12px;
+  left: 12px;
+  transform: scale(1.3);
+  transform-origin: top left;
+}
+/* No grey placeholder box (owner directive, #248) — the thumbnail's own
+   pixels are the only fill; a background here would show through as a flash
+   of grey before the image decodes. */
+/* Full-bleed photo (owner directive, #612): the photo fills the full width of
+   the feed column with no border and no rounded corners — the modern photo-app
+   look and maximum resolution. The bleed is achieved at the CONTAINER level:
+   `.feed` breaks out of the .page gutter and the text rows are re-indented (see
+   `.feed` and the `.feed-by/...` padding rule below), so the photo simply fills
+   its card at width:100% with NOTHING overflowing. This matters because
+   `.feed-item` has `content-visibility: auto` (paint containment), which would
+   CLIP a photo that tried to overflow its card via negative margins — so the
+   photo must never be wider than its card. Applies to the guest feed and the
+   admin feed alike (both use .feed-photo). */
+.feed-photo {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.feed-caption {
+  font-style: italic;
+  color: var(--color-text-muted);
+  margin: var(--space-3) 0 0;
+}
+.feed-actionbar {
+  margin-top: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.feed-actions-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}

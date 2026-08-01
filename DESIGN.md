@@ -3279,3 +3279,109 @@ Two adversarial review rounds on this issue found such wrap-split archaeology th
 missed. The honest re-verification tool is a wrap-tolerant re-run of the same patterns, allowing 1-12
 characters of whitespace or a comment leader (`[\s*/#<%-]{1,12}`) between the split words, not a rerun of
 the line-based originals.
+
+## Split the four oversized modules: entry-file pattern, db boot order, one-owner helpers, contiguous CSS slices (#969)
+
+**Date:** 2026-07-31. **Status:** shipped.
+
+**The rule this issue set: a ceiling, not a citation.** `src/routes/admin.js` (2,878 lines),
+`src/db.js` (1,873), `src/services/scoring.js` (1,506), and `src/public/css/theme.css` (7,535) were file
+obesity, not tangled logic — the routes/services/db layering was already clean. This issue set the
+ceilings (900 lines per JS module, 2,000 per CSS sheet) rather than citing a pre-existing repo bar, and
+split each oversized file along the seams it already had.
+
+**The entry-file pattern.** Each split file becomes a thin entry that keeps its exact pre-split require
+path and public API, with the real logic moved to internals under a same-named directory:
+`src/routes/admin.js` -> `src/routes/admin/*.js` (one module per seam-table area, plus `shared.js` for
+the two cross-area helpers and `task-form.js` for the tasks-core/tasks-manage create/edit validation
+helpers); `src/db.js` -> `src/db/*.js`; `src/services/scoring.js` -> `src/services/scoring/*.js`. A
+caller anywhere in the app (`require('../db')`, `require('./scoring')`, `app.js`'s
+`require('./routes/admin')`) keeps resolving to the same thing; the split files are internals behind
+that entry, never a second public surface.
+
+**db boot order and the connection-handle rule.** `src/db/connection.js` is the _only_ `src/db/`
+internal with a module-load side effect: it creates `config.DATA_DIR`, opens the database, and applies
+the pragmas, in that order (the mkdir must precede the open or a fresh clone dies `SQLITE_CANTOPEN` —
+every test helper mkdtemps its own `DATA_DIR` first, so no CI gate had ever caught that ordering
+depending on it). Every other `src/db/` internal (`schema.js`, `migrations-tasks.js`,
+`migrations-submissions.js`, `migrations-badges.js`, `migrations-guests.js`, `migrations-ops.js`,
+`bug-reports.js`, `event-config.js`, `guest-lookups.js` — the migration files regrouped by domain rather
+than by split-order in the PR review fix, see below) takes the open handle as a parameter, or reads it
+fresh inside a function body — **never** a module-load `const { db } = require('./connection')` binding.
+The entry (`src/db.js`) is the one place allowed a module-load `db` capture, because the entry and
+`connection.js` are always evicted and re-required together — `tests/helpers/db-boot.js`'s
+`evictDbModules()` is the single owner of that eviction pairing, called by every class-4 migration test
+that needs a real second boot (the "boot a second, independent database in one process" pattern) — a
+capture anywhere else would pin the FIRST boot's handle inside a module that survives the second boot
+uninvalidated, silently querying a stale connection. `src/db.js` itself keeps the ordered 27-call
+`ensure*()` boot sequence, calling into the
+internals' exported functions in bd70cff's exact source order, under a comment stating that order is
+load-bearing (several migrations rebuild a table from an explicit column-copy list; a column added by a
+later migration run out of order would be silently dropped by an earlier migration's rebuild).
+`src/services/scoring/*`'s internals are the one deliberate exception to the parameter-passing rule:
+each prepares its own `db.prepare`/`db.transaction` statements at its own module load, safe because
+scoring is never independently evicted from `require.cache` the way the db entry and connection are —
+every caller reaches it only after `require('../db')` has already fully resolved.
+
+**One-owner shared helpers.** A helper or statement consumed by more than one internal lives in exactly
+one place, imported by every consumer, never re-declared: `src/routes/admin/shared.js` owns
+`redirectWithMsg`/`renderNotFound` (both consumed across every admin area); `task-form.js` owns
+`resolveBadgeIcon` (imported by both `tasks.js` and `tasks-manage.js`); `src/services/scoring/
+badge-engine.js` owns the private `stmtBadgeByCode` statement behind its exported `badgeByCode(code)`
+wrapper (consumed there and by `guest-badges.js`'s `badgeWithHolders` — the PR review fix stopped
+exporting the raw statement itself, so a consumer can no longer reach past the wrapper to an internal
+better-sqlite3 method neither call site used). Everything else stays area-local, beside its sole
+consumer.
+
+**CSS: contiguous, order-preserving slices — cascade-safe by construction, not by content.**
+`theme.css`'s admin/tasks/badges surfaces interleaved throughout the file (e.g. admin rules spanned
+:205-:6638, tasks :651-:7048) and selectors repeated with wide spread (`:root` alone at four separate
+line ranges) with no guarantee those repeats stay non-overlapping forever — a per-surface regrouping
+cannot preserve source order, and source order is what makes the cascade correct. The split is instead
+five **contiguous** slices of the original file — `base.css`, `guest.css`, `feed.css`, `admin.css`,
+`admin-tasks.css` (named for its dominant content — the admin task board, task dialog, and create
+wizard — plus the lightbox/badge-picker/checklist rules that shared its byte range; renamed from the
+split's original placeholder `misc.css` by the PR review fix), each under 2,000 lines — cut only at a
+boundary where the preceding line is exactly `}` at column 0 (never an indented `}` inside an `@media`
+block) and the following line is non-blank, so no prettier-deleted boundary blank line and no severed
+at-rule. `head.ejs` links them as five plain `<link>` tags in slice order (no `@import` chains); the
+browser's parallel-fetch-then-apply-in-link-order behavior reproduces the original cascade exactly.
+Verified byte-identical: concatenating the five slices in link order reproduces bd70cff's `theme.css`
+byte-for-byte (`Buffer.compare` on the concatenation against the original, before the original was
+deleted). `tests/helpers/theme-css.js`'s `readThemeCss()` derives sheet order by parsing `head.ejs`'s own
+`<link>` hrefs — one owner of order, so the test helper can never drift from what the app actually
+serves.
+
+**Accepted tradeoff: one stylesheet request became five.** `express.static(config.PUBLIC_DIR)`
+(`src/app.js`) sets no explicit `Cache-Control` on `/css/*`, so the browser conditionally revalidates
+every sheet on every navigation — where one such round trip sufficed before this split, a navigation now
+pays five. Accepted rather than fixed here because production sits behind a reverse proxy (Caddy or
+nginx, per `docs/deploy.md`) terminating TLS, and a TLS-terminating proxy in front of a modern browser
+negotiates HTTP/2 (or better) by default, which multiplexes all five requests over the single already-open
+connection — the wall-clock cost of five small conditional GETs over one multiplexed connection is not
+five times the cost of one, so north-star goal A ("fast under the whole party at once") was considered
+and judged unaffected in practice, even though the raw request count is a real five-fold increase.
+
+**Known, disclosed byte-identity artifact.** `base.css`'s first line still reads
+`/* src/public/css/theme.css */` — the original file's own top-of-file header comment, now naming a
+file that no longer exists. It is not corrected here, because doing so would break the byte-identity
+concatenation this issue's own acceptance criterion requires and would invalidate the pixel-equal
+visual-approval re-persist. A future edit to `base.css` should fix this stale self-reference — nothing
+under `src/` is governance-frozen (the freeze scopes to `.githooks/`, `tools/`, `standards/`, `agents/`,
+`skills/`, `.github/`, `.claude/`, `CLAUDE.md`, `AGENTS.md`, and `docs/north-star.md` only; see
+`CLAUDE.md`'s "Governance freeze" section), so waiting on the freeze to lift is not the real constraint.
+The real constraint is the visual-approval hash recorded in `.review_state/`: any edit to `base.css`
+re-persists that hash per the render-identical rule (a pixel-equal change gets a fresh approval record
+against the reviewer's pixel-equal verification rather than bouncing back to the owner for a
+"re-confirm"), so fixing this comment is a same-day, no-owner-gate change whenever someone next touches
+the file — it was simply not this issue's own touched file.
+
+**Follow-up, explicitly not this issue.** The five CSS slices are contiguous, not surface-pure (a rule's
+sheet is decided by its position in the original file, not by which surface — guest, admin, feed — it
+styles). Regrouping into surface-pure sheets is a possible post-wedding follow-up; it was out of scope
+here because proving a reshuffled cascade produces pixel-identical output is a materially bigger
+verification problem than proving a contiguous cut does. Similarly, `src/routes/admin.js`'s 29 non-test
+prose pointers ("src/routes/admin.js's guest-delete route", etc.) were left as one-hop-not-dead-end
+degradations rather than rewritten file-by-file — the mount file's own area-map comment is the recorded
+answer for a reader who follows one of those pointers and finds no handler bodies there — and the
+omission is parked as a single line on #588 per the freeze's own finding-disposition rule.

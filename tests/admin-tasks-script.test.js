@@ -28,9 +28,9 @@
 // bottom of this file covers reflectBadge's set/clear round trip.
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
+const { readThemeCss } = require('./helpers/theme-css');
 
 const ADMIN_TASKS_JS_PATH = path.join(__dirname, '..', 'src', 'public', 'js', 'admin-tasks.js');
 // #869: admin-tasks.js's reflectBadge() calls window.BadgeIconMask.set/clear
@@ -1139,8 +1139,6 @@ describe('admin-tasks.js (issue #755 PR review fix — the client-side half now 
 // re-invented.
 // ---------------------------------------------------------------------------
 describe('CSS guardrail: touch-action and chip-wrap rules the #918 fix depends on', () => {
-  const THEME_PATH = path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css');
-
   function ruleBlock(source, selector) {
     const start = source.indexOf(selector + ' {');
     if (start === -1) return null;
@@ -1149,21 +1147,21 @@ describe('CSS guardrail: touch-action and chip-wrap rules the #918 fix depends o
   }
 
   test('.task-dialog-form sets touch-action: manipulation (AC3)', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.task-dialog-form');
     expect(block).not.toBeNull();
     expect(block).toMatch(/touch-action:\s*manipulation/);
   });
 
   test('.worth-chips sets flex-wrap: wrap (AC5)', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.worth-chips');
     expect(block).not.toBeNull();
     expect(block).toMatch(/flex-wrap:\s*wrap/);
   });
 
   test('.admin-chip-strip sets flex-wrap: wrap (AC5)', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.admin-chip-strip');
     expect(block).not.toBeNull();
     expect(block).toMatch(/flex-wrap:\s*wrap/);

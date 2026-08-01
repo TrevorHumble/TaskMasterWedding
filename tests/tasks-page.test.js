@@ -17,10 +17,9 @@
 // DATA_DIR / DB_PATH. Do not hoist requires above the loadApp() call.
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const request = require('supertest');
 const { loadApp, signInGuest } = require('./helpers/testApp');
+const { readThemeCss } = require('./helpers/theme-css');
 
 let app;
 let db;
@@ -87,11 +86,11 @@ describe('tasks page v2 (#250)', () => {
     seedField();
   });
 
-  test('AC1: theme.css has no white-space: nowrap inside the .task-desc rule', () => {
-    const css = fs.readFileSync(
-      path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css'),
-      'utf8'
-    );
+  test('AC1: the theme stylesheet has no white-space: nowrap inside the .task-desc rule', () => {
+    // Issue #969: theme.css split into slices -- read via the shared helper
+    // (concatenated in head.ejs's own link order) so this scan still runs
+    // over the whole stylesheet.
+    const css = readThemeCss();
     // Every .task-desc declaration block, wherever it appears.
     const blocks = css.match(/\.task-desc[^{]*\{[^}]*\}/g) || [];
     expect(blocks.length).toBeGreaterThan(0);

@@ -14,10 +14,7 @@
 // 320px) happens in the visual-approval loop, not here.
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-
-const THEME_PATH = path.join(__dirname, '../src/public/css/theme.css');
+const { readThemeCss } = require('./helpers/theme-css');
 
 // Pull a top-level CSS rule block out of the stylesheet source by selector
 // text, the same helper approach AC6 in masthead-menu.test.js uses inline.
@@ -30,14 +27,14 @@ function ruleBlock(source, selector) {
 
 describe('AC388(1,2): .site-nav-row wraps instead of forcing horizontal overflow', () => {
   test('.site-nav-row sets flex-wrap: wrap', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.site-nav-row');
     expect(block).not.toBeNull();
     expect(block).toMatch(/flex-wrap:\s*wrap/);
   });
 
   test('the guest nav overrides .nav-link white-space: nowrap so a single label can wrap too', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
 
     // The shared base rule keeps its original nowrap (admin masthead relies
     // on this — see AC388(3) below), so this must be a MORE specific
@@ -50,7 +47,7 @@ describe('AC388(1,2): .site-nav-row wraps instead of forcing horizontal overflow
 
 describe('AC388(3): no regression to the #252-approved 430px layout', () => {
   test('.page max-width is unchanged at 430px (var(--app-max-width))', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.page');
     expect(block).not.toBeNull();
     expect(block).toMatch(/max-width:\s*var\(--app-max-width\)/);
@@ -60,7 +57,7 @@ describe('AC388(3): no regression to the #252-approved 430px layout', () => {
   });
 
   test('.site-header-inner max-width is unchanged at 430px (var(--app-max-width))', () => {
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.site-header-inner');
     expect(block).not.toBeNull();
     expect(block).toMatch(/max-width:\s*var\(--app-max-width\)/);
@@ -71,7 +68,7 @@ describe('AC388(3): no regression to the #252-approved 430px layout', () => {
     // natural width at 430px. flex-wrap only engages when content already
     // overflows the container, so it cannot itself narrow the row — but a
     // stray width/max-width on the same rule would. Guard against that.
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.site-nav-row');
     expect(block).not.toMatch(/\bwidth:/);
     expect(block).not.toMatch(/max-width:/);
@@ -80,7 +77,7 @@ describe('AC388(3): no regression to the #252-approved 430px layout', () => {
   test('the shared .nav-link rule (admin masthead) still sets white-space: nowrap unmodified', () => {
     // The admin nav (.site-nav, no -guest class) must keep its original
     // single-line treatment — only the guest-scoped selector above changes.
-    const themeSrc = fs.readFileSync(THEME_PATH, 'utf8');
+    const themeSrc = readThemeCss();
     const block = ruleBlock(themeSrc, '.nav-link');
     expect(block).not.toBeNull();
     expect(block).toMatch(/white-space:\s*nowrap/);

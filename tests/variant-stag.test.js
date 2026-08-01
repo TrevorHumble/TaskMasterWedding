@@ -3,7 +3,7 @@
 // Covers:
 //   AC2 — <html> carries data-theme="stag" and the black-tie palette (the
 //         exact values transcribed from the owner-approved preview) ships
-//         in theme.css's [data-theme='stag'] block.
+//         in base.css's [data-theme='stag'] block.
 //   AC3 — the brand ornament is the martini glass, the wordmark is
 //         "Stag Master", "Lilly" appears nowhere guest- or admin-facing, and
 //         the FUNCTIONAL photo like-heart stays a heart (never swaps to the
@@ -32,6 +32,7 @@ process.env.VARIANT = 'stag';
 const request = require('supertest');
 const { loadApp, seed, signInGuest, makeAdminAgent } = require('./helpers/testApp');
 const { ensureBadgeCatalog } = require('../scripts/badge-catalog');
+const { fetchThemeCssOverHttp } = require('./helpers/theme-css');
 
 // Copied from tests/feed-full-bleed.test.js (issue #878 implementation plan
 // step 4): extractBalancedBlock/allIndicesOf are file-local there and not
@@ -95,66 +96,65 @@ describe('AC2: VARIANT=stag emits data-theme="stag" and the black-tie palette', 
     expect(res.text).toContain('<html lang="en" data-theme="stag">');
   });
 
-  it("GET /css/theme.css ships the [data-theme='stag'] block with the approved hexes", async () => {
-    const res = await request(app).get('/css/theme.css');
-    expect(res.status).toBe(200);
-    expect(res.text).toContain("[data-theme='stag']");
-    expect(res.text).toContain('#0a0a0a'); // near-black ground
-    expect(res.text).toContain('#c8a24c'); // gold accent
-    expect(res.text).toContain('#8a7136'); // dim gold
-    expect(res.text).toContain('#6e2222'); // wine danger fill
+  it("the theme stylesheet ships the [data-theme='stag'] block with the approved hexes", async () => {
+    // Issue #969: theme.css split into slices -- fetch every sheet over HTTP
+    // in head.ejs's own link order and concatenate (the HTTP mirror of
+    // readThemeCss()), since this guard spans the whole former theme.css.
+    const { body } = await fetchThemeCssOverHttp(app);
+    expect(body).toContain("[data-theme='stag']");
+    expect(body).toContain('#0a0a0a'); // near-black ground
+    expect(body).toContain('#c8a24c'); // gold accent
+    expect(body).toContain('#8a7136'); // dim gold
+    expect(body).toContain('#6e2222'); // wine danger fill
   });
 
   it('#869: --badge-icon-color resolves to stag gold, and stays green-700 in :root (no regression for the default variant)', async () => {
-    const res = await request(app).get('/css/theme.css');
-    expect(res.status).toBe(200);
+    const { body } = await fetchThemeCssOverHttp(app);
 
-    // theme.css itself never branches on VARIANT — it ships both the :root
-    // block and the [data-theme='stag'] override in one file, and the
-    // wedding instance (no data-theme attribute on <html>) only ever matches
-    // :root. So the :root slice IS the "wedding stays green" no-regression
+    // The theme stylesheet itself never branches on VARIANT — it ships both
+    // the :root block and the [data-theme='stag'] override, and the wedding
+    // instance (no data-theme attribute on <html>) only ever matches :root.
+    // So the :root slice IS the "wedding stays green" no-regression
     // assertion, not a separate app instance.
-    const stagSelectorAt = res.text.indexOf("[data-theme='stag']");
-    const rootBlock = res.text.slice(0, stagSelectorAt);
-    const stagBlock = res.text.slice(stagSelectorAt);
+    const stagSelectorAt = body.indexOf("[data-theme='stag']");
+    const rootBlock = body.slice(0, stagSelectorAt);
+    const stagBlock = body.slice(stagSelectorAt);
     expect(rootBlock).toContain('--badge-icon-color: var(--green-700);');
     expect(stagBlock).toContain('--badge-icon-color: var(--gold);');
 
     // The mask contract that actually recolors the ~349 bundled icons: both
     // glyph classes pull their fill from the single --badge-icon-color owner
     // above and mask the per-render --icon-src, rather than sizing an <img>.
-    // Sliced per-selector (not a bare res.text.toContain) so a regression
+    // Sliced per-selector (not a bare body.toContain) so a regression
     // that keeps the property text somewhere else in the file but detaches it
     // from these two classes would still be caught.
     for (const selector of ['.badge-medallion-icon', '.badge-picker-glyph']) {
-      const ruleStart = res.text.indexOf(selector + ' {');
+      const ruleStart = body.indexOf(selector + ' {');
       expect(ruleStart).toBeGreaterThan(-1);
-      const ruleEnd = res.text.indexOf('}', ruleStart);
-      const rule = res.text.slice(ruleStart, ruleEnd);
+      const ruleEnd = body.indexOf('}', ruleStart);
+      const rule = body.slice(ruleStart, ruleEnd);
       expect(rule).toContain('background-color: var(--badge-icon-color);');
       expect(rule).toContain('mask-image: var(--icon-src, none);');
     }
   });
 
   it("#878 AC4: --color-ink-strong is declared in both :root and [data-theme='stag']", async () => {
-    const res = await request(app).get('/css/theme.css');
-    expect(res.status).toBe(200);
+    const { body } = await fetchThemeCssOverHttp(app);
 
     // Same root/stag slicing technique as the #869 test above.
-    const stagSelectorAt = res.text.indexOf("[data-theme='stag']");
-    const rootBlock = res.text.slice(0, stagSelectorAt);
-    const stagBlock = res.text.slice(stagSelectorAt);
+    const stagSelectorAt = body.indexOf("[data-theme='stag']");
+    const rootBlock = body.slice(0, stagSelectorAt);
+    const stagBlock = body.slice(stagSelectorAt);
 
     expect(rootBlock).toContain('--color-ink-strong: var(--green-900);');
     expect(stagBlock).toContain('--color-ink-strong: #fafafa;');
   });
 
   it('#878 AC2: on the wedding instance (:root), .task-points-raised resolves byte-identical to the pre-change #2a4335', async () => {
-    const res = await request(app).get('/css/theme.css');
-    expect(res.status).toBe(200);
+    const { body } = await fetchThemeCssOverHttp(app);
 
-    const stagSelectorAt = res.text.indexOf("[data-theme='stag']");
-    const rootBlock = res.text.slice(0, stagSelectorAt);
+    const stagSelectorAt = body.indexOf("[data-theme='stag']");
+    const rootBlock = body.slice(0, stagSelectorAt);
 
     // .task-points-raised itself is unscoped (one shared rule cascades to
     // both instances; only the custom-property values it reads differ per
@@ -163,20 +163,19 @@ describe('AC2: VARIANT=stag emits data-theme="stag" and the black-tie palette', 
     // chain it reads from (:root, i.e. rootBlock) separately: color ->
     // --color-ink-strong -> --green-900. All three must hold, or the
     // owner-approved wedding pixels have moved.
-    const ruleStart = res.text.indexOf('.task-points-raised {');
+    const ruleStart = body.indexOf('.task-points-raised {');
     expect(ruleStart).toBeGreaterThan(-1);
-    const rule = extractBalancedBlock(res.text, ruleStart);
+    const rule = extractBalancedBlock(body, ruleStart);
     expect(rule).toContain('color: var(--color-ink-strong);');
     expect(rootBlock).toContain('--color-ink-strong: var(--green-900);');
     expect(rootBlock).toContain('--green-900: #2a4335;');
   });
 
   it('#878 AC1: on stag, .task-points-raised resolves to near-white, distinct from the near-black page ground, and is the last color-setting rule for that class', async () => {
-    const res = await request(app).get('/css/theme.css');
-    expect(res.status).toBe(200);
+    const { body } = await fetchThemeCssOverHttp(app);
 
-    const stagSelectorAt = res.text.indexOf("[data-theme='stag']");
-    const stagBlock = res.text.slice(stagSelectorAt);
+    const stagSelectorAt = body.indexOf("[data-theme='stag']");
+    const stagBlock = body.slice(stagSelectorAt);
 
     // Trace the chain for stag: .task-points-raised's color ->
     // --color-ink-strong -> #fafafa directly (no further var() hop), and
@@ -184,7 +183,7 @@ describe('AC2: VARIANT=stag emits data-theme="stag" and the black-tie palette', 
     // extracting both declared values out of the served stylesheet text and
     // comparing THOSE, not by comparing two hard-coded string literals to
     // each other (a comparison that could never fail regardless of what
-    // theme.css actually contains).
+    // the theme stylesheet actually contains).
     expect(stagBlock).toContain('--color-ink-strong: #fafafa;');
     expect(stagBlock).toContain('--color-bg: #0a0a0a;');
 
@@ -200,16 +199,15 @@ describe('AC2: VARIANT=stag emits data-theme="stag" and the black-tie palette', 
     // takes the color back (today there is exactly one such rule; this
     // assertion still catches a future rule added later in the file that
     // would win the cascade and silently repaint the price tag).
-    const selectorIndices = allIndicesOf(res.text, '.task-points-raised {');
+    const selectorIndices = allIndicesOf(body, '.task-points-raised {');
     expect(selectorIndices.length).toBeGreaterThan(0);
     const lastSelectorIdx = selectorIndices[selectorIndices.length - 1];
-    const lastRule = extractBalancedBlock(res.text, lastSelectorIdx);
+    const lastRule = extractBalancedBlock(body, lastSelectorIdx);
     expect(lastRule).toContain('color: var(--color-ink-strong);');
   });
 
   it('#878 AC3: no color: declaration anywhere in the stylesheet inks directly with the raw --green-900 ramp variable', async () => {
-    const res = await request(app).get('/css/theme.css');
-    expect(res.status).toBe(200);
+    const { body } = await fetchThemeCssOverHttp(app);
 
     // A standalone `color:` property (never `background-color:`,
     // `border-color:`, `outline-color:`, etc. — those legitimately reference
@@ -221,9 +219,11 @@ describe('AC2: VARIANT=stag emits data-theme="stag" and the black-tie palette', 
     // just immediately after `color:`, so a --green-900 reference reached
     // through a nested fallback — e.g.
     // `color: var(--some-token, var(--green-900))` — is caught too, not only
-    // a direct `color: var(--green-900)`.
+    // a direct `color: var(--green-900)`. Runs over the CONCATENATED text
+    // (all five sheets, issue #969) so a rule that moved to a different
+    // sheet than :root's own stays covered.
     const offendingColorDecl = /(?<![a-zA-Z-])color\s*:\s*[^;}]*var\(\s*--green-900\s*\)/;
-    expect(res.text).not.toMatch(offendingColorDecl);
+    expect(body).not.toMatch(offendingColorDecl);
   });
 });
 
