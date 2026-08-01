@@ -43,7 +43,12 @@ describe('process-level unhandledRejection guard (issue #311 AC2)', () => {
     const fs = require('fs');
     const path = require('path');
     const config = require('../config');
-    const src = fs.readFileSync(path.join(config.ROOT, 'src', 'app.js'), 'utf8');
+    const { stripComments } = require('./helpers/source-text');
+    // Comment-stripped (issue #939): src/app.js's own crash-guard doc comment
+    // discusses these same literals in prose, so a raw indexOf here would be
+    // vulnerable to whichever mention -- comment or real registration --
+    // happens to come first in the file.
+    const src = stripComments(fs.readFileSync(path.join(config.ROOT, 'src', 'app.js'), 'utf8'));
 
     const guardIdx = src.indexOf('require.main === module');
     const unhandledIdx = src.indexOf("process.on('unhandledRejection'");

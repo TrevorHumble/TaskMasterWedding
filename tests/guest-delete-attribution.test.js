@@ -29,6 +29,7 @@ const crypto = require('crypto');
 const sharp = require('sharp');
 const Database = require('better-sqlite3');
 const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
+const { stripComments } = require('./helpers/source-text');
 
 let app;
 let db;
@@ -579,7 +580,14 @@ describe('AC7: an existing (pre-#886) database migrates taken_down_by correctly 
   // tests/classify-dep-pr.test.js's own "wedding-critical drift guard"
   // describe block already uses for its two independently-declared lists.
   it('the CHECK constraint and photos.js VALID_TAKEN_DOWN_BY agree on the legal attribution values', () => {
-    const dbSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'db.js'), 'utf8');
+    // Comment-stripped (issue #939) -- .match takes the FIRST match, so a
+    // comment quoting either pattern would silently shadow the real
+    // declaration and this drift guard would stop guarding anything. The
+    // constraint/set literal themselves live in template-literal/array
+    // syntax, which stripComments preserves untouched.
+    const dbSrc = stripComments(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'db.js'), 'utf8')
+    );
     const checkMatch = dbSrc.match(
       /CHECK \(taken_down_by IS NULL OR taken_down_by IN \(([^)]+)\)\)/
     );
@@ -588,9 +596,8 @@ describe('AC7: an existing (pre-#886) database migrates taken_down_by correctly 
     }
     const checkValues = [...checkMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
 
-    const photosSrc = fs.readFileSync(
-      path.join(__dirname, '..', 'src', 'services', 'photos.js'),
-      'utf8'
+    const photosSrc = stripComments(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'photos.js'), 'utf8')
     );
     const validSetMatch = photosSrc.match(/VALID_TAKEN_DOWN_BY\s*=\s*new Set\(\[([^\]]+)\]\)/);
     if (!validSetMatch) {

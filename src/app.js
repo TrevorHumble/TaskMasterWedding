@@ -17,16 +17,13 @@ const app = express();
 
 // ---------------------------------------------------------------------------
 // Process-level crash guards (issue #311). Deliberately at MODULE scope --
-// runs the moment this file is require()'d, NOT inside the startup guard
-// down in section 9 below (only true when this file is the process entry
-// point) -- so a test that loads the app (tests/helpers/testApp.js's
-// loadApp) and then emits a synthetic unhandledRejection always finds a
-// handler already attached, and so a real require of this module from any
-// entrypoint (the server, a script, a test) is protected the same way.
-// (Deliberately NOT spelling out that guard's exact condition in this
-// comment -- several tests, including this file's own AC5/AC6 checks below,
-// locate it in the source via its literal text, and an incidental second
-// occurrence of that phrase up here would shift what `indexOf` finds first.)
+// runs the moment this file is require()'d, NOT inside the
+// `require.main === module` startup guard down in section 9 below (only true
+// when this file is the process entry point) -- so a test that loads the app (tests/helpers/
+// testApp.js's loadApp) and then emits a synthetic unhandledRejection always
+// finds a handler already attached, and so a real require of this module
+// from any entrypoint (the server, a script, a test) is protected the same
+// way.
 //
 // Before this, there was no process.on('unhandledRejection'/
 // 'uncaughtException') anywhere in src/ (grepped) -- src/routes/guest.js's

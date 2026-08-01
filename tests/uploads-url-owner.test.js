@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const { loadApp } = require('./helpers/testApp');
+const { stripComments } = require('./helpers/source-text');
 
 let config;
 let photos;
@@ -77,9 +78,8 @@ describe('taskBadges.isUploadedArtPath derives from config.UPLOADS_URL_BASE (AC3
 
 describe('no bare "/uploads/" literal remains in task-badges.js (AC4)', () => {
   it('the source file contains no bare /uploads/ string literal', () => {
-    const source = fs.readFileSync(
-      path.join(__dirname, '..', 'src', 'services', 'task-badges.js'),
-      'utf8'
+    const source = stripComments(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'task-badges.js'), 'utf8')
     );
     expect(source).not.toContain("'/uploads/'");
     expect(source).not.toContain('"/uploads/"');

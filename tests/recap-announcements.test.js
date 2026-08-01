@@ -20,6 +20,7 @@ const path = require('path');
 const crypto = require('crypto');
 const request = require('supertest');
 const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
+const { stripComments } = require('./helpers/source-text');
 
 let app;
 let db;
@@ -378,9 +379,8 @@ describe('AC4: a challenge unseals without a scheduled job', () => {
   });
 
   it('no setInterval or other scheduled job drives announcement derivation', () => {
-    const source = fs.readFileSync(
-      path.join(__dirname, '..', 'src', 'services', 'notifications.js'),
-      'utf8'
+    const source = stripComments(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'notifications.js'), 'utf8')
     );
     expect(source).not.toContain('setInterval');
     expect(source).not.toContain('setTimeout');

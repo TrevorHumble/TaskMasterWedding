@@ -3223,3 +3223,21 @@ per request (task.ejs's own `if`/`else if`/`else` on `submission`/`submission.ta
 keeps the partial's fixed element ids (`#caption`, `#upload-preview`, `#upload-error`) unique on the page
 — it does not render twice on one page at any point, only once from whichever of the three branches the
 guest's current state selects.
+
+## Source-text test assertions: one shared comment stripper, not per-file private copies (#939)
+
+**Date:** 2026-07-31. **Status:** shipped.
+
+**The rule.** Any test assertion whose subject is backend source code — a positional `indexOf`
+comparison, a positive/negative-presence check, a regex extraction over a file read from `src/**` —
+runs over `tests/helpers/source-text.js`'s `stripComments()` output, never the raw file read. A
+comment added or reworded anywhere in the asserted file must never be able to flip such a result. This
+replaces the private, less-complete stripper that used to live inline in `tests/heic-conversion.test.js`.
+
+**Assertions on comment prose itself stay raw** — stripping would delete the very thing under test.
+`tests/flash-engine.test.js` (~:496-510) is the one such case in the repo: it asserts on comment text,
+not code shape.
+
+**Two raw reads outside `src/` are deliberate scope exclusions from #939, not oversights:**
+`tests/loadtest.test.js` and `tests/check-freshness.test.js`. Route them through `stripComments()` the
+next time either file is touched.

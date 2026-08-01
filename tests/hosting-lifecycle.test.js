@@ -15,6 +15,7 @@ const request = require('supertest');
 
 const { loadApp } = require('./helpers/testApp');
 const { installShutdownHandlers } = require('../src/utils/shutdown');
+const { stripComments } = require('./helpers/source-text');
 
 let app;
 let config;
@@ -157,7 +158,7 @@ describe('graceful shutdown closes the server and the DB (AC4)', () => {
 
 describe('startup registers signal handlers inside the require.main guard (AC5)', () => {
   it("process.on('SIGTERM'/'SIGINT') appear after require.main === module", () => {
-    const src = fs.readFileSync(path.join(config.ROOT, 'src', 'app.js'), 'utf8');
+    const src = stripComments(fs.readFileSync(path.join(config.ROOT, 'src', 'app.js'), 'utf8'));
     const guardIdx = src.indexOf('require.main === module');
     expect(guardIdx).not.toBe(-1);
     expect(src.indexOf("process.on('SIGTERM'")).toBeGreaterThan(guardIdx);
@@ -167,7 +168,11 @@ describe('startup registers signal handlers inside the require.main guard (AC5)'
 
 describe('startup log advertises the public URL and carries no tunnel remnant (AC6)', () => {
   it('config.BASE_URL is logged inside the startup block, and no cloudflare string remains', () => {
-    const src = fs.readFileSync(path.join(config.ROOT, 'src', 'app.js'), 'utf8');
+    // Stripped (issue #939): this was a whole-file substring search that
+    // failed on the word ANYWHERE, comments included -- narrowed to code by
+    // design, so a comment merely mentioning cloudflare no longer reddens
+    // the suite.
+    const src = stripComments(fs.readFileSync(path.join(config.ROOT, 'src', 'app.js'), 'utf8'));
     const guardIdx = src.indexOf('require.main === module');
     expect(guardIdx).not.toBe(-1);
     expect(src.indexOf('config.BASE_URL')).toBeGreaterThan(guardIdx);
