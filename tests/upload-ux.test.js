@@ -117,7 +117,14 @@ describe('AC2: uploading-state hooks exist in source', () => {
   });
 
   it('upload.js sets the submit button disabled in its submit handler', () => {
-    expect(UPLOAD_JS_SOURCE).toMatch(/submitBtn\.disabled\s*=\s*true/);
+    // The disable itself lives in the shared setUploadingState helper (the
+    // task and memory submit handlers both call it rather than setting
+    // `disabled` inline) — assert the helper does it AND that the task
+    // form's submit handler invokes the helper.
+    expect(UPLOAD_JS_SOURCE).toMatch(/function setUploadingState[\s\S]*?btn\.disabled\s*=\s*true/);
+    expect(UPLOAD_JS_SOURCE).toMatch(
+      /function initTaskSubmit\(\)[\s\S]*?setUploadingState\(submitBtn, uploadingLabel\)/
+    );
   });
 });
 
@@ -127,7 +134,6 @@ describe('AC2: uploading-state hooks exist in source', () => {
 // than per-describe: the readyState wait in particular is subtle enough that
 // two copies would drift apart the first time jsdom's timing changes.
 // ---------------------------------------------------------------------------
-
 /** The task form's markup, reduced to the ids and attributes upload.js reads. */
 function buildTaskFormDom() {
   return new JSDOM(
@@ -328,6 +334,203 @@ describe('#362: initPreview is idempotent across a double script load', () => {
           delete global[key];
         }
       });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #990 AC2: initPreview's selector widens to also bind #photos (the
+// memory form's multi-file picker), same element/behavior as #photo/#avatar.
+// ---------------------------------------------------------------------------
+describe('#990 AC2: initPreview binds #photos on the memory form', () => {
+  it('selecting a file on #photos shows the preview (no #photo/#avatar on the page)', async () => {
+    const dom = new JSDOM(
+      `<form action="/memories" method="POST" enctype="multipart/form-data" class="task-upload-form">
+         <div class="preview-wrap"><img id="upload-preview" hidden /></div>
+         <input type="file" id="photos" name="photos" multiple />
+         <button type="submit" data-uploading-label="Sharing…">Share</button>
+       </form>`,
+      { url: 'http://localhost/' }
+    );
+    const restore = installDomGlobals(dom);
+
+    const savedCreate = global.URL.createObjectURL;
+    const savedRevoke = global.URL.revokeObjectURL;
+    global.URL.createObjectURL = () => 'blob:fake-photos';
+    global.URL.revokeObjectURL = () => {};
+
+    try {
+      delete require.cache[require.resolve('../src/public/js/upload.js')];
+      require('../src/public/js/upload.js');
+      await waitForReady(dom);
+
+      const input = dom.window.document.getElementById('photos');
+      const preview = dom.window.document.getElementById('upload-preview');
+      expect(preview.hidden).toBe(true);
+
+      const file = new dom.window.File(['fake bytes'], 'first.jpg', { type: 'image/jpeg' });
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      input.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+      expect(preview.hidden).toBe(false);
+      expect(preview.src).toBe('blob:fake-photos');
+    } finally {
+      global.URL.createObjectURL = savedCreate;
+      global.URL.revokeObjectURL = savedRevoke;
+      restore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #990 AC4/AC5: the memory form's submit/pageshow uploading-state
+// handlers (initMemorySubmit), scoped to #photos and NOT fetch-intercepted
+// (unlike the task form's initTaskSubmit) — a native submit that only
+// toggles the button, plus a pageshow reset for bfcache back-navigation.
+// ---------------------------------------------------------------------------
+describe('#990 AC4/AC5: memory form submit disables the button; pageshow resets it', () => {
+  function buildMemoryDom() {
+    return new JSDOM(
+      `<form action="/memories" method="POST" enctype="multipart/form-data" class="task-upload-form">
+         <div class="preview-wrap"><img id="upload-preview" hidden /></div>
+         <input type="file" id="photos" name="photos" multiple />
+         <button type="submit" data-uploading-label="Sharing…">Share</button>
+       </form>`,
+      { url: 'http://localhost/' }
+    );
+  }
+
+  it('AC4: dispatching submit disables the button and swaps its label to "Sharing…", without calling fetch', async () => {
+    const dom = buildMemoryDom();
+    const restore = installDomGlobals(dom);
+    const savedFetch = global.fetch;
+    let fetchCalled = false;
+    global.fetch = () => {
+      fetchCalled = true;
+      return Promise.reject(new Error('initMemorySubmit must not fetch'));
+    };
+
+    try {
+      delete require.cache[require.resolve('../src/public/js/upload.js')];
+      require('../src/public/js/upload.js');
+      await waitForReady(dom);
+
+      const form = dom.window.document.querySelector('form');
+      const button = form.querySelector('button[type="submit"]');
+      expect(button.disabled).toBe(false);
+      expect(button.textContent).toBe('Share');
+
+      // The handler under test (initMemorySubmit) must never intercept this
+      // submit — AC6 requires the native multipart POST to proceed
+      // untouched. This listener runs AFTER initMemorySubmit's own (it's
+      // added second, so it observes the event's state left by every
+      // earlier listener) — capture defaultPrevented into a variable BEFORE
+      // this listener calls its own preventDefault (needed only so jsdom's
+      // lack of real navigation doesn't throw), so the capture reflects
+      // whether the handler under test intercepted it, not this listener's
+      // own call below.
+      let defaultPreventedBeforeOwnCall;
+      form.addEventListener('submit', (evt) => {
+        defaultPreventedBeforeOwnCall = evt.defaultPrevented;
+        evt.preventDefault();
+      });
+      form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toBe('Sharing…');
+      expect(fetchCalled).toBe(false);
+      // The load-bearing assertion for this AC: the native POST is never
+      // intercepted by the handler under test.
+      expect(defaultPreventedBeforeOwnCall).toBe(false);
+    } finally {
+      global.fetch = savedFetch;
+      restore();
+    }
+  });
+
+  it('AC5: a pageshow event (bfcache restore) resets the button to enabled/"Share"', async () => {
+    const dom = buildMemoryDom();
+    const restore = installDomGlobals(dom);
+
+    try {
+      delete require.cache[require.resolve('../src/public/js/upload.js')];
+      require('../src/public/js/upload.js');
+      await waitForReady(dom);
+
+      const form = dom.window.document.querySelector('form');
+      const button = form.querySelector('button[type="submit"]');
+
+      // Simulate the in-flight state a prior submit left behind.
+      button.disabled = true;
+      button.textContent = 'Sharing…';
+      button.classList.add('btn-uploading');
+
+      // A real bfcache restore fires pageshow with persisted:true (the
+      // signal upload.js's handler gates on); a plain Event has no such
+      // property by default, so set it explicitly to simulate the restore.
+      const pageshowEvt = new dom.window.Event('pageshow', { bubbles: true });
+      pageshowEvt.persisted = true;
+      dom.window.dispatchEvent(pageshowEvt);
+
+      expect(button.disabled).toBe(false);
+      expect(button.textContent).toBe('Share');
+      expect(button.classList.contains('btn-uploading')).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it('a non-persisted pageshow (an ordinary fresh page load) leaves an in-flight button alone', async () => {
+    const dom = buildMemoryDom();
+    const restore = installDomGlobals(dom);
+
+    try {
+      delete require.cache[require.resolve('../src/public/js/upload.js')];
+      require('../src/public/js/upload.js');
+      await waitForReady(dom);
+
+      const form = dom.window.document.querySelector('form');
+      const button = form.querySelector('button[type="submit"]');
+
+      button.disabled = true;
+      button.textContent = 'Sharing…';
+      button.classList.add('btn-uploading');
+
+      // Ordinary pageshow (persisted defaults to falsy, as it does on a
+      // fresh, non-bfcache load) must NOT reset the button.
+      dom.window.dispatchEvent(new dom.window.Event('pageshow', { bubbles: true }));
+
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toBe('Sharing…');
+    } finally {
+      restore();
+    }
+  });
+
+  it('a second submit while already in flight is a no-op (idempotent, no double-toggle)', async () => {
+    const dom = buildMemoryDom();
+    const restore = installDomGlobals(dom);
+
+    try {
+      delete require.cache[require.resolve('../src/public/js/upload.js')];
+      require('../src/public/js/upload.js');
+      await waitForReady(dom);
+
+      const form = dom.window.document.querySelector('form');
+      const button = form.querySelector('button[type="submit"]');
+      form.addEventListener('submit', (evt) => evt.preventDefault());
+
+      form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+      expect(button.textContent).toBe('Sharing…');
+
+      // A second submit (e.g. a double-tap before the browser's own POST
+      // navigates away) must not re-run the disable logic or throw.
+      expect(() => {
+        form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+      }).not.toThrow();
+      expect(button.textContent).toBe('Sharing…');
+    } finally {
+      restore();
     }
   });
 });

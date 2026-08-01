@@ -7,7 +7,11 @@
 //         caption and shows the note; 0 or 1 files shows+enables the caption
 //         and hides the note.
 //   AC8 (no-JS baseline) — the server-rendered memory form has the caption
-//         <input> present and NOT disabled, and the note hidden by default.
+//         control present and NOT disabled, and the note hidden by default.
+//         Issue #990 swapped the single-line <input> for the task form's
+//         short bordered <textarea> (form parity) — the id and the
+//         enabled/hidden assertions this test guards are unchanged by that
+//         swap, only the tag name is.
 'use strict';
 
 const crypto = require('crypto');
@@ -93,7 +97,7 @@ describe('captionState() helper', () => {
 // AC8 (no-JS baseline): the rendered memory form.
 // ---------------------------------------------------------------------------
 describe('AC8: memory form caption baseline (no JS)', () => {
-  it('the caption <input> is present and NOT disabled, and the note is hidden by default', async () => {
+  it('the caption <textarea> is present and NOT disabled, and the note is hidden by default', async () => {
     ensureApp();
     const token = insertGuest();
     const agent = await makeGuestAgent(token);
@@ -105,7 +109,10 @@ describe('AC8: memory form caption baseline (no JS)', () => {
     expect(formMatch).not.toBeNull();
     const formHtml = formMatch[0];
 
-    const captionMatch = formHtml.match(/<input[^>]*id="caption"[^>]*>/);
+    // Issue #990: the caption control is now the task form's short bordered
+    // <textarea id="caption">, not a single-line <input> — same id, so the
+    // memory-caption.js toggle (keyed on #caption) is unaffected.
+    const captionMatch = formHtml.match(/<textarea[^>]*id="caption"[^>]*>/);
     expect(captionMatch).not.toBeNull();
     expect(captionMatch[0]).not.toMatch(/\bdisabled\b/);
 
