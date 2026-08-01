@@ -45,11 +45,11 @@ describe('regression: maintenance (503) still renders through the shared partial
     config.MAINTENANCE = false;
   });
 
-  it('GET / returns 503 with the original "We\'ll be right back" copy, apostrophe intact', async () => {
+  it('GET / returns 503 with the "We\'ll be right back" copy HTML-escaped', async () => {
     const res = await request(app).get('/');
     expect(res.status).toBe(503);
-    expect(res.text).toContain("We'll be right back");
-    expect(res.text).not.toContain('&#39;');
+    expect(res.text).toContain('We&#39;ll be right back');
+    expect(res.text).not.toContain("We'll be right back");
   });
 });
 
@@ -97,6 +97,34 @@ describe('security: the 404 view escapes a malicious url local instead of render
     );
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+});
+
+describe('security: the message-card partial escapes its heading local instead of rendering it raw', () => {
+  it('a heading local containing a <b> tag comes out HTML-escaped', () => {
+    const ejs = require('ejs');
+    const fs = require('fs');
+    const path = require('path');
+    const viewsDir = path.join(__dirname, '..', 'src', 'views');
+    const viewPath = path.join(viewsDir, 'partials', 'message-card.ejs');
+    const html = ejs.render(
+      fs.readFileSync(viewPath, 'utf8'),
+      { heading: '<b>x</b>' },
+      { views: [viewsDir], filename: viewPath }
+    );
+    expect(html).not.toContain('<b>x</b>');
+    expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
+  });
+
+  it('message-card.ejs has no raw-output sink other than includes', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const src = fs.readFileSync(
+      path.join(__dirname, '..', 'src', 'views', 'partials', 'message-card.ejs'),
+      'utf8'
+    );
+    expect(src.match(/<%-(?!\s*include\()/g)).toBeNull();
+    expect(src).not.toMatch(/p\.html/);
   });
 });
 

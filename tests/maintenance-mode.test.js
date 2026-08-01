@@ -1,7 +1,7 @@
 // tests/maintenance-mode.test.js
 // AC1: MAINTENANCE off -> GET / responds normally (not 503).
 // AC2: MAINTENANCE on  -> GET / returns 503, Retry-After header present,
-//                         body contains the literal marker "We'll be right back".
+//                         body contains the HTML-escaped marker "We&#39;ll be right back".
 // AC3: MAINTENANCE on  -> GET /admin/login is NOT 503.
 'use strict';
 
@@ -48,9 +48,10 @@ describe('AC2: maintenance on — guest routes', () => {
     expect(res.headers['retry-after']).toBeTruthy();
   });
 
-  it('GET / body contains the literal string "We\'ll be right back"', async () => {
+  it('GET / body contains the HTML-escaped string "We&#39;ll be right back"', async () => {
     const res = await request(app).get('/');
-    expect(res.text).toContain("We'll be right back");
+    expect(res.text).toContain('We&#39;ll be right back');
+    expect(res.text).not.toContain("We'll be right back");
   });
 });
 

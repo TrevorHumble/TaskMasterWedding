@@ -11,10 +11,8 @@
 
   Locals (all optional except heading):
     title      - <title> text. Defaults to head.ejs's own default.
-    heading    - card heading (required). Rendered RAW (not HTML-escaped) so
-                 copy like "We'll be right back" is not mangled into "&#39;".
-                 Every caller in this repo passes static, repo-authored copy —
-                 NEVER pass a value derived from request input here.
+    heading    - card heading (required). Plain text, HTML-escaped (an
+                 apostrophe leaves as "&#39;" and displays unchanged).
     paragraphs - array of paragraph specs, each either:
                    a string                       -> escaped text
                    { text, code, after }          -> text, then an inline
@@ -26,9 +24,6 @@
                                                       may carry user input (e.g.
                                                       req.originalUrl), so it MUST
                                                       stay on the escaped path
-                   { html: true, text }            -> pre-escaped/trusted markup
-                                                      (only for copy authored in
-                                                      this repo, never user input)
     links      - array of { href, text } shown as a list of card links.
     hint       - optional small muted line under the links (plain text, escaped).
 %>
@@ -41,12 +36,10 @@
   <div class="message-page">
     <div class="message-card">
       <div class="message-card-heart" style="color:var(--color-primary);"><%- include('heart', { size: 32 }) %></div>
-      <h1 class="message-card-heading"><%- heading %></h1>
+      <h1 class="message-card-heading"><%= heading %></h1>
       <% _paragraphs.forEach(function (p) { %>
         <% if (typeof p === 'string') { %>
           <p class="message-card-body"><%= p %></p>
-        <% } else if (p && p.html) { %>
-          <p class="message-card-body"><%- p.text %></p>
         <% } else if (p && typeof p.code !== 'undefined') { %>
           <p class="message-card-body"><%= p.text %> <code><%= p.code %></code><%= (typeof p.after !== 'undefined' && p.after) ? p.after : '' %></p>
         <% } %>
