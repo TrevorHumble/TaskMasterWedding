@@ -455,4 +455,8 @@ describe('safeName — unit table', () => {
   it('trims leading/trailing dots (Windows path safety)', () => {
     expect(safeName('..hidden..', 'guest')).toBe('hidden');
   });
+
+  it('collapses runs of dashes and spaces without losing an interior dash (#973 AC2)', () => {
+    expect(safeName('--a  b--c--', 'guest')).toBe('a-b-c');
+  });
 });

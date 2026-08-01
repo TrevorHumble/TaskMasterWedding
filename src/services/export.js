@@ -37,7 +37,7 @@ function safeName(input, fallback) {
   let cleaned = raw
     .replace(/[^A-Za-z0-9 _.-]+/g, '-') // disallowed chars -> dash
     .replace(/[\s-]+/g, '-') // collapse spaces/dashes
-    .replace(/^[.\-]+|[.\-]+$/g, ''); // trim leading/trailing dot or dash
+    .replace(/^[.-]+|[.-]+$/g, ''); // trim leading/trailing dot or dash
   if (!cleaned) cleaned = fallback;
   // Keep names short enough to avoid Windows path-length problems.
   if (cleaned.length > 60) cleaned = cleaned.slice(0, 60);
@@ -167,7 +167,7 @@ async function buildSummaryBuffer() {
         .filter((k) => obj[k])
         .map((k) => `${k}: ${obj[k]}`)
         .join('; ');
-    } catch (e) {
+    } catch {
       socialText = '';
     }
 

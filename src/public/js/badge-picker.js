@@ -28,7 +28,6 @@
   var nameInput = document.getElementById('badge-picker-name');
   var context = document.getElementById('badge-picker-context');
   var search = document.getElementById('badge-picker-search');
-  var grid = document.getElementById('badge-picker-grid');
   var empty = document.getElementById('badge-picker-empty');
   var preview = document.getElementById('badge-preview');
   var previewIcon = document.getElementById('badge-preview-icon');

@@ -383,7 +383,7 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
   let thumbPath;
   try {
     thumbPath = await photos.makeThumb(file.path);
-  } catch (_err) {
+  } catch {
     photos.deleteOriginalFile(photoPath);
     return { status: 'thumb_failed' };
   }
@@ -700,7 +700,7 @@ async function submitMemoryBatch({ guestId, files, caption }) {
     let thumbPath;
     try {
       thumbPath = await photos.makeThumb(file.path);
-    } catch (_err) {
+    } catch {
       photos.deleteOriginalFile(file.filename);
       continue; // skip this one file; the rest of the batch still proceeds
     }

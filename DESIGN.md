@@ -553,6 +553,10 @@ Analyze (javascript)}`; `commit-gate-integrity`, `merge-association`, `review-ar
 > `event-mode-expiry` are gone (their jobs were deleted). `tools/apply-branch-protection.ps1` no longer
 > takes the `-RequireSmoke`/`-RequireReviewArtifact`/`-RequireEventModeExpiry` switches — its required
 > set is baked in. See the ADR below.
+>
+> **`lint`'s meaning changed 2026-08-01 (#973):** the required `lint` check now runs
+> `eslint . --max-warnings=0`, so it blocks on any warning, not only an error — see "Lint is a
+> ratchet (#973)" below.
 
 **Binding decision:** `main` requires a pull request and `required_status_checks.strict = true` — GitHub's "require branches to be up to date before merging." The five base contexts are the ones `tools/apply-branch-protection.ps1` PUTs when no switch is passed — the real, observed check-run names on `main` (`commit-gate-integrity`, `lint`, `test`, `merge-association`, and CodeQL's actual produced name `Analyze (javascript)`, not the workflow name `CodeQL`). `required_approving_review_count` stays `0`: the owner is a solo maintainer, GitHub does not allow self-approval, and requiring ≥ 1 approval would lock the owner out of merging their own work — the AI adversarial review plus the required CI checks are the gate, not a human approval click (see § Merge policy). `enforce_admins = true` binds the admin merger to the same rules as everyone else. Applied via `tools/apply-branch-protection.ps1`, which PUTs the payload determined by its switch set and is idempotent **for a given switch set** — not a single fixed payload, since the PUT replaces the whole checks list rather than appending to it, so a run that omits a switch that is currently live silently drops that check (see `tools/apply-branch-protection.ps1`'s header comment).
 
@@ -3385,3 +3389,24 @@ prose pointers ("src/routes/admin.js's guest-delete route", etc.) were left as o
 degradations rather than rewritten file-by-file — the mount file's own area-map comment is the recorded
 answer for a reader who follows one of those pointers and finds no handler bodies there — and the
 omission is parked as a single line on #588 per the freeze's own finding-disposition rule.
+
+## Lint is a ratchet (#973)
+
+**Date:** 2026-08-01. **Status:** shipped.
+
+`npm run lint` now runs `eslint . --max-warnings=0`, so the required `lint` status check on `main`
+blocks on any warning, not only an error — a warning introduced by future work is a blocking signal
+instead of noise buried under a standing count of tolerated ones. `no-unused-vars` (both the server and
+browser blocks in `eslint.config.js`) and `no-useless-escape` (back to its `recommended` default,
+the config's own `'warn'` override deleted) are recorded at `error` to match: once any warning is fatal,
+recording an unused-variable or useless-escape rule as merely `'warn'` would mislead a reader of the
+config into thinking it advisory when it in fact blocks a merge.
+
+Browser-shipped files under `src/public/js/` keep their `catch (x) {}` bindings, `_`-prefixed and
+cleared by the browser block's new `caughtErrorsIgnorePattern: '^_'` (matching the arg/var patterns it
+already declared) — the repo declares no browser baseline and ships no other ES2019-only syntax there,
+so this issue introduces nothing new to guests. Server-side files run on Node >= 20 (`package.json`
+`engines`), where the parameterless optional catch binding (`catch {}`) is safe and already used
+elsewhere in `src/`; the 17 formerly-unused server-side catch bindings this issue cleared all switched to
+that form instead of gaining a `_`-prefix, since a server file has no browser-parity reason to keep the
+now-unused identifier at all.
