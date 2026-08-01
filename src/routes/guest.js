@@ -18,7 +18,12 @@ const { db, markGuestOnboarded, getEventConfig } = require('../db');
 // redirects visitors who have no valid guest link. setFlash is the shared
 // one-shot flash writer (also in section 03), the single owner of the signed
 // `flash` cookie's shape.
-const { requireGuest, setFlash, setTaskCompleteReward } = require('../middleware/session');
+const {
+  requireGuest,
+  setFlash,
+  setTaskCompleteReward,
+  setMemoryBatchPartial,
+} = require('../middleware/session');
 
 // CSRF (issue #284): the three multer-driven routes in this file (POST
 // /tasks/:id/submit, POST /memories, POST /me/edit) run multer manually, so
@@ -1115,9 +1120,73 @@ router.post('/tasks/:id/submit', uploadRateLimiter, function (req, res) {
 // GET /memories/new  — the "share a memory" form (issue #247). Guest-gated by
 // the router.use(requireGuest) above, same as every other route in this file
 // (AC6: a signed-out visitor is redirected to /join instead — issue #241).
+//
+// Issue #931: also the landing page for a partial-batch redirect. attachGuest
+// (src/middleware/session.js) already read-and-cleared the one-shot
+// memoryBatchPartial cookie into res.locals.memoryBatchPartial before this
+// handler runs (same one-shot contract as flash/taskCompleteReward), so this
+// route's only remaining job is turning that payload's ids into the saved
+// photos' thumbnails — scoped to THIS request's guest (`guest_id = ?` in the
+// query below), so a cookie replayed on a shared phone by a different signed-
+// in guest can never surface someone else's photos.
 // ---------------------------------------------------------------------------
 router.get('/memories/new', function (req, res) {
-  res.render('memory-new', withBadgeMoment(req, res, { title: 'Share a memory' }));
+  // Named partialCookie (not partialBatch) because it is the raw one-shot
+  // cookie payload -- okIds/failed/droppedCount as attachGuest read it --
+  // one line away from partialBatch below, the render-ready shape this
+  // guest's own rows resolve into (#931 review NIT).
+  const partialCookie = res.locals.memoryBatchPartial;
+  let partialBatch = null;
+  if (partialCookie) {
+    // router.use(requireGuest) above gates every route in this file, so
+    // res.locals.guest is always set here -- no `guest &&` guard needed
+    // (#931 review MINOR C).
+    const guest = res.locals.guest;
+    let okThumbs = [];
+    if (partialCookie.okIds.length > 0) {
+      const placeholders = partialCookie.okIds.map(() => '?').join(',');
+      // AND taken_down = 0: the canonical visibility filter every other
+      // submissions read in this file applies (see lines 254/315/398 above)
+      // -- without it a moderated-down photo would still render its
+      // thumbnail into this guest's own result card (#931 review MAJOR 1).
+      const rows = db
+        .prepare(
+          `SELECT thumb_path FROM submissions WHERE guest_id = ? AND taken_down = 0 AND id IN (${placeholders}) ORDER BY id ASC`
+        )
+        .all(guest.id, ...partialCookie.okIds);
+      okThumbs = rows.map((r) => r.thumb_path);
+    }
+    // The card's headline count must come from rows THIS guest actually
+    // owns, not the raw cookie: a cookie replayed under a different signed-
+    // in guest (shared phone) would otherwise render a false "N of your
+    // photos are in the gallery" claim with none of them actually this
+    // guest's own (#931 review MINOR A). If the cookie claims saved photos
+    // but none resolve for this guest, show no card at all.
+    if (partialCookie.okIds.length > 0 && okThumbs.length === 0) {
+      partialBatch = null;
+    } else {
+      // failedCount is the single owner of "how many files failed,
+      // including any the cookie's byte budget dropped" -- computed once
+      // here and consumed both by totalCount below and by
+      // memory-new.ejs's failed-line copy, rather than the same
+      // failed.length + droppedCount formula being re-derived in both
+      // places (#931 review MAJOR 2; this is the file's answer to the
+      // Duplicated-ownership self-check).
+      const failedCount = partialCookie.failed.length + partialCookie.droppedCount;
+      partialBatch = {
+        okCount: okThumbs.length,
+        totalCount: okThumbs.length + failedCount,
+        okThumbs: okThumbs,
+        failed: partialCookie.failed,
+        droppedCount: partialCookie.droppedCount,
+        failedCount: failedCount,
+      };
+    }
+  }
+  res.render(
+    'memory-new',
+    withBadgeMoment(req, res, { title: 'Share a memory', partialBatch: partialBatch })
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1262,14 +1331,29 @@ router.post('/memories', function (req, res, next) {
       return next(batchErr);
     }
 
+    const okIds = result.submissionIds || [];
+    const failedNames = result.failed || [];
+
     // If every file failed to thumbnail, submitMemoryBatch inserts zero rows —
     // do NOT tell the guest the batch was shared when nothing was (plan step
-    // 9a). Surface an error instead.
-    if (!result.submissionIds || result.submissionIds.length === 0) {
+    // 9a). Surface an error instead. Unchanged from before issue #931 (AC5).
+    if (okIds.length === 0) {
       setFlash(res, 'error', "Sorry, we couldn't save those photos. Please try again.");
       return res.redirect('/memories/new');
     }
 
+    // Partial batch (issue #931 AC1/AC2): some photos saved, some did not.
+    // The unconditional "Shared!" flash below would tell a guest who just
+    // lost 3 of 10 photos that everything made it — write the one-shot
+    // partial-result cookie instead and land back on the form, where the
+    // card (transcribed from the owner-approved phase-1 mock) reports the
+    // count and the failed filenames.
+    if (failedNames.length > 0) {
+      setMemoryBatchPartial(res, okIds, failedNames);
+      return res.redirect('/memories/new');
+    }
+
+    // Unchanged common case (AC4): every file in the batch saved.
     setFlash(res, 'success', "Shared! They're in the gallery.");
     return res.redirect('/gallery');
   });

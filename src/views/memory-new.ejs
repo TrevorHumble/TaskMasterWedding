@@ -5,6 +5,47 @@
   <p class="back-link"><a href="/gallery">&#8592; Gallery</a></p>
   <h1 class="page-title">Share a memory</h1>
 
+  <%# Partial-batch result card (issue #931): the guest lands back here after
+      SOME but not all of a batch's photos saved. Transcribed from the
+      owner-approved phase-1 mock (#931 visual gate, 2026-08-01) into real,
+      data-driven markup — partialBatch is built by GET /memories/new
+      (src/routes/guest.js) from the one-shot memoryBatchPartial cookie
+      (src/middleware/session.js), scoped to this guest's own saved photos.
+      One-shot: the cookie is already cleared by the time this renders (same
+      read-then-clear contract as flash/taskCompleteReward), so a reload
+      shows the plain form with no card (AC3). %>
+  <% if (typeof partialBatch !== 'undefined' && partialBatch) { %>
+    <%
+      // Generalized from the one approved 7-of-10 case (recorded omission,
+      // issue #931): "<ok> of your <total> photos are in the gallery", with
+      // "is" when ok is 1, and "This one wasn't successful" / "These <n>
+      // weren't successful" for the failed line, where <n> counts every
+      // failed file (both the ones whose name is shown AND any the 3000-byte
+      // cookie budget dropped) — never just the shown subset, so the guest's
+      // count is never an undercount. failedCount is computed once, by
+      // GET /memories/new (src/routes/guest.js), and read here rather than
+      // re-deriving failed.length + droppedCount a second time in this view
+      // (#931 review MAJOR 2 — single owner of that formula).
+      var _failedTotal = partialBatch.failedCount;
+      var _okVerb = partialBatch.okCount === 1 ? 'is' : 'are';
+      var _failedLead = _failedTotal === 1
+        ? "This one wasn't successful. Please try again:"
+        : "These " + _failedTotal + " weren't successful. Please try again:";
+    %>
+    <div class="flash flash-err memory-partial-card" role="status">
+      <strong><%= partialBatch.okCount %> of your <%= partialBatch.totalCount %> photos <%= _okVerb %> in the gallery</strong>
+      <div class="memory-partial-thumbs">
+        <% partialBatch.okThumbs.forEach(function (thumbPath) { %>
+          <img src="/thumbs/<%= thumbPath %>" alt="" class="memory-partial-thumb">
+        <% }); %>
+      </div>
+      <div class="memory-partial-failed">
+        <%= _failedLead %><br>
+        <span class="memory-partial-names"><% partialBatch.failed.forEach(function (name, idx) { %><% if (idx > 0) { %> &middot; <% } %><%= name %><% }); %></span><% if (partialBatch.droppedCount > 0) { %> and <%= partialBatch.droppedCount %> more<% } %>
+      </div>
+    </div>
+  <% } %>
+
   <p class="muted">
     Got photos from tonight that don't match a task? Add them straight to the
     shared gallery. Your first memory each day is +1 point, but share as many

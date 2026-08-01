@@ -3,6 +3,20 @@
 
 const { db, getEventConfig } = require('../db');
 const config = require('../../config');
+// buildMemoryBatchPartialPayload below needs to bound the encoded-on-the-wire
+// byte size of a candidate cookie value before writing it. An earlier version
+// of this file predicted that size EXACTLY by reproducing cookie-signature's
+// sign() step (HMAC-SHA256 + base64) with node's own `crypto` module -- a
+// third hand-copy of that formula alongside tests/helpers/testApp.js and
+// scripts/loadtest.js (#931 design-philosophy re-check MAJOR 1). If that
+// hand-copied formula ever drifted from what express's res.cookie({signed:
+// true}) actually writes, encodedSignedCookieByteLength would under-count and
+// an over-4096-byte cookie could ship and be silently discarded by the
+// browser -- the guest gets no result card at all. encodedSignedCookieByteLength
+// below no longer reproduces the sign step at all: it adds a fixed, documented
+// UPPER BOUND (SIGNED_COOKIE_OVERHEAD_MAX) instead, so there is nothing left
+// here that can drift out of sync with express's real signing behavior.
+
 // The recap's cheap unread-count read (issue #644 plan step 6) — never the
 // full row union (src/services/notifications.js's getRecap), which the
 // strip/profile row do not need just to decide whether to show a count.
@@ -69,6 +83,132 @@ function setFlash(res, kind, text) {
  */
 function setTaskCompleteReward(res, payload) {
   res.cookie('taskComplete', JSON.stringify(payload), cookieOpts(30 * 1000));
+}
+
+// Issue #931 AC7: each failed filename stored in the memoryBatchPartial
+// cookie is capped to this many CODE POINTS (Array.from + slice, not
+// String.prototype.slice -- slice counts UTF-16 units and would cut a
+// 40-character astral-plane name in half), with an ellipsis appended only
+// when truncation actually happened.
+const MEMORY_BATCH_FAILED_NAME_MAX_CODEPOINTS = 40;
+
+// Issue #931 AC7: truncating names alone is not sufficient -- 9 failed files
+// at 60 four-byte (astral-plane) characters each, even truncated to 40 code
+// points, still overflow the ~4096-byte browser cookie cap once signed and
+// percent-encoded (roughly 480 encoded bytes per name). This is the budget
+// buildMemoryBatchPartialPayload stops appending names under, leaving real
+// headroom below the browser cap.
+const MEMORY_BATCH_COOKIE_BYTE_BUDGET = 3000;
+
+/**
+ * Truncate one failed filename to MEMORY_BATCH_FAILED_NAME_MAX_CODEPOINTS
+ * code points, appending an ellipsis only when it was actually cut short.
+ * Array.from(name) splits on code points (correctly pairing UTF-16
+ * surrogate pairs for astral-plane characters), unlike String#slice, which
+ * would split a surrogate pair in two and corrupt the character.
+ */
+function truncateFailedName(name) {
+  const codepoints = Array.from(String(name));
+  if (codepoints.length <= MEMORY_BATCH_FAILED_NAME_MAX_CODEPOINTS) {
+    return codepoints.join('');
+  }
+  return codepoints.slice(0, MEMORY_BATCH_FAILED_NAME_MAX_CODEPOINTS).join('') + '…';
+}
+
+// Conservative UPPER BOUND on what express's res.cookie({signed: true}) adds
+// on top of a JSON-stringified, percent-encoded payload -- derived, not
+// reproduced, so nothing here can drift out of sync with express's actual
+// signing code (#931 design-philosophy re-check MAJOR 1; see the file-header
+// comment above). Express writes the signed cookie value as
+// 's:' + value + '.' + base64url-no-padding(HMAC-SHA256(value, secret)),
+// where the base64 MAC is always exactly 43 characters (SHA-256 is a fixed
+// 32-byte digest -> ceil(32/3)*4 = 44 base64 chars, minus one '=' padding
+// char always stripped = 43). Then the `cookie` package's serialize()
+// percent-encodes the whole thing with encodeURIComponent:
+//   's:'   -> 's%3A'                      = 4 encoded bytes
+//   '.'    -> '.' (unreserved, unchanged) = 1 encoded byte
+//   the 43 MAC chars -> each is one of [A-Za-z0-9+/], and encodeURIComponent
+//     only touches '+' (-> '%2B') and '/' (-> '%2F'); every MAC char is
+//     therefore AT MOST 3 encoded bytes -> 43 * 3 = 129 encoded bytes max
+// Total: 4 + 1 + 129 = 134 bytes, always >= the real overhead (only equal in
+// the worst case where every MAC char happens to be '+' or '/').
+const SIGNED_COOKIE_OVERHEAD_MAX = 134;
+
+/**
+ * An upper-bound byte length for `payload` as it would ship on the wire,
+ * signed and percent-encoded: the encoded JSON value plus
+ * SIGNED_COOKIE_OVERHEAD_MAX (above). This is deliberately an OVER-estimate,
+ * not the exact wire size -- buildMemoryBatchPartialPayload below compares it
+ * against MEMORY_BATCH_COOKIE_BYTE_BUDGET, and the only way an over-estimate
+ * can be wrong is by rejecting a name that would actually still have fit,
+ * which drops that name into the "and <k> more" count slightly early. That
+ * is the safe direction: the alternative -- an exact-but-fragile estimate
+ * that could under-count if express's signing behavior ever changed --
+ * risks writing a cookie over the browser's ~4096-byte cap, which the
+ * browser then silently discards, losing the guest's result card entirely.
+ */
+function encodedSignedCookieByteLength(payload) {
+  const encoded = encodeURIComponent(JSON.stringify(payload));
+  return Buffer.byteLength(encoded, 'utf8') + SIGNED_COOKIE_OVERHEAD_MAX;
+}
+
+/**
+ * Build the memoryBatchPartial cookie payload (issue #931 AC1/AC7): the
+ * saved submission ids plus as many failed filenames as fit the cookie's
+ * byte budget. Every name is truncated first (truncateFailedName above),
+ * then each is checked in order against MEMORY_BATCH_COOKIE_BYTE_BUDGET: a
+ * name that would push the encoded signed cookie value over budget is
+ * skipped, but checking CONTINUES through the rest of the list rather than
+ * stopping there (#931 review MINOR B) -- failed names can be any length
+ * before truncation, so a shorter name later in the list can still fit even
+ * though an earlier, longer one didn't. A name that does not fit is not
+ * silently dropped from the guest's knowledge either way: `droppedCount`
+ * carries how many were left out of the cookie, so the card can still say
+ * "and <k> more" instead of just under-reporting the failure count
+ * (recorded omission, issue #931).
+ *
+ * @param {number[]} okIds
+ * @param {string[]} failedNames - raw multer originalnames; truncated here.
+ * @returns {{okIds: number[], failed: string[], droppedCount: number}}
+ */
+function buildMemoryBatchPartialPayload(okIds, failedNames) {
+  const truncated = failedNames.map(truncateFailedName);
+  let stored = [];
+  for (let i = 0; i < truncated.length; i++) {
+    const candidate = stored.concat([truncated[i]]);
+    const candidatePayload = {
+      okIds: okIds,
+      failed: candidate,
+      droppedCount: truncated.length - candidate.length,
+    };
+    if (encodedSignedCookieByteLength(candidatePayload) > MEMORY_BATCH_COOKIE_BYTE_BUDGET) {
+      // This name did not fit the budget -- skip it and keep scanning; do
+      // NOT stop here (#931 review MINOR B). A later name can be shorter
+      // than this one (names vary in original length before truncation), so
+      // stopping at the first miss would drop a name that would have fit.
+      continue;
+    }
+    stored = candidate;
+  }
+  return { okIds: okIds, failed: stored, droppedCount: truncated.length - stored.length };
+}
+
+/**
+ * Write the one-shot memoryBatchPartial cookie (issue #931): a partial
+ * memory-batch result -- which submissions saved, and which filenames
+ * failed -- for GET /memories/new to read back exactly once and render as
+ * the partial-failure result card. Same one-shot signed-cookie shape and 30s
+ * cookieOpts as setFlash/setTaskCompleteReward above; this is the single
+ * canonical writer, attachGuest below is the single reader/clearer.
+ *
+ * @param {object} res
+ * @param {number[]} okIds - ids of the submissions that DID save.
+ * @param {string[]} failedNames - original client filenames of the files
+ *   that did NOT save (multer originalname, pre-truncation).
+ */
+function setMemoryBatchPartial(res, okIds, failedNames) {
+  const payload = buildMemoryBatchPartialPayload(okIds, failedNames);
+  res.cookie('memoryBatchPartial', JSON.stringify(payload), cookieOpts(30 * 1000));
 }
 
 /**
@@ -155,6 +295,36 @@ function attachGuest(req, res, next) {
     res.locals.flash = null;
   }
   res.locals.taskCompleteReward = taskCompleteReward;
+
+  // One-shot partial-memory-batch result (issue #931): same read-then-clear
+  // shape as flash/taskComplete above, into its own res.locals key. Shape
+  // guard requires okIds/failed to both be arrays (a stale or tampered-shape
+  // payload degrades to "no card" rather than throwing when GET /memories/new
+  // reads it); droppedCount defaults to 0 when missing or not a number
+  // rather than rejecting the whole payload over one optional field.
+  let memoryBatchPartial = null;
+  const rawMemoryBatchPartial = req.signedCookies && req.signedCookies.memoryBatchPartial;
+  if (typeof rawMemoryBatchPartial === 'string' && rawMemoryBatchPartial.length > 0) {
+    try {
+      const parsed = JSON.parse(rawMemoryBatchPartial);
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        Array.isArray(parsed.okIds) &&
+        Array.isArray(parsed.failed)
+      ) {
+        memoryBatchPartial = {
+          okIds: parsed.okIds,
+          failed: parsed.failed,
+          droppedCount: typeof parsed.droppedCount === 'number' ? parsed.droppedCount : 0,
+        };
+      }
+    } catch {
+      memoryBatchPartial = null;
+    }
+    res.clearCookie('memoryBatchPartial', { path: '/' });
+  }
+  res.locals.memoryBatchPartial = memoryBatchPartial;
 
   // The guest masthead (issue #252) highlights the current section (Tasks /
   // Gallery / Leaderboard / My Profile) from the request path. attachGuest
@@ -243,6 +413,7 @@ module.exports = {
   requireAdmin,
   setFlash,
   setTaskCompleteReward,
+  setMemoryBatchPartial,
   isAdminRequest,
   cookieOpts,
 };
