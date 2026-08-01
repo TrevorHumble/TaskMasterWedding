@@ -85,7 +85,7 @@ function parseSocialLinks(raw) {
   let obj;
   try {
     obj = JSON.parse(raw || '{}');
-  } catch (e) {
+  } catch {
     obj = {};
   }
   if (!obj || typeof obj !== 'object') {
@@ -128,7 +128,7 @@ function parseSocialLinks(raw) {
     try {
       const proto = new URL(href).protocol;
       ok = proto === 'http:' || proto === 'https:' || proto === 'mailto:';
-    } catch (e) {
+    } catch {
       ok = false;
     }
     if (!ok) {
@@ -1195,7 +1195,7 @@ router.get('/badge/:code', (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /u/:guestId  — public profile for any guest
 // ---------------------------------------------------------------------------
-router.get('/u/:guestId', (req, res, next) => {
+router.get('/u/:guestId', (req, res) => {
   const guestId = parseInt(req.params.guestId, 10);
   if (!Number.isInteger(guestId) || guestId < 1) {
     return res.status(404).render('404', { title: 'Not found' });

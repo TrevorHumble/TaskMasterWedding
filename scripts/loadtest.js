@@ -362,7 +362,7 @@ async function timedFetch(samples, url, requestPath, fetchOpts) {
     // from the server's point of view — record its actual status, not an error.
     samples.push({ ms, status: res.status, path: requestPath, networkFailure: false });
     return res;
-  } catch (_err) {
+  } catch {
     const ms = Date.now() - start;
     // Network-level failure — the server did not answer at all. No status
     // was received, so status is null; networkFailure: true is the ONLY
@@ -473,7 +473,7 @@ async function runOneLap(ctx, laneIndex) {
     let html;
     try {
       html = await tasksRes.text();
-    } catch (_err) {
+    } catch {
       html = '';
     }
     const chosen = chooseTaskId(extractActiveTaskIds(html));

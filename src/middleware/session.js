@@ -108,7 +108,7 @@ function attachGuest(req, res, next) {
     try {
       const parsed = JSON.parse(rawFlash);
       if (parsed && typeof parsed === 'object') flash = parsed;
-    } catch (e) {
+    } catch {
       flash = null;
     }
     res.clearCookie('flash', { path: '/' });
@@ -136,7 +136,7 @@ function attachGuest(req, res, next) {
       ) {
         taskCompleteReward = parsed;
       }
-    } catch (e) {
+    } catch {
       taskCompleteReward = null;
     }
     res.clearCookie('taskComplete', { path: '/' });

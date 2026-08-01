@@ -1,4 +1,4 @@
-// ESLint flat config (ESLint 9). Lints server JS (CommonJS), browser JS, and tests.
+// ESLint flat config (ESLint 10). Lints server JS (CommonJS), browser JS, and tests.
 // Prettier owns formatting; eslint-config-prettier disables stylistic rules here.
 const js = require('@eslint/js');
 const globals = require('globals');
@@ -37,7 +37,10 @@ module.exports = [
       globals: { ...globals.node },
     },
     rules: {
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      // caughtErrors keeps its 'all' default here on purpose: server files use
+      // the parameterless `catch {}` (Node >= 20), so no '^_' escape is offered
+      // for caught errors. See DESIGN.md § "Lint is a ratchet (#973)".
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       'no-console': 'off',
     },
   },
@@ -50,7 +53,10 @@ module.exports = [
       globals: { ...globals.browser },
     },
     rules: {
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
     },
   },
   {
@@ -76,14 +82,6 @@ module.exports = [
   {
     files: ['**/*.mjs'],
     languageOptions: { ecmaVersion: 2022, sourceType: 'module', globals: { ...globals.node } },
-  },
-  {
-    // Pre-existing nits the refactor's lint-cleanup pass will resolve (tracked as
-    // its own issue). Kept as warnings so CI stays green and the signal is visible
-    // rather than suppressed.
-    rules: {
-      'no-useless-escape': 'warn',
-    },
   },
   prettier,
 ];

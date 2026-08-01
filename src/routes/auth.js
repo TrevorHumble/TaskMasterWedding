@@ -701,7 +701,7 @@ router.post('/admin/login', async (req, res) => {
   let hash;
   try {
     hash = fs.readFileSync(config.ADMIN_HASH_PATH, 'utf8').trim();
-  } catch (err) {
+  } catch {
     renderAdminSetupError(res);
     return;
   }
@@ -724,7 +724,7 @@ router.post('/admin/login', async (req, res) => {
   let result;
   try {
     result = await withCompareSlot(res, () => compareImpl(password, hash));
-  } catch (err) {
+  } catch {
     renderAdminSetupError(res);
     return;
   }

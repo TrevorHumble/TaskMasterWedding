@@ -701,7 +701,7 @@ function refererPath(rawReferer) {
   }
   try {
     return new URL(rawReferer).pathname;
-  } catch (e) {
+  } catch {
     return rawReferer.startsWith('/') ? rawReferer : null;
   }
 }
@@ -1289,7 +1289,7 @@ router.get('/me/edit', function (req, res) {
     if (social === null || typeof social !== 'object') {
       social = {};
     }
-  } catch (e) {
+  } catch {
     social = {};
   }
 
@@ -1368,7 +1368,7 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
       if (parsed && typeof parsed === 'object') {
         social = parsed;
       }
-    } catch (e) {
+    } catch {
       social = {};
     }
 
@@ -1399,7 +1399,7 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
       let savedAvatar;
       try {
         savedAvatar = await photos.saveAvatar(req.file.buffer, guest.id); // stored filename, or null on a gate rejection
-      } catch (e) {
+      } catch {
         // A genuine save failure (corrupt image, HEIC decode error, etc.) —
         // unchanged behavior: flash and bail before anything is written.
         setFlash(res, 'error', 'Sorry, we could not save that avatar. Please try again.');
@@ -1427,7 +1427,7 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
           if (oldAvatar && oldAvatar !== newAvatarPath) {
             photos.deleteOriginalFile(oldAvatar);
           }
-        } catch (e) {
+        } catch {
           // Non-fatal.
         }
       }
@@ -1488,7 +1488,7 @@ router.post('/me/avatar/delete', uploadRateLimiter, function (req, res) {
   if (guest.avatar_path) {
     try {
       photos.deleteOriginalFile(guest.avatar_path);
-    } catch (e) {
+    } catch {
       // Non-fatal — the column clear below is the contract, not the unlink.
     }
     db.prepare('UPDATE guests SET avatar_path = NULL WHERE id = ?').run(guest.id);
