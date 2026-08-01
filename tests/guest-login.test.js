@@ -103,7 +103,7 @@ describe('AC2: wrong PIN fails closed', () => {
       .send({ contact: 'axel@example.com', pin: '9999' });
 
     expect(hasGsidCookie(res)).toBe(false);
-    expect(res.text).toContain("don't match");
+    expect(res.text).toContain('don&#39;t match');
   });
 });
 
@@ -115,7 +115,20 @@ describe('AC3: unknown contact fails with the same message', () => {
       .send({ contact: 'nobody@example.com', pin: '1234' });
 
     expect(hasGsidCookie(res)).toBe(false);
-    expect(res.text).toContain("don't match");
+    expect(res.text).toContain('don&#39;t match');
+  });
+});
+
+describe('issue #972: login error output is escaped', () => {
+  it('a 401 login failure renders the escaped apostrophe, never the raw one', async () => {
+    const res = await request(app)
+      .post('/login')
+      .type('form')
+      .send({ contact: 'nobody-972@example.com', pin: '1234' });
+
+    expect(res.status).toBe(401);
+    expect(res.text).toContain('don&#39;t match');
+    expect(res.text).not.toContain("don't match");
   });
 });
 
@@ -213,7 +226,7 @@ describe('edge cases', () => {
     const res = await request(app).post('/login').type('form').send({ pin: '1234' });
     expect(res.status).toBe(401);
     expect(hasGsidCookie(res)).toBe(false);
-    expect(res.text).toContain("don't match");
+    expect(res.text).toContain('don&#39;t match');
   });
 
   it('a missing pin field is rejected with the shared failure message', async () => {
@@ -229,7 +242,7 @@ describe('edge cases', () => {
       .type('form')
       .send({ contact: 'nopin-submitted@example.com' });
     expect(hasGsidCookie(res)).toBe(false);
-    expect(res.text).toContain("don't match");
+    expect(res.text).toContain('don&#39;t match');
   });
 
   it('a guest row with a null stored pin never matches any submitted PIN', async () => {
@@ -245,7 +258,7 @@ describe('edge cases', () => {
       .type('form')
       .send({ contact: 'legacy@example.com', pin: '0000' });
     expect(hasGsidCookie(res)).toBe(false);
-    expect(res.text).toContain("don't match");
+    expect(res.text).toContain('don&#39;t match');
   });
 });
 

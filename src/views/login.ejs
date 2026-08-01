@@ -5,12 +5,10 @@
   <h1 class="display-title">Log In</h1>
   <div class="heart-divider" style="color:var(--color-primary);"><%- include('partials/heart', { size: 20 }) %></div>
 
-  <%# error is always one of this route's own fixed strings, never guest
-      input, so it is rendered unescaped below — needed so the apostrophe in
-      "don't match" reaches the page as a literal character rather than an
-      HTML entity. %>
+  <%# keep this sink escaped no matter where error comes from someday —
+      a future dynamic value must not be able to inject markup. %>
   <% if (typeof error !== 'undefined' && error) { %>
-    <div class="alert alert--error"><%- error %></div>
+    <div class="alert alert--error"><%= error %></div>
   <% } %>
 
   <form action="/login" method="POST">
