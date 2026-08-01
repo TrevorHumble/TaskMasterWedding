@@ -123,7 +123,10 @@ describe('submission lifecycle — issue #105', () => {
   it('AC4: src/routes/admin.js contains no UPDATE submissions SET taken_down SQL', () => {
     const fs = require('fs');
     const path = require('path');
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'admin.js'), 'utf8');
+    const { stripComments } = require('./helpers/source-text');
+    const source = stripComments(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'admin.js'), 'utf8')
+    );
     expect(source).not.toMatch(/UPDATE\s+submissions\s+SET\s+taken_down/i);
   });
 

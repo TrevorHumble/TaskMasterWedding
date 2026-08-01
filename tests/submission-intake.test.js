@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
 const { loadApp, signInGuest } = require('./helpers/testApp');
+const { stripComments } = require('./helpers/source-text');
 
 let db;
 let config;
@@ -417,7 +418,9 @@ describe('POST /tasks/:id/submit — status to response mapping (issue #106)', (
   });
 
   it('route contains no submissions SQL and no direct recomputeAutoBadges call', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'guest.js'), 'utf8');
+    const source = stripComments(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'guest.js'), 'utf8')
+    );
     expect(source).not.toMatch(/INSERT\s+INTO\s+submissions/i);
     expect(source).not.toMatch(/UPDATE\s+submissions/i);
     expect(source).not.toMatch(/scoring\.recomputeAutoBadges/);

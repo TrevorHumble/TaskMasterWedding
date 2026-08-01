@@ -43,6 +43,7 @@ const path = require('path');
 const request = require('supertest');
 const { JSDOM } = require('jsdom');
 const { loadApp, signInGuest } = require('./helpers/testApp');
+const { stripComments } = require('./helpers/source-text');
 
 const THEME_CSS_PATH = path.join(__dirname, '..', 'src', 'public', 'css', 'theme.css');
 const FEED_EJS_PATH = path.join(__dirname, '..', 'src', 'views', 'feed.ejs');
@@ -51,7 +52,8 @@ const COMMUNITY_ROUTE_PATH = path.join(__dirname, '..', 'src', 'routes', 'commun
 const THEME_CSS_SOURCE = fs.readFileSync(THEME_CSS_PATH, 'utf8');
 const FEED_EJS_SOURCE = fs.readFileSync(FEED_EJS_PATH, 'utf8');
 const FEED_JS_SOURCE = fs.readFileSync(FEED_JS_PATH, 'utf8');
-const COMMUNITY_ROUTE_SOURCE = fs.readFileSync(COMMUNITY_ROUTE_PATH, 'utf8');
+// Comment-stripped (issue #939) -- a backend src/routes/*.js read; THEME_CSS/FEED_EJS/FEED_JS above stay raw (out of scope).
+const COMMUNITY_ROUTE_CODE = stripComments(fs.readFileSync(COMMUNITY_ROUTE_PATH, 'utf8'));
 
 let app;
 let db;
@@ -602,7 +604,7 @@ describe('#362: res.locals.guest still populated after removing the duplicate mo
   });
 
   it('community.js no longer mounts attachGuest at the router level', () => {
-    expect(COMMUNITY_ROUTE_SOURCE).not.toMatch(/router\.use\(attachGuest\)/);
+    expect(COMMUNITY_ROUTE_CODE).not.toMatch(/router\.use\(attachGuest\)/);
   });
 });
 

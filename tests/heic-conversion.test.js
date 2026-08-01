@@ -22,6 +22,7 @@ const request = require('supertest');
 const sharp = require('sharp');
 const { loadApp, signInGuest } = require('./helpers/testApp');
 const { craftHeicHeader } = require('./helpers/heic-fixtures');
+const { stripComments } = require('./helpers/source-text');
 
 let app;
 let db;
@@ -285,7 +286,14 @@ describe('AC5: JPEG uploads still work end-to-end', () => {
 // is the more direct proof of a purely structural claim.
 // ---------------------------------------------------------------------------
 describe('#463 AC3: bounded header sniff, full read only on the HEIC-confirmed branch', () => {
-  const source = fs.readFileSync(path.join(__dirname, '../src/services/photos.js'), 'utf8');
+  // Comments stripped up front (issue #939), via the shared helper, BEFORE
+  // extractFunction's own indexOf/search bound-finding runs — so a doc/inline
+  // comment that legitimately MENTIONS `fs.readFileSync(fd)` or a function
+  // name while explaining the design can neither be miscounted as a call nor
+  // fool the "next top-level function" boundary search below.
+  const source = stripComments(
+    fs.readFileSync(path.join(__dirname, '../src/services/photos.js'), 'utf8')
+  );
 
   function extractFunction(fnName) {
     const start = source.indexOf(`async function ${fnName}(`);
@@ -298,16 +306,7 @@ describe('#463 AC3: bounded header sniff, full read only on the HEIC-confirmed b
     return nextFn < 0 ? source.slice(start) : source.slice(start, start + 1 + nextFn);
   }
 
-  // Strip comments so the structural assertions below scan actual CODE, not
-  // prose: the function's doc/inline comments legitimately MENTION
-  // `fs.readFileSync(fd)` when explaining the design, and those mentions must
-  // not be miscounted as calls. resolveUploadedFile contains no `//` inside a
-  // string/regex literal, so a plain block+line comment strip is exact here.
-  function stripComments(src) {
-    return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  }
-
-  const body = stripComments(extractFunction('resolveUploadedFile'));
+  const body = extractFunction('resolveUploadedFile');
 
   it('performs a bounded 12-byte header read via openSync/readSync/closeSync', () => {
     expect(body).toMatch(/fs\.openSync\(/);

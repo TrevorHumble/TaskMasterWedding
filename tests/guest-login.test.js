@@ -199,7 +199,10 @@ describe('AC6: guest-login limits are read from config only', () => {
   it('src/routes/auth.js reads the guest-login limits only from config (no stray literal copies)', () => {
     const fs = require('fs');
     const path = require('path');
-    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'auth.js'), 'utf8');
+    const { stripComments } = require('./helpers/source-text');
+    const src = stripComments(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'auth.js'), 'utf8')
+    );
     expect(src).toContain('config.GUEST_LOGIN_MAX_ATTEMPTS');
     expect(src).toContain('config.GUEST_LOGIN_LOCKOUT_MS');
   });
