@@ -17,9 +17,12 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const request = require('supertest');
 const sharp = require('sharp');
+const express = require('express');
+const cookieParser = require('cookie-parser');
 const { loadApp, makeAdminAgent, signInGuest } = require('./helpers/testApp');
 
 // Set BEFORE loadApp() (which requires config) so config.MEMORY_RATE_MAX picks
@@ -44,6 +47,7 @@ let badges;
 let rateLimit;
 let tasksSvc;
 let uploadSemaphore;
+let submissionsSvc;
 let validJpeg;
 
 beforeAll(async () => {
@@ -63,6 +67,11 @@ beforeAll(async () => {
   badges = require('../src/services/badges');
   rateLimit = require('../src/services/rate-limit');
   tasksSvc = require('../src/services/tasks');
+  // Issue #931 AC1: submitMemoryBatch's own failed-filename return value is
+  // exercised directly at the service level below, not just through the
+  // HTTP route, so the assertion is on the real returned VALUE rather than
+  // an inferred side effect.
+  submissionsSvc = require('../src/services/submissions');
   // Required here, not at module scope (see this file's header REQUIRE ORDER
   // note): upload-concurrency.js requires ../../config, and config.js reads
   // DATA_DIR/DB_PATH from the environment at module scope -- requiring it
@@ -707,5 +716,332 @@ describe('issue #857: POST /memories waits for an upload slot', () => {
     expect([301, 302, 303]).toContain(response.status);
     expect(response.headers.location).toBe('/gallery');
     expect(memoryRowCount(guestId)).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #931 — a partial batch (some files save, some don't) tells the guest
+// exactly what happened instead of flashing an unqualified "Shared!" over a
+// batch that actually lost photos. Covers AC1-AC3, AC6, AC7 (AC4/AC5, the
+// unchanged all-succeed/all-fail paths, are already covered above by the
+// AC1 "batch of 3 valid JPEGs" test and the "all-fail batch" test
+// respectively; AC8, the byte-identical upload-section diff, is a static
+// diff check, not a runtime behavior, and is verified separately).
+// ---------------------------------------------------------------------------
+
+/** Write `content` under config.UPLOADS_DIR and return an absolute path, for
+ * driving submissions.submitMemoryBatch directly with real on-disk files
+ * (makeThumb/sharp reads from `file.path`). */
+function writeUpload(filename, content) {
+  const abs = path.join(config.UPLOADS_DIR, filename);
+  fs.writeFileSync(abs, content);
+  return abs;
+}
+
+describe('AC1 (#931): submitMemoryBatch reports failed original filenames, not just a count', () => {
+  it('a 10-file batch with 3 corrupt files returns 7 submissionIds and the exact 3 failed original filenames', async () => {
+    const { guestId } = insertGuest('931 AC1 Guest');
+
+    const files = [];
+    for (let i = 0; i < 7; i++) {
+      const filename = `931-good-${i}-${crypto.randomUUID()}.jpg`;
+      files.push({
+        filename,
+        path: writeUpload(filename, validJpeg),
+        originalname: `good-${i}.jpg`,
+      });
+    }
+    const badOriginalNames = [];
+    for (let i = 0; i < 3; i++) {
+      const filename = `931-bad-${i}-${crypto.randomUUID()}.jpg`;
+      const originalname = `IMG_${4382 + i}.jpg`;
+      badOriginalNames.push(originalname);
+      files.push({
+        filename,
+        path: writeUpload(filename, Buffer.from('definitely not an image')),
+        originalname,
+      });
+    }
+
+    const result = await submissionsSvc.submitMemoryBatch({ guestId, files, caption: '' });
+
+    // Real output VALUES, not just lengths: the failed array is the exact 3
+    // original filenames, in the order the corrupt files were processed —
+    // this would fail if the service reported a bare count (or the WRONG
+    // filenames) instead of each file's own originalname.
+    expect(result.submissionIds).toHaveLength(7);
+    expect(result.failed).toEqual(badOriginalNames);
+  });
+});
+
+describe('AC2/AC3 (#931): the partial-failure card renders once, then is gone on reload', () => {
+  it('AC2: redirects to /memories/new; the card reports the count, the 7 saved thumbnails, and the 3 failed filenames', async () => {
+    const { guestId, token } = insertGuest('931 AC2 Guest');
+    const agent = await agentFor(token);
+    const garbage = Buffer.from('definitely not an image');
+
+    let req = agent.post('/memories').field('caption', 'partial batch');
+    for (let i = 0; i < 7; i++) {
+      req = req.attach('photos', validJpeg, {
+        filename: `good-${i}.jpg`,
+        contentType: 'image/jpeg',
+      });
+    }
+    req = req
+      .attach('photos', garbage, { filename: 'IMG_4382.jpg', contentType: 'image/jpeg' })
+      .attach('photos', garbage, { filename: 'IMG_4390.jpg', contentType: 'image/jpeg' })
+      .attach('photos', garbage, { filename: 'IMG_4401.jpg', contentType: 'image/jpeg' });
+    const res = await req;
+
+    expect([301, 302, 303]).toContain(res.status);
+    expect(res.headers.location).toBe('/memories/new');
+
+    const rows = db
+      .prepare(
+        `SELECT thumb_path FROM submissions WHERE guest_id = ? AND task_id IS NULL ORDER BY id ASC`
+      )
+      .all(guestId);
+    expect(rows).toHaveLength(7);
+
+    const page = await agent.get('/memories/new');
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('class="flash flash-err memory-partial-card" role="status"');
+    expect(page.text).toContain('<strong>7 of your 10 photos are in the gallery</strong>');
+    for (const row of rows) {
+      expect(page.text).toContain('/thumbs/' + row.thumb_path);
+    }
+    // EJS's <%= %> escapes the apostrophe to &#39; (same convention as the
+    // "They're"/"that's" copy elsewhere in this file).
+    expect(page.text).toContain('These 3 weren&#39;t successful. Please try again:');
+    expect(page.text).toContain('IMG_4382.jpg &middot; IMG_4390.jpg &middot; IMG_4401.jpg');
+  });
+
+  it('AC3: reloading /memories/new after the card renders shows the plain form with no card', async () => {
+    const { token } = insertGuest('931 AC3 Guest');
+    const agent = await agentFor(token);
+    const garbage = Buffer.from('definitely not an image');
+
+    const post = await agent
+      .post('/memories')
+      .field('caption', 'one shot')
+      .attach('photos', validJpeg, { filename: 'ok.jpg', contentType: 'image/jpeg' })
+      .attach('photos', garbage, { filename: 'bad.jpg', contentType: 'image/jpeg' });
+    expect(post.headers.location).toBe('/memories/new');
+
+    const first = await agent.get('/memories/new');
+    expect(first.text).toContain('memory-partial-card');
+
+    const second = await agent.get('/memories/new');
+    expect(second.status).toBe(200);
+    expect(second.text).not.toContain('memory-partial-card');
+  });
+});
+
+describe('AC6 (#931): a failed filename with HTML metacharacters is escaped in the card', () => {
+  it('renders the escaped form and never the raw, unescaped filename', async () => {
+    const { token } = insertGuest('931 AC6 Guest');
+    const agent = await agentFor(token);
+    const garbage = Buffer.from('definitely not an image');
+    // <, >, &, ' — deliberately no "/" and no '"' in this fixture: the
+    // form-data library's own filename handling (path.basename) treats "/"
+    // as a path separator and silently truncates on it, and its
+    // Content-Disposition header builder percent-encodes '"' to the literal
+    // 3 characters "%22" rather than transmitting the actual quote byte —
+    // both are test-tooling artifacts of round-tripping a filename through
+    // form-data, unrelated to the escaping behavior under test here.
+    const rawName = `<b>&'evil.jpg`;
+
+    const post = await agent
+      .post('/memories')
+      .field('caption', 'xss check')
+      .attach('photos', validJpeg, { filename: 'ok.jpg', contentType: 'image/jpeg' })
+      .attach('photos', garbage, { filename: rawName, contentType: 'image/jpeg' });
+    expect(post.headers.location).toBe('/memories/new');
+
+    const page = await agent.get('/memories/new');
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('&lt;b&gt;&amp;&#39;evil.jpg');
+    expect(page.text).not.toContain(rawName);
+  });
+});
+
+/**
+ * Write the memoryBatchPartial cookie via the REAL session.setMemoryBatchPartial
+ * (the exact function POST /memories calls), and return its full raw
+ * Set-Cookie header string.
+ *
+ * Issue #931 AC7 needs a batch of failed filenames that are genuinely 60
+ * ASTRAL-PLANE (4-byte UTF-8) code points each once they reach
+ * submitMemoryBatch/setMemoryBatchPartial. Driving that through an actual
+ * POST /memories multipart upload does not work in this test environment:
+ * busboy (multer's underlying parser) decodes multipart header PARAMETERS
+ * (filename="...") as Latin-1 by default (no `filename*=UTF-8''...` RFC 5987
+ * extension is sent by the `form-data` client library this test suite's
+ * supertest/superagent uses) -- a raw UTF-8 multi-byte sequence written into
+ * that header therefore arrives at `file.originalname` as one mangled
+ * Latin-1 code point PER BYTE, never as the original multi-byte character.
+ * That is a real, pre-existing constraint of multer's default charset
+ * handling (unrelated to issue #931, which only touches the truncation/
+ * budget/rendering layer downstream of whatever originalname multer hands
+ * over) -- confirmed by inspecting the actual bytes multer receives for a
+ * non-ASCII filename sent this way. Calling the real setMemoryBatchPartial
+ * directly, the same function the route calls, exercises the exact
+ * production code under test (truncation, the byte-budget loop, the signed
+ * cookie write) with a genuine astral-plane JS string, sidestepping only the
+ * multipart-charset step that AC7 itself has nothing to do with.
+ */
+function writeMemoryBatchPartialCookieDirect(okIds, failedNames) {
+  const session = require('../src/middleware/session');
+  const mini = express();
+  mini.use(cookieParser(config.COOKIE_SECRET));
+  mini.get('/set-partial-cookie-for-test', (req, res) => {
+    session.setMemoryBatchPartial(res, okIds, failedNames);
+    res.end();
+  });
+  return request(mini)
+    .get('/set-partial-cookie-for-test')
+    .then((res) => {
+      const headers = res.headers['set-cookie'] || [];
+      const header = headers.find((h) => h.startsWith('memoryBatchPartial='));
+      if (!header)
+        throw new Error('setMemoryBatchPartial did not write a memoryBatchPartial cookie');
+      return header;
+    });
+}
+
+describe('#931 design-philosophy re-check MAJOR 2: headline count must match the thumbnails actually shown', () => {
+  it('an id in the cookie that no longer resolves for this guest (taken down inside the one-shot window) drops the headline count with it, not just the thumbnail', async () => {
+    const { guestId, token } = insertGuest('931 headline-thumb Guest');
+    const agent = await agentFor(token);
+
+    const { submissionId: okId, thumbPath: okThumb } = insertSubmission({
+      guestId,
+      caption: 'still up',
+    });
+    // Simulates an admin takedown landing inside the cookie's 30-second
+    // one-shot window: the id was genuinely saved (submitMemoryBatch wrote
+    // it, so the cookie legitimately claims it), but by the time GET
+    // /memories/new reads the cookie back, the guest-scoped taken_down=0
+    // read (guest.js) no longer resolves it to a thumbnail.
+    const { submissionId: takenDownId } = insertSubmission({
+      guestId,
+      caption: 'taken down before the reload',
+      takenDown: 1,
+    });
+
+    const cookieHeader = await writeMemoryBatchPartialCookieDirect([okId, takenDownId], []);
+    agent.jar.setCookie(cookieHeader);
+
+    const page = await agent.get('/memories/new');
+    expect(page.status).toBe(200);
+    // Only ONE thumbnail resolves -- the headline must report 1, matching
+    // what actually renders below it, not the raw cookie's 2. Before this
+    // fix okCount/totalCount were read straight off partialCookie.okIds
+    // (the unfiltered cookie), so this card would have claimed "2 of your 2
+    // photos are in the gallery" while showing a single thumbnail.
+    expect(page.text).toContain('<strong>1 of your 1 photos is in the gallery</strong>');
+    expect(page.text).toContain('/thumbs/' + okThumb);
+  });
+});
+
+describe('AC7 (#931): code-point truncation + 3000-byte cookie budget on the maximum-failure batch', () => {
+  it('truncates each failed name to at most 40 code points + ellipsis, keeps the encoded cookie value under 3000 bytes, and reports whatever the budget dropped as "and <k> more"', async () => {
+    const { guestId, token } = insertGuest('931 AC7 Guest');
+    const agent = await agentFor(token);
+
+    // The one saved photo of the maximum-failure partial batch (1 success,
+    // since the batch cap is 10) -- a real submissions row so the card's
+    // guest-scoped thumbnail lookup (GET /memories/new) has a real row to find.
+    const { submissionId: okId, thumbPath: okThumb } = insertSubmission({
+      guestId,
+      caption: 'ac7 ok',
+    });
+
+    // 9 distinct 60-code-point astral-plane (4-byte UTF-8) failed names --
+    // distinct per file (not 9 identical strings) so the assertions below can
+    // tell exactly how many of the 9 the 3000-byte budget actually kept.
+    const failedOriginalNames = [];
+    for (let i = 0; i < 9; i++) {
+      failedOriginalNames.push(String.fromCodePoint(0x1f600 + i).repeat(60));
+    }
+
+    const cookieHeader = await writeMemoryBatchPartialCookieDirect([okId], failedOriginalNames);
+
+    // The cookie's ENCODED VALUE (the part after `memoryBatchPartial=`, up to
+    // the first `;` -- not the whole Set-Cookie header line, which also
+    // carries Max-Age/Path/HttpOnly) must stay under the 3000-byte budget.
+    const cookiePair = cookieHeader.split(';')[0]; // "memoryBatchPartial=<value>"
+    const cookieValue = cookiePair.slice('memoryBatchPartial='.length);
+    expect(Buffer.byteLength(cookieValue, 'utf8')).toBeLessThanOrEqual(3000);
+
+    // Attach the cookie to the signed-in guest's jar, exactly the way a real
+    // Set-Cookie response would have -- same mechanism tests/helpers/testApp.js's
+    // own signInGuest uses for the gsid cookie.
+    agent.jar.setCookie(cookieHeader);
+
+    const page = await agent.get('/memories/new');
+    expect(page.status).toBe(200);
+    // ok=1, total=1+9=10, "is" (singular ok count) — the generalized
+    // headline copy (recorded omission, issue #931).
+    expect(page.text).toContain('1 of your 10 photos is in the gallery');
+    expect(page.text).toContain('/thumbs/' + okThumb);
+
+    // Count how many of the 9 distinct 40-code-point-truncated names
+    // actually made it into the rendered card. 9 names at 60 astral
+    // characters each cannot all fit the 3000-byte budget (each one costs
+    // roughly 490 encoded bytes) -- confirmed some are dropped (foundCount
+    // < 9) AND that the failure report is never silently short: whatever
+    // didn't fit is still counted via "and <k> more" (recorded omission).
+    let foundCount = 0;
+    for (const name of failedOriginalNames) {
+      const truncated = Array.from(name).slice(0, 40).join('') + '…';
+      if (page.text.includes(truncated)) foundCount += 1;
+    }
+    expect(foundCount).toBeGreaterThan(0);
+    expect(foundCount).toBeLessThan(9);
+    const droppedCount = 9 - foundCount;
+    expect(page.text).toContain('and ' + droppedCount + ' more');
+  });
+
+  // #931 review MINOR B: the byte-budget loop used to `break` on the first
+  // name that didn't fit, which wrongly assumed every later name was the
+  // same size or larger. Failed names can be ANY length before truncation,
+  // so a short name appearing after a big one in the upload order must still
+  // get its own chance to fit — this test would fail under the old `break`
+  // (which drops the short name and every name after the first miss) and
+  // passes only because buildMemoryBatchPartialPayload now `continue`s past
+  // a name that doesn't fit instead of stopping there.
+  it('a short name AFTER several oversized names that do not fit still makes it into the cookie and the card', async () => {
+    const { guestId, token } = insertGuest('931 MinorB Guest');
+    const agent = await agentFor(token);
+
+    const { submissionId: okId, thumbPath: okThumb } = insertSubmission({
+      guestId,
+      caption: 'minor-b ok',
+    });
+
+    // 8 distinct 60-code-point astral-plane names (same construction as the
+    // AC7 test above) — big enough that, per the same ~490-encoded-bytes-
+    // per-name cost, only the first several fit the 3000-byte budget.
+    const bigNames = [];
+    for (let i = 0; i < 8; i++) {
+      bigNames.push(String.fromCodePoint(0x1f600 + i).repeat(60));
+    }
+    // A short, plain-ASCII name placed LAST in submission order — small
+    // enough (well under 490 bytes encoded) to fit the budget even after
+    // several big names have already been counted against it, as long as
+    // the loop keeps checking instead of stopping at the first big miss.
+    const tinyName = 's.jpg';
+    const failedOriginalNames = bigNames.concat([tinyName]);
+
+    const cookieHeader = await writeMemoryBatchPartialCookieDirect([okId], failedOriginalNames);
+    agent.jar.setCookie(cookieHeader);
+
+    const page = await agent.get('/memories/new');
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('/thumbs/' + okThumb);
+    // The short name survived the budget loop even though it was submitted
+    // after several names the budget could not fit.
+    expect(page.text).toContain(tinyName);
   });
 });

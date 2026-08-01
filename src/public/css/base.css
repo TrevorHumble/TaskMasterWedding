@@ -547,6 +547,34 @@ p {
   color: var(--err-ink);
 }
 
+/* ------------- Partial memory-batch result card (issue #931) ------------- */
+/* The .flash/.flash-err shell above, with the owner-approved 14px/18px
+   padding (narrower than .flash's own 12px/24px default) plus the saved-
+   photo thumbnail row and failed-filename list. Pixels transcribed from the
+   #931 phase-1 mock's inline styles (owner-approved 2026-08-01) — moved here
+   per that issue's plan rather than staying inline on the real card. */
+.memory-partial-card {
+  padding: 14px 18px;
+}
+.memory-partial-thumbs {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.memory-partial-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.memory-partial-failed {
+  margin-top: 10px;
+}
+.memory-partial-names {
+  font-weight: 600;
+}
+
 /* ------------------- Task-complete success card (#255) ------------------- */
 /* Now the LUCKY variant's shell only (issue #611): an ordinary completion is
    cardless — see .success-beat below. The 4px accent edge is gone

@@ -683,25 +683,34 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
  * contributes no row, but the rest of the batch still proceeds — one bad file
  * among ten should not cost the guest the other nine.
  *
+ * Issue #931: a skipped file is no longer silently dropped. Its multer
+ * `originalname` (the client-picker filename — survives HEIC resolution
+ * untouched, since that rewrite only ever changes `file.path`/`file.filename`,
+ * never `file.originalname`) is collected into the returned `failed` array,
+ * so the route can tell the guest which photos did not make it rather than
+ * flashing an unqualified "Shared!" over a batch that actually lost some.
+ *
  * @param {object} params
  * @param {number} params.guestId
- * @param {{filename: string, path: string}[]} params.files - multer disk-storage
- *        descriptors (photos.uploadMemoryBatch's req.files).
+ * @param {{filename: string, path: string, originalname: string}[]} params.files -
+ *        multer disk-storage descriptors (photos.uploadMemoryBatch's req.files).
  * @param {*} params.caption - raw caption input; normalized and applied to
  *        every photo in the batch (the form has one caption field, not
  *        per-photo captions).
- * @returns {Promise<{status: 'created', submissionIds: number[]}>}
+ * @returns {Promise<{status: 'created', submissionIds: number[], failed: string[]}>}
  */
 async function submitMemoryBatch({ guestId, files, caption }) {
   const cap = normalizeCaption(caption);
 
   const prepared = [];
+  const failed = [];
   for (const file of files) {
     let thumbPath;
     try {
       thumbPath = await photos.makeThumb(file.path);
     } catch {
       photos.deleteOriginalFile(file.filename);
+      failed.push(file.originalname);
       continue; // skip this one file; the rest of the batch still proceeds
     }
     prepared.push({ photoPath: file.filename, thumbPath });
@@ -716,7 +725,7 @@ async function submitMemoryBatch({ guestId, files, caption }) {
   });
   insertMany(prepared);
 
-  return { status: 'created', submissionIds };
+  return { status: 'created', submissionIds, failed };
 }
 
 module.exports = {
