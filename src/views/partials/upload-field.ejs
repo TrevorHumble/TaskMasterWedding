@@ -6,7 +6,11 @@
     Locals:
       id       (required) - input id; also used as the label's `for`
       name     (required) - input name
-      accept   (optional) - input accept attribute
+      accept   (optional) - input accept attribute; defaults to "image/*"
+                 (issue #923) so the picker-filter policy is owned here, once,
+                 instead of restated by every caller. A caller passing accept
+                 overrides the default; passing a falsy value still renders
+                 the default.
       required (optional) - boolean; adds the required attribute
       multiple (optional) - boolean; adds the multiple attribute (issue #247's
                  memory-batch upload; every other caller omits this and is
@@ -51,7 +55,7 @@
   <input type="file"
          id="<%= id %>"
          name="<%= name %>"
-         <% if (typeof accept !== 'undefined' && accept) { %>accept="<%= accept %>"<% } %>
+         accept="<%= (typeof accept !== 'undefined' && accept) ? accept : 'image/*' %>"
          <% if (typeof required !== 'undefined' && required) { %>required<% } %>
          <% if (typeof multiple !== 'undefined' && multiple) { %>multiple<% } %>
          class="visually-hidden" />

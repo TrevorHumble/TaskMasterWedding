@@ -39,7 +39,7 @@
   <%# The two actions stacked as one block (owner, 2026-07-31): white
       choose-photo directly above the green submit. %>
   <div class="task-upload-actions">
-    <%- include('upload-field', { id: 'photo', name: 'photo', accept: 'image/*', required: true, labelClass: 'btn-secondary btn-block' }) %>
+    <%- include('upload-field', { id: 'photo', name: 'photo', required: true, labelClass: 'btn-secondary btn-block' }) %>
     <button type="submit" class="btn btn-block" data-uploading-label="Uploading…">
       <%= submission ? 'Upload & replace' : 'Upload & complete' %>
     </button>

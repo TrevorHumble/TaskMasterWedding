@@ -19,6 +19,12 @@
 //         path: POST a small valid image, redirect, exactly one submissions
 //         row for that guest+task.
 //
+// Issue #923 amended this file: the join and memory pickers' accept values
+// widened to image/* (matching me-edit and task; the value is now the
+// upload-field partial's own default, stated by no caller), the #880 AC3
+// assertions below expect that value, and the "#923 AC3" block asserts all
+// four pickers stay identical and capture-free.
+//
 // REQUIRE ORDER: loadApp() must run before any require of config/db (see
 // tests/helpers/testApp.js "REQUIRE ORDER MATTERS").
 'use strict';
@@ -163,7 +169,7 @@ describe('AC3: the other three pickers keep their own attributes and never gain 
 
     const inputTag = extractInput(res.text, 'avatar');
     expect(inputTag).not.toBeNull();
-    expect(inputTag).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(inputTag).toContain('accept="image/*"');
     expect(inputTag).not.toMatch(/\brequired\b/);
     expect(inputTag).not.toMatch(/\bmultiple\b/);
     expect(inputTag).not.toMatch(/\bcapture\s*=/);
@@ -195,10 +201,54 @@ describe('AC3: the other three pickers keep their own attributes and never gain 
 
     const inputTag = extractInput(res.text, 'photos');
     expect(inputTag).not.toBeNull();
-    expect(inputTag).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(inputTag).toContain('accept="image/*"');
     expect(inputTag).toMatch(/\brequired\b/);
     expect(inputTag).toMatch(/\bmultiple\b/);
     expect(inputTag).not.toMatch(/\bcapture\s*=/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #923 AC3: all four upload pickers (join, me-edit, memory-new, task)
+// carry an identical `accept` value — the parity assertion fails if any one
+// surface drifts again — and the #880 no-`capture` guard still holds across
+// all four.
+// ---------------------------------------------------------------------------
+describe('#923 AC3: all four upload pickers share the same accept value', () => {
+  it('join, me-edit, memory-new, and task all render accept="image/*" with no capture', async () => {
+    const { token, taskId } = insertGuestAndTask('923 AC3 parity task');
+    const agent = signInGuest(app, token);
+
+    const joinRes = await request(app).get('/join');
+    const meEditRes = await agent.get('/me/edit');
+    const memoryRes = await agent.get('/memories/new');
+    const taskRes = await agent.get(`/tasks/${taskId}`);
+
+    expect(joinRes.status).toBe(200);
+    expect(meEditRes.status).toBe(200);
+    expect(memoryRes.status).toBe(200);
+    expect(taskRes.status).toBe(200);
+
+    const joinInput = extractInput(joinRes.text, 'avatar');
+    const meEditInput = extractInput(meEditRes.text, 'avatar');
+    const memoryInput = extractInput(memoryRes.text, 'photos');
+    const taskInput = extractInput(taskRes.text, 'photo');
+    const inputs = [joinInput, meEditInput, memoryInput, taskInput];
+
+    inputs.forEach((tag) => expect(tag).not.toBeNull());
+
+    const acceptOf = (tag) => {
+      const match = tag.match(/accept="([^"]*)"/);
+      return match ? match[1] : null;
+    };
+    const accepts = inputs.map(acceptOf);
+
+    // All four identical, and that shared value is image/* — not merely
+    // identical to each other on some other, wrong value.
+    expect(new Set(accepts)).toEqual(new Set(['image/*']));
+
+    // #880's guard, re-checked across all four surfaces together.
+    inputs.forEach((tag) => expect(tag).not.toMatch(/\bcapture\s*=/));
   });
 });
 
