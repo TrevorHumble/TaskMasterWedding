@@ -3934,3 +3934,31 @@ has to re-enter anything else on the form. Accepted, because the server still na
 its flash message, and the alternative — leaving the stale `min` bubble in place — vetoes a
 legitimate edit for every scripts-on host to save the scripts-off case, which is the wrong trade
 for the more common path.
+
+## Show more's page bound is a client-side append budget, not a server-side cap (#1056)
+
+**Date:** 2026-08-02. **Status:** shipped.
+
+`src/services/feed.js`'s `recentPage` / `guestPhotosPage` already serve bounded pages correctly —
+each request returns at most `GALLERY_PAGE_SIZE` rows and nothing more. What was unbounded was purely
+client-side: `src/public/js/gallery-more.js` appends every fetched page's tiles into the live
+`#galleryGrid` and never releases any of them, so a guest who keeps tapping "Show more" accumulates
+every page they have ever fetched into one DOM tree in one browser tab. The server has no way to see
+or bound that — it answers one page request at a time and has no notion of how many a given tab has
+already appended. Only the client holds that count, so only the client can cap it.
+
+`gallery-more.js` now caps at `MAX_PAGES_IN_GRID` (5: the server-rendered first page plus four
+appends) via a counter kept in a closure local to each `wireUpShowMore()` call, not module-level
+state. That scoping is deliberate, not incidental: a fresh page load re-runs `wireUpShowMore()`, so
+the budget resets for the new page for free — the behavior AC4 asks for falls out of where the
+counter lives rather than needing separate reset logic. At the threshold, the click handler simply
+does not call `preventDefault()`; the control's `<a href>` was always a real link to the next page,
+so the same anchor that "Show more" degrades to today under JavaScript-off or a failed fetch is what
+carries the guest across the threshold — one fallback path serves both cases instead of two.
+
+The number itself is measured, not guessed: on a real 600-tile profile page (the #1004 phase-1 loop),
+summing `naturalWidth × naturalHeight × 4` over every `<img>` actually on the page — decoded bitmap
+bytes, not the 400px-wide thumbnail dimension the markup advertises — came to roughly 358 MB. Height
+varies with each photo's source aspect ratio since thumbnails resize width-only, so that total is not
+recomputable from the single "400px" premise; re-deciding the threshold means re-measuring the same
+way on a real page, not recalculating from one dimension.

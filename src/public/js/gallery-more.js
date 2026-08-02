@@ -8,6 +8,13 @@
 // failure) it degrades to today's full-page navigation.
 'use strict';
 
+// How many pages the live grid may hold before "Show more" hands off to a
+// real navigation instead of appending — the server-rendered first page plus
+// four appends (#1056). The measurement behind the number, and what
+// re-deciding it requires, is in DESIGN.md § "Show more's page bound is a
+// client-side append budget, not a server-side cap (#1056)".
+var MAX_PAGES_IN_GRID = 5;
+
 /**
  * Lift the next page's tiles out of a parsed gallery document and into the
  * live grid, and report where the control should point next.
@@ -49,12 +56,23 @@ function wireUpShowMore() {
   }
 
   var idleLabel = link.textContent;
+  // Per-wiring closure, not module state: a fresh page load re-runs
+  // wireUpShowMore, so the budget restarts for the new page for free (#1056
+  // AC4). The server-rendered first page already counts as one.
+  var pagesInGrid = 1;
 
   link.addEventListener('click', function (event) {
-    event.preventDefault();
     if (link.getAttribute('aria-disabled') === 'true') {
+      event.preventDefault();
       return; // a fetch is already in flight; ignore repeat taps
     }
+    if (pagesInGrid >= MAX_PAGES_IN_GRID) {
+      // At the threshold: do not intercept. The anchor's own navigation
+      // fires, which is already the module's documented fallback path and
+      // hands off to a fresh, unaccumulated page (#1056 AC2).
+      return;
+    }
+    event.preventDefault();
     link.setAttribute('aria-disabled', 'true');
     link.textContent = 'Loading…';
 
@@ -68,6 +86,7 @@ function wireUpShowMore() {
       .then(function (html) {
         var doc = new DOMParser().parseFromString(html, 'text/html');
         var result = appendNextPage(doc, grid);
+        pagesInGrid++;
         if (result.nextHref) {
           link.setAttribute('href', result.nextHref);
           link.textContent = idleLabel;
@@ -98,5 +117,6 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     appendNextPage: appendNextPage,
     wireUpShowMore: wireUpShowMore,
+    MAX_PAGES_IN_GRID: MAX_PAGES_IN_GRID,
   };
 }
