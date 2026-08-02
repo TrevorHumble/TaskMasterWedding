@@ -125,7 +125,16 @@
               }) %>
         <% }); %>
       </div>
+
+      <% if (page < totalPages) { %>
+        <nav class="show-more" aria-label="More photos">
+          <a class="btn btn-secondary" href="/u/<%= profileGuest.id %>?page=<%= page + 1 %>">Show more</a>
+        </nav>
+      <% } %>
     <% } %>
   </section>
 
+<% if (page < totalPages) { %>
+  <script src="/js/gallery-more.js" defer></script>
+<% } %>
 <%- include('partials/footer') %>

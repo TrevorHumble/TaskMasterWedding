@@ -262,7 +262,7 @@ describe('AC1/AC3/AC4: the crown on every surface reads ONE crowdFavorites() cal
     expect((feed.res.text.match(/cf-crown-gold/g) || []).length).toBe(1);
 
     // The public profile route only ever shows ONE guest's own photos
-    // (feed.guestPhotos), so it can no longer exercise ranks 2-5 in the same
+    // (feed.guestPhotosPage), so it can no longer exercise ranks 2-5 in the same
     // page since #896 caps a guest at one placing photo — it still needs
     // separate coverage for its gold/no-crown states, and for the SECOND,
     // unrelated crowdFavorites() call scoring.getPoints -> crowdPointsByGuest
@@ -332,8 +332,9 @@ describe('#811 AC4: a tie at rank 1 renders zero gold crowns; AC5: a lone champi
 
     const gallery = await agent.get('/gallery');
     const feed = await agent.get('/feed');
-    // Each guest's own profile shows only their own tied photo (feed.guestPhotos
-    // scopes to one guest_id), so both must be checked to cover both tiles.
+    // Each guest's own profile shows only their own tied photo
+    // (feed.guestPhotosPage scopes to one guest_id), so both must be checked
+    // to cover both tiles.
     const profileA = await agent.get('/u/' + ownerA.id);
     const profileB = await agent.get('/u/' + ownerB.id);
     expect(gallery.status).toBe(200);

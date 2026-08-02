@@ -174,11 +174,20 @@ function galleryQuery(shape, taskFilter, limit, offset) {
  *        behavior the route always had, now owned by feed instead of the route.
  * @returns {{ photos: object[], page: number, totalPages: number, total: number }}
  */
-function recentPage(taskFilter, page) {
-  const { sql: countSql, args: countArgs } = galleryQuery('count', taskFilter);
-  const totalRow = db.prepare(countSql).get(...countArgs);
-  const total = totalRow ? totalRow.n : 0;
-
+/**
+ * The ONE page-clamp rule every paged read in this file shares: a page that is
+ * not a positive integer floors to 1, and anything past the last page clamps
+ * down to it. Owned here rather than re-typed per reader so /gallery and a
+ * guest's profile can never disagree about what `?page=999` means — they are
+ * two surfaces a guest reaches from the same tile, and a divergence between
+ * them would be invisible until someone hand-typed a URL.
+ *
+ * @param {number} page - 1-based page number straight from a route; may be
+ *        NaN, zero, negative, or a float.
+ * @param {number} total - how many rows the reader's own COUNT(*) returned.
+ * @returns {{ page: number, totalPages: number, offset: number }}
+ */
+function clampToPage(page, total) {
   const totalPages = Math.max(1, Math.ceil(total / GALLERY_PAGE_SIZE));
   let clampedPage = page;
   if (!Number.isInteger(clampedPage) || clampedPage < 1) {
@@ -187,7 +196,15 @@ function recentPage(taskFilter, page) {
   if (clampedPage > totalPages) {
     clampedPage = totalPages;
   }
-  const offset = (clampedPage - 1) * GALLERY_PAGE_SIZE;
+  return { page: clampedPage, totalPages, offset: (clampedPage - 1) * GALLERY_PAGE_SIZE };
+}
+
+function recentPage(taskFilter, page) {
+  const { sql: countSql, args: countArgs } = galleryQuery('count', taskFilter);
+  const totalRow = db.prepare(countSql).get(...countArgs);
+  const total = totalRow ? totalRow.n : 0;
+
+  const { page: clampedPage, totalPages, offset } = clampToPage(page, total);
 
   const { sql: pageSql, args: pageArgs } = galleryQuery(
     'page',
@@ -559,7 +576,14 @@ function grouped(kind, taskFilter, q) {
 // the caller already has the guest). LEFT JOIN (not JOIN): a memory row
 // (task_id IS NULL, issue #247) has no task to join, and must still appear on
 // the guest's public profile with task_title coming back NULL.
-const stmtGuestPhotos = db.prepare(`
+//
+// GUEST_PHOTOS_SELECT_BODY is the shared SELECT/FROM/JOIN body — the unpaged
+// stmtGuestPhotos below and the paged stmtGuestPhotosPage (issue #1004) both
+// build off this ONE constant rather than each hand-typing the same column
+// list, mirroring how GALLERY_SELECT_BODY (above) is reused verbatim by
+// PHOTO_DETAIL_SELECT: a second hand-copied SELECT would let a later column
+// addition edit one statement and silently miss the other.
+const GUEST_PHOTOS_SELECT_BODY = `
   SELECT s.id         AS submission_id,
          s.task_id    AS task_id,
          s.thumb_path AS thumb_path,
@@ -568,8 +592,19 @@ const stmtGuestPhotos = db.prepare(`
          s.created_at AS created_at,
          t.title      AS task_title
     FROM submissions s
-    LEFT JOIN tasks t ON t.id = s.task_id
-   WHERE s.guest_id = ? AND ${VISIBLE_WHERE}
+    LEFT JOIN tasks t ON t.id = s.task_id`;
+
+// The ONE row-set rule for a guest's profile photos. The count statement and
+// the paged statement below MUST cover the same rows or totalPages lies about
+// where the last page is — the profile would then offer a "Show more" link to
+// a page whose grid comes back empty, the exact state issue #1004's AC4 exists
+// to rule out. Naming the rule once is what makes that impossible to get wrong:
+// narrowing the profile's row set (excluding memories, say) edits this line and
+// both statements follow.
+const GUEST_PHOTOS_WHERE = `s.guest_id = ? AND ${VISIBLE_WHERE}`;
+
+const stmtGuestPhotos = db.prepare(`${GUEST_PHOTOS_SELECT_BODY}
+   WHERE ${GUEST_PHOTOS_WHERE}
    ${ORDER_NEWEST_FIRST}
 `);
 
@@ -580,6 +615,38 @@ const stmtGuestPhotos = db.prepare(`
  */
 function guestPhotos(guestId) {
   return stmtGuestPhotos.all(guestId);
+}
+
+const stmtGuestPhotosCount = db.prepare(`
+  SELECT COUNT(*) AS n
+    FROM submissions s
+   WHERE ${GUEST_PHOTOS_WHERE}
+`);
+
+const stmtGuestPhotosPage = db.prepare(`${GUEST_PHOTOS_SELECT_BODY}
+   WHERE ${GUEST_PHOTOS_WHERE}
+   ${ORDER_NEWEST_FIRST}
+   LIMIT ? OFFSET ?
+`);
+
+/**
+ * A page of one guest's visible submissions, newest-first (issue #1004).
+ *
+ * @param {number} guestId
+ * @param {number} page - 1-based page number, straight from the caller (may
+ *        be NaN, negative, zero, or a float); clampToPage owns the
+ *        floor-and-clamp, shared with recentPage.
+ * @returns {{ photos: object[], page: number, totalPages: number, total: number }}
+ */
+function guestPhotosPage(guestId, page) {
+  const totalRow = stmtGuestPhotosCount.get(guestId);
+  const total = totalRow ? totalRow.n : 0;
+
+  const { page: clampedPage, totalPages, offset } = clampToPage(page, total);
+
+  const photos = stmtGuestPhotosPage.all(guestId, GALLERY_PAGE_SIZE, offset);
+
+  return { photos, page: clampedPage, totalPages, total };
 }
 
 // SELECT for the photo detail query — reuses GALLERY_SELECT_BODY (same
@@ -963,7 +1030,13 @@ module.exports = {
   parseScope,
   scopeToken,
   grouped,
+  // guestPhotos has NO production caller since #1004 repointed GET /u/:guestId
+  // — it survives only for tests/feed.test.js's visibility assertion. Do not
+  // reach for it on a new surface (a keepsake export, a printable profile): it
+  // has no LIMIT, which is the unbounded read #1004 existed to remove.
+  // guestPhotosPage is the reader every caller wants.
   guestPhotos,
+  guestPhotosPage,
   detail,
   neighbors,
   newestVisibleSubmission,

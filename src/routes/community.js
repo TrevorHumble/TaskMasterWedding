@@ -1226,8 +1226,11 @@ router.get('/u/:guestId', (req, res) => {
   const badges = loadGuestBadges(guestId);
   const socialLinks = parseSocialLinks(profileGuest.social_links);
 
-  // Visible photos by this guest, newest first, with the task title.
-  const photos = feed.guestPhotos(guestId);
+  // Visible photos by this guest, newest first, with the task title — capped
+  // to GALLERY_PAGE_SIZE per page (issue #1004). Do NOT validate or clamp the
+  // page here: feed.guestPhotosPage owns the floor-and-clamp, exactly as
+  // GET /gallery already does with feed.recentPage above.
+  const { photos, page, totalPages } = feed.guestPhotosPage(guestId, parseInt(req.query.page, 10));
 
   res.render(
     'public-profile',
@@ -1237,6 +1240,8 @@ router.get('/u/:guestId', (req, res) => {
       badges,
       socialLinks,
       photos,
+      page,
+      totalPages,
       score,
       // The profile grid's own scope token (issue #952 PR review): every
       // photo tile here belongs to this ONE guest, so the token is resolved
