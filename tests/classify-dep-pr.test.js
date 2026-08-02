@@ -113,9 +113,17 @@ maybeDescribe('classify-dep-pr', () => {
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe('auto');
   });
+
+  // #1018: compression wraps every response the app produces (#1012) and is
+  // wedding-critical the same way the other names in $WeddingCritical are — held even on patch.
+  it('edge: npm / compression / patch / prod -> review, exit 0', () => {
+    const r = run('npm', 'compression', 'patch', 'prod');
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe('review');
+  });
 });
 
-// Drift-guard: tools/classify-dep-pr.ps1 is the single source of truth for the
+// Drift-guard: tools/classify-dep-pr-core.ps1 is the single source of truth for the
 // wedding-critical list. CLAUDE.md and .github/dependabot.yml must mirror it exactly.
 describe('wedding-critical drift guard', () => {
   // #448: the $WeddingCritical array literal lives in the dot-sourceable
@@ -144,9 +152,9 @@ describe('wedding-critical drift guard', () => {
     return names;
   }
 
-  it('script $WeddingCritical array is parseable and has six entries', () => {
+  it('script $WeddingCritical array is parseable and has seven entries', () => {
     const names = parseScriptNames();
-    expect(names).toHaveLength(6);
+    expect(names).toHaveLength(7);
   });
 
   // Parse the backtick-wrapped wedding-critical list from the CLAUDE.md line
@@ -184,9 +192,9 @@ describe('wedding-critical drift guard', () => {
     return names;
   }
 
-  it('dependabot.yml prod-deps exclude-patterns is parseable and has six entries', () => {
+  it('dependabot.yml prod-deps exclude-patterns is parseable and has seven entries', () => {
     const excludes = parseDependabotExcludes();
-    expect(excludes).toHaveLength(6);
+    expect(excludes).toHaveLength(7);
   });
 
   it('dependabot.yml prod-deps exclude-patterns matches $WeddingCritical exactly', () => {

@@ -12,7 +12,7 @@
 # Single source of truth: do not duplicate this list; CLAUDE.md mirrors it,
 # and .github/dependabot.yml's exclude-patterns mirrors it a second time
 # (both drift-guarded by tests/classify-dep-pr.test.js).
-$WeddingCritical = @('multer', 'sharp', 'ejs', 'better-sqlite3', 'bcryptjs', 'archiver')
+$WeddingCritical = @('multer', 'sharp', 'ejs', 'better-sqlite3', 'bcryptjs', 'archiver', 'compression')
 
 # Get-DepPrTier — classifies a single dependency bump into 'auto' or 'review'.
 # Precedence (evaluated top-down, first match wins):
