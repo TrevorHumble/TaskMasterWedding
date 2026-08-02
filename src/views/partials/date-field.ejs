@@ -1,0 +1,40 @@
+<%# src/views/partials/date-field.ejs — one labelled calendar field (issue #875).
+    A native <input type="date"> (every phone gets its own OS picker for free,
+    no widget to ship) wrapped in the same relative-container + absolutely
+    positioned icon-button idiom .pin-field/.pin-reveal already uses on
+    /me/edit. The button is rendered `hidden`; src/public/js/date-field.js
+    unhides it, so a scripts-off host keeps the browser's own indicator and
+    never sees a dead control.
+
+    Params: id, name, label, value; optional min; optional rangeRole
+    ('start' | 'end') which tags the input for the range wiring in
+    date-field.js. Kept a partial rather than markup repeated per field
+    because two fields already need it and any future consumer of this idiom
+    can adopt it too.
+
+    rangeRole is not a self-contained contract: date-field.js's wireRange()
+    also requires `data-date-range` on the ENCLOSING <form> and a
+    `[data-range-error]` element inside it for the inverted-pair message --
+    this partial renders neither. See src/views/admin-config.ejs's two
+    includes of this partial plus its own `<p class="form-error
+    date-range-error" role="alert" data-range-error hidden></p>` for the full
+    shape a caller must supply; passing rangeRole with either piece missing
+    gets no client-side range check at all and no warning (wireRange()
+    returns early when either is absent). %>
+<div class="form-row">
+  <label class="form-label" for="<%= id %>"><%= label %></label>
+  <div class="date-field">
+    <input class="form-input date-input" type="date" id="<%= id %>" name="<%= name %>"
+           value="<%= value %>"<% if (locals.min) { %> min="<%= min %>"<% } %><% if (locals.rangeRole === 'start') { %> data-range-start<% } else if (locals.rangeRole === 'end') { %> data-range-end<% } %>>
+    <%# aria-label, not a title tooltip: the label above names the field, this
+        names the action. Set here rather than in JS so the one copy of the
+        string lives with the markup it belongs to. %>
+    <button class="date-open" type="button" hidden aria-label="Open the calendar for <%= label %>">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="5" width="18" height="16" rx="2.5"></rect>
+        <path d="M3 10h18M8 3v4M16 3v4"></path>
+      </svg>
+    </button>
+  </div>
+</div>

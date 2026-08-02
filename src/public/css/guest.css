@@ -614,14 +614,22 @@ textarea {
   color: var(--color-text-muted);
   margin-top: var(--space-2);
 }
-/* ---- Re-entry code field (issue #243) ---- */
-.pin-field {
+/* ---- Icon-in-field controls: one rule set, every consumer.
+   Two so far — the PIN reveal eye on /me/edit (issue #243) and the calendar
+   button on the wedding-date fields (issue #875). Shared rather than copied
+   so the 48px well, the 10px inset, and the --color-primary glyph treatment
+   cannot drift apart one control at a time. A third consumer adds its two
+   class names to the selector lists below; it does not restate the block. ---- */
+.pin-field,
+.date-field {
   position: relative;
 }
-.pin-field .text-input {
-  padding-right: 48px; /* room for the reveal button */
+.pin-field .text-input,
+.date-field.js-date .date-input {
+  padding-right: 48px; /* room for the icon button */
 }
-.pin-reveal {
+.pin-reveal,
+.date-open {
   position: absolute;
   top: 50%;
   right: 10px;
@@ -634,6 +642,44 @@ textarea {
   background: none;
   color: var(--color-primary);
   cursor: pointer;
+}
+/* The display:flex above would beat the UA's plain [hidden] { display: none }
+   rule on engines that don't mark it !important (WebKit; pre-until-found
+   Firefox), so restate it here — same fix as .guest-card[hidden] in feed.css
+   and .rank-award-foot .btn[hidden] in admin.css. Without it, a page whose
+   scripts never ran would show the server-rendered `hidden` calendar button
+   as a VISIBLE dead control sitting next to the browser's own indicator: two
+   glyphs, one of them inert. Scoped to .date-open because .pin-reveal is
+   never rendered hidden. */
+.date-open[hidden] {
+  display: none !important;
+}
+/* Chrome/Edge draw a small indicator of their own at the far right of a
+   type="date" field; collapse it only once src/public/js/date-field.js has run
+   and put OUR button there for THAT field (the .js-date class it adds to the
+   field's own .date-field wrapper, once that field's own button is confirmed
+   working, is the gate — per field, not document-wide). With scripts off the
+   rule never applies, so the browser's own affordance is left intact rather
+   than removed with nothing put back — Safari on macOS draws none at all,
+   which is why the button is ours rather than a restyling of theirs.
+   Gates the 48px padding-right above too (that declaration's second
+   selector): with scripts off the native indicator sits at the field's
+   normal right edge, not 48px in from it, so the reserved well is only
+   claimed once something (our button) actually sits in it. */
+.date-field.js-date .date-input::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  width: 0;
+  padding: 0;
+  margin: 0;
+}
+/* The inverted-range message, directly under the "Wedding ends" field: its
+   margin-top (-12px, calc(-1 * --space-3)) is a LARGER negative than
+   .form-error's own (-8px, base.css). Collapsed against the preceding
+   .form-row's 24px margin-bottom (--space-5), that leaves a 12px gap above
+   this message versus the 16px .form-error's shallower negative margin would
+   leave — it pulls up MORE, not less. */
+.date-range-error {
+  margin: calc(-1 * var(--space-3)) 0 var(--space-5);
 }
 /* Batch-caption note (issue #364 AC7): hidden by default via the [hidden]
    attribute set server-side; memory-caption.js toggles it against the
