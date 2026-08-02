@@ -3786,3 +3786,48 @@ covers.
 **Why one shared module, not four copies of the fixed check.** All four backdrop-dismissing dialogs in the app (`task-edit-dialog`, `task-create-dialog`, `badge-picker`, `slideshow-dialog`) shared the identical bug because they shared the identical (wrong) one-line check, copy-pasted rather than owned in one place. `window.DialogDismiss.backdrop(dialogEl)` is now the single owner of "does this click really mean close the dialog," in the same single-`window.`-owner shape `src/public/js/badge-icon-mask.js` (#869) already established for a different cross-file concern. A future correction to the press/click-agreement rule now has exactly one call site to fix, not four.
 
 **Why `src/public/js/lightbox.js` and `recap.js`'s badge-celebration backdrop close were left alone.** Both use the same superficial shape (`event.target === el`) but neither holds user input a mis-drag could discard — `lightbox.js` is a photo viewer, and the celebration dialog's own close path deliberately interacts with `badge-moment.js`'s queue fast-forward. Folding either into the shared module would be a behavior change with no defect behind it, not a fix. The inline moderation-thread dialog handler in `src/views/admin-photos.ejs` was excluded for the identical reason (hidden fields and submit buttons only, nothing to lose). The guest-facing surface has the same defect class — `src/public/js/feed.js`'s comments dialog and `src/public/js/photo-owner-menu.js`'s caption dialog — but each serves many dialog instances per page through one delegated listener rather than one dialog element a caller can hand to `backdrop()` directly; that's issue #1041, which depends on this module rather than extending it here.
+
+## `guestPhotosPage`: a second paged reader beside `recentPage`, not a generalization of it (#1004)
+
+**Date:** 2026-08-02. **Status:** shipped.
+
+`/u/:guestId` rendered a guest's entire visible photo history in one response with no `LIMIT` — a
+profile carrying dozens of submissions built an unbounded page before it painted, on a surface every
+gallery grouping and leaderboard link points at. `src/services/feed.js`'s `recentPage` (`/gallery`'s
+own paged reader) already owns a floor-and-clamp block for exactly this shape of problem — a page
+argument from the route that may be `NaN`, zero, negative, or a float floors to page 1, and anything
+past the last page clamps down to it — so the fix mirrors that block into a new `guestPhotosPage(guestId,
+page)`, rather than reshaping `recentPage` to also take an optional guest id.
+
+The two readers are not the same query with one extra predicate: `recentPage`'s `galleryQuery` builds a
+gallery row (`guest_id`, `name`, an optional `task_id = ?` filter) for the everyone-wall and its by-task
+filter, while `guestPhotosPage` builds a profile row (no `guest_id`/`name` — the caller already has the
+one guest) with no task filter at all, always scoped by `guest_id = ?`. Threading a guest-scope option
+through `galleryQuery`/`recentPage` would have added a third WHERE shape and a third column list to a
+function that already carries two, for a caller (the profile) the owner scoped to its own surface at the
+phase-1 loop — no shared abstraction was requested, and none is taken speculatively here.
+
+What the two paged reads DO share is the clamp arithmetic, and that is owned in one place rather than
+duplicated: `clampToPage(page, total)` returns `{ page, totalPages, offset }` for both `recentPage` and
+`guestPhotosPage`. The first cut of this change hand-copied those nine lines and defended the copy as
+cheaper than a helper; both PR review and design-philosophy review landed on the same objection, and
+they were right — the copy meant a later correction to what an out-of-range page means (floor to 1
+versus clamp to the last page) could be applied to `/gallery` and missed on `/u/:guestId`, two surfaces
+a guest reaches from the same tile, with the divergence invisible until someone hand-typed a URL. The
+query shape is what differs between these readers; the clamp rule is not, so it gets one owner.
+
+The SQL is shared the same way, on the same reasoning. `GUEST_PHOTOS_SELECT_BODY` is the one place the
+profile's column list and `LEFT JOIN tasks` predicate live, and `GUEST_PHOTOS_WHERE` is the one place its
+row-set rule lives — both reused by the pre-existing unpaged `stmtGuestPhotos` and by the new
+`stmtGuestPhotosCount` / `stmtGuestPhotosPage` pair, mirroring what `GALLERY_SELECT_BODY` already models
+for `PHOTO_DETAIL_SELECT` and what `galleryQuery` already does for `recentPage`'s own count/page pair. The
+WHERE in particular has to be single-owner rather than merely tidy: the count statement decides
+`totalPages` and the page statement fills the grid, so if a later change narrows one and misses the other,
+the profile offers a "Show more" link to a page that comes back empty — precisely the state AC4 exists to
+rule out, and one every current test would miss, since they all seed a single uniform kind of row.
+
+`guestPhotos` itself is kept, exported, and now has no production caller: `src/routes/community.js` was its
+only one and is now repointed. It survives for `tests/feed.test.js`'s visibility assertion alone, and its
+export carries a comment saying so — an unbounded read left on the interface of the module whose job is to
+bound reads is a trap for the next surface that needs one guest's photos (a keepsake export, a printable
+profile), which would otherwise reach for the obvious name and reintroduce exactly what #1004 removed.
