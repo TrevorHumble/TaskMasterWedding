@@ -113,6 +113,7 @@ module.exports = {
   // takedown / restore (flag flip + auto-badge recount, atomic; files kept)
   hideSubmission: moderation.hideSubmission,
   restoreSubmission: moderation.restoreSubmission,
+  isTakenDown: moderation.isTakenDown,
   // the single owner of the "hidden by the owning guest" predicate (#886),
   // and its composed "is this row sticky" predicate —
   // callers use these instead of each re-deriving the conjunction.

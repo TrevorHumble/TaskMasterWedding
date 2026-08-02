@@ -31,6 +31,21 @@ const { ORIGINAL_RE, THUMB_RE } = require('./naming');
 // ---------------------------------------------------------------------------
 
 const _getSubmissionGuest = db.prepare('SELECT guest_id FROM submissions WHERE id = ?');
+const _getTakenDown = db.prepare('SELECT taken_down FROM submissions WHERE id = ?');
+
+/**
+ * Whether a submission is currently taken down, or undefined if no such
+ * submission exists. The one reader of taken_down's raw 1/0 encoding outside
+ * the flip transaction (issue #783) — a caller that needs to know whether an
+ * upcoming takedown/restore call would be a no-op asks here instead of
+ * re-deriving the column's encoding with its own SELECT.
+ * @param {number} submissionId
+ * @returns {boolean|undefined}
+ */
+function isTakenDown(submissionId) {
+  const row = _getTakenDown.get(submissionId);
+  return row ? row.taken_down === 1 : undefined;
+}
 // taken_down_by (issue #886) is written in the SAME statement as taken_down,
 // never a separate UPDATE — see the file-level "single writer" comment above:
 // the two columns flip together, in the same transaction, or not at all.
@@ -356,6 +371,7 @@ module.exports = {
   isStickyTakedown,
   hideSubmission,
   restoreSubmission,
+  isTakenDown,
   hardDelete,
   blockTakenDownOriginal,
   blockTakenDownThumb,

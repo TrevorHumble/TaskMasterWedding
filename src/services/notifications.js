@@ -67,7 +67,7 @@ const FETCH_LIMIT = PAGE_SIZE + 1;
 // it emits badge_granted/badge_revoked/badge_removed itself — the four
 // moderation kinds (photo_takedown/photo_restore/comment_hidden/
 // comment_restored) get their MAP entries here but are actually EMITTED by
-// #783, once that issue lands the moderation routes. #625 adds
+// #783's moderation routes (src/routes/admin/moderation.js). #625 adds
 // crowd_favorite/crowd_favorite_lost as a THIRD emitter of this same map —
 // see scoring.recordCrowdFavoriteChanges, called from the like-toggle route
 // and from photos.js's hideSubmission/restoreSubmission.
