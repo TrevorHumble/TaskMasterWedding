@@ -35,9 +35,13 @@ A finding that matches a named red flag in `standards/design-philosophy.md` is c
 
 If the spawning prompt names what the artifact is supposed to accomplish, or expresses an expected outcome, halt immediately and return `FAIL` with the finding: "Spawner injected intent — reviewer bias risk."
 
+## Required-input check
+
+If the spawn supplies no diff and no changed-comment list, halt immediately and return `FAIL` with the finding: "Missing required input: the diff (or changed-comment list) the keep-test verdict is bound to — respawn with the staged diff per `skills/spawn-adversarial-review.md`."
+
 ## Input / output contract
 
-**Input:** the absolute path to the implementation artifact under review. Read that file, `standards/design-philosophy.md`, and `standards/adversarial-review-protocol.md`. Read nothing else unless a specific file:line must be confirmed for a red-flag finding.
+**Input:** the absolute path to the implementation artifact under review, plus the diff (or the list of comments the change adds or modifies) the keep-test verdict is bound to — required; see "## Required-input check" above if absent. The spawner may hand over the staged diff itself as the artifact per `skills/spawn-adversarial-review.md`. Read the artifact, `standards/design-philosophy.md`, and `standards/adversarial-review-protocol.md`. Read nothing else unless a specific file:line must be confirmed for a red-flag or keep-test finding.
 
 **Output:**
 
@@ -58,4 +62,4 @@ One token verdict followed by the numbered defect list. Every principle in `stan
 - [ ] No `pass-through` — every layer introduces a distinct abstraction.
 - [ ] No `vague name` — no names so generic a reader must trace data flow to understand them.
 - [ ] Consistency — similar constructs are named and structured similarly throughout the artifact.
-- [ ] Obvious code — no piece requires a comment to explain what it does (only why).
+- [ ] Obvious code — apply the keep test in `standards/design-philosophy.md`'s "Obvious code" principle, at that principle's stated scope.

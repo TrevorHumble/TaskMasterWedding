@@ -25,6 +25,22 @@ Source: Ousterhout, _A Philosophy of Software Design_.
 
 **Obvious code** — a reader should understand what a piece of code does without consulting external context. If you need a comment to explain what it does (not why), redesign it.
 
+> The keep test below elaborates this one principle — it is detail, not additional principles each owed their own finding.
+>
+> A comment survives only if at least one prong holds; otherwise it is flagged:
+>
+> 1. **Why, not what** — it states a reason the code cannot express (why this order, why this constant, why the obvious alternative was rejected), in one or two lines.
+> 2. **Trap** — it warns of a change that would pass review and tests but break something non-obvious.
+> 3. **Pointer** — it is a one-line reference to where a full argument lives (`DESIGN.md`, an issue, an ADR), not the argument restated inline.
+>
+> Carve-out for house conventions: a machine-readable annotation a tool consumes (JSDoc's `@param`/`@returns`/`@throws`, a lint directive such as `eslint-disable-next-line`, a type annotation) and this repo's own module-header block (a path echo plus a one-line _what_ summary — the convention across `src/**`) are not judged against the three prongs above; stripping either breaks a tool or removes a navigation aid the prongs were never meant to reach. The keep test governs prose commentary, not tooling annotations or the house header convention.
+>
+> Severity is a ceiling, not a floor: a comment failing the keep test is minor; disposition follows `standards/adversarial-review-protocol.md` § "One-round stop rule" (cited, not restated here — that section owns what minor findings do). The ceiling is why the keep test extends this principle rather than being added as a red-flag table row: a named red flag carries this standard's never-downgrade-below-major rule, which would contradict a minor ceiling.
+>
+> Displaced rationale is moved, not deleted: a multi-paragraph comment block containing a real decision is moved to its proper home per the doc split (`DESIGN.md` for architecture decisions; the issue/ADR where it naturally lives otherwise), with a one-line pointer left behind — bare deletion of an unrecorded decision is itself a defect.
+>
+> Scope: the check applies to comments the diff under review adds or modifies, in any file including `tests/**`; it does not require sweeping pre-existing comments in untouched code.
+
 ---
 
 ## Review questions
