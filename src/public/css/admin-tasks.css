@@ -1504,6 +1504,16 @@ button.check-link {
 .recap-row-gold .recap-row-text strong {
   color: #b8912f;
 }
+/* The Couple's Heart row (issue #647): "Lilly loved your photo". Gold lives in
+   the ICON ONLY — the ring and the heart — and the row's text stays ordinary
+   ink, unlike .recap-row-gold above. Gold on a name is 2.95:1 on white, under
+   the WCAG AA 4.5:1 floor for text (owner, 2026-08-02, the same call that put
+   the feed tally's names in green); an icon only has to clear SC 1.4.11's 3:1,
+   which #b08a2b does at 3.22:1. */
+.recap-icon-love {
+  color: #b08a2b;
+  border-color: #d9bd76;
+}
 
 /* A notification whose subject no longer exists (a taken-down photo): shown,
    but inert — no cursor, no hover, nowhere to go (phase-1, issue #644). */

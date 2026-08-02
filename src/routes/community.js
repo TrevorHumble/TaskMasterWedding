@@ -302,7 +302,8 @@ function attachLikers(photos) {
       `SELECT l.submission_id AS submission_id,
               g.id            AS id,
               g.name          AS name,
-              g.avatar_path   AS avatar_path
+              g.avatar_path   AS avatar_path,
+              g.is_couple     AS is_couple
          FROM likes l
          JOIN guests g ON g.id = l.guest_id
         WHERE l.submission_id IN (${placeholders})
@@ -421,6 +422,44 @@ function crownRankState() {
   };
 }
 
+/**
+ * The Couple's-Heart lookup (issue #647): submission_id -> the names of the
+ * couple-flagged guests (guests.is_couple = 1) who liked that submission, in
+ * like order (ORDER BY l.created_at ASC, l.id ASC — oldest like first, so two
+ * names read in the order they landed, e.g. "Axel & Lilly" when Axel liked
+ * first). One grouped query, never a per-photo query — same shape
+ * attachLikers() above already uses. A name falls back to 'Guest' on an
+ * empty guests.name, matching the fallback the frozen src/views/feed.ejs
+ * already applies to the likers-dialog row (AC4), so the two surfaces can
+ * never disagree about the same person.
+ * @param {number[]} submissionIds
+ * @returns {Object<number, string[]>} submission_id -> [name, ...]
+ */
+function coupleLikersFor(submissionIds) {
+  const coupleLikers = {};
+  if (submissionIds.length === 0) {
+    return coupleLikers;
+  }
+  const placeholders = submissionIds.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT l.submission_id AS submission_id,
+              g.name          AS name
+         FROM likes l
+         JOIN guests g ON g.id = l.guest_id
+        WHERE g.is_couple = 1 AND l.submission_id IN (${placeholders})
+        ORDER BY l.created_at ASC, l.id ASC`
+    )
+    .all(...submissionIds);
+  for (const row of rows) {
+    if (!coupleLikers[row.submission_id]) {
+      coupleLikers[row.submission_id] = [];
+    }
+    coupleLikers[row.submission_id].push(row.name || 'Guest');
+  }
+  return coupleLikers;
+}
+
 // ---------------------------------------------------------------------------
 // GET /gallery  — the shared photo wall.
 //
@@ -483,6 +522,19 @@ function renderGallery(
       // One victoryRankBySubmission() query per request (issue #811 AC3),
       // covering every branch above the same way crownRankState() does.
       badgeVictory: taskBadges.victoryRankBySubmission(),
+      // Couple's-Heart lookup (issue #647), covering every branch above the
+      // same way crownRankState() does. BOTH id sources are read because
+      // `view` picks exactly one branch and the two populate different
+      // fields: the recent view fills the flat `photos` array and leaves
+      // `groups` empty, while ?view=task and ?view=user fill `groups` and
+      // call renderGallery with no `photos` at all. Whichever source this
+      // read omitted, the mark would silently vanish from the branch that
+      // uses it — one of the two id lists is always empty, never both.
+      coupleLikers: coupleLikersFor(
+        photos
+          .map((p) => p.submission_id)
+          .concat(groups.flatMap((g) => g.photos.map((p) => p.submission_id)))
+      ),
     })
   );
 }
@@ -664,6 +716,9 @@ router.get('/feed', (req, res) => {
       // One crowdFavorites() call per request (issue #788 AC1); crownGoldId
       // (issue #811 AC4) is folded out of that same call.
       ...crownRankState(),
+      // Couple's-Heart lookup (issue #647) — one grouped query over exactly
+      // the submission ids this bounded window renders.
+      coupleLikers: coupleLikersFor(photos.map((p) => p.submission_id)),
     })
   );
 });
@@ -1260,6 +1315,11 @@ router.get('/u/:guestId', (req, res) => {
       // medal /gallery already renders, per the SAME lookup GET /gallery
       // supplies to renderGallery above).
       badgeVictory: taskBadges.victoryRankBySubmission(),
+      // Couple's-Heart lookup (issue #647) — gallery-tile.ejs's own contract
+      // (partials/gallery-tile.ejs), same shared partial GET /gallery already
+      // feeds, so this profile grid can never disagree with the gallery about
+      // which photos wear the mark.
+      coupleLikers: coupleLikersFor(photos.map((p) => p.submission_id)),
     })
   );
 });

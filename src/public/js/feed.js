@@ -118,23 +118,58 @@
         if (!article) {
           return;
         }
-        var count = article.querySelector('.like-count');
-        if (count) {
-          count.textContent = String(data.likeCount);
-        }
         // The pluralized word lives in its own .likes-link-word span
         // (feed.ejs) rather than a bare text node, so it updates the same
-        // simple way the count span above does — no text-node splicing.
+        // simple way the count span below does — no text-node splicing.
         var likesLink = article.querySelector('.likes-link');
+        // Issue #647: on a photo a couple-flagged guest liked, the row reads
+        // "<names> and N other likes" and .like-count holds N — the OTHERS
+        // count, not the total the server just returned. data-couple-count
+        // (feed.ejs) publishes how many of the likes are the couple's so the
+        // subtraction happens here rather than the total being written into a
+        // span labelled "other". Absent on every ordinary photo, where the
+        // attribute reads null, coupleCount is 0, and shown === the total —
+        // the pre-#647 behavior, unchanged.
+        var coupleCount = likesLink ? Number(likesLink.getAttribute('data-couple-count')) || 0 : 0;
+        // Math.max(0, ...) is the floor that keeps the DEGRADED case sane, not
+        // decoration: data-couple-count is server-rendered once, so a couple
+        // member who unlikes their own photo from a loaded page sends the
+        // total to 0 while the attribute still reads 1 — a bare subtraction
+        // yields -1, which then renders "-1 other likes" AND unhides both
+        // tails at once (neither `=== 0` nor `> 0` holds for a negative).
+        // Clamped, that same window degrades to a merely stale count, which
+        // is the limitation this feature already accepts.
+        var shown = Math.max(0, data.likeCount - coupleCount);
+        var count = article.querySelector('.like-count');
+        if (count) {
+          count.textContent = String(shown);
+        }
         if (likesLink) {
-          var likesWord = data.likeCount === 1 ? 'like' : 'likes';
+          var likesWord = (coupleCount > 0 ? 'other like' : 'like') + (shown === 1 ? '' : 's');
           var word = likesLink.querySelector('.likes-link-word');
           if (word) {
             word.textContent = likesWord;
           }
+          // The two pre-rendered tails (feed.ejs): "and N other likes" once
+          // anyone else has liked it, "liked this" while the couple is the
+          // only liker. Toggling `hidden` keeps the TAILS' copy authored in
+          // one place (the view) rather than rebuilt here — the pluralized
+          // word above is the one string this file does re-derive, matching
+          // the like/likes duplication that predates #647.
+          var othersTail = likesLink.querySelector('.likes-link-others');
+          var soloTail = likesLink.querySelector('.likes-link-solo');
+          if (othersTail && soloTail) {
+            othersTail.hidden = shown === 0;
+            soloTail.hidden = shown > 0;
+          }
+          // The screen-reader label stays the TOTAL — "see who liked this"
+          // opens a list of every liker, the couple included.
           likesLink.setAttribute(
             'aria-label',
-            'See who liked this photo — ' + data.likeCount + ' ' + likesWord
+            'See who liked this photo — ' +
+              data.likeCount +
+              ' like' +
+              (data.likeCount === 1 ? '' : 's')
           );
         }
         var button = form.querySelector('.like-button');

@@ -61,6 +61,7 @@ migrationsSubmissions.ensureResubmittedColumn(db);
 migrationsSubmissions.ensureTakenDownByColumn(db);
 migrationsGuests.ensureAvatarPointAwardedRetired(db);
 migrationsGuests.ensureRecapCheckedAtColumn(db);
+migrationsGuests.ensureIsCoupleColumn(db);
 migrationsOps.ensureBugReportStatusColumn(db);
 migrationsOps.ensureSettingsTable(db);
 
@@ -99,6 +100,7 @@ module.exports = {
   ensureAvatarPointAwardedRetired: () => migrationsGuests.ensureAvatarPointAwardedRetired(db),
   ensureGuestBadgeCelebratedAtColumn: () => migrationsBadges.ensureGuestBadgeCelebratedAtColumn(db),
   ensureRecapCheckedAtColumn: () => migrationsGuests.ensureRecapCheckedAtColumn(db),
+  ensureIsCoupleColumn: () => migrationsGuests.ensureIsCoupleColumn(db),
   ensureBugReportStatusColumn: () => migrationsOps.ensureBugReportStatusColumn(db),
   openBugCount: () => bugReports.openBugCount(db),
   ensureSettingsTable: () => migrationsOps.ensureSettingsTable(db),

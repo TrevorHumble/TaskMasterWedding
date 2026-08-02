@@ -17,6 +17,15 @@
       to null when a caller omits it, matching crownRank's own guard idiom. %>
   <% var crownGoldId = (typeof crownGoldId !== 'undefined') ? crownGoldId : null; %>
 
+  <%# Couple's-Heart lookup (issue #647): submission_id -> the names of the
+      couple-flagged guests (guests.is_couple = 1) who liked that photo, in
+      one grouped attach by the route — never a per-photo query. Same optional
+      lookup shape crownRank above already uses, and the SAME lookup
+      partials/gallery-tile.ejs takes, so the feed card and a gallery tile can
+      never disagree about which photos wear the mark. Defaults to an empty
+      lookup when a caller omits it, so the mark simply matches nothing. %>
+  <% var coupleLikers = (typeof coupleLikers !== 'undefined' && coupleLikers) ? coupleLikers : {}; %>
+
   <%# Scoped-feed back-link frame (issue #952 AC5): community.js's GET /feed
       supplies backHref/backLabel/setLabel/isScoped only for a valid ?scope=
       — isScoped false and the other three null on every other request
@@ -81,6 +90,9 @@
          // so slicing the tail here needs no extra query.
          var commentTotal = p.comments.length;
          var commentPreview = p.comments.slice(-4);
+         // Issue #647: the couple-flagged guests who liked this photo, in
+         // like order. Empty for the overwhelming majority of photos.
+         var coupleNames = coupleLikers[p.submission_id] || [];
     %>
       <article id="photo-<%= p.submission_id %>" class="feed-item">
         <div class="feed-by">
@@ -123,6 +135,9 @@
                   gold: crownGoldId !== null && p.submission_id === crownGoldId
                 }) %>
           <% } %>
+          <% if (coupleNames.length) { %>
+            <%- include('partials/couple-heart-mark', { names: coupleNames }) %>
+          <% } %>
         </a>
 
         <% if (p.caption) { %>
@@ -151,12 +166,30 @@
                 <span> (not a bare text node) so src/public/js/feed.js can
                 update it directly on toggle instead of a text-node splice;
                 the aria-label mirrors the same count for a screen reader. %>
+            <%# Issue #647 (owner direction 2026-08-02): when a couple-flagged
+                guest liked this photo, their name leads the tally in gold and
+                the rest reads "and N other likes" — the couple's attention is
+                the reward, so it is what the row says first. A photo with no
+                couple-like renders exactly the markup #890 already shipped.
+
+                data-couple-count is what lets src/public/js/feed.js keep this
+                row honest on a live toggle: the server's like-toggle response
+                carries only { liked, likeCount }, a TOTAL, but .like-count on
+                this branch shows OTHERS. Without the couple's own share
+                published here, feed.js would write the total into a span
+                labelled "other likes" and overcount by one per couple-liker.
+                The couple's names never change on a toggle, so only the
+                number and the word need re-rendering — which is why the two
+                tails below are pre-rendered and toggled by `hidden` rather
+                than rebuilt in JS from a second copy of this copy. %>
+            <% var otherLikes = p.like_count - coupleNames.length; %>
             <button
               type="button"
               class="likes-link"
               data-open-likes="<%= p.submission_id %>"
+              <% if (coupleNames.length) { %>data-couple-count="<%= coupleNames.length %>"<% } %>
               aria-label="See who liked this photo — <%= p.like_count %> like<%= p.like_count === 1 ? '' : 's' %>"
-            ><span class="like-count"><%= p.like_count %></span> <span class="likes-link-word">like<%= p.like_count === 1 ? '' : 's' %></span></button>
+            ><% if (coupleNames.length) { %><span class="couple-likers"><%= coupleNames.join(' & ') %></span><span class="likes-link-others"<%= otherLikes > 0 ? '' : ' hidden' %>> and <span class="like-count"><%= otherLikes %></span> <span class="likes-link-word">other like<%= otherLikes === 1 ? '' : 's' %></span></span><span class="likes-link-solo"<%= otherLikes > 0 ? ' hidden' : '' %>> liked this</span><% } else { %><span class="like-count"><%= p.like_count %></span> <span class="likes-link-word">like<%= p.like_count === 1 ? '' : 's' %></span><% } %></button>
 
             <button
               type="button"
@@ -261,6 +294,11 @@
                   <span class="likes-row-avatar" aria-hidden="true"><%= initials(liker.name) || '?' %></span>
                 <% } %>
                 <span class="likes-row-name"><%= liker.name || 'Guest' %></span>
+                <% if (liker.is_couple) { %>
+                  <%# Issue #647: the couple's own row wears the mark, so the
+                      gold heart on the photo has a name behind it. %>
+                  <%- include('partials/couple-heart-mark', { names: [liker.name || 'Guest'] }) %>
+                <% } %>
               </a>
             <% }); %>
           </div>

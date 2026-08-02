@@ -19,7 +19,9 @@
 
     A top-5 crowd-favorite photo wears its crown, top-left (issue #788); a
     photo holding a released task-badge rank wears its victory medal,
-    bottom-left (issue #811/#893) — both marks are OPTIONAL lookups, so a
+    bottom-left (issue #811/#893); a photo Lilly or Axel liked wears the
+    Couple's Heart, top-right (issue #647) — all three marks are OPTIONAL
+    lookups, so a
     caller that omits one (guest-home's bare "My Photos" tiles) gets a plain
     tile rather than a throw, the same guard idiom every lookup below uses.
     overlayCount/overlayHref (issue #251) are the grouped-preview "+N" scrim
@@ -45,6 +47,11 @@
                    Defaults to null (no gold treatment).
       badgeVictory (optional) — submission_id -> { rank, badge } map (issue
                    #811/#893). Defaults to {} (the medal matches nothing).
+      coupleLikers (optional) — submission_id -> the names of the
+                   couple-flagged guests who liked that photo (issue #647).
+                   Defaults to {} (the gold heart matches nothing). The SAME
+                   lookup src/views/feed.ejs takes, so a tile and the feed
+                   card for the same photo can never disagree about the mark.
       overlayCount (optional) — truthy renders the "+N" scrim instead of the
                    medal, and repoints the tile at overlayHref / "See all
                    photos in this section" instead of its own href/aria-label.
@@ -53,6 +60,7 @@
                    scrim links. %>
 <% var crownRank = (typeof crownRank !== 'undefined' && crownRank) ? crownRank : {}; %>
 <% var crownGoldId = (typeof crownGoldId !== 'undefined') ? crownGoldId : null; %>
+<% var coupleLikers = (typeof coupleLikers !== 'undefined' && coupleLikers) ? coupleLikers : {}; %>
 <% var badgeVictory = (typeof badgeVictory !== 'undefined' && badgeVictory) ? badgeVictory : {}; %>
 <% var overlayCount = (typeof overlayCount !== 'undefined') ? overlayCount : 0; %>
 <% var scopeToken = (typeof scopeToken !== 'undefined' && scopeToken) ? scopeToken : null; %>
@@ -77,6 +85,9 @@
             rank: crownRank[id],
             gold: crownGoldId !== null && id === crownGoldId
           }) %>
+    <% } %>
+    <% if (!overlayCount && coupleLikers[id] && coupleLikers[id].length) { %>
+      <%- include('couple-heart-mark', { names: coupleLikers[id] }) %>
     <% } %>
     <% if (overlayCount) { %>
       <span class="tile-more">+<%= overlayCount %></span>

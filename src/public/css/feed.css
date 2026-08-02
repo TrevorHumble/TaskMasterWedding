@@ -382,12 +382,21 @@ body.dialog-scroll-lock {
   outline-offset: 2px;
 }
 /* The open panel floats over the card (not in normal flow) so opening the
-   menu never shoves the photo below it. A tight two-row list. */
+   menu never shoves the photo below it. A tight two-row list.
+
+   z-index 3, not 2: the marks a photo wears (.cf-crown, .couple-heart,
+   .tile-victory) all sit at 2 and all live LATER in the card's DOM than this
+   menu, so at an equal z-index the paint order tiebreak puts them on top and
+   a corner mark punches a hole through the open panel (observed on the
+   top-right Couple's Heart, issue #647; the top-left crown had the same
+   latent bug and only escaped it by sitting away from where this panel
+   opens). The menu is transient and interactive — it outranks every ambient
+   mark, so it wins explicitly here rather than by DOM accident. */
 .photo-owner-menu[open] .photo-owner-menu-panel {
   position: absolute;
   top: 100%;
   right: 0;
-  z-index: 2;
+  z-index: 3;
   margin: 2px 0 0;
   padding: var(--space-2) 0;
   min-width: 9rem;
@@ -1237,6 +1246,19 @@ body.dialog-scroll-lock {
   min-height: 44px;
   font-size: var(--fs-small);
   color: var(--color-text-muted);
+}
+/* The couple checkbox's two-line label (issue #647): "The couple" on the first
+   line in the same treatment the pin label above uses, and what it actually
+   does — "likes show gold" — quieter underneath, so the row states the effect
+   without the label wrapping into an unreadable second uppercase line. */
+.guest-couple-label {
+  display: flex;
+  flex-direction: column;
+}
+.guest-couple-hint {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: normal;
+  text-transform: none;
 }
 .guest-name-form input[type='checkbox'] {
   flex: none;
