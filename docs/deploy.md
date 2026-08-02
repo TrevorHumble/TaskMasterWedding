@@ -148,6 +148,8 @@ TLS terminates at the reverse proxy; the app itself keeps serving plain HTTP on 
 
 Caddy and nginx are not drop-in equivalents here, in three ways. First, body size: Caddy ships with no default body-size cap, so the block below needs nothing extra; nginx compiles in a 1 MB `client_max_body_size`, so its block below sets that explicitly — skip it and nginx returns a bare `413` on any normal phone photo before the app ever sees the request. Second, forwarded headers: Caddy sets `X-Forwarded-For`/`-Proto`/`-Host` by default, nginx sends none of them — its block below adds them explicitly. Third, timeouts: nginx cuts a request body or an upstream response off at 60s by default; Caddy imposes neither, so its block needs nothing there either. Pick Caddy and there is nothing to add; pick nginx and the directives below are load-bearing, not optional tuning.
 
+The app already compresses its own responses (issue #1012, `src/app.js`) — negotiated per request to brotli or gzip depending on what the client sends, and skipped for response types that gain nothing from it (an uploaded photo, a thumbnail, the keepsake ZIP export) — so neither block below needs an `encode`/`gzip` directive added; both proxies skip compressing a response that already carries `Content-Encoding`, so adding one would be redundant configuration, not a second layer of savings.
+
 **Caddy** (provisions and renews certificates automatically):
 
 ```

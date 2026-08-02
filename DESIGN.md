@@ -2673,8 +2673,11 @@ tags — binding the two files together the same way a foreign key would, withou
 other.
 
 **Deliberately not in scope.** The data file (~106 KB at #903 merge time; it grows with the catalog) loads on every `/admin/tasks` view
-with no lazy-load or compression; this is a one-host admin page, not a hundred-guest surface, so the payload
-cost is accepted rather than engineered around. The tag map has no guest-facing consumer.
+with no lazy-load; this is a one-host admin page, not a hundred-guest surface, so the payload cost of
+loading it whole is accepted rather than engineered around. (It is, however, compressed like every other
+response since #1012 — 115,455 B → 26,435 B, 77% smaller on the wire at the brotli quality 6 this app
+actually serves — so the un-lazy-loaded weight this paragraph accepts is post-compression, not the raw
+figure above.) The tag map has no guest-facing consumer.
 
 ## Badge queue: the #644 render-time drip becomes a client-driven continue-through celebration (#902)
 
@@ -3559,3 +3562,138 @@ with an inline `charAt(0)` rather than the shared `initials()` helper. No count 
 purpose: a numeral in this sentence is falsified by the next surface added or folded in, and the file
 list is the part worth keeping true. These are pre-existing, out of #1011's scope, and left as the
 remaining known duplicates, not a defect this issue introduces.
+
+## response compression: app-level, brotli+gzip negotiated, not the reverse proxy — and the accepted BREACH tradeoff (#1012)
+
+**Date:** 2026-08-02. **Status:** shipped.
+
+**Where the numbers come from.** Every byte count in this ADR was measured against the seeded `extreme`
+story (`scripts/seed-story.js`'s `STORIES.extreme`) on node 24.16.0, at the commit this ADR landed in.
+Rendered-page figures move whenever the markup does — rebasing this change onto #1011's guest-avatar
+work shifted `/gallery?view=user` from 159,226 to 158,758 identity bytes, 0.3%, without moving its
+saving off 95%. Treat the ratios as the durable claim and the absolute byte counts as a snapshot; the
+acceptance criteria in #1012 assert relative savings for exactly that reason, and `tests/compression.test.js`
+is what actually holds the floor over time.
+
+The server sent every response uncompressed — measured against the seeded `extreme` preview story
+(60 guests, 327 visible photos), `/admin/photos` shipped 2,342,583 bytes where gzip level 6 would have
+sent 66,147 (97% smaller), and `/gallery?view=user` shipped 159,346 where gzip would have sent 9,723
+(94% smaller). Modelled at 1 Mbps (a congested venue access point), that is the admin Photos wall taking
+~18.7s to arrive instead of ~0.5s. This is the cheapest available move on Goal A ("fast under the whole
+party at once") — it costs 0.66-6.45 ms of server CPU per response (`zlib.gzipSync` level 6, 20-iteration
+mean) and helps every page, not one screen. These figures, from the issue's own pre-change measurement,
+describe the size of the problem and are labelled gzip because that is what was measured; they are **not**
+what production serves — see the next section.
+
+**What actually ships is negotiated brotli/gzip, not gzip.** `compression` 1.8.1 prefers brotli over gzip
+whenever the running node has brotli support (`node_modules/compression/index.js:37,44-45`,
+`'createBrotliCompress' in zlib`) — true on every node version this repo targets (`package.json`'s
+`engines.node` is `>=20`; brotli support landed in Node 11.7). A real browser's
+`Accept-Encoding: gzip, deflate, br, zstd` therefore negotiates to `Content-Encoding: br`, not `gzip`. The
+library's own brotli default is `BROTLI_PARAM_QUALITY` 4 (`index.js:65`), which is a size **regression**
+against the gzip level 6 the issue measured against on this app's own terse text assets:
+
+| File                    | gzip level 6 | brotli quality 4 |
+| ----------------------- | ------------ | ---------------- |
+| `css/base.css`          | 14,955 B     | 15,597 B (+4.3%) |
+| `js/badge-icon-tags.js` | 27,481 B     | 28,176 B (+2.5%) |
+
+Shipping the library default would have made a real guest's browser measurably _slower_ than every figure
+in this ADR and the issue it came from. `src/app.js` section 3b now sets brotli quality explicitly instead
+of taking the default, chosen from a full measurement across four representative payloads (a large
+seeded-`extreme` list page, `/login` as a small page, `css/base.css`, `js/badge-icon-tags.js`), size and
+mean compress time (20 iterations, matching the issue's own gzip methodology) at every brotli quality
+level 4-11 against the gzip level 6 baseline:
+
+| Level     | gallery (159,226 B raw) | login (2,982 B raw) | base.css (50,782 B raw) | badge-icon-tags.js (115,455 B raw) |
+| --------- | ----------------------- | ------------------- | ----------------------- | ---------------------------------- |
+| gzip 6    | 9,718 B / 0.680 ms      | 1,227 B / 0.059 ms  | 14,955 B / 0.718 ms     | 27,481 B / 1.540 ms                |
+| brotli 4  | 9,142 B / 0.844 ms      | 1,137 B / 0.182 ms  | 15,597 B / 0.657 ms     | 28,176 B / 1.040 ms                |
+| brotli 5  | 7,858 B / 1.346 ms      | 1,039 B / 0.401 ms  | 14,544 B / 1.056 ms     | 26,677 B / 1.833 ms                |
+| brotli 6  | 7,771 B / 1.796 ms      | 1,034 B / 0.777 ms  | 14,418 B / 1.700 ms     | 26,435 B / 2.334 ms                |
+| brotli 7  | 7,691 B / 3.700 ms      | 1,039 B / 1.821 ms  | 14,365 B / 4.045 ms     | 26,307 B / 5.055 ms                |
+| brotli 8  | 7,588 B / 4.028 ms      | 1,039 B / 1.307 ms  | 14,303 B / 4.716 ms     | 26,203 B / 6.132 ms                |
+| brotli 9  | 7,469 B / 5.863 ms      | 1,034 B / 1.398 ms  | 14,283 B / 8.370 ms     | 26,101 B / 8.819 ms                |
+| brotli 10 | 6,851 B / 28.741 ms     | 934 B / 1.456 ms    | 13,196 B / 14.767 ms    | 24,224 B / 34.565 ms               |
+| brotli 11 | 6,562 B / 166.398 ms    | 912 B / 2.738 ms    | 12,844 B / 40.017 ms    | 23,567 B / 92.195 ms               |
+
+**Quality 6 was chosen — over quality 5, not over the whole range.** Quality 4, the library default,
+regresses two of the four files against gzip 6, as the table above shows; that is what rules it out.
+**Quality 5 is the lowest that beats gzip 6 on every file**, so the choice was between 5 and 6, and 6 wins
+by 0.5-1.1% on size for 1.3-1.9x the compression time (gallery 1.796 ms vs 1.346 ms; base.css 1.700 vs
+1.056). Both sit under 2.4 ms — the same order of cost as the gzip-6 baseline this change already judged
+cheap enough to pay on every response — so the margin was spent on bytes. Against gzip 6 itself, quality 6
+saves 3.6-20% (base.css 3.6%, badge-icon-tags.js 3.8%, login 15.7%, gallery 20.0%).
+
+**If server CPU ever becomes the binding constraint under real party load, quality 5 is the move**, not a
+retreat to the library default: it gives back ~1% of the size for ~30% of the compression time. Going the
+other way is the bad trade — quality 9 buys 0-3.9% more at 1.8-4.9x the CPU, and quality 10-11 buy
+8.4-15.6% at 1.9-92.6x (166 ms for one 159 KB page at quality 11), a curve that works directly against
+Goal A's "fast under the whole party at once" once a hundred phones are generating concurrent requests.
+
+Quality 6 is set via
+`compression({ brotli: { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 6 } } })` in `src/app.js`, not the
+library default.
+
+**Known, unreached edge: a `Range` request for a compressible static asset.** `compression` has no
+206 guard — its filter checks `no-transform`, the size threshold, an already-set `Content-Encoding`,
+and `HEAD`, but never `res.statusCode`. So `GET /css/base.css` with both `Range: bytes=0-4999` and a
+browser `Accept-Encoding` comes back `206` with `Content-Range: bytes 0-4999/50782` _and_
+`Content-Encoding: br` over a 1,938-byte body — a range describing the identity representation
+wrapped around a compressed one. Left as-is rather than fixed: closing it means supplying a custom
+`filter`, which is exactly the hand-rolled replacement this ADR argues against, and nothing reaches
+it. The assets browsers range-request are media; this app serves none, and its two large
+downloadables — uploaded JPEGs and the `application/zip` keepsake export — are excluded by the
+`compressible` table before negotiation runs. If a future change adds a range-served text asset, the
+fix is `filter: (req, res) => res.statusCode !== 206 && compression.filter(req, res)`.
+
+**Placement: `app.use(compression(...))` in `src/app.js`, not a directive in the reverse-proxy config.**
+`docs/deploy.md`'s nginx/Caddy blocks are hand-copied by whoever stands up a host and are not
+version-controlled in this repo — nginx ships `gzip off` by default and Caddy v2 does not enable `encode`
+unless asked, so a proxy-level fix would need to be re-applied, correctly, on every future host (Docker,
+the event laptop, and prod) with no test ever catching a host that forgot it. An `app.use` inside the
+module this repo owns and tests (`src/app.js`) is the only placement guaranteed present everywhere the
+app runs. It sits ahead of the static mounts and every router (`src/app.js`, section 3b) so both static
+assets and rendered HTML pass through it, using `compression`'s own default filter (the `compressible`
+table) rather than a hand-rolled one — that table is what makes an uploaded `image/jpeg`, a thumbnail, and
+the `application/zip` keepsake export (`src/services/export.js:292`) pass through unencoded (no server
+CPU wasted recompressing already-incompressible bytes). The table also marks `image/svg+xml` compressible,
+but that is only half the gate: `compression`'s 1 KB default `threshold` is a second filter neither this
+note nor the original issue mentioned, and only 28 of the 365 bundled badge glyphs under `src/public/`
+exceed it (largest: `completionist.svg`, 2,655 B) — measured directly against the running app, a request
+for a small glyph like `/badges/icons/star.svg` (379 B) returns 200 with no `Content-Encoding` at all. Most
+badge SVGs ship uncompressed, correctly, because compressing a response under ~1 KB costs more in HTTP
+framing overhead than it saves.
+
+**BREACH: considered, accepted for this event, follow-up filed as #1013.** Compressing a response that
+carries a stable secret alongside attacker-influenced reflected input is the textbook BREACH
+precondition, and both halves are present here: `src/middleware/csrf.js` issues one token per session,
+not per response (its own comment at `:216` — "a returning guest/admin keeps the SAME token for their
+whole session"), and the `q` search parameter is reflected into the rendered page at
+`src/views/gallery.ejs:34` and `src/views/admin-photos.ejs:69`. Exploiting it needs an on-path attacker
+who can observe TLS record sizes for one guest's connection AND induce that guest's browser into many
+hundreds of cross-origin requests carrying attacker-chosen `q` values; the payoff is that one guest's CSRF
+token, usable to forge an upload or a like as them for the duration of one wedding weekend. Weighed
+against a measured 16-35x transfer-time reduction for every guest on every page all night (the gzip-6
+figures above; brotli quality 6, what actually ships, measured equal-or-better on every sampled file, so
+this is a floor, not an overstatement), the exposure is accepted rather than engineered around here. The
+standard mitigation (per-response token masking) is filed as #1013 instead of folded into this change,
+because it edits security-critical comparison logic in `csrf.js` and earns its own review rather than
+riding along on a middleware addition.
+
+`tests/compression.test.js` covers five of the six acceptance criteria directly: a >= 80% saving floor on
+`/gallery?view=user` seeded at `extreme` scale (measured 93.9% at merge time — the ordinary one-guest
+`seed()` fixture only clears 68%, which is why the test seeds the full story instead), a >= 40% floor on
+`/css/base.css` (measured 70.6%), an unencoded plain request, an unencoded uploaded photo, an
+unencoded-but-still-readable ZIP export, and — added in this fix pass — that a real browser's multi-value
+`Accept-Encoding: gzip, deflate, br, zstd` negotiates to `Content-Encoding: br` and round-trips back to the
+identity body. AC6 ("green: `npm test`, `npm run lint`, `npm run format:check` all exit 0") is a CI gate on
+the whole repo, not a property the test file asserts about itself; no test file can meaningfully cover it.
+
+**Two things this change hands forward.** First, it is not true in production until it deploys — the
+evidence that opened #1012 was a live `curl` of `lillyandaxel.com/login` returning no `Content-Encoding`,
+so the same curl re-run after deploy (expecting `Content-Encoding: br`) is what actually closes it, not
+the merge. Second, `compression` is now a prod dependency in front of every response but sits on none of
+the three wedding-critical mirrors, so a Dependabot bump to it would classify `auto` — the tier that needs
+no separate review. That is #1018, an owner-approved frozen-surface change rather than a parking-issue
+line, because the owner authorised editing the frozen tiering machinery on 2026-08-02.
