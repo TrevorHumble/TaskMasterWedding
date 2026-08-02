@@ -22,6 +22,7 @@
 'use strict';
 
 const { db } = require('../db');
+const { nameMatchesQuery } = require('../public/js/filter');
 
 // How many gallery thumbnails to load per "page" (used for pagination links).
 // Moved here from community.js — the feed owns pagination sizing because it
@@ -486,9 +487,10 @@ function feedWindow(fromId, scope) {
  * @param {'task'|'user'} kind
  * @param {number|null} taskFilter
  * @param {string} [q] - optional search text. Blank/absent means no filter.
- *        Groups whose heading does not contain q (case-insensitive substring)
- *        are dropped entirely. (The no-JS fallback for the client-side
- *        person search, which does word-prefix matching in the browser.)
+ *        Groups whose heading doesn't match q under nameMatchesQuery
+ *        (case-insensitive, any-word prefix — src/public/js/filter.js) are
+ *        dropped entirely. Same rule the live client-side filter uses, one
+ *        shared module (issue #935).
  * @returns {Array<{ heading: string, photos: object[], total: number,
  *          task_id?: number, guest_id?: number, avatar_path?: string|null,
  *          pinned?: boolean }>}
@@ -549,11 +551,7 @@ function grouped(kind, taskFilter, q) {
     group.photos.push(row);
   }
 
-  const needle = typeof q === 'string' ? q.trim().toLowerCase() : '';
-  if (needle !== '') {
-    return groups.filter((g) => g.heading.toLowerCase().includes(needle));
-  }
-  return groups;
+  return groups.filter((g) => nameMatchesQuery(g.heading, q));
 }
 
 // One guest's visible submissions, newest first, with the task title.

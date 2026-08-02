@@ -5,14 +5,13 @@
 // SAME wiring, parameterized by input id and section attribute, so they can
 // never drift into two behaviors behind one control again.
 //
-// Matching is the app's one client-side filter rule,
-// HuntFilter.nameMatchesQuery in /js/filter.js (case-insensitive, any-word
-// prefix: "pri" matches "Priya Patel", "dessert" matches "Photograph the
-// dessert table"), shared with the admin guest search. The form each input
-// lives in still submits ?q= server-side — that is the no-JS fallback, owned
-// by feed.grouped() in src/services/feed.js, and it is a SUBSTRING match: a
-// different rule from this one, and neither is strictly broader. "av fe"
-// matches live but not server-side; "ess" matches server-side but not live.
+// Matching is the gallery's one filter rule, HuntFilter.nameMatchesQuery in
+// /js/filter.js (case-insensitive, any-word prefix: "pri" matches "Priya
+// Patel", "dessert" matches "Photograph the dessert table"), shared with the
+// admin guest search. The form each input lives in still submits ?q=
+// server-side as the no-JS fallback — feed.grouped() in
+// src/services/feed.js requires this same module and applies the same rule
+// (issue #935), so the no-JS result matches what the guest already saw live.
 'use strict';
 
 // The two grouped views, as (input id, section attribute) pairs — the single

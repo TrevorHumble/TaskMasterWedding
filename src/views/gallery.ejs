@@ -19,11 +19,12 @@
   </nav>
 
   <% if (view === 'task' || view === 'user') { %>
-    <%# The GET form is the no-JS fallback (server-side substring filter).
-        In BOTH grouped views the same input is also the LIVE filter (issue
-        #527): /js/gallery.js listens on #person-search / #task-search and
-        hides non-matching [data-person-section] / [data-task-section]
-        sections as the guest types. One control, one behavior. %>
+    <%# The GET form is the no-JS fallback (server-side any-word-prefix
+        filter, same rule as the live filter — issue #935). In BOTH grouped
+        views the same input is also the LIVE filter (issue #527):
+        /js/gallery.js listens on #person-search / #task-search and hides
+        non-matching [data-person-section] / [data-task-section] sections as
+        the guest types. One control, one behavior. %>
     <form class="gallery-search" method="get">
       <input type="hidden" name="view" value="<%= view %>">
       <input
