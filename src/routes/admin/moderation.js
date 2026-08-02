@@ -7,6 +7,7 @@ const { db } = require('../../db');
 const photos = require('../../services/photos');
 const favoritesSvc = require('../../services/favorites');
 const feed = require('../../services/feed');
+const notifications = require('../../services/notifications');
 const { redirectWithMsg, renderNotFound } = require('./shared');
 
 const router = express.Router();
@@ -120,6 +121,26 @@ function groupPhotos(list, keyFn, headingFn, avatarFn) {
   return order.map((key) => byKey.get(key));
 }
 
+// The ONE predicate for "is this comment currently hidden" (issue #783) —
+// both a raw comments row (attachAdminComments) and the joined
+// comments+submissions row (moderateComment) carry taken_down in the same
+// 1/0 encoding, so both ask here instead of two independent-looking
+// comparisons that a reader has to confirm are equivalent.
+function commentHidden(row) {
+  return row.taken_down === 1;
+}
+
+// The ONE owner of "is this submission a memory rather than a task photo"
+// (issue #783). scopeKey, taskLine, and the By-task group heading used to
+// test this independently — scopeKey checked p.task_id == null; taskLine and
+// the heading checked p.task_title falsiness — so a task with a blank title
+// diverged: grouped under its task id but headed/labelled "Memories."
+// Unified on the title check (taskLine's original predicate: any falsy
+// title, including an empty string, means "no task").
+function isMemory(p) {
+  return !p.task_title;
+}
+
 // The ONE owner of "which section does this photo belong to" (issue #953).
 // Before this helper, section membership was computed twice: once
 // here in the route (as the grouping key below) and once more, independently,
@@ -136,7 +157,7 @@ function groupPhotos(list, keyFn, headingFn, avatarFn) {
 // only scoping when VIEW was 'user' or 'task'.
 function scopeKey(p, view) {
   if (view === 'user') return 'g' + p.guest_id;
-  if (view === 'task') return p.task_id == null ? 'memory' : 't' + p.task_id;
+  if (view === 'task') return isMemory(p) ? 'memory' : 't' + p.task_id;
   return null;
 }
 
@@ -159,7 +180,7 @@ function guestLabel(p) {
 // including an empty string, not just null/undefined — as "a shared
 // memory," so a photo never renders with an empty quoted title.
 function taskLine(p) {
-  return p.task_title ? 'for “' + p.task_title + '”' : 'a shared memory';
+  return isMemory(p) ? 'a shared memory' : 'for “' + p.task_title + '”';
 }
 
 // The ONE owner of the scope note's label text (issue #953). Before
@@ -182,7 +203,7 @@ function scopeLabel(p, view) {
 // community.js:attachComments, which is private to that file, filters to
 // visible-only (c.taken_down = 0), and is keyed on submission_id rather than
 // this route's `id` alias. One grouped query (not one per photo). Oldest-first
-// (mirrors community.js:228's ORDER BY) so the view's `_cmts.slice(-2)` surfaces
+// (mirrors community.js:263's ORDER BY) so the view's `_cmts.slice(-2)` surfaces
 // the 2 MOST-recent comments, not the 2 oldest. `guest_id`/`name` are carried
 // raw so the view links the author to /u/<id> with the same 'Guest' fallback as
 // the guest feed.
@@ -212,7 +233,7 @@ function attachAdminComments(photoRows) {
       guest_id: row.guest_id,
       name: row.name,
       body: row.body,
-      hidden: Boolean(row.taken_down),
+      hidden: commentHidden(row),
     });
   }
   for (const p of photoRows) {
@@ -291,8 +312,9 @@ router.get('/photos', (req, res) => {
   for (const p of photoRows) {
     p._fav = favIds.has(p.id);
     // The single scope-membership computation (issue #953) — see
-    // scopeKey's own comment. Stamped on every row (null/'' for the unscoped
-    // recent/fav views) so the feed template can render it as
+    // scopeKey's own comment. Stamped on every row (null for the unscoped
+    // recent/fav views — the template normalizes null to '' itself) so the
+    // feed template can render it as
     // data-scope-key without re-deriving the rule itself. p._scope_label
     // (see scopeLabel's own comment, same issue) rides alongside it so the
     // scope note's text is stamped here too, not decoded back out of
@@ -333,7 +355,7 @@ router.get('/photos', (req, res) => {
     const keyFn = (p) => scopeKey(p, view);
     groups =
       view === 'task'
-        ? groupPhotos(livePhotos, keyFn, (p) => p.task_title || 'Memories')
+        ? groupPhotos(livePhotos, keyFn, (p) => (isMemory(p) ? 'Memories' : p.task_title))
         : groupPhotos(livePhotos, keyFn, guestLabel, (p) => p.guest_avatar_path);
     if (q !== '') {
       const needle = q.toLowerCase();
@@ -364,35 +386,53 @@ router.get('/photos', (req, res) => {
   });
 });
 
-// POST /admin/photos/:id/takedown  — hide a photo. photos.hideSubmission is the
-// single writer of taken_down for moderation: it flips the flag and recomputes
-// the guest's auto-badges in one transaction, so a hidden photo can never keep
-// counting toward points or auto-badges even for an instant. Reachable from
-// the give-a-badge dialog's moderate control (issue #259 AC7). Passes 'admin'
-// explicitly (issue #886) — a host takedown is always attributed to 'admin',
-// never left to the default, so this route reads the same regardless of
-// whether hideSubmission's default ever changes.
-router.post('/photos/:id/takedown', (req, res) => {
+// The ONE writer of a photo-moderation POST (issue #783) — takedown and
+// restore differ only in which service function flips the flag, the emitted
+// recap kind, and the redirect message. Mirrors moderateComment below for the
+// identical lookup/guard/emit/redirect shape.
+function moderatePhoto(req, res, { hidden, flip, kind, msg }) {
   const id = parseInt(req.params.id, 10);
-  const guestId = photos.hideSubmission(id, 'admin');
+  const wasTakenDown = photos.isTakenDown(id);
+  const guestId = flip(id);
   if (guestId === undefined) {
     return redirectToPhotos(req, res, 'Submission not found.', id);
   }
-  redirectToPhotos(req, res, 'Photo taken down.', id);
-});
+  if (wasTakenDown !== hidden) {
+    notifications.recordEvent(guestId, kind, { submissionId: id });
+  }
+  redirectToPhotos(req, res, msg, id);
+}
+
+// POST /admin/photos/:id/takedown  — hide a photo. photos.hideSubmission is
+// the single writer of taken_down for moderation: it flips the flag and
+// recomputes the guest's auto-badges in one transaction, so a hidden photo
+// can never keep counting toward points or auto-badges even for an instant.
+// Reachable from the give-a-badge dialog's moderate control (issue #259
+// AC7). Passes 'admin' explicitly (issue #886) — a host takedown is always
+// attributed to 'admin', never left to the default, so this route reads the
+// same regardless of whether hideSubmission's default ever changes. See
+// moderatePhoto above for the shared lookup/guard/emit/redirect shape.
+router.post('/photos/:id/takedown', (req, res) =>
+  moderatePhoto(req, res, {
+    hidden: true,
+    flip: (id) => photos.hideSubmission(id, 'admin'),
+    kind: 'photo_takedown',
+    msg: 'Photo taken down.',
+  })
+);
 
 // POST /admin/photos/:id/restore  — unhide a photo. photos.restoreSubmission
 // flips the flag and recomputes the guest's auto-badges in one transaction —
 // see the takedown route above. Reachable from the same give-a-badge dialog
 // control (issue #259 AC7).
-router.post('/photos/:id/restore', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const guestId = photos.restoreSubmission(id);
-  if (guestId === undefined) {
-    return redirectToPhotos(req, res, 'Submission not found.', id);
-  }
-  redirectToPhotos(req, res, 'Photo restored.', id);
-});
+router.post('/photos/:id/restore', (req, res) =>
+  moderatePhoto(req, res, {
+    hidden: false,
+    flip: (id) => photos.restoreSubmission(id),
+    kind: 'photo_restore',
+    msg: 'Photo restored.',
+  })
+);
 
 // POST /admin/photos/:id/favorite  — toggle the host-scoped favorite flag on
 // a photo (issue #259 AC4). Reachable from a tile's heart or the inline
@@ -438,7 +478,36 @@ router.post('/photos/:id/points', renderNotFound);
 // ---------------------------------------------------------------------------
 router.get('/comments', renderNotFound);
 
-// POST /admin/comments/:id/hide  — hide a comment (taken_down = 1).
+// The ONE writer of a comment-moderation POST (issue #783) — hide and
+// restore differ only in the target flag value, the emitted recap kind, and
+// the redirect message; every other line (the lookup, the guard, the
+// prior-value comparison, the redirect) was hand-typed twice before this.
+function moderateComment(req, res, { hidden, kind, msg }) {
+  const id = parseInt(req.params.id, 10);
+  const comment = db
+    .prepare(
+      `SELECT c.id AS id, c.submission_id AS submission_id, c.taken_down AS taken_down,
+              s.guest_id AS photo_guest_id
+         FROM comments c
+         JOIN submissions s ON s.id = c.submission_id
+        WHERE c.id = ?`
+    )
+    .get(id);
+  if (!comment) {
+    return redirectToPhotos(req, res, 'Comment not found.');
+  }
+  const wasHidden = commentHidden(comment);
+  db.prepare('UPDATE comments SET taken_down = ? WHERE id = ?').run(hidden ? 1 : 0, id);
+  if (wasHidden !== hidden) {
+    notifications.recordEvent(comment.photo_guest_id, kind, {
+      submissionId: comment.submission_id,
+    });
+  }
+  redirectToPhotos(req, res, msg, comment.submission_id);
+}
+
+// POST /admin/comments/:id/hide  — hide a comment (taken_down = 1). See
+// moderateComment above for the shared lookup/guard/emit/redirect shape.
 //
 // Comment moderation uses "hide", not the "takedown" verb the photo routes
 // use, because the two actions are not the same operation. A photo takedown
@@ -447,31 +516,13 @@ router.get('/comments', renderNotFound);
 // count toward points or badges. A comment carries no score and no badge, so
 // hiding one is lighter, text-only moderation — a plain taken_down flag flip
 // with no scoring side effect. The different verb marks the different weight.
-//
-// Redirects via redirectToPhotos (issue #684), not the removed /admin/comments
-// page: reads back the comment's own submission_id so the host lands on the
-// photos feed at that photo's card (#feed-photo-<id>) when the form's hidden
-// panel field is "feed" — never a dead page.
-router.post('/comments/:id/hide', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const comment = db.prepare('SELECT id, submission_id FROM comments WHERE id = ?').get(id);
-  if (!comment) {
-    return redirectToPhotos(req, res, 'Comment not found.');
-  }
-  db.prepare('UPDATE comments SET taken_down = 1 WHERE id = ?').run(id);
-  redirectToPhotos(req, res, 'Comment hidden.', comment.submission_id);
-});
+router.post('/comments/:id/hide', (req, res) =>
+  moderateComment(req, res, { hidden: true, kind: 'comment_hidden', msg: 'Comment hidden.' })
+);
 
 // POST /admin/comments/:id/restore  — restore a hidden comment (taken_down = 0).
-// Same redirect-to-the-feed-card shape as hide, above (issue #684).
-router.post('/comments/:id/restore', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const comment = db.prepare('SELECT id, submission_id FROM comments WHERE id = ?').get(id);
-  if (!comment) {
-    return redirectToPhotos(req, res, 'Comment not found.');
-  }
-  db.prepare('UPDATE comments SET taken_down = 0 WHERE id = ?').run(id);
-  redirectToPhotos(req, res, 'Comment restored.', comment.submission_id);
-});
+router.post('/comments/:id/restore', (req, res) =>
+  moderateComment(req, res, { hidden: false, kind: 'comment_restored', msg: 'Comment restored.' })
+);
 
 module.exports = router;

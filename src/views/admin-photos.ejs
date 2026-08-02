@@ -7,7 +7,7 @@
   // Issue #259 — full guest-gallery parity, wired to real data. This
   // transcribes the owner-approved phase-1 prototype (visual loop,
   // 2026-07-19): same classes/markup shape, real server-side view/search
-  // (GET /admin/photos ?view=/?q=, src/routes/admin.js), real favorite state
+  // (GET /admin/photos ?view=/?q=, src/routes/admin/moderation.js), real favorite state
   // (src/services/favorites.js), real moderation. The five-code give-a-badge
   // picker (src/services/photo-badges.js,
   // badge_winners) is RETIRED (issue #661's one-badge-system consolidation) —
@@ -231,11 +231,11 @@
     <% photos.forEach(function (p) { %>
       <%# data-scope-key (issue #953): the inline-feed scope filter below
           keys on this to constrain the feed to the tile's own person/task
-          section. src/routes/admin.js's scopeKey() is the single owner of
+          section. src/routes/admin/moderation.js's scopeKey() is the single owner of
           the value — 'g<guest_id>' / 't<task_id>' / 'memory' / '' — so this
           template renders it rather than re-deriving it from separate
           guest/task ids. data-scope-label (issue #953) is the matching note text
-          for that key, src/routes/admin.js's scopeLabel() — the script reads
+          for that key, src/routes/admin/moderation.js's scopeLabel() — the script reads
           this off the opened card instead of decoding scopeKey()'s grammar
           itself. %>
       <article id="feed-photo-<%= p.id %>" class="feed-item admin-feed-item<%= p.taken_down ? ' is-down' : '' %>" data-scope-key="<%= p._scope_key || '' %>" data-scope-label="<%= p._scope_label || '' %>">
@@ -336,7 +336,7 @@
 
             <%# Real guest like count (issue #953 — phase 2 of the #259 gallery-
                 parity mock). p.like_count comes straight off the route's
-                photosSelect (a COUNT over the likes table, src/routes/admin.js),
+                photosSelect (a COUNT over the likes table, src/routes/admin/moderation.js),
                 so the host judges a photo by the same number guests see. Same
                 inner span shape as the guest feed's own likes-link
                 (src/views/feed.ejs) — byte-identical for a given count. No
@@ -353,7 +353,7 @@
           <span class="points-count"><%= p.photo_bonus %> <%= p.photo_bonus === 1 ? 'point' : 'points' %></span>
         </div>
 
-        <%# p._task_line (issue #953): src/routes/admin.js's taskLine()
+        <%# p._task_line (issue #953): src/routes/admin/moderation.js's taskLine()
             is the single owner of this text — the same value scopeLabel()
             uses for the task-axis scope note — rendered here instead of
             re-derived from p.task_title/p.task_id. %>
@@ -364,7 +364,7 @@
             on a separate Comments page. A live comment carries a quiet Hide; a
             hidden one stays visible to the host, struck-through, with Restore.
             Guests never see a hidden comment. Real data, attached by GET
-            /admin/photos (src/routes/admin.js) — oldest-first, so slice(-2)
+            /admin/photos (src/routes/admin/moderation.js) — oldest-first, so slice(-2)
             below surfaces the 2 most recent. Posts to the existing
             /admin/comments/:id/hide|restore handlers, which now redirect
             back to this feed card, never the removed Comments page. %>
@@ -426,7 +426,7 @@
   (function () {
     // ------- Grid <-> Feed toggle -------
     // View/search are real navigation now (server-rendered per ?view=/?q=,
-    // src/routes/admin.js); only the inline feed needs client-side show/hide,
+    // src/routes/admin/moderation.js); only the inline feed needs client-side show/hide,
     // since it is not a separate route (issue #259's Touches list).
     var chrome = document.querySelectorAll('[data-gallery-chrome]');
     var feedPanel = document.querySelector('[data-view-panel="feed"]');
@@ -455,7 +455,7 @@
     // server-side (issue #194, sibling #952) do not apply here, and a round
     // trip per section-open would only slow moderation down.
     //
-    // Each card's data-scope-key comes straight off src/routes/admin.js's
+    // Each card's data-scope-key comes straight off src/routes/admin/moderation.js's
     // scopeKey() (empty string for an unscoped view) — this script reads it
     // rather than re-deriving 'which section' from a view axis switch, so
     // the route stays the single owner of that rule (issue #953). data-scope-label
@@ -481,7 +481,7 @@
         var trig = cards[i].querySelector('.js-lightbox');
         if (trig) trig.setAttribute('data-lightbox-group', match ? FEED_LIGHTBOX_GROUP : 'scoped-out');
         if (match && scope && !label) {
-          // src/routes/admin.js's scopeLabel() already computed this card's
+          // src/routes/admin/moderation.js's scopeLabel() already computed this card's
           // note text (issue #953) — read it straight off the attribute instead
           // of decoding scopeKey()'s grammar back out of it here.
           label = cards[i].getAttribute('data-scope-label');
@@ -530,7 +530,7 @@
 
     // A favorite/badge/moderation action posted from inside the feed carries
     // panel=feed, so the server's redirect lands back here with
-    // #feed-photo-<id> (src/routes/admin.js's redirectToPhotos) — reopen the
+    // #feed-photo-<id> (src/routes/admin/moderation.js's redirectToPhotos) — reopen the
     // feed at that card instead of showing the grid on reload.
     (function () {
       var m = /^#feed-photo-(\d+)$/.exec(window.location.hash);
