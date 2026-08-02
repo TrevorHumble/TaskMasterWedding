@@ -1,4 +1,4 @@
-/* src/public/css/theme.css */
+/* src/public/css/base.css */
 
 /* ===========================================================
    Lilly & Axel · Wedding Master
@@ -820,8 +820,19 @@ p {
    would lose the cascade to them and the modal badge would shrink to 60px.
    Scoping raises specificity so the modal owns its own art/title, and nothing
    here leaks back onto the grids. */
+/* Capped and split into a scrolling body + a pinned foot (issue #927), the
+   same shape every sibling dialog already uses (.comments-dialog 72dvh,
+   .slideshow-dialog 72dvh, .badge-picker-dialog 88dvh, .task-dialog 90dvh).
+   Before this the shell carried `overflow: hidden` with NO max-height, which
+   overrode the UA's own `dialog { overflow: auto }` — so on a phone held in
+   landscape the 436px-tall dialog simply ran off a 318px screen and took the
+   Continue button (this dialog's ONLY exit control) with it. showModal()
+   makes the page behind inert and a phone has no Escape key, so the guest
+   was trapped in the whole app until they force-reloaded. */
 .badge-dialog {
   width: min(360px, 100vw - 32px);
+  max-height: 90vh; /* vh fallback for engines without dvh */
+  max-height: 90dvh;
   margin: auto;
   padding: 0;
   border: var(--border-hairline);
@@ -829,10 +840,14 @@ p {
   box-shadow: var(--shadow-raise);
   background: var(--white);
   color: var(--color-text);
-  overflow: hidden;
 }
+/* Scoped to [open] so the UA's dialog:not([open]) { display: none } keeps
+   winning while the dialog is closed — same guard .comments-dialog[open]
+   carries. Column flex is what lets .badge-card take the leftover height and
+   scroll while .badge-foot stays pinned. */
 .badge-dialog[open] {
-  display: block;
+  display: flex;
+  flex-direction: column;
 }
 /* badge-moment.js moves focus to the dialog itself (tabindex=-1) on open so
    the auto-focus ring never lands on the Continue button; the container needs
@@ -844,9 +859,38 @@ p {
   background: rgba(20, 30, 24, 0.55);
 }
 
+/* The scrolling body. `min-height: 0` is what actually lets a flex item
+   shrink below its content and scroll — without it the card would keep its
+   full content height and push the foot back off the screen, re-creating the
+   bug. (Measured at 398x318 in the phase-1 loop: 383px of card content in a
+   212px box. The 436px figure above is the whole dialog before the fix, when
+   the card still held the button — two different boxes, so do not reconcile
+   the numbers into one.)
+   overflow-x is hidden, never auto: the glow ring animates to ~289px and the
+   badge pop overshoots the 190px stage BY DESIGN, and a horizontal scroll
+   strip under a celebration would be noise. This is also where the shell's
+   old `overflow: hidden` clip now lives. NEVER move the clip down onto
+   .badge-stage — that would crop the ring and pop mid-animation. */
 .badge-dialog .badge-card {
-  padding: 32px 28px 28px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 32px 28px 20px;
   text-align: center;
+}
+
+/* The pinned foot: Continue never scrolls out of reach, however short the
+   screen or however tall the celebration. Same hairline-divider treatment as
+   .slideshow-dialog-foot, and the button goes full-width because it is the
+   only control in the strip. */
+.badge-dialog .badge-foot {
+  flex: 0 0 auto;
+  padding: 14px 28px;
+  border-top: var(--border-hairline);
+}
+.badge-dialog .badge-foot .btn {
+  width: 100%;
 }
 
 /* 1 — Eyebrow. Type comes from the shared .eyebrow class (serif, tracked,

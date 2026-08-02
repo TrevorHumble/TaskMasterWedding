@@ -72,6 +72,14 @@ function pageMarkup(queueItems) {
     '<div class="badge-stage"><span class="badge-sway">' +
     '<img class="badge-art" src="/badges/head.svg" alt="" /></span></div>' +
     '<p class="badge-sub">Head description.</p>' +
+    '</div>' +
+    // Issue #927 AC8: .badge-continue sits in a .badge-foot SIBLING of
+    // .badge-card, mirroring header.ejs's real markup — not a descendant of
+    // the card (which the fixture hand-built before this fix). Every
+    // .badge-continue lookup in badge-moment.js/recap.js queries the DIALOG,
+    // never the card, so this move is drift-correction only: it changes
+    // nothing about which tests below can pass or fail.
+    '<div class="badge-foot">' +
     '<button type="button" class="btn badge-continue">Continue</button>' +
     '</div>' +
     '</dialog>' +

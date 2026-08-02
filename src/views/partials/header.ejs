@@ -199,6 +199,14 @@
         </span>
       </div>
       <p class="badge-sub"><%= _moment ? _moment.description : '' %></p>
+    </div>
+    <%# Continue lives OUTSIDE .badge-card, in a pinned foot (issue #927): the
+        card is the dialog's scrolling body, so a button inside it scrolls out
+        of reach on a short screen — and this is the dialog's only exit
+        control. Every .badge-continue lookup in
+        src/public/js/badge-moment.js and src/public/js/recap.js queries the
+        DIALOG, not the card, so the move needs no script change. %>
+    <div class="badge-foot">
       <button type="button" class="btn badge-continue">Continue</button>
     </div>
   </dialog>
