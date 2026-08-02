@@ -37,3 +37,17 @@ services:
       - ./data:/app/data
       - ./backups:/app/backups
     restart: unless-stopped
+    # Cap docker logs growth (#1023): request logging (#1019) writes to
+    # stdout, and stdout is what `docker logs` / `docker compose logs`
+    # captures. Without a logging: key here, Docker's default json-file
+    # driver keeps that output uncapped for the life of the container -- a
+    # standing disk claim nothing accounts for once request logging is on
+    # for the event. 20m x 5 files caps this container's log footprint at
+    # 20 MB x 5 = 100 MB; see docs/deploy.md's "## Logs" section and its
+    # "The disk budget." paragraph under "## Scheduled backups" (the host
+    # commonly runs two instances, so budget for this cap twice).
+    logging:
+      driver: json-file
+      options:
+        max-size: '20m'
+        max-file: '5'
