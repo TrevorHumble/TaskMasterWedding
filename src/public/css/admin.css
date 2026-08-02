@@ -1534,3 +1534,11 @@
   background: rgba(16, 24, 20, 0.96);
   overflow: hidden;
 }
+
+/* Prizes hint on the Configuration page (#469). Size/color/top-margin come
+   from the shared .field-hint rule (guest.css); only the deltas live here:
+   zero the paragraph's default bottom margin and tighten the line height. */
+.config-prizes-hint {
+  margin-bottom: 0;
+  line-height: var(--lh-snug);
+}

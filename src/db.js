@@ -104,6 +104,12 @@ module.exports = {
   ensureSettingsTable: () => migrationsOps.ensureSettingsTable(db),
   getEventConfig: () => eventConfig.getEventConfig(db),
   setEventConfig: (cfg) => eventConfig.setEventConfig(db, cfg),
+  getPrizes: () => eventConfig.getPrizes(db),
+  setPrizes: (text) => eventConfig.setPrizes(db, text),
+  // Pure string/constant, no db handle needed — re-exported as-is rather than
+  // wrapped in a closure like the db-bound functions above.
+  normalizePrizes: eventConfig.normalizePrizes,
+  PRIZES_MAX_LENGTH: eventConfig.PRIZES_MAX_LENGTH,
   getGuestByToken: (token) => guestLookups.getGuestByToken(db, token),
   getGuestById: (guestId) => guestLookups.getGuestById(db, guestId),
   getGuestByContact: (contact) => guestLookups.getGuestByContact(db, contact),
