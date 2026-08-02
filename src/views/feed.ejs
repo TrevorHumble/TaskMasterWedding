@@ -84,7 +84,10 @@
     %>
       <article id="photo-<%= p.submission_id %>" class="feed-item">
         <div class="feed-by">
-          <a href="/u/<%= p.guest_id %>"><%= p.guest_name || 'Guest' %></a>
+          <a class="feed-by-who" href="/u/<%= p.guest_id %>">
+            <%- include('partials/guest-avatar', { avatarPath: p.guest_avatar_path, name: p.guest_name || 'Guest', size: 'sm' }) %>
+            <span class="feed-by-name"><%= p.guest_name || 'Guest' %></span>
+          </a>
           <%- include('partials/photo-owner-menu', { guest: guest, photo: p, captionMaxLength: captionMaxLength }) %>
         </div>
 

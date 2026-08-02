@@ -1,0 +1,43 @@
+<%# src/views/partials/guest-avatar.ejs — the single round guest avatar every
+    surface that labels photos with a person's name renders: the Shared
+    Gallery's By-person section head, the guest feed card header, and the
+    admin Photos page's equivalents. Before this partial the same
+    "photo-if-set, initials-if-not, clipped to a circle" markup was hand-copied
+    per surface, and only two of the four ever showed the real photo — the
+    divergence this closes off.
+
+    The initials fallback derives from the shared app.locals.initials helper
+    (src/utils/initials.js), never an inline one-liner, so every surface agrees
+    on what "AF" means for a given name.
+
+    Locals:
+      avatarPath (required, nullable) — guests.avatar_path, the stored filename
+                 only (rendered as /uploads/<avatarPath>). Null/empty renders
+                 the initials fallback instead of a broken <img>.
+      name       (required, nullable) — the guest's display name, used for the
+                 initials fallback. A nameless guest falls back to "?".
+      size       (optional) — 'md' (default, 34px: a section head) or
+                 'sm' (28px: a feed card header, where the name line is
+                 smaller). Any other value falls back to 'md'.
+
+    Decorative by design: alt="" on the image and aria-hidden on the initials.
+    Every call site renders the guest's name as real text immediately beside
+    this, so announcing it here would make a screen reader say the name twice.
+
+    loading="lazy" applies only to the 'sm' (feed-card) variant — a feed can
+    render dozens of cards below the fold. The 'md' (section-head) variant
+    sits in the first viewport (Shared Gallery / admin By-person heads), so it
+    loads eagerly like the rest of that first paint. %>
+<% var _size = (typeof size !== 'undefined' && size === 'sm') ? 'sm' : 'md'; %>
+<% var _px = _size === 'sm' ? 28 : 34; %>
+<span class="guest-avatar guest-avatar--<%= _size %>">
+  <% if (avatarPath) { %>
+    <%# The lazy attribute is emitted by a scriptlet branch, deliberately not
+        by an escaping output tag: an escaped output tag turns the attribute's
+        quotes into &#34; entities, which parse as a junk value and silently
+        disable lazy loading rather than failing loudly. %>
+    <img src="/uploads/<%= avatarPath %>" alt="" width="<%= _px %>" height="<%= _px %>"<% if (_size === 'sm') { %> loading="lazy"<% } %> decoding="async" />
+  <% } else { %>
+    <span aria-hidden="true"><%= initials(name) || '?' %></span>
+  <% } %>
+</span>

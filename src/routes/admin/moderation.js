@@ -96,13 +96,23 @@ const VALID_PHOTO_VIEWS = new Set(['recent', 'task', 'user', 'fav']);
 // caps each group at 6 preview tiles for the guest gallery; the admin wall
 // intentionally shows every photo in a group, uncapped, so a host can act on
 // any of them).
-function groupPhotos(list, keyFn, headingFn) {
+//
+// `avatarFn` (optional, issue #1011) mirrors feed.js's grouped() stamping
+// `group.avatar_path` from the partition's first (newest) row: when passed,
+// each group is stamped with `avatar_path = avatarFn(<that group's first
+// row>)` once, at group creation, the same "compute it from the first row
+// you see" rule grouped() already uses — not re-read per photo. Omitted
+// entirely for the By-task grouping, which has no single guest to show an
+// avatar for.
+function groupPhotos(list, keyFn, headingFn, avatarFn) {
   const byKey = new Map();
   const order = [];
   for (const p of list) {
     const key = keyFn(p);
     if (!byKey.has(key)) {
-      byKey.set(key, { heading: headingFn(p), photos: [] });
+      const group = { heading: headingFn(p), photos: [] };
+      if (avatarFn) group.avatar_path = avatarFn(p);
+      byKey.set(key, group);
       order.push(key);
     }
     byKey.get(key).photos.push(p);
@@ -257,6 +267,7 @@ router.get('/photos', (req, res) => {
               s.created_at   AS created_at,
               g.id           AS guest_id,
               g.name         AS guest_name,
+              g.avatar_path  AS guest_avatar_path,
               t.title        AS task_title,
               ${feed.LIKE_COUNT_COLUMN}
          FROM submissions s
@@ -323,7 +334,7 @@ router.get('/photos', (req, res) => {
     groups =
       view === 'task'
         ? groupPhotos(livePhotos, keyFn, (p) => p.task_title || 'Memories')
-        : groupPhotos(livePhotos, keyFn, guestLabel);
+        : groupPhotos(livePhotos, keyFn, guestLabel, (p) => p.guest_avatar_path);
     if (q !== '') {
       const needle = q.toLowerCase();
       groups = groups.filter((g) => g.heading.toLowerCase().includes(needle));
