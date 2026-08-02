@@ -4,8 +4,10 @@
 // All config reads below use the canonical UPPER_SNAKE_CASE keys from config.js.
 
 const fs = require('fs');
+const zlib = require('zlib');
 const express = require('express');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 
 const config = require('../config');
 const photos = require('./services/photos');
@@ -205,6 +207,69 @@ app.use((req, res, next) => {
   res.locals.isStag = config.VARIANT === 'stag';
   next();
 });
+
+// ---------------------------------------------------------------------------
+// 3b. response compression (issue #1012). Placed ahead of the static mounts
+//     (section 4) and every router (section 6) so both static assets and
+//     rendered HTML pass through it — measured 65-95% smaller on real
+//     responses (the small /login page through the big gallery list page
+//     against the seeded `extreme` story), which is the cheapest available
+//     move on Goal A ("fast under the whole party at once" on venue wifi).
+//     The default filter (the `compressible` table `compression` depends
+//     on) is per-MIME-type, not a blanket binary/text split: it returns
+//     false for image/jpeg, image/png, and application/zip (so an uploaded
+//     photo, a thumbnail, and the keepsake export never pay a recompression
+//     cost for zero gain) but true for
+//     image/svg+xml (markup, not raster) — though most of the 365 bundled
+//     badge glyphs are under the library's 1 KB default threshold and ship
+//     uncompressed regardless; only the handful over that size (largest:
+//     completionist.svg, 2,655 B) actually get compressed. Do not replace this with a
+//     hand-rolled filter — the table is already right for every response
+//     shape this app serves.
+//
+//     `compression` 1.8.1 prefers brotli over gzip whenever the running
+//     node has brotli support (`'createBrotliCompress' in zlib` — true on
+//     every node version this repo targets), which is what a real browser's
+//     `Accept-Encoding: gzip, deflate, br, zstd` negotiates to. Its own
+//     brotli default is BROTLI_PARAM_QUALITY 4, which on this app's own
+//     assets compresses WORSE than gzip level 6 (base.css: gzip6 14,955 B
+//     vs brotli-q4 15,597 B; badge-icon-tags.js: gzip6 27,481 B vs brotli-q4
+//     28,176 B) — shipping the library default would have made every real
+//     guest's browser slower than the gzip figures this issue measured.
+//     Quality 6 is set explicitly below instead: measured across a large
+//     list page, a small page, base.css, and badge-icon-tags.js, quality 6
+//     beats gzip level 6 on every one of those four files (3.6-20% smaller)
+//     while costing under 2.4ms of server CPU per response even on the
+//     115 KB js file — full measurement table in DESIGN.md's #1012 ADR.
+//     The real choice was 6 vs 5, not 6 vs the whole range: quality 5 also
+//     beats gzip 6 everywhere, and 6 buys 0.5-1.1% more for 1.3-1.9x the
+//     time. Going the other way is the bad trade — quality 9 adds 0-3.9%
+//     at 1.8-4.9x, and 10-11 add 8.4-15.6% at 1.9-92.6x — which works
+//     against Goal A's "whole party at once" under concurrent load. If CPU
+//     ever binds under real load, drop to 5; do not fall back to the
+//     library default. See the ADR for the level-by-level table.
+//
+//     BREACH considered and accepted for this event, not mitigated here:
+//     compressing a response that reflects attacker-influenced input
+//     (gallery.ejs's `q` search param) alongside a stable per-session secret
+//     (src/middleware/csrf.js's token) is the textbook precondition. Exploit
+//     cost (an on-path attacker driving hundreds of cross-origin requests at
+//     one guest to leak their CSRF token) is judged not worth trading away
+//     the transfer-time win for every guest on every page all night — see
+//     DESIGN.md's #1012 ADR for the full tradeoff. The standard mitigation
+//     (per-response token masking) is filed separately as #1013 rather than
+//     folded in here, since it changes security-critical comparison logic in
+//     csrf.js and deserves its own review.
+// ---------------------------------------------------------------------------
+app.use(
+  compression({
+    brotli: {
+      params: {
+        [zlib.constants.BROTLI_PARAM_QUALITY]: 6,
+      },
+    },
+  })
+);
 
 // ---------------------------------------------------------------------------
 // 4. Static file mounts.
