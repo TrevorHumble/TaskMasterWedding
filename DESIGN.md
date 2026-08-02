@@ -3697,3 +3697,33 @@ the merge. Second, `compression` is now a prod dependency in front of every resp
 the three wedding-critical mirrors, so a Dependabot bump to it would classify `auto` — the tier that needs
 no separate review. That is #1018, an owner-approved frozen-surface change rather than a parking-issue
 line, because the owner authorised editing the frozen tiering machinery on 2026-08-02.
+
+**Prizes (#469) gets its own settings-accessor pair, deliberately beside — not inside —
+`getEventConfig`/`setEventConfig`.** `src/db/event-config.js` already owned one reader/writer pair over the
+generic `settings` key/value table (`ensureSettingsTable`, shipped with #681) for the event's timezone and
+wedding date range, consumed by every date-aware feature. The hosts' prizes blurb (Goal B's "visible
+stakes" outcome) needed the exact same storage shape — one more string key in the same table — but folding
+it into `getEventConfig`'s returned object, or `setEventConfig`'s parameter object, would have widened that
+pair's contract to cover an unrelated concern for every existing caller (day chips, daily challenges, the
+dashboard checklist), none of which have anything to do with prizes. `getPrizes(db)`/`setPrizes(db, text)`
+are a second, independent pair in the same file, built on the file's existing private
+`readSetting`/`writeSetting` helpers, re-exported from `src/db.js` the same way the timezone pair already
+is. The one place both pairs meet is `POST /admin/config` (`src/routes/admin/config.js`): the same
+handler normalizes the prizes text up front and calls `setPrizes` only once the timezone/date trio has
+passed — so a rejected save still leaves every setting, prizes included, exactly as it was (the same
+"nothing persists unless the whole form passes" rule `setEventConfig` already got). The key stays in the
+one file that owns admin-config settings keys; no new migration was needed since `ensureSettingsTable()`
+already guarantees the table.
+
+**Design-philosophy review of #469 (round 1) caught the length cap living in two ungoverned places.**
+`src/routes/admin/config.js`'s server-side clamp and `src/views/admin-config.ejs`'s textarea `maxlength`
+both hand-typed the literal `500` with nothing tying them together. The fix folds the cap into the same
+`src/db/event-config.js` pair described above: `PRIZES_MAX_LENGTH` is the one constant both sides now
+read (the route passes it through as the `prizesMaxLength` render local, the view interpolates it into
+`maxlength`), and `normalizePrizes(text)` — trim, cap at `PRIZES_MAX_LENGTH`, drop a UTF-16 lead surrogate
+left dangling by the cut, mirroring `normalizeCaption` in `src/services/submissions.js` — is the one
+function that decides what a stored prizes value looks like. The route reduces to one variable,
+`const prizes = typeof req.body.prizes === 'string' ? normalizePrizes(req.body.prizes) : null`, gated by
+`if (prizes !== null) setPrizes(prizes)` — `null` distinguishes an absent `prizes` key (an old cached
+form posting nothing) from a present-but-empty one, which is the deliberate "clear the prizes" case AC3
+covers.
