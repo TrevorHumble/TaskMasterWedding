@@ -1127,10 +1127,13 @@ textarea {
   font-size: var(--fs-h3);
   line-height: 1;
 }
-.gallery-person-avatar {
+/* The one round guest avatar (partials/guest-avatar.ejs): a By-person section
+   head, a feed card header, and their admin equivalents all render THIS, so a
+   guest wears the same face wherever their name sits above their photos.
+   Two sizes only — md (34px) for a section head, sm (28px) for the smaller
+   feed card name line. */
+.guest-avatar {
   flex: none;
-  width: 34px;
-  height: 34px;
   border-radius: 50%;
   overflow: hidden;
   display: flex;
@@ -1138,10 +1141,19 @@ textarea {
   justify-content: center;
   background: var(--green-50);
   color: var(--color-primary);
-  font-size: var(--fs-small);
   font-weight: 600;
 }
-.gallery-person-avatar img {
+.guest-avatar--md {
+  width: 34px;
+  height: 34px;
+  font-size: var(--fs-small);
+}
+.guest-avatar--sm {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+.guest-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1389,9 +1401,12 @@ body.feed-inserting {
 }
 /* Re-indent the non-photo rows by the gutter the .feed just broke out of, so
    text keeps its margin while the photo stays full-bleed (#612). The action
-   bar is NOT in this shared list (#890, owner annotation 2026-07-28): the
-   guest feed's action bar sits flush on the photo's own edge line instead —
-   see the two rules below, both keyed off the SAME single hook
+   bar is NOT in this shared list: the admin moderation feed's action bar gets
+   its own copy of this same gutter value just below (#890 AC7, unchanged),
+   while the guest feed's action bar and name row share a narrower
+   `--space-3` inset instead of the gutter — #890's original flush
+   (`padding-inline: 0`) treatment, superseded by #1011 once an avatar led the
+   name row. See the two rules below, both keyed off the SAME single hook
    (.admin-feed-item, admin-photos.ejs) that distinguishes the admin
    moderation feed's cards from the guest feed's. */
 .feed-by,
@@ -1407,12 +1422,19 @@ body.feed-inserting {
 .admin-feed-item .feed-actionbar {
   padding-inline: var(--gutter);
 }
-/* Guest feed only (i.e. NOT .admin-feed-item): the action bar itself goes
-   flush against the photo's own edge line, and its like button loses its
-   centered padding so the heart glyph sits flush at that same edge — the
-   heart at the left, the points chip flush at the right (#890 AC7). */
-.feed-item:not(.admin-feed-item) .feed-actionbar {
-  padding-inline: 0;
+/* Guest feed only (i.e. NOT .admin-feed-item): the photo is the ONLY element
+   that bleeds to the card's edge. Its name row above and action bar below
+   share one narrow inset instead — far enough in that a face and a heart are
+   not jammed against a phone's glass at 430px and under, far enough out that
+   the cluster still reads as belonging to the photo rather than floating
+   inboard of it at the old 24px gutter (owner directive, phase-1: flush was
+   right on desktop and too tight on mobile; this is the setting that holds at
+   both). One value for both rows, so they land on the same vertical line —
+   #890 AC7's flush action bar predates the avatar that now leads the name row.
+   The admin moderation feed keeps its own full gutter indent, untouched. */
+.feed-item:not(.admin-feed-item) .feed-actionbar,
+.feed-item:not(.admin-feed-item) .feed-by {
+  padding-inline: var(--space-3);
 }
 /* Kill the mobile tap-flash box (#248 owner visual gate): without this the
    card's controls inherit the browser default -webkit-tap-highlight-color

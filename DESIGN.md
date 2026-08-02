@@ -3497,3 +3497,65 @@ later with no gate fails CI the same way a forgotten one would have failed revie
 before/after preservation check (declarations unchanged, original relative order, wrapped in place) is a
 pre-commit `git diff` comparison against `HEAD`, not a committed assertion — after merge `HEAD` becomes
 the post-change file and the comparison would be vacuous, so it lives as PR-review evidence instead.
+
+## One guest-avatar component, four call sites (#1011)
+
+**Date:** 2026-08-02. **Status:** shipped.
+
+Four surfaces label photos with a guest's name directly above them — the Shared Gallery By-person
+section head, the guest feed card header, the admin Photos By-person section head, and the admin inline
+moderation feed card header — but only one (the Shared Gallery head) ever showed the guest's real photo;
+the rest were name-only or initials-only. `src/views/partials/guest-avatar.ejs` is now the single
+component all four include: a 34px (`md`) or 28px (`sm`) circle rendering `<img src="/uploads/...">` when
+`guests.avatar_path` is set, else `app.locals.initials(name)` (or `?` for an empty/absent name) in an
+`aria-hidden` span. One component instead of a fourth hand-copied avatar-circle block is the same
+standardization CLAUDE.md's "Repo conventions" names directly for this exact pair of surfaces.
+
+**Why the admin route needed a new column and the guest surfaces did not.** `src/services/feed.js`'s
+`GALLERY_COLUMNS` already selected `g.avatar_path AS guest_avatar_path` for every gallery/feed query, and
+its `grouped()` helper already stamped `group.avatar_path` from each partition's first (newest) row — the
+two guest surfaces render straight off data that was already there. `GET /admin/photos`'s `photosSelect`
+(`src/routes/admin/moderation.js`) had never selected `avatar_path` at all: phase 1 faked the admin
+avatars with a hard-coded name -> filename map purely to settle the look live, a scaffold this issue
+deletes outright. The real fix adds `g.avatar_path AS guest_avatar_path` to `photosSelect` (so the inline
+moderation feed card, which reads a photo row directly, has real data) and gives `groupPhotos()` an
+optional `avatarFn` parameter that stamps `group.avatar_path` from the partition's first row exactly the
+way `grouped()` already does — passed only on the By-person grouping call (`groupPhotos(livePhotos, keyFn,
+guestLabel, (p) => p.guest_avatar_path)`), since the By-task grouping has no single guest to show an
+avatar for and passes no `avatarFn` at all.
+
+**The feed's name row and action bar now share one inset, superseding #890 AC7's flush action bar.** #890
+put the guest feed's action bar flush at the photo's edge (`padding-inline: 0`) on the reasoning that the
+name row above it already carried the full gutter and the action bar reading flush against the photo
+looked deliberate. With an avatar now leading that name row, flush read as too tight against the phone's
+glass at narrow widths (owner directive, live preview, 2026-08-01) — `.feed-by` and `.feed-actionbar` are
+regrouped onto one shared `padding-inline: var(--space-3)` rule, scoped off `.admin-feed-item` the same way
+the prior flush rule was, so the admin moderation feed's own `.feed-by`/`.feed-actionbar` keep their full
+`--gutter` inset untouched. This is a recorded owner re-decision, not a regression from #890 —
+`tests/feed-full-bleed.test.js`'s issue-#890 case now asserts the superseding shared-inset rule instead of
+the retired flush one.
+
+**Every call site derives its initials from the exact label it prints beside the circle — one rule, not
+four guesses.** AC3 was amended (see the issue) after the design-philosophy gate found the original cut let
+one nameless guest render four different faces: the two section heads (`gallery.ejs`'s `g.heading`,
+`admin-photos.ejs`'s `g.heading`) already pass an already-resolved label — `feed.js`'s `grouped()` and this
+issue's own `groupPhotos()`/`guestLabel()` resolve `row.guest_name || 'Guest'` / `'Guest #' + guest_id`
+before the view ever sees it — and rendered `G`/`G#`, while the two card headers passed the raw
+`guests.name` straight to the partial and rendered `?`. The fix is not a second resolution rule; it is
+handing the partial the same string each call site already prints as text: `feed.ejs`'s card now passes
+`p.guest_name || 'Guest'` (the exact expression its adjacent `<span>` prints), and the admin inline feed
+card now passes `p._guest_label` (the same single-owner value, `guestLabel()`, its adjacent
+`.admin-feed-name` span already prints). The two section heads needed no change — they already satisfied
+the rule. A guest with a name renders identically before and after: `p.guest_name || 'Guest'` and
+`p._guest_label` both equal the raw name whenever it is non-empty, so this only changes output for the
+nameless case AC3's amendment targets.
+
+**Hand-copied avatar circles remain outside this change, a known duplicate for a future issue to fold
+in.** `.likes-row-avatar` and `.comments-dialog-avatar` (`src/views/feed.ejs`) are scope-limited by AC1
+to stay byte-unchanged; `src/views/leaderboard.ejs` (two: `.podium-cluster-avatar` and `.lb-avatar`),
+`src/views/public-profile.ejs`, `src/views/guest-home.ejs`, and `src/views/me-edit.ejs` each still
+hand-copy their own "photo-if-set, initials-if-not, clipped to a circle" markup — `me-edit.ejs` loosely,
+with an inline `charAt(0)` rather than the shared `initials()` helper. No count is given here on
+purpose: a numeral in this sentence is falsified by the next surface added or folded in, and the file
+list is the part worth keeping true. These are pre-existing, out of #1011's scope, and left as the
+remaining known duplicates, not a defect this issue introduces.

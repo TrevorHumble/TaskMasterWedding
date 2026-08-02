@@ -324,6 +324,22 @@ body:has(dialog[open]) {
   display: flex;
   align-items: center;
 }
+/* Avatar + name are one tap target into the guest's profile — the whole
+   cluster, not just the text, so the face is tappable too. min-width:0 lets a
+   long name ellipsize rather than shove the ⋯ menu off the card's edge. The
+   link's own color/underline are left to base.css's `a` rule, unchanged: the
+   name keeps reading exactly as it did before the avatar joined it. */
+.feed-by-who {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.feed-by-who .feed-by-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .photo-detail-byrow {
   display: flex;
   align-items: center;

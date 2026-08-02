@@ -155,7 +155,7 @@
         <section class="gallery-group">
           <div class="gallery-group-head">
             <% if (view === 'user') { %>
-              <span class="gallery-person-avatar"><%= initials(g.heading) || '?' %></span>
+              <%- include('partials/guest-avatar', { avatarPath: g.avatar_path, name: g.heading }) %>
             <% } %>
             <h2 class="gallery-group-heading"><%= g.heading %></h2>
             <%# In the By-task view a real task's photo-count doubles as the
@@ -247,6 +247,7 @@
             <details>/<summary>: opens with no JS. The confirm is admin.js's
             delegated data-confirm handler. %>
         <div class="feed-by admin-feed-by">
+          <%- include('partials/guest-avatar', { avatarPath: p.guest_avatar_path, name: p._guest_label, size: 'sm' }) %>
           <span class="admin-feed-name"><%= p._guest_label %></span>
           <details class="photo-owner-menu admin-photo-menu">
             <summary class="photo-owner-menu-trigger" aria-label="Photo options">&#8943;</summary>
