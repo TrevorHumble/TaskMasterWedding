@@ -49,6 +49,15 @@
 // A test-only legacy grandfather clause lives near the bottom of this file
 // (legacyBypassEnabled / isTestEnv / _setLegacyBypassForTest) — see its own
 // comment for what it forgives and why. It is inert outside NODE_ENV=test.
+//
+// The token rendered into HTML (res.locals.csrfToken) is MASKED per response
+// (issue #1013) — a fresh XOR mask every render, via maskToken/unmaskToken
+// below — so a #1012-style response-compression side channel (BREACH) can
+// never observe the same secret bytes twice. The COOKIE still carries the
+// raw, unmasked token throughout the session; only what gets rendered
+// differs. See maskToken's own comment for the full mechanism, and
+// submittedMatches for how a submitted value (masked or, during rollout,
+// still raw) is checked against it.
 
 'use strict';
 
@@ -141,7 +150,102 @@ function _setLegacyBypassForTest(enabled) {
  * @returns {string}
  */
 function generateToken() {
-  return crypto.randomBytes(32).toString('base64url');
+  return crypto.randomBytes(RAW_TOKEN_BYTES).toString('base64url');
+}
+
+// Masked-token byte lengths (issue #1013, BREACH mitigation for #1012's
+// response compression — a compressed response reflecting attacker-chosen
+// input alongside a STABLE secret lets an on-path attacker recover that
+// secret by observing response sizes; masking removes the "stable" half).
+// The stored/cookie token is a 43-CHARACTER base64url string, not 32 raw
+// bytes — decoding it is what yields the 32 bytes below. Masking works on
+// those decoded bytes, never on the string's characters directly: XORing a
+// 32-byte mask across the 43-character string itself would leave the
+// string's last ~11 characters unmasked on every render (base64url packs
+// 6 bits/char, so 32 bytes need 43 characters but a 32-byte mask only covers
+// the first ~24 of them) — a stable, attacker-observable fragment in every
+// response body, exactly the signal this issue exists to remove.
+const RAW_TOKEN_BYTES = 32;
+const MASKED_TOKEN_BYTES = RAW_TOKEN_BYTES * 2; // mask ++ xored
+// base64url packs 6 bits/char with no padding, so N bytes need ceil(N*8/6)
+// characters = ceil(N*4/3). Derived from MASKED_TOKEN_BYTES rather than
+// hand-kept as a second "86" — a future change to RAW_TOKEN_BYTES could not
+// leave this stale.
+const MASKED_TOKEN_STRING_LENGTH = Math.ceil((MASKED_TOKEN_BYTES * 4) / 3);
+
+/**
+ * Masks a raw session token for embedding in ONE response (issue #1013,
+ * BREACH mitigation for #1012's compression). Decodes the 43-character
+ * base64url token to its 32 bytes, draws a FRESH 32-byte mask from
+ * crypto.randomBytes on every call, XORs, and returns
+ * base64url(mask ++ xored) — 86 characters. Two calls with the same
+ * rawToken produce different output every time (fresh mask), which is the
+ * whole point: the stored/cookie token (see csrfMiddleware's `token`
+ * variable) never changes, but what gets rendered into HTML does, so a
+ * compression-oracle attacker watching response sizes across many requests
+ * never sees the same secret bytes twice.
+ *
+ * No input validation here: rawToken is always this module's own
+ * server-generated cookie value (generateToken's output, or a value already
+ * matched by unmaskToken's own decode+re-encode below), never
+ * attacker-controlled input — the untrusted side of every comparison is the
+ * SUBMITTED value, handled by unmaskToken/submittedMatches instead.
+ * @param {string} rawToken the 43-character base64url session token
+ * @returns {string} an 86-character base64url masked token
+ */
+function maskToken(rawToken) {
+  const tokenBytes = Buffer.from(rawToken, 'base64url');
+  const mask = crypto.randomBytes(RAW_TOKEN_BYTES);
+  const xored = Buffer.alloc(RAW_TOKEN_BYTES);
+  for (let i = 0; i < RAW_TOKEN_BYTES; i += 1) {
+    xored[i] = tokenBytes[i] ^ mask[i];
+  }
+  return Buffer.concat([mask, xored]).toString('base64url');
+}
+
+/**
+ * Reverses maskToken: splits the decoded 64 bytes back into mask/xored
+ * halves and XORs them to recover the original 43-character raw token
+ * string. Returns `null` — never throws — on ANY malformed input (not a
+ * string, wrong length, or a value whose base64url decode does not land on
+ * exactly 64 bytes), so a hostile submitted value falls through to the
+ * ordinary "rejected" path in submittedMatches below instead of crashing
+ * the request with a 500. A short length pre-check runs before the actual
+ * decode so an attacker cannot force this to base64-decode an arbitrarily
+ * large string on every request.
+ *
+ * Node's base64url decoder is lenient (invalid/non-alphabet characters are
+ * silently dropped rather than rejected — confirmed against this Node
+ * version, since that behavior is not something to assume from memory), so
+ * a value with a stray non-base64url character can still be exactly 86
+ * characters long while decoding to fewer than 64 bytes. The string-length
+ * check catches the common malformed case cheaply (and bounds how much an
+ * attacker-controlled string this function ever base64-decodes); the
+ * decoded-byte-length check after it closes that gap. That second check is
+ * defence in depth, not load-bearing for rejection: an 86-character value
+ * that decodes to 63 bytes would be rejected anyway, because the halves it
+ * unmasks to cannot equal the cookie's raw token. Removing it fails no test
+ * in this suite — it is here so the function's stated contract ("returns a
+ * 43-character raw token, or null") is true by construction rather than by
+ * a downstream comparison happening to catch it.
+ * @param {*} value the submitted token, untrusted
+ * @returns {string|null} the 43-character raw token, or null if malformed
+ */
+function unmaskToken(value) {
+  if (typeof value !== 'string' || value.length !== MASKED_TOKEN_STRING_LENGTH) {
+    return null;
+  }
+  const decoded = Buffer.from(value, 'base64url');
+  if (decoded.length !== MASKED_TOKEN_BYTES) {
+    return null;
+  }
+  const mask = decoded.subarray(0, RAW_TOKEN_BYTES);
+  const xored = decoded.subarray(RAW_TOKEN_BYTES, MASKED_TOKEN_BYTES);
+  const raw = Buffer.alloc(RAW_TOKEN_BYTES);
+  for (let i = 0; i < RAW_TOKEN_BYTES; i += 1) {
+    raw[i] = mask[i] ^ xored[i];
+  }
+  return raw.toString('base64url');
 }
 
 /**
@@ -182,6 +286,39 @@ function timingSafeEqualStrings(a, b) {
 }
 
 /**
+ * The ONE comparison every submitted-token check in this module goes through
+ * (issue #1013) — csrfMiddleware's multipart header check, its shared
+ * urlencoded/JSON verify, and assertCsrf's post-multer body check all call
+ * this instead of keeping their own copy, so the two-branch rule below can
+ * never drift out of sync between them.
+ *
+ * Two ways to pass, both constant-time via timingSafeEqualStrings:
+ *   1. `submitted` unmasks (unmaskToken) to a value equal to `rawToken` —
+ *      the normal post-#1013 shape, what every page rendered after this
+ *      change emits.
+ *   2. `submitted` equals `rawToken` directly — the AC4 rollout fallback.
+ *      A page a browser rendered BEFORE this change deployed has the old
+ *      43-character raw token baked into its hidden field and meta tag;
+ *      submitting that page after deploy must still work, or every guest
+ *      with a tab already open gets locked out mid-party. This costs the
+ *      mitigation nothing: BREACH extracts a secret by observing RESPONSE
+ *      body sizes, and a submitted request is never rendered back into a
+ *      response body for an attacker to size-oracle — accepting a raw
+ *      token on the way IN does not reintroduce a way to leak one on the
+ *      way OUT.
+ * @param {*} submitted the token the client sent (header or body field)
+ * @param {string} rawToken this session's raw 43-character cookie token
+ * @returns {boolean}
+ */
+function submittedMatches(submitted, rawToken) {
+  const unmasked = unmaskToken(submitted);
+  if (unmasked !== null && timingSafeEqualStrings(unmasked, rawToken)) {
+    return true;
+  }
+  return timingSafeEqualStrings(submitted, rawToken);
+}
+
+/**
  * The one 403 response every rejection path in this module (and the four
  * multipart routes acting on a false assertCsrf) renders — same shared-
  * literal-owner pattern as auth.js's renderAdminSetupError, so the copy and
@@ -217,8 +354,24 @@ function csrfMiddleware(req, res, next) {
   // (mirrors attachGuest's rolling gsid refresh: reissue, never rotate on
   // every request), so a token minted on page load N still matches the one a
   // form rendered on page load N-1 submits.
+  //
+  // A cookie whose base64url decode is not exactly RAW_TOKEN_BYTES is
+  // treated the same as "absent" and replaced, not kept: maskToken below
+  // always XORs RAW_TOKEN_BYTES of the decoded value, so a shorter decode
+  // would mask into a value that can never round-trip through unmaskToken,
+  // and nothing else in this middleware ever rotates a present cookie
+  // once minted — an unrecoverable cookie would otherwise 403 every write
+  // for that session forever. Not reachable today (only generateToken below
+  // ever writes this cookie's signed value, and cookie-parser drops a
+  // signature failure before this code sees it at all), but the pre-#1013
+  // code tolerated any non-empty cookie string and this one does not, so the
+  // check earns its keep against a future writer of this cookie.
   let token = req.signedCookies && req.signedCookies[CSRF_COOKIE_NAME];
-  if (typeof token !== 'string' || token.length === 0) {
+  const decodable =
+    typeof token === 'string' &&
+    token.length > 0 &&
+    Buffer.from(token, 'base64url').length === RAW_TOKEN_BYTES;
+  if (!decodable) {
     token = generateToken();
     // GUEST_COOKIE_MAX_AGE_MS (400 days, the Chrome ceiling — config.js) is
     // reused rather than a new constant: the csrf cookie only needs to
@@ -230,8 +383,14 @@ function csrfMiddleware(req, res, next) {
   }
   // Exposed to every view (the <meta> tag in partials/head.ejs, and
   // partials/csrf-field.ejs's hidden input) via res.locals, the same channel
-  // res.locals.guest/flash/currentPath already use.
-  res.locals.csrfToken = token;
+  // res.locals.guest/flash/currentPath already use. MASKED per response
+  // (issue #1013, BREACH mitigation): `token` itself — the raw value the
+  // cookie above just carried — never changes for this session, but what
+  // renders into THIS response's HTML is maskToken(token), fresh every
+  // call. The cookie write above stays on the raw `token`, deliberately —
+  // that is what makes AC1's "cookie unchanged across renders" and AC4's
+  // raw-token rollout fallback (submittedMatches) both hold.
+  res.locals.csrfToken = maskToken(token);
 
   // The three baseline security response headers (X-Content-Type-Options,
   // X-Frame-Options, Referrer-Policy) are set in src/app.js, not here — see
@@ -246,8 +405,15 @@ function csrfMiddleware(req, res, next) {
     // middleware). The header is the one signal available this early; a
     // present-and-valid header lets a JS upload (fetch with FormData)
     // short-circuit assertCsrf below without needing the body parsed first.
+    // This is the multipart header check: one of the three call sites that
+    // route through submittedMatches (see its own doc comment).
     const headerToken = req.get(CSRF_HEADER_NAME);
-    req.csrfVerified = Boolean(headerToken) && timingSafeEqualStrings(headerToken, token);
+    // submittedMatches (issue #1013) accepts either a masked value that
+    // unmasks to `token`, or `token` itself raw (AC4 rollout fallback) — it
+    // also treats an absent headerToken as "no match" on its own
+    // (unmaskToken/timingSafeEqualStrings both reject non-string/short
+    // input), so no separate `Boolean(headerToken) &&` guard is needed here.
+    req.csrfVerified = submittedMatches(headerToken, token);
 
     if (isMultipartUploadPath(req)) {
       // One of the four dedicated upload routes: multer parses the body
@@ -277,7 +443,10 @@ function csrfMiddleware(req, res, next) {
   const bodyToken = req.body && req.body._csrf;
   const submitted = headerToken || bodyToken;
   if (submitted) {
-    if (!timingSafeEqualStrings(submitted, token)) {
+    // submittedMatches (issue #1013): accepts a masked value that unmasks
+    // to `token`, OR `token` itself raw (AC4 rollout fallback for a page
+    // rendered before this change deployed) — see its own doc comment.
+    if (!submittedMatches(submitted, token)) {
       rejectCsrf(res);
       return undefined;
     }
@@ -294,14 +463,17 @@ function csrfMiddleware(req, res, next) {
  * (issue #284 design). Two ways to pass:
  *   - req.csrfVerified === true: csrfMiddleware already confirmed a valid
  *     X-CSRF-Token header before multer ran (the JS-upload path).
- *   - req.body._csrf matches the signed csrf cookie (the no-JS native
- *     multipart submit's only token, carried as a hidden form field —
- *     partials/csrf-field.ejs — inside the same multipart body multer just
- *     parsed).
- * Comparison is constant-time via timingSafeEqualStrings; a route whose
- * multer callback found req.csrfVerified already false from a WRONG header
- * still gets a second chance here off the body field, so a caller that sent
- * a bad header but a correct hidden field is not incorrectly refused.
+ *   - the assertCsrf body check: req.body._csrf, run through submittedMatches
+ *     (issue #1013) against the signed csrf cookie — accepts either a masked
+ *     value that unmasks to the cookie token, or the cookie token itself raw
+ *     (the AC4 rollout fallback) — the no-JS native multipart submit's only
+ *     token, carried as a hidden form field (partials/csrf-field.ejs) inside
+ *     the same multipart body multer just parsed.
+ * Both branches are constant-time (submittedMatches is built on
+ * timingSafeEqualStrings); a route whose multer callback found
+ * req.csrfVerified already false from a WRONG header still gets a second
+ * chance here off the body field, so a caller that sent a bad header but a
+ * correct hidden field is not incorrectly refused.
  *
  * Same test-only legacy grandfather clause as the middleware's own
  * non-multipart branch above (see that block's comment): a request that
@@ -321,7 +493,10 @@ function assertCsrf(req) {
   const cookieToken = req.signedCookies && req.signedCookies[CSRF_COOKIE_NAME];
   const bodyToken = req.body && req.body._csrf;
   if (bodyToken) {
-    return timingSafeEqualStrings(bodyToken, cookieToken);
+    // submittedMatches (issue #1013): masked-then-matches OR raw-equals —
+    // same rule as the middleware's own shared verify above, via the one
+    // shared helper so the two can never drift apart.
+    return submittedMatches(bodyToken, cookieToken);
   }
   const headerToken = req.get(CSRF_HEADER_NAME);
   if (headerToken) {
@@ -333,4 +508,26 @@ function assertCsrf(req) {
   return isTestEnv() && legacyBypassEnabled;
 }
 
-module.exports = { csrfMiddleware, assertCsrf, rejectCsrf, _setLegacyBypassForTest };
+// unmaskToken is exported alongside the rest (issue #1013): a pure function
+// with no shared state to protect, unlike _setLegacyBypassForTest, so
+// exporting it plainly (no test-only naming or isTestEnv() gate) is safe in
+// production too. tests/csrf.test.js uses it to recover a session's raw
+// token from its rendered (masked) value — the only way to exercise AC4's
+// "raw pre-rollout token" case without hand-deriving the mask math in the
+// test file itself.
+//
+// maskToken is NOT exported: it has no consumer outside this module (every
+// caller of the masked value goes through csrfMiddleware's own
+// res.locals.csrfToken assignment) and, unlike unmaskToken, does no input
+// validation of its own — it trusts its argument to already be a
+// well-formed RAW_TOKEN_BYTES-length token, which is true of every in-module
+// caller but would silently mask a malformed value (e.g. maskToken('short'))
+// into a well-formed-looking 86-character string with no error, if exported
+// for outside use.
+module.exports = {
+  csrfMiddleware,
+  assertCsrf,
+  rejectCsrf,
+  unmaskToken,
+  _setLegacyBypassForTest,
+};

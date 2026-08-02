@@ -553,6 +553,285 @@ describe('AC5: every <form method="post"> in src/views/** includes the CSRF fiel
 });
 
 // ---------------------------------------------------------------------------
+// Issue #1013: per-response token masking (BREACH mitigation for #1012's
+// compression). The rendered `_csrf` value (meta tag + hidden field) is now
+// `maskToken(token)`, fresh on every render, while the signed cookie keeps
+// holding the RAW token unchanged. `guestAgentWithToken`/`adminAgentWithToken`
+// above already extract that MASKED value via `extractToken` — every AC1
+// "CORRECT token succeeds" assertion elsewhere in this file (the admin
+// delete, guest like, and both AC3 multipart cases) is therefore already an
+// end-to-end masked-round-trip test for the three submittedMatches call
+// sites named in src/middleware/csrf.js's own doc comment (the multipart
+// header check, the shared verify, and assertCsrf's body check); the blocks
+// below cover the cases those don't: the mask's own shape (AC1),
+// malformed/foreign submitted values (AC3), and the pre-rollout raw-token
+// fallback (AC4).
+// ---------------------------------------------------------------------------
+describe('AC1 (#1013): the rendered token is masked per response — 20-render check', () => {
+  it(
+    'renders 86-char tokens that each decode to 64 bytes, are pairwise unequal, ' +
+      'share no constant character position across all 20, never leak the raw ' +
+      'cookie token into a response body, and leave the csrf cookie unchanged',
+    async () => {
+      const token = `csrf-mask-ac1-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      db.prepare(`INSERT INTO guests (token, name, onboarded) VALUES (?, ?, 1)`).run(
+        token,
+        'Mask AC1 Guest'
+      );
+      const agent = signInGuest(app, token);
+
+      // 20 renders off ONE session/cookie — the reliable form (see this
+      // issue's Context): a two-render "differs at every position" check
+      // would fail a CORRECT implementation ~76% of the time, because the
+      // 86-character masked value only carries 256 bits of entropy (its
+      // second half is a function of its first, given the fixed token).
+      const renders = [];
+      const bodies = [];
+      for (let i = 0; i < 20; i += 1) {
+        const res = await agent.get('/');
+        // attachGuest (src/middleware/session.js) rolls/reissues the `gsid`
+        // cookie on every request regardless — that Set-Cookie is expected
+        // on all 20 responses and is not what this assertion is about; only
+        // a `csrf=` entry specifically is what would mean the csrf cookie
+        // changed.
+        const setCookie = res.headers['set-cookie'] || [];
+        const hasCsrfCookie = setCookie.some((c) => c.startsWith('csrf='));
+        if (i === 0) {
+          // Only the FIRST response is allowed to mint the csrf cookie
+          // (csrfMiddleware only calls res.cookie when the signed cookie is
+          // absent — src/middleware/csrf.js's `if (typeof token !== ...)`
+          // branch). Every subsequent render must reuse it unchanged.
+          expect(hasCsrfCookie).toBe(true);
+        } else {
+          expect(hasCsrfCookie).toBe(false);
+        }
+        renders.push(extractToken(res.text));
+        bodies.push(res.text);
+      }
+      expect(renders.length).toBe(20);
+
+      // Recover this session's raw (unmasked) token from the first render,
+      // to check no later body leaks it as a substring.
+      const rawToken = csrf.unmaskToken(renders[0]);
+      expect(rawToken).toBeTruthy();
+      expect(rawToken.length).toBe(43);
+
+      // Every rendered value is 86 characters and decodes to exactly 64 bytes.
+      for (const value of renders) {
+        expect(value.length).toBe(86);
+        expect(Buffer.from(value, 'base64url').length).toBe(64);
+      }
+
+      // Pairwise unequal.
+      expect(new Set(renders).size).toBe(20);
+
+      // No character position holds the same character across all 20 —
+      // the clause a naive two-render "differs everywhere" check cannot
+      // reliably stand in for (see the block comment above).
+      let constantPositions = 0;
+      for (let pos = 0; pos < 86; pos += 1) {
+        const charsAtPos = new Set(renders.map((value) => value[pos]));
+        if (charsAtPos.size === 1) {
+          constantPositions += 1;
+        }
+      }
+      expect(constantPositions).toBe(0);
+
+      // No response body contains the raw cookie token as a substring.
+      for (const body of bodies) {
+        expect(body.includes(rawToken)).toBe(false);
+      }
+    }
+  );
+});
+
+describe('AC3 (#1013): a malformed submitted token is rejected at all three comparison sites', () => {
+  const malformed = [
+    { label: 'not valid base64url (86 non-base64url characters)', value: '!'.repeat(86) },
+    {
+      label: 'right length, one invalid character (decodes to fewer than 64 bytes)',
+      value: 'A'.repeat(85) + '!',
+    },
+    { label: 'wrong length (100 well-formed base64url characters)', value: 'A'.repeat(100) },
+  ];
+
+  it.each(malformed)('urlencoded POST (shared verify) rejects $label', async ({ value }) => {
+    const guest = await guestAgentWithToken('mal-urlencoded');
+    const res = await guest.agent
+      .post('/bug-report')
+      .set('X-CSRF-Token', value)
+      .type('form')
+      .send({ body: 'x' });
+    expect(res.status).toBe(403);
+  });
+
+  it.each(malformed)(
+    'multipart header (multipart header check) rejects $label',
+    async ({ value }) => {
+      const guest = await guestAgentWithToken('mal-header');
+      const taskId = insertTask('malformed header task');
+      const res = await guest.agent
+        .post('/tasks/' + taskId + '/submit')
+        .set('X-CSRF-Token', value)
+        .attach('photo', validJpeg, { filename: 'mal-header.jpg', contentType: 'image/jpeg' });
+      expect(res.status).toBe(403);
+    }
+  );
+
+  it.each(malformed)(
+    'native multipart field (assertCsrf body check) rejects $label',
+    async ({ value }) => {
+      const guest = await guestAgentWithToken('mal-field');
+      const taskId = insertTask('malformed field task');
+      const res = await guest.agent
+        .post('/tasks/' + taskId + '/submit')
+        .field('_csrf', value)
+        .attach('photo', validJpeg, { filename: 'mal-field.jpg', contentType: 'image/jpeg' });
+      expect(res.status).toBe(403);
+    }
+  );
+
+  it('a well-formed masked token belonging to a DIFFERENT guest session is rejected on all three sites', async () => {
+    const guestA = await guestAgentWithToken('foreign-a');
+    const guestB = await guestAgentWithToken('foreign-b');
+
+    const res1 = await guestB.agent
+      .post('/bug-report')
+      .set('X-CSRF-Token', guestA.csrfToken)
+      .type('form')
+      .send({ body: 'x' });
+    expect(res1.status).toBe(403);
+
+    const taskId2 = insertTask('foreign header task');
+    const res2 = await guestB.agent
+      .post('/tasks/' + taskId2 + '/submit')
+      .set('X-CSRF-Token', guestA.csrfToken)
+      .attach('photo', validJpeg, { filename: 'foreign-header.jpg', contentType: 'image/jpeg' });
+    expect(res2.status).toBe(403);
+
+    const taskId3 = insertTask('foreign field task');
+    const res3 = await guestB.agent
+      .post('/tasks/' + taskId3 + '/submit')
+      .field('_csrf', guestA.csrfToken)
+      .attach('photo', validJpeg, { filename: 'foreign-field.jpg', contentType: 'image/jpeg' });
+    expect(res3.status).toBe(403);
+  });
+});
+
+describe('AC4 (#1013): a raw pre-rollout 43-character token is still accepted on all three sites', () => {
+  // A page a browser rendered BEFORE this change deployed carries the OLD
+  // raw token in its hidden field and meta tag — that already-loaded page
+  // must still submit successfully after deploy, or a guest with a tab open
+  // mid-party gets locked out. submittedMatches's raw-equals branch is what
+  // covers this; recovering the raw token via csrf.unmaskToken simulates
+  // "what a pre-deploy page already has baked in" without needing a second,
+  // pre-#1013 build of the app to render one for real.
+  it('urlencoded POST (shared verify) accepts the raw token', async () => {
+    const guest = await guestAgentWithToken('rollout-urlencoded');
+    const rawToken = csrf.unmaskToken(guest.csrfToken);
+    expect(rawToken.length).toBe(43);
+
+    const res = await guest.agent
+      .post('/bug-report')
+      .set('X-CSRF-Token', rawToken)
+      .type('form')
+      .send({ body: 'Rollout: submitted with the pre-mask raw token.' });
+    expect([301, 302, 303]).toContain(res.status);
+
+    const row = db.prepare('SELECT * FROM bug_reports WHERE guest_id = ?').get(guest.guestId);
+    expect(row).toBeTruthy();
+  });
+
+  it('multipart header (multipart header check) accepts the raw token', async () => {
+    const guest = await guestAgentWithToken('rollout-header');
+    const rawToken = csrf.unmaskToken(guest.csrfToken);
+    const taskId = insertTask('rollout header task');
+
+    const res = await guest.agent
+      .post('/tasks/' + taskId + '/submit')
+      .set('X-CSRF-Token', rawToken)
+      .attach('photo', validJpeg, { filename: 'rollout-header.jpg', contentType: 'image/jpeg' });
+    expect([301, 302, 303]).toContain(res.status);
+
+    const row = db
+      .prepare('SELECT * FROM submissions WHERE guest_id = ? AND task_id = ?')
+      .get(guest.guestId, taskId);
+    expect(row).toBeTruthy();
+  });
+
+  it('native multipart field (assertCsrf body check) accepts the raw token', async () => {
+    const guest = await guestAgentWithToken('rollout-field');
+    const rawToken = csrf.unmaskToken(guest.csrfToken);
+    const taskId = insertTask('rollout field task');
+
+    const res = await guest.agent
+      .post('/tasks/' + taskId + '/submit')
+      .field('_csrf', rawToken)
+      .attach('photo', validJpeg, { filename: 'rollout-field.jpg', contentType: 'image/jpeg' });
+    expect([301, 302, 303]).toContain(res.status);
+
+    const row = db
+      .prepare('SELECT * FROM submissions WHERE guest_id = ? AND task_id = ?')
+      .get(guest.guestId, taskId);
+    expect(row).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Post-review fix (#1013): a csrf cookie whose base64url decode is under
+// RAW_TOKEN_BYTES (32) is now replaced, not kept — the pre-fix code only
+// minted a new token when the cookie was ABSENT or empty, so a short/
+// malformed-but-signed cookie would mask into a value that could never
+// round-trip through unmaskToken, and nothing else in csrfMiddleware ever
+// rotates a present cookie: every write for that session would 403 forever.
+// generateToken() itself can never produce a value this short; this
+// simulates a corrupted or hand-crafted signed cookie to exercise the
+// recovery path directly.
+// ---------------------------------------------------------------------------
+describe('post-review fix: a malformed csrf cookie is replaced, not wedged', () => {
+  it('a cookie decoding to 5 bytes is replaced on the next response, and the fresh token completes a real write', async () => {
+    const signature = require('cookie-signature');
+    const guestToken = `csrf-recovery-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const guestId = db
+      .prepare(`INSERT INTO guests (token, name, onboarded) VALUES (?, ?, 1)`)
+      .run(guestToken, 'Recovery Guest').lastInsertRowid;
+
+    // A real gsid (so this is a genuine signed-in session), but the csrf
+    // cookie is seeded directly — malformed — BEFORE any request, so the
+    // very first request is the one that has to recover.
+    const agent = signInGuest(app, guestToken);
+    const shortRaw = Buffer.from('short').toString('base64url'); // decodes to 5 bytes, not 32
+    const signedShort = 's:' + signature.sign(shortRaw, config.COOKIE_SECRET);
+    agent.jar.setCookie(`csrf=${encodeURIComponent(signedShort)}; Path=/`);
+
+    const res1 = await agent.get('/');
+    expect(res1.status).toBe(200);
+    // Replaced, not silently kept: a fresh Set-Cookie for csrf= comes back
+    // on this very first request off the malformed value — the same branch
+    // an absent cookie takes.
+    const setCookie1 = res1.headers['set-cookie'] || [];
+    expect(setCookie1.some((c) => c.startsWith('csrf='))).toBe(true);
+
+    const token = extractToken(res1.text);
+    expect(token.length).toBe(86);
+
+    // Recovery, not just replacement: the SAME agent (now carrying the
+    // fresh cookie) completes a real state-changing write using the token
+    // this recovered response rendered. Before this fix, that write would
+    // 403 forever for this session — this proves the class is closed.
+    const res2 = await agent
+      .post('/bug-report')
+      .set('X-CSRF-Token', token)
+      .type('form')
+      .send({ body: 'csrf recovery check' });
+    expect([301, 302, 303]).toContain(res2.status);
+
+    const row = db.prepare('SELECT * FROM bug_reports WHERE guest_id = ?').get(guestId);
+    expect(row).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Happy path: a normal urlencoded POST with a matching token succeeds.
 // ---------------------------------------------------------------------------
 describe('happy path', () => {
