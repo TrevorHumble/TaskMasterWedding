@@ -1239,6 +1239,16 @@ table row," not narrowly to "a one-time starter task" — and the second departu
 instance of that pattern where a synthetic row is deliberately excluded from the counts a sibling
 synthetic row is included in.
 
+**Superseded 2026-08-01 (issue #1002, owner call).** The row placement above is retired. "Share a memory"
+is now a quiet `btn-secondary btn-block` button in its own `section.tasks-share-cta`, sitting under the
+`.task-filters` chips and above the task list — not a synthetic `task-row` at all, so neither of the two
+departures this ADR describes still applies (there is no row to omit from the counts, and no "stays in
+the to-do list forever" distinction to draw). The `memoryBonusAvailable` plumbing (`src/routes/guest/
+tasks.js`, `scoring.memoryDaysFor` call site) was removed with it — the button carries only its label, no
+price tag, so nothing on `/tasks` needs to know whether today's +1 is still available. The underlying
+first-memory-of-the-day +1 award (this ADR's actual subject — derived scoring, day-boundary math,
+`leaderboard()` ordering) is untouched; only its advertisement on `/tasks` moved.
+
 ## Flash guest marker: shared shape, separate hue, no floor, no neutral fallback (#762)
 
 **Date:** 2026-07-21. **Status:** accepted, owner-approved live on a seeded preview.

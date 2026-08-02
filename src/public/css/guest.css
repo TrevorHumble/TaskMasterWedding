@@ -412,9 +412,13 @@
   line-height: 1;
 }
 
-/* .task-share-memory (issue #471) is gone with its button: issue #656 made
-   "Share a memory" the last row of the to-do list itself, so there is no
-   standalone button below the list left to space away from it. */
+/* Share a memory CTA on /tasks, under the To do / Done chips (owner call,
+   2026-08-01; retires the last-row placement of 2026-07-21). Reuses the
+   standard .btn .btn-secondary .btn-block; this block only owns the
+   section's spacing. */
+.tasks-share-cta {
+  margin: var(--space-4) 0 var(--space-5);
+}
 
 /* ---- Task filter chips + section furniture ---- */
 .task-filters {

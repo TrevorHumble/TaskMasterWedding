@@ -142,20 +142,17 @@ describe('tasks page v2 (#250)', () => {
     // owner-redirected placement (second visual-loop edit, 2026-07-14) made
     // the hardcoded "Upload your profile photo" starter tile a real FIRST
     // row INSIDE this same to-do list (this fixture guest has no avatar).
-    // Issue #656 added a SECOND synthetic row, "Share a memory", as the LAST
-    // row of the same to-do list — this fixture guest has shared no
-    // memories, so today's +1 is still available and the row's price tag
-    // renders "+1 pt" same as every other row. So the scoped listHtml now
-    // holds TODO_COUNT + 2 rows (starter + memory), not TODO_COUNT + 1 — and
-    // both synthetic rows still satisfy the same per-row assertions below
-    // ("+1 pt", no "See photos"), so no extra exclusion logic is needed,
-    // just the updated count.
+    // Issue #1002 (owner call, 2026-08-01) retired the "Share a memory"
+    // synthetic row that issue #656 had added as the LAST row of this same
+    // list — it is now a quiet button under the filter chips, not a row —
+    // so the scoped listHtml holds TODO_COUNT + 1 rows (starter only), same
+    // as before #656.
     const listStart = res.text.indexOf('class="task-filters"');
     expect(listStart).toBeGreaterThan(-1);
     const listHtml = res.text.slice(listStart);
 
     const rows = listHtml.split('task-row task-todo').slice(1);
-    expect(rows.length).toBe(TODO_COUNT + 2);
+    expect(rows.length).toBe(TODO_COUNT + 1);
     for (const row of rows) {
       const rowMarkup = row.slice(0, row.indexOf('</li>'));
       expect(rowMarkup).toContain('+1 pt');

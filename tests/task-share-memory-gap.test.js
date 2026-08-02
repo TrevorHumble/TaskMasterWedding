@@ -1,13 +1,21 @@
 // tests/task-share-memory-gap.test.js
-// Covers issue #471: `.task-share-memory` (src/views/tasks.ejs:102) had no
-// corresponding rule in theme.css, so the "Share a memory" button sat flush
-// against the last task row with no visible gap.
+// Originally covered issue #471: `.task-share-memory` had no corresponding
+// rule in theme.css, so the "Share a memory" button sat flush against the
+// last task row with no visible gap.
 //
 // jsdom (this repo's only DOM test dependency) does not implement CSS layout
 // — a real rendered-gap assertion cannot run in this suite. Instead this
 // test asserts on the parsed CSS source directly, the same ruleBlock()
 // pattern tests/masthead-overflow.test.js and the AC6 block in
 // tests/masthead-menu.test.js already use.
+//
+// Issue #1002 (owner call, 2026-08-01) retired the row-based placement
+// entirely: "Share a memory" is now a quiet `btn-secondary` button in its
+// own `section.tasks-share-cta`, sitting between the `.task-filters` chips
+// and the task list. The describe blocks below assert THAT contract — the
+// standalone button, its position, and that no row-based placement remains
+// anywhere on the page — rather than the row-gap concern #471 originally
+// raised.
 //
 // REQUIRE ORDER MATTERS: config / db / app are required only via loadApp() —
 // see tests/helpers/testApp.js "REQUIRE ORDER MATTERS".
@@ -53,14 +61,7 @@ async function signedInAgent(token) {
   return agent;
 }
 
-// AC471(1)/(2) (the standalone `.task-share-memory` button and its top-
-// spacing rule) are RETIRED by issue #656 (approved screen §2): the button
-// is gone, replaced by "Share a memory" as the last row of the to-do list
-// itself, so the page has one way to share a memory, not two. These two
-// describe blocks now assert the row's equivalent: the CSS rule and its
-// button are both fully gone, and the memory row is the LAST row of the
-// to-do list.
-describe('AC471(1) retired by #656: .task-share-memory CSS rule is gone', () => {
+describe('.task-share-memory CSS rule stays gone (retired by #656, superseded by #1002)', () => {
   test('no .task-share-memory rule remains in theme.css', () => {
     // Issue #969: theme.css split into slices -- read via the shared helper.
     const themeSrc = readThemeCss();
@@ -68,27 +69,49 @@ describe('AC471(1) retired by #656: .task-share-memory CSS rule is gone', () => 
   });
 });
 
-describe('AC471(2) retired by #656: no standalone .task-share-memory button; the row is last', () => {
-  test('/tasks with a to-do task renders no .task-share-memory button, and "Share a memory" is the last to-do row', async () => {
+describe('#1002: Share a memory is a quiet button under the filter chips, not a to-do row', () => {
+  test('/tasks with a to-do task renders section.tasks-share-cta after .task-filters and before .task-list', async () => {
     seedOneTodoTask();
     const agent = await signedInAgent('ac471-token');
 
     const res = await agent.get('/tasks');
     expect(res.status).toBe(200);
 
-    expect(res.text).not.toContain('task-share-memory');
+    // The exact owner-approved anchor (AC1) — no points text, no caption.
+    expect(res.text).toContain(
+      '<a class="btn btn-secondary btn-block" href="/memories/new">Share a memory</a>'
+    );
+    expect(res.text).toContain('<section class="tasks-share-cta">');
 
-    const listStart = res.text.indexOf('<ul class="task-list">');
-    const listEnd = res.text.indexOf('</ul>', listStart);
-    const list = res.text.slice(listStart, listEnd);
-    const rows = list.split('<li class="task-row task-todo">').slice(1);
+    // Position: filters, then the CTA, then the list (AC1's "after ...
+    // before" ordering, checked via indexOf like the rest of this suite).
+    const filtersIdx = res.text.indexOf('class="task-filters"');
+    const ctaIdx = res.text.indexOf('class="tasks-share-cta"');
+    const listIdx = res.text.indexOf('class="task-list"');
+    expect(filtersIdx).toBeGreaterThan(-1);
+    expect(ctaIdx).toBeGreaterThan(filtersIdx);
+    expect(listIdx).toBeGreaterThan(ctaIdx);
+  });
+
+  test('no task-row block contains "Share a memory", and /memories/new appears exactly once (AC2)', async () => {
+    seedOneTodoTask();
+    const agent = await signedInAgent('ac471-token');
+
+    const res = await agent.get('/tasks');
+    expect(res.status).toBe(200);
+
+    const rows = res.text.split('<li class="task-row').slice(1);
     expect(rows.length).toBeGreaterThan(0);
-    expect(rows[rows.length - 1]).toContain('Share a memory');
-    expect(rows[rows.length - 1]).toContain('href="/memories/new"');
+    rows.forEach(function (row) {
+      expect(row).not.toContain('Share a memory');
+    });
+
+    const memoriesNewMatches = res.text.match(/\/memories\/new/g) || [];
+    expect(memoriesNewMatches.length).toBe(1);
   });
 });
 
-describe('AC471(3): the allDone .tasks-memory-cta path is untouched', () => {
+describe('AC3: the allDone .tasks-memory-cta path is untouched, and .tasks-share-cta does not also render', () => {
   test('.tasks-memory-cta keeps its original margin/padding/background, no added margin-top rule', () => {
     // Issue #969: theme.css split into slices -- read via the shared helper.
     const themeSrc = readThemeCss();
@@ -105,7 +128,7 @@ describe('AC471(3): the allDone .tasks-memory-cta path is untouched', () => {
     expect(block).toMatch(/text-align:\s*center;/);
   });
 
-  test('the allDone CTA button markup (tasks.ejs) is unchanged plain btn/btn-block, no task-share-memory class', async () => {
+  test("finished-every-task guest gets the card's own share link, not the chips-CTA, and /memories/new appears exactly once (AC3)", async () => {
     db.prepare('DELETE FROM submissions').run();
     db.prepare('DELETE FROM tasks').run();
     db.prepare('DELETE FROM guests').run();
@@ -130,7 +153,12 @@ describe('AC471(3): the allDone .tasks-memory-cta path is untouched', () => {
     expect(res.status).toBe(200);
 
     expect(res.text).toMatch(/<a class="btn btn-block" href="\/memories\/new">Share a memory<\/a>/);
-    // The allDone path's own button must never pick up the task-share-memory class.
+    // The chips CTA is absent — the finished-card button is the page's ONLY
+    // Share a memory link (AC3).
+    expect(res.text).not.toContain('class="tasks-share-cta"');
     expect(res.text).not.toContain('task-share-memory');
+
+    const memoriesNewMatches = res.text.match(/\/memories\/new/g) || [];
+    expect(memoriesNewMatches.length).toBe(1);
   });
 });

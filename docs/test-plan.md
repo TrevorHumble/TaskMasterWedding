@@ -529,11 +529,11 @@ Expected: The same reel appears, but it does NOT auto-advance — you must tap t
 
 ### D14. Sharing a memory batch, and its once-per-day bonus
 
-Steps: As a guest, go to `/tasks` and tap the last row, "Share a memory" (its price tag reads "+1 pt" if you haven't shared one yet today). On the form, attach several photos at once (up to 10) and an optional caption, then submit.
+Steps: As a guest, go to `/tasks` and tap the quiet "Share a memory" button under the To do / Done chips. On the form, attach several photos at once (up to 10) and an optional caption, then submit.
 
 Expected: A "Shared! They're in the gallery." confirmation appears and every photo in the batch shows up on `/gallery`. Your points on `/` went up by 1 for the day's first memory, plus each photo's own admin bonus if any (a memory earns no automatic per-photo base the way a task photo does). Go back to `/tasks`.
 
-Expected: The "Share a memory" row's price tag is now gone entirely (not "+0", not "Complete") — the description still reads "First memory of the day earns +1," but the tag stops advertising a point already claimed today. Share a second memory the same day.
+Expected: The "Share a memory" button under the chips still reads exactly "Share a memory," with no points text and no caption either way — it doesn't change appearance based on whether today's +1 has already been claimed. Share a second memory the same day.
 
 Expected: It uploads and appears in the gallery same as before, but no further points are banked for it — only the first memory of each event-local day pays the +1.
 
