@@ -199,8 +199,10 @@
   background: #6e2222;
   color: #f2f2f2;
 }
-[data-theme='stag'] .btn-danger:hover {
-  background: #8a2a2a;
+@media (hover: hover) {
+  [data-theme='stag'] .btn-danger:hover {
+    background: #8a2a2a;
+  }
 }
 [data-theme='stag'] .admin-tile-resub {
   background: #6e2222;
@@ -288,8 +290,10 @@ a {
   color: var(--color-primary);
   text-decoration: none;
 }
-a:hover {
-  text-decoration: underline;
+@media (hover: hover) {
+  a:hover {
+    text-decoration: underline;
+  }
 }
 
 /* ----------------------- Typography ----------------------- */
@@ -372,8 +376,10 @@ p {
   text-decoration: none;
   color: var(--color-primary);
 }
-.admin-brand:hover {
-  text-decoration: none;
+@media (hover: hover) {
+  .admin-brand:hover {
+    text-decoration: none;
+  }
 }
 .brand-heart {
   width: 20px;
@@ -418,8 +424,10 @@ p {
   gap: 2px;
   text-decoration: none;
 }
-.masthead:hover {
-  text-decoration: none;
+@media (hover: hover) {
+  .masthead:hover {
+    text-decoration: none;
+  }
 }
 .brand-script {
   font-family: var(--font-script);
@@ -483,10 +491,12 @@ p {
   white-space: normal;
   text-align: center;
 }
-.nav-link:hover {
-  color: var(--color-primary);
-  text-decoration: none;
-  border-bottom-color: var(--color-primary);
+@media (hover: hover) {
+  .nav-link:hover {
+    color: var(--color-primary);
+    text-decoration: none;
+    border-bottom-color: var(--color-primary);
+  }
 }
 /* Active section (issue #252 AC2) — the only place this underline is drawn. */
 .nav-link[aria-current='page'] {
@@ -512,9 +522,11 @@ p {
     color var(--dur-fast) var(--ease-soft),
     border-color var(--dur-fast) var(--ease-soft);
 }
-.nav-link-button:hover {
-  color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
+@media (hover: hover) {
+  .nav-link-button:hover {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+  }
 }
 
 /* ----------------------- Heart divider ----------------------- */
@@ -1114,10 +1126,12 @@ p {
   text-decoration: none;
   transition: background-color var(--dur-fast) var(--ease-soft);
 }
-.btn:hover {
-  background: var(--color-primary-hover);
-  text-decoration: none;
-  color: var(--color-on-primary);
+@media (hover: hover) {
+  .btn:hover {
+    background: var(--color-primary-hover);
+    text-decoration: none;
+    color: var(--color-on-primary);
+  }
 }
 .btn:active {
   background: var(--green-900);
@@ -1132,24 +1146,30 @@ p {
   color: var(--color-primary);
   border: 1px solid var(--color-primary);
 }
-.btn-secondary:hover {
-  background: var(--green-50);
-  color: var(--color-primary);
+@media (hover: hover) {
+  .btn-secondary:hover {
+    background: var(--green-50);
+    color: var(--color-primary);
+  }
 }
 .btn-ghost {
   background: transparent;
   color: var(--color-text-muted);
   border: var(--border-hairline);
 }
-.btn-ghost:hover {
-  background: var(--green-50);
-  color: var(--color-primary);
+@media (hover: hover) {
+  .btn-ghost:hover {
+    background: var(--green-50);
+    color: var(--color-primary);
+  }
 }
 .btn-danger {
   background: var(--err-ink);
 }
-.btn-danger:hover {
-  background: #5a1515;
+@media (hover: hover) {
+  .btn-danger:hover {
+    background: #5a1515;
+  }
 }
 .btn-block {
   display: block;
@@ -1201,8 +1221,10 @@ p {
 .btn-sage {
   background: var(--green-500);
 }
-.btn-sage:hover {
-  background: var(--green-700);
+@media (hover: hover) {
+  .btn-sage:hover {
+    background: var(--green-700);
+  }
 }
 
 /* ----------------------- How to play (#246) -----------------------
@@ -1378,9 +1400,11 @@ a.stat {
   text-decoration: none;
   transition: background 0.12s ease;
 }
-a.stat:hover {
-  background: var(--green-50);
-  text-decoration: none;
+@media (hover: hover) {
+  a.stat:hover {
+    background: var(--green-50);
+    text-decoration: none;
+  }
 }
 /* Open-bug-reports count turns red only when there is something to act on;
    at zero it stays the ordinary primary green (AC2). */
@@ -1472,9 +1496,11 @@ a.stat:hover {
 .task-item:first-child {
   border-top: var(--border-hairline);
 }
-.task-item:hover {
-  background: var(--green-50);
-  text-decoration: none;
+@media (hover: hover) {
+  .task-item:hover {
+    background: var(--green-50);
+    text-decoration: none;
+  }
 }
 .task-check {
   flex: 0 0 auto;
@@ -1525,8 +1551,10 @@ a.stat:hover {
 .task-row:first-child {
   border-top: var(--border-hairline);
 }
-.task-row:hover {
-  background: var(--green-50);
+@media (hover: hover) {
+  .task-row:hover {
+    background: var(--green-50);
+  }
 }
 .task-row.task-done .task-title-text {
   color: var(--color-text-muted);
@@ -1574,6 +1602,8 @@ a.stat:hover {
 .task-link > .task-body:first-child {
   grid-column: badge-start / body-end;
 }
-.task-link:hover {
-  text-decoration: none;
+@media (hover: hover) {
+  .task-link:hover {
+    text-decoration: none;
+  }
 }

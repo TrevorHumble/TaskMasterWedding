@@ -188,8 +188,10 @@
   color: var(--color-primary);
   border: 1px solid var(--color-primary);
 }
-.join-photo .btn:hover {
-  background: var(--color-surface);
+@media (hover: hover) {
+  .join-photo .btn:hover {
+    background: var(--color-surface);
+  }
 }
 .join-login-link {
   text-decoration: underline;
@@ -368,8 +370,10 @@
   inset: 0;
 }
 
-/* Quick actions, bottom-right of a tile — hidden until hover/focus (the
-   "hover contact point"); a favorited heart stays lit so state is legible. */
+/* Quick actions, bottom-right of a tile — hidden until hover/focus on a
+   pointer device (the "hover contact point"); always visible on touch (see
+   the "hover: none" rule below); a favorited heart stays lit so state is
+   legible. */
 .admin-tile-actions {
   position: absolute;
   right: 6px;
@@ -380,10 +384,21 @@
   opacity: 0;
   transition: opacity 0.12s ease;
 }
-.admin-tile:hover .admin-tile-actions,
+@media (hover: hover) {
+  .admin-tile:hover .admin-tile-actions {
+    opacity: 1;
+  }
+}
 .admin-tile:focus-within .admin-tile-actions,
 .admin-tile-actions:has(.admin-fav-on) {
   opacity: 1;
+}
+/* No hover on touch devices — nothing would ever reveal the actions, so
+   they stay visible there. */
+@media (hover: none) {
+  .admin-tile-actions {
+    opacity: 1;
+  }
 }
 .admin-tile-btn {
   width: 34px;
@@ -541,8 +556,10 @@
 .admin-comment-restore {
   color: var(--color-primary);
 }
-.admin-comment-hide:hover {
-  color: var(--color-danger, #b3261e);
+@media (hover: hover) {
+  .admin-comment-hide:hover {
+    color: var(--color-danger, #b3261e);
+  }
 }
 
 /* ===========================================================
@@ -862,8 +879,10 @@
   align-items: center;
   justify-content: center;
 }
-.rank-handle:hover {
-  color: var(--color-text-muted);
+@media (hover: hover) {
+  .rank-handle:hover {
+    color: var(--color-text-muted);
+  }
 }
 .rank-handle svg {
   width: 18px;
@@ -1321,9 +1340,11 @@
 .slideshow.show-chrome .nav-arrow {
   opacity: 0.5;
 }
-.slideshow.show-chrome .nav-zone:hover .nav-arrow {
-  opacity: 1;
-  background: rgba(9, 14, 11, 0.55);
+@media (hover: hover) {
+  .slideshow.show-chrome .nav-zone:hover .nav-arrow {
+    opacity: 1;
+    background: rgba(9, 14, 11, 0.55);
+  }
 }
 
 /* Auto / Directed toggle (top-center) + exit (top-right) — reveal with chrome. */
