@@ -203,6 +203,32 @@
     var badgeDialog = getBadgeDialog();
     if (badgeDialog && target.closest('#badge-dialog .badge-continue')) {
       badgeDialog.close();
+      return;
+    }
+    // Issue #927: a tap on the celebration dialog's ::backdrop closes it, the
+    // same second exit every other dialog in this app already offers. All of
+    // them rest on the same fact — a click's target is the dialog ELEMENT only
+    // when it landed outside the dialog's children, i.e. on the backdrop — but
+    // they spell it two ways. A handler that already holds the one dialog it
+    // owns compares identity, and this branch matches that form (search
+    // `event.target === dialog` in badge-picker.js and slideshow-launch.js); a
+    // delegated document listener that must first work out WHICH dialog was
+    // hit tests a class on the target instead (search `comments-dialog` in
+    // feed.js, `caption-dialog` in photo-owner-menu.js). Named by symbol, not
+    // by line: a line pin in a comment goes stale on the next edit to a file
+    // this one does not own. Identity is right here because
+    // getBadgeDialog() has already resolved the single #badge-dialog. Lives HERE
+    // rather than in badge-moment.js because this file is loaded on every
+    // page that renders #badge-dialog at all, while badge-moment.js is loaded
+    // only when a celebration is owed this render — so putting it there would
+    // leave a recap REPLAY of the same dialog with no backdrop exit.
+    //
+    // Safe mid-queue: closing this way is a native dismissal, so
+    // badge-moment.js's own 'close' listener fast-forwards its queue index
+    // and the guest's remaining badges stay genuinely owed for the next
+    // render (#902 AC3) instead of being silently consumed.
+    if (badgeDialog && badgeDialog.open && event.target === badgeDialog) {
+      badgeDialog.close();
     }
   });
 
