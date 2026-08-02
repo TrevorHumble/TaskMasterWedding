@@ -50,7 +50,7 @@ skill, or agent artifacts. It is never used to commit or self-approve.
    do not reinvent.
 4. **Conform to repo standards:**
    - Naming: no FINAL/LAST/TRULY_FINAL; no trailing numerals that imply finality.
-   - Comments: meaningful, not decorative.
+   - Comments: meet the keep test in `standards/design-philosophy.md`'s "Obvious code" principle.
    - Prose: no AI-slop voice (no "I'll now", "Let me", "Certainly", "comprehensive", "seamless").
    - Frontmatter: `name`, `description`, `model`, `tools` present and correct per
      `standards/agent-standards.md` or `standards/skill-standards.md` as applicable.
