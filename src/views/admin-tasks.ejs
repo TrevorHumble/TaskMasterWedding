@@ -109,6 +109,10 @@
   <%- include('partials/badge-picker', { badgeIcons: badgeIcons }) %>
 
 <script src="/js/admin.js" defer></script>
+<%# Issue #879: the single owner of backdrop-dismiss wiring for the edit/
+    create dialogs and the badge picker — must load before all three
+    consumers. %>
+<script src="/js/dialog-dismiss.js" defer></script>
 <%# Issue #869: the single owner of the --icon-src custom-property set/clear
     both badge-picker.js and admin-tasks.js's live badge preview call into —
     must load before either of its two consumers. %>

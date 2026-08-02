@@ -31,6 +31,19 @@ const BADGE_ICON_MASK_JS_PATH = path.join(
   'js',
   'badge-icon-mask.js'
 );
+// Issue #879: badge-picker.js's backdrop-dismiss branch now calls
+// window.DialogDismiss.backdrop(dialog) rather than hand-writing the check
+// itself — require the REAL dialog-dismiss.js (not a stub) so this test
+// exercises the same load-order contract src/views/admin-tasks.ejs's
+// <script> tags establish in production.
+const DIALOG_DISMISS_JS_PATH = path.join(
+  __dirname,
+  '..',
+  'src',
+  'public',
+  'js',
+  'dialog-dismiss.js'
+);
 const BADGE_PICKER_JS_PATH = path.join(__dirname, '..', 'src', 'public', 'js', 'badge-picker.js');
 
 // Mirrors src/views/partials/badge-picker.ejs's real shape (dialog id,
@@ -83,6 +96,11 @@ function pageMarkup() {
  * real map's own shape/coverage is tested separately in
  * tests/badge-icon-tags.test.js -- this fixture only needs to be small and
  * known so a tag-only query can be asserted against exactly.
+ *
+ * `options.skipDialogDismiss` (issue #879 PR review, finding 2): stands in
+ * for dialog-dismiss.js failing to load at all (a missing/reordered script
+ * tag) -- window.DialogDismiss is left entirely unset, the same absent-
+ * global shape the guarded call site is meant to survive.
  */
 function loadBadgePicker(options) {
   const opts = options || {};
@@ -106,8 +124,12 @@ function loadBadgePicker(options) {
   dialogEl.showModal = function () {
     this.open = true;
   };
+  // Issue #879: dialog-dismiss.js's stale-flag reset is wired through the
+  // dialog's own 'close' event — the stub must dispatch it, or that reset
+  // never fires against a module that is correct in a real browser.
   dialogEl.close = function () {
     this.open = false;
+    this.dispatchEvent(new dom.window.Event('close'));
   };
 
   if (Object.prototype.hasOwnProperty.call(opts, 'tags') && opts.tags === null) {
@@ -118,6 +140,11 @@ function loadBadgePicker(options) {
 
   delete require.cache[require.resolve(BADGE_ICON_MASK_JS_PATH)];
   require(BADGE_ICON_MASK_JS_PATH);
+
+  if (!opts.skipDialogDismiss) {
+    delete require.cache[require.resolve(DIALOG_DISMISS_JS_PATH)];
+    require(DIALOG_DISMISS_JS_PATH);
+  }
 
   delete require.cache[require.resolve(BADGE_PICKER_JS_PATH)];
   require(BADGE_PICKER_JS_PATH);
@@ -146,6 +173,17 @@ function change(doc, el) {
 function typeSearch(doc, el, value) {
   el.value = value;
   el.dispatchEvent(new doc.defaultView.Event('input', { bubbles: true }));
+}
+
+function pointerdown(doc, el) {
+  el.dispatchEvent(new doc.defaultView.Event('pointerdown', { bubbles: true }));
+}
+
+// The click a real browser retargets to the dialog element when a press and
+// release straddle the dialog/backdrop boundary — dispatched directly on
+// the dialog, mirroring issue #879's dialog-dismiss.test.js.
+function clickOnDialog(doc, dialogEl) {
+  dialogEl.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
 }
 
 describe('badge-picker.js (issue #869 PR review, finding 6 — the masked-preview set/clear now has a test that can fail)', () => {
@@ -215,6 +253,71 @@ describe('badge-picker.js (issue #869 PR review, finding 6 — the masked-previe
     expect(previewIcon.style.getPropertyValue('--icon-src')).toBe('');
     expect(previewIcon.hidden).toBe(true);
     expect(preview.classList.contains('badge-medallion-empty')).toBe(true);
+  });
+});
+
+describe('badge-picker.js backdrop dismissal (issue #879 AC1/AC2/AC3)', () => {
+  test('AC1: a press inside the dialog, released on the retargeted dialog element, leaves the picker open', () => {
+    const { doc, restore } = loadBadgePicker();
+    const dialogEl = doc.getElementById('badge-picker');
+    const nameInput = doc.getElementById('badge-picker-name');
+
+    click(doc, doc.querySelector('.badge-choose-btn')); // openFor() -> showModal()
+    expect(dialogEl.open).toBe(true);
+
+    nameInput.value = 'half-typed work';
+    pointerdown(doc, nameInput);
+    clickOnDialog(doc, dialogEl);
+
+    expect(dialogEl.open).toBe(true);
+    expect(nameInput.value).toBe('half-typed work');
+
+    restore();
+  });
+
+  test('AC2: a genuine backdrop press-and-release still closes the picker', () => {
+    const { doc, restore } = loadBadgePicker();
+    const dialogEl = doc.getElementById('badge-picker');
+
+    click(doc, doc.querySelector('.badge-choose-btn'));
+    expect(dialogEl.open).toBe(true);
+
+    pointerdown(doc, dialogEl);
+    clickOnDialog(doc, dialogEl);
+
+    expect(dialogEl.open).toBe(false);
+
+    restore();
+  });
+
+  test('fails safe when window.DialogDismiss is absent: the script still loads and its OWN listeners still register (PR review, finding 2)', () => {
+    const { doc, restore } = loadBadgePicker({ skipDialogDismiss: true });
+    const heartRadio = doc.querySelector('.badge-picker-radio[data-name="Heart"]');
+    const previewIcon = doc.getElementById('badge-preview-icon');
+
+    expect(doc.defaultView.DialogDismiss).toBeUndefined();
+
+    // openFor() itself (bound to .badge-choose-btn, wired BEFORE the guarded
+    // DialogDismiss call in the source) still runs.
+    click(doc, doc.querySelector('.badge-choose-btn'));
+    const dialogEl = doc.getElementById('badge-picker');
+    expect(dialogEl.open).toBe(true);
+
+    // selectIcon() (wired via the form's 'change' listener, also unaffected
+    // by the guarded call) still runs.
+    heartRadio.checked = true;
+    change(doc, heartRadio);
+    expect(previewIcon.style.getPropertyValue('--icon-src')).toBe(
+      "url('/badges/icons/favorite.svg')"
+    );
+
+    // The one behavior that IS lost without the module: a backdrop dismissal
+    // no longer closes the dialog at all (rather than crashing anything).
+    pointerdown(doc, dialogEl);
+    clickOnDialog(doc, dialogEl);
+    expect(dialogEl.open).toBe(true);
+
+    restore();
   });
 });
 

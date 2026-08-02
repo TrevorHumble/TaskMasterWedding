@@ -211,7 +211,9 @@
     // when it landed outside the dialog's children, i.e. on the backdrop — but
     // they spell it two ways. A handler that already holds the one dialog it
     // owns compares identity, and this branch matches that form (search
-    // `event.target === dialog` in badge-picker.js and slideshow-launch.js); a
+    // `window.DialogDismiss.backdrop` in src/public/js/dialog-dismiss.js,
+    // issue #879's single owner of that check for badge-picker.js,
+    // admin-tasks.js, and slideshow-launch.js); a
     // delegated document listener that must first work out WHICH dialog was
     // hit tests a class on the target instead (search `comments-dialog` in
     // feed.js, `caption-dialog` in photo-owner-menu.js). Named by symbol, not

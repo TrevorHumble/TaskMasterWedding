@@ -16,8 +16,10 @@
 // Depends on src/public/js/badge-icon-mask.js (issue #869) being loaded
 // first — window.BadgeIconMask.set/clear is the single owner of the
 // --icon-src custom property the live preview glyph carries; see that
-// file's own header. src/views/admin-tasks.ejs's <script> order is what
-// guarantees the load order.
+// file's own header. Also depends on src/public/js/dialog-dismiss.js
+// (issue #879) being loaded first — window.DialogDismiss.backdrop is the
+// single owner of backdrop-dismiss wiring. src/views/admin-tasks.ejs's
+// <script> order is what guarantees both load orders.
 (function () {
   'use strict';
 
@@ -132,8 +134,12 @@
     });
   });
 
-  // Click on the backdrop (outside the form) closes the dialog.
-  dialog.addEventListener('click', function (event) {
-    if (event.target === dialog) dialog.close();
-  });
+  // Backdrop dismissal — issue #879's shared module (see
+  // src/public/js/dialog-dismiss.js's own header for why a bare
+  // event.target === dialog check closed on a drag-select released past the
+  // dialog's edge). Guarded (PR review, finding 2): an uncaught TypeError
+  // here would be a no-op today since it is the last statement in this IIFE,
+  // but the guard is explicit rather than positional so a later addition
+  // after this line can't silently reintroduce the coupling.
+  if (window.DialogDismiss) window.DialogDismiss.backdrop(dialog);
 })();
