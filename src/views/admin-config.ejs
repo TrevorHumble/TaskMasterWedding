@@ -8,7 +8,15 @@
     <p class="flash <%= (typeof err !== 'undefined' && err) ? 'flash-err' : 'flash-ok' %>" role="status"><%= msg %></p>
   <% } %>
 
-  <form action="/admin/config" method="POST" autocomplete="off">
+  <%# data-date-range marks this form as the one src/public/js/date-field.js
+      wires its start/end pair inside (issue #875).
+
+      novalidate is deliberate, and it switches off native validation for this
+      WHOLE form, not just the date pair. The trade it makes, what
+      date-field.js hands back, and what stays given up with scripts off are
+      argued in DESIGN.md's ADR "One date-field component, styled native
+      input type=date (#875)". %>
+  <form action="/admin/config" method="POST" autocomplete="off" novalidate data-date-range>
     <%- include('partials/csrf-field') %>
     <div class="form-row">
       <label class="form-label" for="timezone">Event timezone</label>
@@ -19,17 +27,27 @@
       </select>
     </div>
 
-    <div class="form-row">
-      <label class="form-label" for="start_date">Wedding starts</label>
-      <input class="form-input" type="date" id="start_date" name="start_date"
-             value="<%= config.startDate %>">
-    </div>
+    <%- include('partials/date-field', {
+          id: 'start_date',
+          name: 'start_date',
+          label: 'Wedding starts',
+          value: config.startDate,
+          rangeRole: 'start'
+        }) %>
 
-    <div class="form-row">
-      <label class="form-label" for="end_date">Wedding ends</label>
-      <input class="form-input" type="date" id="end_date" name="end_date"
-             value="<%= config.endDate %>">
-    </div>
+    <%# The end field's `min` is the stored start date on this render;
+        date-field.js re-pins it whenever the start field changes. Client-side
+        bounds only — src/routes/admin/config.js still rejects an inverted pair
+        on a crafted POST. %>
+    <%- include('partials/date-field', {
+          id: 'end_date',
+          name: 'end_date',
+          label: 'Wedding ends',
+          value: config.endDate,
+          min: config.startDate,
+          rangeRole: 'end'
+        }) %>
+    <p class="form-error date-range-error" role="alert" data-range-error hidden></p>
 
     <div class="form-row">
       <label class="form-label" for="prizes">Prizes</label>
@@ -40,5 +58,7 @@
 
     <button class="btn--primary" type="submit">Save configuration</button>
   </form>
+
+  <script src="/js/date-field.js" defer></script>
 
 <%- include('partials/footer') %>

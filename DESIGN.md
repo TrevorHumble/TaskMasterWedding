@@ -3831,3 +3831,106 @@ only one and is now repointed. It survives for `tests/feed.test.js`'s visibility
 export carries a comment saying so — an unbounded read left on the interface of the module whose job is to
 bound reads is a trap for the next surface that needs one guest's photos (a keepsake export, a printable
 profile), which would otherwise reach for the obvious name and reintroduce exactly what #1004 removed.
+
+## One date-field component, styled native `<input type="date">` (#875)
+
+**Date:** 2026-08-02. **Status:** shipped.
+
+`src/views/partials/date-field.ejs` is a new reusable view component: one labelled
+`<input type="date">` plus a green line-drawn calendar-glyph button, wired by
+`src/public/js/date-field.js` and styled by a shared rule set promoted into
+`src/public/css/guest.css`. `/admin/config`'s "Wedding starts" and "Wedding ends" fields are its
+first two call sites, each passing `id`/`name`/`label`/`value` and (the end field only) `min` and
+a `rangeRole` that tags the pair for the range-wiring script.
+
+**Why a styled native `<input type="date">` rather than a custom calendar widget.** A custom widget
+means shipping and maintaining date-grid markup, keyboard handling, and locale-aware month/day
+formatting ourselves, and it opts every guest-facing host out of whatever accessibility settings
+their own device already applies (larger touch targets, a screen reader's own date-picker
+narration, right-to-left layout). The native control gets all of that for free — "every phone
+contributes its own OS picker" — at the cost of not controlling how that picker looks, which is a
+cost this issue's approved screen accepts: the picker itself is unstyled, only the field and its
+opener button carry the wedding's look.
+
+**Why the calendar button is ours rather than a restyled
+`::-webkit-calendar-picker-indicator`.** That pseudo-element is Chrome/Edge-only and, more to the
+point, Safari on macOS draws no picker indicator at all for a bare `type="date"` field — a
+plausible planner's machine per the issue's report — so there is nothing there to restyle on that
+engine. Standing up our own button is the only approach that puts an affordance on every engine.
+`date-field.js` collapses the browser's own indicator
+(`.date-field.js-date .date-input::-webkit-calendar-picker-indicator`) only for a field whose own
+button has actually rendered — the `js-date` class is added to that field's own `.date-field`
+wrapper, not the document, so a scripts-off page (or a field whose button lookup somehow failed)
+never loses the native affordance with nothing put back in its place (AC6), and a scripts-on page
+never shows two glyphs at once.
+
+**Shared CSS, not a second copy.** The 48px icon well, the 10px inset, and the `--color-primary`
+glyph treatment already existed for the PIN-reveal eye on `/me/edit` (issue #243,
+`.pin-field`/`.pin-reveal`). Rather than repeat that property list for `.date-field`/`.date-open`,
+`guest.css`'s "Icon-in-field controls" block groups both pairs onto one selector list — any future
+consumer of this idiom adds its two class names to that list rather than restating the block. The
+48px well itself is gated behind `.date-field.js-date` rather than the bare `.date-field`, for the
+same scripts-off reason as the indicator collapse above: with scripts off, nothing sits in that
+48px on the right, so nothing should be reserved for it. The one exception is `.date-open[hidden]`,
+which is `.date-open`-only: `.pin-reveal` is never rendered `hidden` (`me-edit.ejs` always emits it
+live), so giving it a `[hidden]` companion it does not need would be dead CSS.
+
+**The `[hidden]` companion is load-bearing, not decorative.** The shared rule's `display: flex`
+beats the UA stylesheet's plain `[hidden] { display: none }` on an engine that does not mark its
+own rule `!important` (WebKit; pre-"until-found" Firefox) — without `.date-open[hidden] { display:
+none !important; }`, a scripts-off page would render the server-hidden calendar button as a
+_visible, inert_ control beside the browser's own indicator on exactly those engines, which is what
+AC6 rules out. The same cascade gap recurs across the codebase's pre-existing author-`[hidden]`
+restatements, such as `.badge-picker-cell[hidden]` (`admin-tasks.css:359`, over `display: grid`),
+`.wizard-step[hidden]` (`admin-tasks.css:1040`, over `display: flex`), `.feed-edge[hidden]`
+(`guest.css`, over `display: flex` — cited without a line because this change edits that same
+sheet, and a pin into it is falsified by the next one), `.guest-card[hidden]` (`feed.css:1189`, over
+`display: flex`), and `.rank-award-foot .btn[hidden]` (`admin.css:945`, over `.btn`'s own
+`display`) — of those, only `.guest-card[hidden]` reaches for `!important`, matching
+`.date-open[hidden]` here; the rest restate a bare `display: none` and rely on the `[hidden]`
+attribute selector's own specificity edge over the class rule it overrides.
+`tests/admin-config.test.js` asserts the `.date-open[hidden]` companion at the CSS-text level (via
+`tests/helpers/theme-css.js`) rather than the markup level, because neither supertest nor jsdom
+resolves the UA stylesheet or the cascade — a `hidden` attribute present in a response body proves
+nothing about whether the element it sits on is actually invisible.
+
+**The partial's range contract needs two pieces the partial itself does not render.**
+`rangeRole` alone does nothing: `date-field.js`'s `wireRange()` also requires `data-date-range` on
+the enclosing `<form>` and a `[data-range-error]` element inside it, and returns silently when
+either is absent — a future adopter that passes `rangeRole` without both would get no client-side
+message and no warning, just the server round-trip. `src/views/admin-config.ejs` is the reference
+call site: it sets `data-date-range` on its own `<form>` and renders the
+`<p class="form-error date-range-error" role="alert" data-range-error hidden></p>` that both
+partial includes share. `tests/admin-config.test.js` asserts all four hooks
+(`data-date-range`, `data-range-start`, `data-range-end`, `data-range-error`) plus the
+`<script src="/js/date-field.js">` tag against the served HTML, not just against
+`tests/date-field-script.test.js`'s own fixture markup — so an edit that drops a hook from the view
+itself fails a test, rather than leaving every test green while the live page silently loses its
+client-side message.
+
+**The server stays the one gate that decides what persists.** `date-field.js` only pins the end
+field's `min` to the start field's current value and blocks a submit whose pair is inverted,
+naming the problem in place; `src/routes/admin/config.js`'s existing `startDate > endDate`
+rejection is untouched and is still what a crafted POST that bypasses the client entirely has to
+get past. Client-side range checking is steering, not the gate.
+
+**`novalidate` trades away the browser's `badInput` block too, and only partly gets it back.** The
+form carries `novalidate` so a stale server-rendered `min` on the end field can never veto a submit
+the host is in the middle of fixing: `min` renders from the STORED start date and is only re-pinned
+by `date-field.js`, so with scripts off a host moving the whole weekend earlier would otherwise be
+blocked against a bound they are in the middle of replacing — an edit that worked before this issue
+added `min` at all. `min` still bounds what the calendar OFFERS, which is the steering the issue
+wanted; it simply no longer holds a veto. Note the attribute is form-wide: it switches off native
+validation for the timezone `<select>` and the prizes `<textarea>` as well, not only the date pair.
+And `novalidate` also switches off the browser's native block on a half-typed
+date (e.g. `08/07/` with the year left blank), which used to stop that submit in place before it
+ever reached the server. `date-field.js`'s submit handler restores that block itself: it checks
+`validity.badInput` on both fields before running the range check, and on a hit calls
+`preventDefault()`, focuses the field, and calls `reportValidity()` (which still reports under a
+form-level `novalidate`) if the engine offers it. The residual: with scripts OFF, a half-typed date
+now round-trips to the server instead of being blocked in place there too — `start_date` posts as
+`''`, the server's own check treats an empty value as not-inverted, and the host loses the page and
+has to re-enter anything else on the form. Accepted, because the server still names the problem in
+its flash message, and the alternative — leaving the stale `min` bubble in place — vetoes a
+legitimate edit for every scripts-on host to save the scripts-off case, which is the wrong trade
+for the more common path.
