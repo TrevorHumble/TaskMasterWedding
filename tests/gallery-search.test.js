@@ -6,8 +6,8 @@
 // points-first order.
 //
 //   AC1 — search form + `name="q"` input present in both grouped views
-//   AC2 — by-person search filters by guest name (case-insensitive substring)
-//   AC3 — by-task search filters by task title (case-insensitive substring)
+//   AC2 — by-person search filters by guest name (case-insensitive, any-word prefix)
+//   AC3 — by-task search filters by task title (case-insensitive, any-word prefix)
 //   AC4 (as amended by #251) — by-person order is most-recent-photo-first
 //   AC5 — blank q shows everything (same as no q)
 //   AC6 — no-match search is a clean 200 empty state
@@ -107,7 +107,7 @@ describe('AC1: search form present in grouped views', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC2 — by-person search filters by guest name (case-insensitive substring)
+// AC2 — by-person search filters by guest name (case-insensitive, any-word prefix)
 // ---------------------------------------------------------------------------
 describe('AC2: by-person search filters by guest name', () => {
   it('?view=user&q=marcus includes Marcus Bell and excludes Ava Fenwick', async () => {
@@ -122,7 +122,7 @@ describe('AC2: by-person search filters by guest name', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC3 — by-task search filters by task title (case-insensitive substring)
+// AC3 — by-task search filters by task title (case-insensitive, any-word prefix)
 // ---------------------------------------------------------------------------
 describe('AC3: by-task search filters by task title', () => {
   it('?view=task&q=toast includes "Toast the couple" and excludes "Sweet treat selfie"', async () => {

@@ -1763,17 +1763,28 @@ same function, which itself reaches the one injected match rule (`HuntFilter.nam
 `src/public/js/filter.js`) — there is no second, copy-pasted matching implementation anywhere in the
 gallery.
 
-**Why the live rule and the no-JS `?q=` fallback deliberately stay two different match rules.** Each grouped
-view's search input still submits to a plain GET `?q=` for guests with JS disabled; that path is a
-server-side substring match, unrelated in shape to the live filter's any-word-prefix rule. This divergence
-predates this issue — `feed.grouped()` in `src/services/feed.js` already owned the substring fallback for
-both grouped views before #527 (the route never touches it; `src/routes/community.js` delegates visibility
-and filtering to the service) — and is intentionally preserved, not reconciled. Note the two rules are
-**incomparable, not ordered**: neither is strictly broader. `av fe` matches live but not server-side;
-`ess` matches server-side but not live. So a guest who live-filters to a result and then presses Enter can
-land on the empty state, and vice versa — a known, accepted consequence of leaving both rules as they are. Issue
-#527's ask was parity between By-person's and By-task's _live_ behavior, not a rule change on either side —
-folding the two rules together was explicitly out of scope (see the issue's "Explicitly out of scope").
+**Reversed (#935): the live rule and the no-JS `?q=` fallback now share ONE match rule, not two.** This ADR
+originally recorded, and defended, a deliberate divergence: each grouped view's search input submits to a
+plain GET `?q=` for guests with JS disabled, and that path was a server-side substring match, unrelated in
+shape to the live filter's any-word-prefix rule (`HuntFilter.nameMatchesQuery`, `src/public/js/filter.js`).
+The two rules were incomparable, not ordered — `av fe` matched live but not server-side; `ess` matched
+server-side but not live — and issue #527's own scope (parity between By-person's and By-task's _live_
+behavior only) was cited as the reason folding them together stayed out of scope.
+
+The owner's mobile failure hunt (2026-07-29) hit this divergence as a real guest-facing break, not a
+theoretical one: the phone keyboard's Search/Go key is the natural way to "finish" typing in the search
+box, and that key submits the GET form — so a guest who watched their match appear live, then pressed
+Search, watched it vanish. The owner ordered it filed and fixed. Issue #935 reverses this ADR on that
+direction: there is now one rule, one owner. `src/services/feed.js` requires `../public/js/filter` directly
+— the same module the client already loads as `/js/filter.js` — and `grouped()`'s `?q=` filter applies
+`nameMatchesQuery` to each group's heading instead of a substring test, for both grouped kinds (person and
+task). No new module, no copy: the public asset that used to be client-only is now also a server-side
+require, and that require is the single owner of "does this text match this query" for `feed.grouped()`'s
+`?q=` filter and the live gallery filter. The admin Photos grouped search
+(`src/routes/admin/moderation.js`) still applies its own separate substring-match rule and is not covered
+by this change — that divergence is known and recorded here, not silently left; issue #1044 tracks
+folding it into this same shared rule. A guest who live-filters to a result and presses Enter now lands on
+that same result.
 
 ## Flash task: HOST surface — sentinel radio, one no-op rule, candidate-selection date math (#763)
 
