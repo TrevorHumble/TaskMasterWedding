@@ -29,5 +29,6 @@ updates:
           - 'better-sqlite3'
           - 'bcryptjs'
           - 'archiver'
+          - 'compression'
       dev-deps:
         dependency-type: 'development'
