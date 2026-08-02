@@ -1,9 +1,11 @@
 // tests/memory-day-bonus.test.js
 // Issue #656 — +1 for a guest's first memory each event-local day, derived
 // (not banked) from the guest's visible memories' created_at, on BOTH scoring
-// surfaces (getPoints/leaderboard), plus the /tasks row's price tag tracking
-// today's claimed state and the approved copy rendering everywhere it was
-// approved. Covers AC1-AC7 from the issue.
+// surfaces (getPoints/leaderboard), plus the approved copy rendering
+// everywhere it was approved. Covers AC1-AC5 and AC7 from the issue; AC6 (the
+// /tasks row's price tag tracking today's claimed state) was retired by issue
+// #1002 (owner call, 2026-08-01) — the row itself is gone, replaced by a
+// quiet button under the filter chips with no price tag to track.
 //
 // REQUIRE ORDER MATTERS: config / db / services are required only AFTER
 // loadApp() sets DATA_DIR / DB_PATH env vars (see tests/helpers/testApp.js).
@@ -375,54 +377,9 @@ describe('leaderboard() comparator: NULL handling and tiebreak keys', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC6 — the row's price tag tracks the day: available -> "+1 pt"; already
-// claimed today -> the .task-points element is OMITTED entirely.
-// ---------------------------------------------------------------------------
-describe("AC6: the Share a memory row's price tag tracks the day", () => {
-  it('no memory today: the last to-do row renders "+1 pt"', async () => {
-    const { token } = insertGuest('AC6 Available Guest');
-    insertTask('AC6 Available Task'); // at least one task still to do
-
-    const agent = await signedInAgent(token);
-    const res = await agent.get('/tasks');
-    expect(res.status).toBe(200);
-
-    const listStart = res.text.indexOf('<ul class="task-list">');
-    const listEnd = res.text.indexOf('</ul>', listStart);
-    const list = res.text.slice(listStart, listEnd);
-    const rows = list.split('<li class="task-row task-todo">').slice(1);
-    expect(rows.length).toBeGreaterThan(0);
-    const memoryRow = rows[rows.length - 1];
-    expect(memoryRow).toContain('Share a memory');
-    expect(memoryRow).toContain('<span class="task-points">+1 pt</span>');
-  });
-
-  it('already has a memory today: the last to-do row omits .task-points entirely', async () => {
-    const { guestId, token } = insertGuest('AC6 Claimed Guest');
-    insertTask('AC6 Claimed Task'); // at least one task still to do
-    insertSubmission({ guestId }); // today's memory, real "now"
-
-    const agent = await signedInAgent(token);
-    const res = await agent.get('/tasks');
-    expect(res.status).toBe(200);
-
-    const listStart = res.text.indexOf('<ul class="task-list">');
-    const listEnd = res.text.indexOf('</ul>', listStart);
-    const list = res.text.slice(listStart, listEnd);
-    const rows = list.split('<li class="task-row task-todo">').slice(1);
-    expect(rows.length).toBeGreaterThan(0);
-    const memoryRow = rows[rows.length - 1];
-    expect(memoryRow).toContain('Share a memory');
-    expect(memoryRow).not.toContain('task-points');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC7 — the approved copy renders, everywhere it was approved; /tasks
-// renders no .task-share-memory button.
+// AC7 — the approved copy renders, everywhere it was approved.
 // ---------------------------------------------------------------------------
 describe('AC7: the approved copy renders everywhere it was approved', () => {
-  const ROW_DESC = 'Any photo you love, task or not. First memory of the day earns +1';
   const PAYOFF_LINE = '+1 point for your first memory each day, and any photo can win a badge.';
   const MEMORY_NEW_PROMISE =
     "Your first memory each day is +1 point, but share as many as you'd like.";
@@ -442,24 +399,6 @@ describe('AC7: the approved copy renders everywhere it was approved', () => {
   function notContainsNormalized(haystack, needle) {
     expect(normalizeWhitespace(haystack)).not.toContain(normalizeWhitespace(needle));
   }
-
-  it('/tasks row description renders identically in BOTH the available and claimed states', async () => {
-    const available = insertGuest('AC7 Available Guest');
-    insertTask('AC7 Available Task');
-    const claimed = insertGuest('AC7 Claimed Guest');
-    insertTask('AC7 Claimed Task');
-    insertSubmission({ guestId: claimed.guestId });
-
-    const availableRes = await (await signedInAgent(available.token)).get('/tasks');
-    containsNormalized(availableRes.text, ROW_DESC);
-
-    const claimedRes = await (await signedInAgent(claimed.token)).get('/tasks');
-    containsNormalized(claimedRes.text, ROW_DESC);
-
-    // And /tasks renders no standalone .task-share-memory button anywhere.
-    expect(availableRes.text).not.toContain('task-share-memory');
-    expect(claimedRes.text).not.toContain('task-share-memory');
-  });
 
   it('/tasks finished-all card carries the payoff line', async () => {
     // Delete every other task so this guest's own single task is the ONLY
@@ -489,9 +428,9 @@ describe('AC7: the approved copy renders everywhere it was approved', () => {
   // from tonight?" prompt and its payoff line are gone from /task/:id
   // entirely. This case is deliberately rewritten to assert the ABSENCE of
   // both, on both branches that used to carry them, rather than deleted —
-  // the other four AC7 cases above/below (/tasks, /memories/new,
-  // /how-to-play) are untouched by #611 and still assert the line's
-  // presence.
+  // the other three AC7 cases above/below (the finished-all card,
+  // /memories/new, /how-to-play) are untouched by #611 and still assert the
+  // line's presence.
   it('/task/:id no longer carries the memory-payoff prompt on either the fresh success card or the return-visit branch', async () => {
     const { guestId, token } = insertGuest('AC7 Task Detail Guest');
     const taskId = insertTask('AC7 Task Detail Task');
