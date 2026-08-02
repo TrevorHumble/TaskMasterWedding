@@ -3,7 +3,7 @@
 
 const express = require('express');
 const config = require('../../config');
-const { db } = require('../db');
+const { db, getPrizes } = require('../db');
 const { requireGuest } = require('../middleware/session');
 const scoring = require('../services/scoring');
 const feed = require('../services/feed');
@@ -1152,6 +1152,12 @@ router.get('/leaderboard', (req, res) => {
       podiumGroups,
       showPodium,
       badgeCap: config.LEADERBOARD_BADGE_CAP,
+      // Issue #469: the hosts' prizes blurb, its own settings key — see
+      // src/db/event-config.js's own comment on why it stays separate from
+      // getEventConfig. Empty string (never set, or saved blank on purpose)
+      // reads the same way; the view's own `if (prizes)` decides visibility
+      // (AC3), this route never pre-empties it to null/undefined.
+      prizes: getPrizes(),
     })
   );
 });

@@ -31,6 +31,13 @@
              value="<%= config.endDate %>">
     </div>
 
+    <div class="form-row">
+      <label class="form-label" for="prizes">Prizes</label>
+      <textarea id="prizes" name="prizes" rows="4" maxlength="<%= prizesMaxLength %>"
+                placeholder="One prize per line — shown to guests at the top of the leaderboard"><%= prizes %></textarea>
+      <p class="field-hint config-prizes-hint">Guests see this above the standings, word for word. Leave it blank and no prizes appear anywhere.</p>
+    </div>
+
     <button class="btn--primary" type="submit">Save configuration</button>
   </form>
 

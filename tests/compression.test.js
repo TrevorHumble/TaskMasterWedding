@@ -63,6 +63,30 @@ function raw(req) {
 }
 
 /**
+ * Blanks out the two places `res.locals.csrfToken` is rendered into HTML
+ * (`partials/head.ejs`'s meta tag, `partials/csrf-field.ejs`'s hidden input)
+ * so two real renders of the same page can be compared for byte equality
+ * again. Needed since issue #1013: that value is now `maskToken(token)`, a
+ * FRESH mask drawn on every render (the BREACH mitigation this repo's
+ * DESIGN.md "Per-response token masking" note describes), so even two
+ * requests from the SAME agent/session legitimately differ in these exact
+ * bytes now — a difference this file's compression tests must not mistake
+ * for a compression bug. Every OTHER byte on a page neither AC1 nor AC2
+ * touches (see the /login tests below) is still expected to be identical
+ * across two real requests, so blanking just these two spots preserves the
+ * rest of the comparison's value.
+ * @param {Buffer} buf
+ * @returns {Buffer}
+ */
+function stripCsrfToken(buf) {
+  const text = buf.toString('utf8');
+  const stripped = text
+    .replace(/name="csrf-token" content="[^"]*"/g, 'name="csrf-token" content="STRIPPED"')
+    .replace(/name="_csrf" value="[^"]*"/g, 'name="_csrf" value="STRIPPED"');
+  return Buffer.from(stripped, 'utf8');
+}
+
+/**
  * List entry names from a ZIP buffer by walking its End Of Central
  * Directory record and Central Directory File Headers directly — the
  * documented ZIP format (PKWARE APPNOTE.TXT), not a third-party unzip
@@ -188,6 +212,16 @@ describe('#1012 AC3: a plain (Accept-Encoding: identity) request is unaffected',
     // their whole session") — two different agents would each mint their
     // own token and legitimately render different bytes for a reason that
     // has nothing to do with compression.
+    //
+    // Issue #1013: the COOKIE token is stable across both calls (same
+    // agent, as above), but what gets RENDERED into the page is now
+    // maskToken(token) — a fresh mask drawn on every render, deliberately,
+    // so BREACH cannot observe the same secret bytes twice. That means the
+    // meta tag and hidden field genuinely differ between these two requests
+    // even on this otherwise-static page, for a reason that (like the
+    // stable-agent requirement above) has nothing to do with compression —
+    // stripCsrfToken blanks those two spots before comparing so this test
+    // still proves what it exists to prove.
     const agent = request.agent(app);
     const gzipRes = await raw(agent.get('/login').set('Accept-Encoding', 'gzip'));
     const identityRes = await raw(agent.get('/login').set('Accept-Encoding', 'identity'));
@@ -196,7 +230,9 @@ describe('#1012 AC3: a plain (Accept-Encoding: identity) request is unaffected',
     expect(identityRes.headers['content-encoding']).toBeUndefined();
     expect(identityRes.status).toBe(200);
     expect(identityRes.body.length).toBeGreaterThan(0);
-    expect(zlib.gunzipSync(gzipRes.body).equals(identityRes.body)).toBe(true);
+    expect(
+      stripCsrfToken(zlib.gunzipSync(gzipRes.body)).equals(stripCsrfToken(identityRes.body))
+    ).toBe(true);
   });
 });
 
@@ -211,13 +247,19 @@ describe('#1012: a real browser Accept-Encoding negotiates to brotli, not gzip',
     // Accept-Encoding header (this exact string, from a real Chrome
     // request) negotiates to 'br', never 'gzip'. This is the encoding
     // production actually serves guests.
+    // Issue #1013: same stripCsrfToken normalization as AC3's /login test
+    // above, and for the same reason — the rendered token is now a fresh
+    // mask per render, so the two real requests below legitimately differ
+    // in those two spots even off one agent's stable session cookie.
     const agent = request.agent(app);
     const brRes = await raw(agent.get('/login').set('Accept-Encoding', 'gzip, deflate, br, zstd'));
     const identityRes = await raw(agent.get('/login').set('Accept-Encoding', 'identity'));
 
     expect(brRes.headers['content-encoding']).toBe('br');
     expect(identityRes.headers['content-encoding']).toBeUndefined();
-    expect(zlib.brotliDecompressSync(brRes.body).equals(identityRes.body)).toBe(true);
+    expect(
+      stripCsrfToken(zlib.brotliDecompressSync(brRes.body)).equals(stripCsrfToken(identityRes.body))
+    ).toBe(true);
   });
 
   it('brotli beats gzip on css/base.css, which the library default quality would not', async () => {
