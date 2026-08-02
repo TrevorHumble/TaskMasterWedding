@@ -299,6 +299,8 @@ docker compose logs        # Option A
 journalctl -u garden-party # Option B, unit name from your systemd file
 ```
 
+**Rotation cap (Option A, #1023).** `docker-compose.yml`'s `app` service sets `logging: driver: json-file, max-size: '20m', max-file: '5'`, capping this container's log footprint at 20 MB x 5 files = 100 MB. Without this, request logging (#1019) writing to stdout would let `docker logs` grow without bound for the life of the container. `docker compose up -d` applies the cap; it takes effect on the container's next create (a plain restart of an already-running container keeps its prior logging config, so a cap change needs `docker compose up -d`, not just `docker compose restart`).
+
 ## Backups
 
 `scripts/backup.js` splits the database and the photos into two independent pieces, because they have opposite cadences (issue #558): the database changes minute to minute and is small; photos are write-once and can be large. Three modes:
@@ -327,6 +329,8 @@ photo-size + (retention + 1) x db-size
 ```
 
 `photo-size` is the full live photo set, counted **once** — the shared store never keeps a second copy of a photo, so it does not multiply with retention. `db-size` is the live `app.db`; `retention` is `BACKUP_RETENTION_COUNT`; the `+1` is because a new snapshot briefly exists before the prune-after-success step deletes the oldest one down to `retention`. This is the number the disk-budget check enforces per run and the number to size a host against — **not** an unqualified "run it hourly" example: at even a modest few GB of wedding photos, an hourly cadence with a large retention count multiplies only the small `db-size` term, which is exactly the point of the split (the old, pre-#558 shape multiplied the whole photo set instead, and could fill a small host's disk outright).
+
+This budget does not include container logs. The json-file rotation cap above (#1023) bounds each container's log footprint separately, at up to 100 MB (20 MB x 5 files) per container: on a host commonly running two instances (e.g. the wedding app and the `stag` variant), budget up to 200 MB total for logs in addition to the formula above.
 
 **Split cadence, sized to a 60 GB host (the #544 droplet).** Run the cheap, frequent thing often; run the expensive, rare thing rarely:
 

@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const config = require('../config');
+const { findAppServiceScalarKey } = require('./helpers/compose-text');
 
 // A compose port entry has the form `[HOST_IP:]HOST_PORT:CONTAINER_PORT`.
 // Returns the HOST_IP for the entry whose CONTAINER_PORT matches, or null if
@@ -60,9 +61,9 @@ function findHostIpForContainerPort(composeYaml, containerPort) {
 // makes the container share the host's network namespace directly — Docker
 // ignores `ports:` entirely in that mode — so the app listens on every host
 // interface even though the `ports:` block above still reads
-// "127.0.0.1:3000:3000". This walks the `app:` service block by indentation
-// (same style as findHostIpForContainerPort) and reads a direct
-// `network_mode:` child.
+// "127.0.0.1:3000:3000". This reads a direct `network_mode:` child of the
+// `app:` service via the shared compose-text walker (issue #1023 extracted
+// the indentation walk itself into tests/helpers/compose-text.js).
 //
 // Only `network_mode: host` is a hazard here. `network_mode: bridge` (the
 // default) and a `networks:` key are not — bridge mode still honors `ports:`
@@ -72,38 +73,7 @@ function findHostIpForContainerPort(composeYaml, containerPort) {
 // reachable from off-host by itself (that other container's own publish
 // surface, if any, is a separate concern for its own compose entry).
 function findAppServiceNetworkMode(composeYaml) {
-  const lines = composeYaml.split('\n');
-  let inServices = false;
-  let servicesIndent = 0;
-  let inAppService = false;
-  let appIndent = 0;
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (line === '') continue;
-    const indent = rawLine.length - rawLine.trimStart().length;
-    if (line === 'services:') {
-      inServices = true;
-      servicesIndent = indent;
-      continue;
-    }
-    if (inServices && indent <= servicesIndent) {
-      inServices = false;
-    }
-    if (!inServices) continue;
-    if (!inAppService && line === 'app:') {
-      inAppService = true;
-      appIndent = indent;
-      continue;
-    }
-    if (inAppService && indent <= appIndent) {
-      inAppService = false;
-    }
-    if (!inAppService) continue;
-    if (line.startsWith('network_mode:')) {
-      return line.slice('network_mode:'.length).trim().replace(/^['"]/, '').replace(/['"]$/, '');
-    }
-  }
-  return undefined;
+  return findAppServiceScalarKey(composeYaml, 'network_mode');
 }
 
 describe('findHostIpForContainerPort (fixture cases)', () => {
@@ -187,6 +157,25 @@ describe('findAppServiceNetworkMode (fixture cases)', () => {
       '    network_mode: host',
     ].join('\n');
     expect(findAppServiceNetworkMode(fixture)).toBeUndefined();
+  });
+
+  it('still detects network_mode: host when a deeper-indented comment is the first line under app: (regression, PR review of #1023)', () => {
+    // docker-compose.yml's own app service opens with an inline comment
+    // block indented deeper than its real direct-child keys (see the
+    // "127.0.0.1:" binding comment above `ports:`). A prior version of the
+    // shared walker derived the direct-child indent from the block's FIRST
+    // line rather than its shallowest non-comment line, so a fixture
+    // shaped like this one silently skipped every real direct child,
+    // including network_mode: host -- the exact loopback-bind hazard
+    // #571's guard exists to catch.
+    const fixture = [
+      'services:',
+      '  app:',
+      '      # a deeper-indented comment as the first line under app:',
+      '    build: .',
+      '    network_mode: host',
+    ].join('\n');
+    expect(findAppServiceNetworkMode(fixture)).toBe('host');
   });
 });
 
