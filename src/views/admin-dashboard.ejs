@@ -156,6 +156,9 @@
     </form>
   </dialog>
 
+  <%# Issue #879: the single owner of backdrop-dismiss wiring — must load
+      before its consumer. %>
+  <script src="/js/dialog-dismiss.js" defer></script>
   <script src="/js/slideshow-launch.js" defer></script>
 
 <%- include('partials/footer') %>

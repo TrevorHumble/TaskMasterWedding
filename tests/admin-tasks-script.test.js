@@ -46,6 +46,19 @@ const BADGE_ICON_MASK_JS_PATH = path.join(
   'js',
   'badge-icon-mask.js'
 );
+// #879: admin-tasks.js's backdrop-dismiss wiring now calls
+// window.DialogDismiss.backdrop(editDialog/createDialog) rather than
+// hand-writing the check itself — require the REAL dialog-dismiss.js (not a
+// stub) so this test exercises the same load-order contract
+// src/views/admin-tasks.ejs's <script> tags establish in production.
+const DIALOG_DISMISS_JS_PATH = path.join(
+  __dirname,
+  '..',
+  'src',
+  'public',
+  'js',
+  'dialog-dismiss.js'
+);
 
 const DAY1 = '2026-08-07';
 const DAY2 = '2026-08-08';
@@ -470,7 +483,15 @@ function pageMarkup() {
  * document.getElementById at module load, same as a real <script defer>
  * load) so its listeners bind to THIS document.
  */
-function loadAdminTasks() {
+/**
+ * `options.skipDialogDismiss` (issue #879 PR review, finding 2): stands in
+ * for dialog-dismiss.js failing to load at all (a missing/reordered script
+ * tag) — window.DialogDismiss is left entirely unset, the same absent-
+ * global shape the guarded call site is meant to survive.
+ */
+function loadAdminTasks(options) {
+  const opts = options || {};
+
   const dom = new JSDOM('<!doctype html><html><body>' + pageMarkup() + '</body></html>', {
     url: 'http://localhost/admin/tasks',
   });
@@ -486,11 +507,36 @@ function loadAdminTasks() {
     });
   });
 
+  // Issue #879: jsdom implements neither HTMLDialogElement.showModal nor
+  // .close (see tests/badge-picker-script.test.js's own header for the same
+  // gap) — this fixture had no dialog stub before this issue because no
+  // existing test needed .open to be a real, settable state. The AC1/AC2
+  // sequences below do. The close stub also dispatches a 'close' Event
+  // after setting open = false, or dialog-dismiss.js's stale-flag reset
+  // (wired through the dialog's own 'close' listener) never fires.
+  const editDialogEl = dom.window.document.getElementById('task-edit-dialog');
+  const createDialogEl = dom.window.document.getElementById('task-create-dialog');
+  [editDialogEl, createDialogEl].forEach((d) => {
+    d.showModal = function () {
+      this.open = true;
+    };
+    d.close = function () {
+      this.open = false;
+      this.dispatchEvent(new dom.window.Event('close'));
+    };
+  });
+
   // badge-icon-mask.js first (its own header requires this load order),
   // establishing window.BadgeIconMask before admin-tasks.js's reflectBadge()
-  // ever calls into it.
+  // ever calls into it. dialog-dismiss.js likewise must load before
+  // admin-tasks.js's backdrop-dismiss wiring calls into it.
   delete require.cache[require.resolve(BADGE_ICON_MASK_JS_PATH)];
   require(BADGE_ICON_MASK_JS_PATH);
+
+  if (!opts.skipDialogDismiss) {
+    delete require.cache[require.resolve(DIALOG_DISMISS_JS_PATH)];
+    require(DIALOG_DISMISS_JS_PATH);
+  }
 
   delete require.cache[require.resolve(ADMIN_TASKS_JS_PATH)];
   require(ADMIN_TASKS_JS_PATH);
@@ -514,6 +560,17 @@ function click(doc, el) {
 
 function change(doc, el) {
   el.dispatchEvent(new doc.defaultView.Event('change', { bubbles: true }));
+}
+
+function pointerdown(doc, el) {
+  el.dispatchEvent(new doc.defaultView.Event('pointerdown', { bubbles: true }));
+}
+
+// The click a real browser retargets to the dialog element when a press and
+// release straddle the dialog/backdrop boundary — dispatched directly on
+// the dialog, mirroring issue #879's dialog-dismiss.test.js.
+function clickOnDialog(doc, dialogEl) {
+  dialogEl.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
 }
 
 function openEditFor(doc, taskId) {
@@ -1128,6 +1185,107 @@ describe('admin-tasks.js (issue #755 PR review fix — the client-side half now 
 
     expect(minutesField.reportValidity()).toBe(false);
     expect(note.hidden).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #879 AC1/AC2/AC3 — backdrop dismissal on the edit and create
+// dialogs, driven against the real admin-tasks.js + dialog-dismiss.js.
+// ---------------------------------------------------------------------------
+describe('admin-tasks.js backdrop dismissal (issue #879 AC1/AC2/AC3)', () => {
+  let doc;
+  let restore;
+
+  beforeEach(() => {
+    const loaded = loadAdminTasks();
+    doc = loaded.doc;
+    restore = loaded.restore;
+  });
+
+  afterEach(() => {
+    restore();
+  });
+
+  test('AC1: the edit dialog — a press inside, released on the retargeted dialog element, leaves it open', () => {
+    openEditFor(doc, 2);
+    const dialogEl = doc.getElementById('task-edit-dialog');
+    const titleInput = doc.getElementById('task-edit-title-input');
+    expect(dialogEl.open).toBe(true);
+
+    titleInput.value = 'half-typed work';
+    pointerdown(doc, titleInput);
+    clickOnDialog(doc, dialogEl);
+
+    expect(dialogEl.open).toBe(true);
+    expect(titleInput.value).toBe('half-typed work');
+  });
+
+  test('AC2: the edit dialog — a genuine backdrop press-and-release still closes it', () => {
+    openEditFor(doc, 2);
+    const dialogEl = doc.getElementById('task-edit-dialog');
+    expect(dialogEl.open).toBe(true);
+
+    pointerdown(doc, dialogEl);
+    clickOnDialog(doc, dialogEl);
+
+    expect(dialogEl.open).toBe(false);
+  });
+
+  test('AC3: the create dialog — a press inside, released on the retargeted dialog element, leaves it open', () => {
+    click(doc, doc.querySelector('[data-open-create]'));
+    const dialogEl = doc.getElementById('task-create-dialog');
+    const titleInput = doc.getElementById('task-create-title-input');
+    expect(dialogEl.open).toBe(true);
+
+    titleInput.value = 'half-typed work';
+    pointerdown(doc, titleInput);
+    clickOnDialog(doc, dialogEl);
+
+    expect(dialogEl.open).toBe(true);
+    expect(titleInput.value).toBe('half-typed work');
+  });
+
+  test('AC3: the create dialog — a genuine backdrop press-and-release still closes it', () => {
+    click(doc, doc.querySelector('[data-open-create]'));
+    const dialogEl = doc.getElementById('task-create-dialog');
+    expect(dialogEl.open).toBe(true);
+
+    pointerdown(doc, dialogEl);
+    clickOnDialog(doc, dialogEl);
+
+    expect(dialogEl.open).toBe(false);
+  });
+
+  test('fails safe when window.DialogDismiss is absent: the script still loads and its OWN dialog-open/close wiring still works (PR review, finding 2)', () => {
+    let loaded;
+    // The bug this guards against was an uncaught TypeError thrown while
+    // admin-tasks.js's top-level IIFE was still executing — that would have
+    // aborted the WHOLE file partway through, before the badge-picker
+    // reflection wiring and the drag-to-reorder setup below it in source
+    // order ever ran. Asserting the require itself doesn't throw is the
+    // direct check.
+    expect(() => {
+      loaded = loadAdminTasks({ skipDialogDismiss: true });
+    }).not.toThrow();
+
+    const { doc: skipDoc, restore: skipRestore } = loaded;
+    expect(skipDoc.defaultView.DialogDismiss).toBeUndefined();
+
+    // openDialog/closeDialog (registered well before the guarded call, but
+    // only reachable at all if the file finished loading) still work.
+    openEditFor(skipDoc, 2);
+    const dialogEl = skipDoc.getElementById('task-edit-dialog');
+    expect(dialogEl.open).toBe(true);
+
+    // The one behavior that IS lost without the module: a backdrop
+    // dismissal no longer closes the dialog at all (rather than crashing
+    // anything downstream of it, e.g. the drag-to-reorder setup that
+    // follows this call in source order).
+    pointerdown(skipDoc, dialogEl);
+    clickOnDialog(skipDoc, dialogEl);
+    expect(dialogEl.open).toBe(true);
+
+    skipRestore();
   });
 });
 

@@ -12,8 +12,11 @@
 // Depends on src/public/js/badge-icon-mask.js (issue #869) being loaded
 // first — reflectBadge below uses window.BadgeIconMask.set/clear rather
 // than hand-writing the --icon-src custom property, the same single owner
-// badge-picker.js's live preview shares. src/views/admin-tasks.ejs's
-// <script> order is what guarantees the load order.
+// badge-picker.js's live preview shares. Also depends on
+// src/public/js/dialog-dismiss.js (issue #879) being loaded first —
+// window.DialogDismiss.backdrop is the single owner of backdrop-dismiss
+// wiring for the edit/create dialogs below. src/views/admin-tasks.ejs's
+// <script> order is what guarantees both load orders.
 (function () {
   'use strict';
   if (typeof document === 'undefined') return;
@@ -782,14 +785,30 @@
     }
   });
 
-  // Backdrop click closes our dialogs (native <dialog> reports itself as the
-  // target only when the click lands on the ::backdrop).
-  [editDialog, createDialog].forEach(function (d) {
-    if (!d) return;
-    d.addEventListener('click', function (event) {
-      if (event.target === d) closeDialog(d);
-    });
-  });
+  // Backdrop dismissal — issue #879's shared module is the single owner of
+  // "does this click really mean close the dialog" (a press-inside,
+  // release-on-backdrop drag no longer closes; a genuine backdrop
+  // press-and-release still does). See src/public/js/dialog-dismiss.js's own
+  // header for why the old event.target === d check here was wrong.
+  //
+  // Guarded, not called unconditionally (PR review, finding 2): this call
+  // sits mid-IIFE, before the badge-picker reflection wiring and the
+  // drag-to-reorder feature below it — an uncaught TypeError here (e.g.
+  // dialog-dismiss.js failing to load) would silently kill every listener
+  // this file still has left to register. Guarded, the dialogs simply keep
+  // no backdrop-dismiss behavior instead of the whole script dying.
+  //
+  // Contrast with window.BadgeIconMask.set/clear below (reflectBadge,
+  // around line 561), called unguarded despite being the same "single
+  // owner, guaranteed load order" shape: those calls are LAZY, reached only
+  // from inside an interaction handler, so a missing module breaks just
+  // that one feature when it fires. This call runs at IIFE TOP LEVEL, where
+  // an uncaught throw aborts every registration still below it in source
+  // order — that's what earns the guard here and not there.
+  if (window.DialogDismiss) {
+    window.DialogDismiss.backdrop(editDialog);
+    window.DialogDismiss.backdrop(createDialog);
+  }
 
   // ---- Badge picker reflection: reflect the pick into whichever dialog
   // opened it, AND stash the icon id + name into that dialog's hidden
