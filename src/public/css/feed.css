@@ -141,8 +141,10 @@
   cursor: pointer;
   text-align: left;
 }
-.see-all-comments:hover {
-  color: var(--color-primary);
+@media (hover: hover) {
+  .see-all-comments:hover {
+    color: var(--color-primary);
+  }
 }
 
 .feed-task-line {
@@ -153,8 +155,10 @@
 .feed-task-line a {
   color: var(--color-text-muted);
 }
-.feed-task-line a:hover {
-  color: var(--color-primary);
+@media (hover: hover) {
+  .feed-task-line a:hover {
+    color: var(--color-primary);
+  }
 }
 
 /* Comments dialog (#248 amendment 2026-07-08): a native <dialog> opened via
@@ -272,8 +276,10 @@ body:has(dialog[open]) {
 .comment-menu-trigger::-webkit-details-marker {
   display: none;
 }
-.comment-menu-trigger:hover {
-  color: var(--color-primary);
+@media (hover: hover) {
+  .comment-menu-trigger:hover {
+    color: var(--color-primary);
+  }
 }
 /* The open menu panel: floats over the thread (not in normal flow) so
    opening it never shoves neighboring rows — AC7/the issue's "must not
@@ -301,8 +307,10 @@ body:has(dialog[open]) {
   color: var(--color-text-muted);
   cursor: pointer;
 }
-.comment-delete:hover {
-  color: var(--color-primary);
+@media (hover: hover) {
+  .comment-delete:hover {
+    color: var(--color-primary);
+  }
 }
 
 /* ---------------- Photo owner menu (⋯, issue #387) ----------------
@@ -338,8 +346,10 @@ body:has(dialog[open]) {
 .photo-owner-menu-trigger::-webkit-details-marker {
   display: none;
 }
-.photo-owner-menu-trigger:hover {
-  color: var(--color-primary);
+@media (hover: hover) {
+  .photo-owner-menu-trigger:hover {
+    color: var(--color-primary);
+  }
 }
 .photo-owner-menu-trigger:focus-visible {
   outline: 2px solid var(--color-primary);
@@ -375,8 +385,10 @@ body:has(dialog[open]) {
   color: var(--color-text);
   padding: var(--space-2) var(--space-3);
 }
-.photo-owner-menu-item:hover {
-  background: var(--green-50);
+@media (hover: hover) {
+  .photo-owner-menu-item:hover {
+    background: var(--green-50);
+  }
 }
 .photo-owner-delete {
   color: var(--color-danger, #b3261e);
@@ -784,12 +796,16 @@ body:has(dialog[open]) {
 .lb-guest .lb-avatar-empty {
   flex-shrink: 0;
 }
-.lb-guest:hover {
-  text-decoration: none;
+@media (hover: hover) {
+  .lb-guest:hover {
+    text-decoration: none;
+  }
 }
 /* Same override for the +N chip link — an underline would slice the pill. */
-.lb-badge-more:hover {
-  text-decoration: none;
+@media (hover: hover) {
+  .lb-badge-more:hover {
+    text-decoration: none;
+  }
 }
 .lb-avatar {
   width: 40px;
@@ -1016,9 +1032,11 @@ body:has(dialog[open]) {
   text-decoration: none;
   color: var(--color-text);
 }
-.menu-link:hover {
-  background: var(--green-50);
-  text-decoration: none;
+@media (hover: hover) {
+  .menu-link:hover {
+    background: var(--green-50);
+    text-decoration: none;
+  }
 }
 /* Chevron affordance, same pattern as .task-link::after. */
 .menu-link::after {
@@ -1065,9 +1083,11 @@ body:has(dialog[open]) {
   background: var(--color-primary);
   color: var(--color-on-primary);
 }
-.btn-primary:hover {
-  background: var(--color-primary-hover);
-  color: var(--color-on-primary);
+@media (hover: hover) {
+  .btn-primary:hover {
+    background: var(--color-primary-hover);
+    color: var(--color-on-primary);
+  }
 }
 
 /* ----------------------- Admin card lists (guests + tasks) -----------------
@@ -1347,12 +1367,14 @@ body:has(dialog[open]) {
   text-transform: uppercase;
   text-decoration: none;
 }
-.social-instagram:hover,
-.social-facebook:hover,
-.social-website:hover {
-  background: var(--green-300);
-  text-decoration: none;
-  color: var(--color-primary);
+@media (hover: hover) {
+  .social-instagram:hover,
+  .social-facebook:hover,
+  .social-website:hover {
+    background: var(--green-300);
+    text-decoration: none;
+    color: var(--color-primary);
+  }
 }
 
 /* ---- Admin alert / lead helpers (admin pages use these) ---- */
@@ -1409,8 +1431,10 @@ body:has(dialog[open]) {
   width: 100%;
   transition: background-color var(--dur-fast) var(--ease-soft);
 }
-.btn--primary:hover {
-  background: var(--color-primary-hover);
+@media (hover: hover) {
+  .btn--primary:hover {
+    background: var(--color-primary-hover);
+  }
 }
 
 /* ----------------------- Admin inline / stacked forms in cells ---- */
@@ -1465,8 +1489,10 @@ body:has(dialog[open]) {
 .row-inactive {
   opacity: 0.5;
 }
-.row-inactive:hover {
-  opacity: 1;
+@media (hover: hover) {
+  .row-inactive:hover {
+    opacity: 1;
+  }
 }
 
 /* ----------------------- Admin photo moderation grid ---- */

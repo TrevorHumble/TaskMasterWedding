@@ -125,8 +125,10 @@
 .task-row.task-locked {
   background: var(--green-50);
 }
-.task-row.task-locked:hover {
-  background: var(--green-50);
+@media (hover: hover) {
+  .task-row.task-locked:hover {
+    background: var(--green-50);
+  }
 }
 .task-link-locked {
   display: flex;
@@ -440,8 +442,10 @@
   font-weight: 600;
   text-decoration: none;
 }
-.chip-filter:hover {
-  text-decoration: none;
+@media (hover: hover) {
+  .chip-filter:hover {
+    text-decoration: none;
+  }
 }
 .chip-filter-active {
   background: var(--color-primary);
@@ -474,8 +478,10 @@
 .back-link a {
   color: var(--color-text-muted);
 }
-.back-link a:hover {
-  color: var(--color-primary);
+@media (hover: hover) {
+  .back-link a:hover {
+    color: var(--color-primary);
+  }
 }
 /* The "Best photos earn <badge> + bonus points" line these rules styled was
    removed from the task page by issue #611 (owner, 2026-07-31: the badge art
@@ -753,8 +759,10 @@ textarea {
   color: var(--color-text-muted);
   cursor: pointer;
 }
-.avatar-remove:hover {
-  color: var(--color-primary);
+@media (hover: hover) {
+  .avatar-remove:hover {
+    color: var(--color-primary);
+  }
 }
 /* .avatar-remove joins the shared tap-highlight-transparent and :focus-visible
    selector groups below (the repo's single-source treatment for quiet no-box
@@ -979,8 +987,10 @@ textarea {
   color: var(--color-text-muted);
   cursor: pointer;
 }
-.likes-link:hover {
-  text-decoration: underline;
+@media (hover: hover) {
+  .likes-link:hover {
+    text-decoration: underline;
+  }
 }
 /* Admin inline feed's like count (issue #953): reuses .likes-link's resting
    look but opens nothing — no likers dialog behind it, unlike the guest
@@ -990,8 +1000,10 @@ textarea {
 .admin-likes-count {
   cursor: default;
 }
-.admin-likes-count:hover {
-  text-decoration: none;
+@media (hover: hover) {
+  .admin-likes-count:hover {
+    text-decoration: none;
+  }
 }
 .likes-row {
   display: flex;
@@ -1084,8 +1096,10 @@ textarea {
   text-decoration: none;
   color: inherit;
 }
-.gallery-group-head:hover {
-  text-decoration: none;
+@media (hover: hover) {
+  .gallery-group-head:hover {
+    text-decoration: none;
+  }
 }
 .gallery-group-heading {
   font-family: var(--font-display);

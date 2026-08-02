@@ -3376,19 +3376,19 @@ connection — the wall-clock cost of five small conditional GETs over one multi
 five times the cost of one, so north-star goal A ("fast under the whole party at once") was considered
 and judged unaffected in practice, even though the raw request count is a real five-fold increase.
 
-**Known, disclosed byte-identity artifact.** `base.css`'s first line still reads
-`/* src/public/css/theme.css */` — the original file's own top-of-file header comment, now naming a
-file that no longer exists. It is not corrected here, because doing so would break the byte-identity
-concatenation this issue's own acceptance criterion requires and would invalidate the pixel-equal
-visual-approval re-persist. A future edit to `base.css` should fix this stale self-reference — nothing
-under `src/` is governance-frozen (the freeze scopes to `.githooks/`, `tools/`, `standards/`, `agents/`,
-`skills/`, `.github/`, `.claude/`, `CLAUDE.md`, `AGENTS.md`, and `docs/north-star.md` only; see
-`CLAUDE.md`'s "Governance freeze" section), so waiting on the freeze to lift is not the real constraint.
-The real constraint is the visual-approval hash recorded in `.review_state/`: any edit to `base.css`
-re-persists that hash per the render-identical rule (a pixel-equal change gets a fresh approval record
-against the reviewer's pixel-equal verification rather than bouncing back to the owner for a
-"re-confirm"), so fixing this comment is a same-day, no-owner-gate change whenever someone next touches
-the file — it was simply not this issue's own touched file.
+**Known, disclosed byte-identity artifact — since closed (#921, #927/PR #1005).** `base.css`'s first
+line briefly read `/* src/public/css/theme.css */` — the original file's own top-of-file header
+comment, left naming a file that no longer existed, because correcting it at split time would have
+broken the byte-identity concatenation that issue's own acceptance criterion required and would have
+invalidated the pixel-equal visual-approval re-persist. That constraint was the visual-approval hash
+recorded in `.review_state/`, not the governance freeze (nothing under `src/` is governance-frozen; the
+freeze scopes to `.githooks/`, `tools/`, `standards/`, `agents/`, `skills/`, `.github/`, `.claude/`,
+`CLAUDE.md`, `AGENTS.md`, and `docs/north-star.md` only; see `CLAUDE.md`'s "Governance freeze" section) —
+any edit to `base.css` re-persists that hash per the render-identical rule (a pixel-equal change gets a
+fresh approval record against the reviewer's pixel-equal verification rather than bouncing back to the
+owner for a "re-confirm"), so the fix was always a same-day, no-owner-gate change once someone next
+touched the file. The header correction landed on `origin/main` via #927 / PR #1005. `base.css`'s first
+line now reads `/* src/public/css/base.css */`.
 
 **Follow-up, explicitly not this issue.** The five CSS slices are contiguous, not surface-pure (a rule's
 sheet is decided by its position in the original file, not by which surface — guest, admin, feed — it
@@ -3467,3 +3467,33 @@ so this issue introduces nothing new to guests. Server-side files run on Node >=
 elsewhere in `src/`; the 17 formerly-unused server-side catch bindings this issue cleared all switched to
 that form instead of gaining a `_`-prefix, since a server file has no browser-parity reason to keep the
 now-unused identifier at all.
+
+## Hover-only ink gated behind @media (hover: hover) (#921)
+
+**Date:** 2026-08-01. **Status:** shipped.
+
+The five stylesheets carried 48 `:hover` rules with no hover-capability media query anywhere, so a
+phone's emulated hover (triggered by the tap itself) stuck the tapped control's hover ink until the
+guest tapped elsewhere. Every `:hover` rule is now wrapped in place in `@media (hover: hover)` — same
+selectors, same declarations, same cascade position — rather than stripped or replaced with `:active`,
+because the desktop/mouse experience is unchanged and gating carries zero redesign risk: a hover-capable
+device still gets exactly the ink it had before, and a touch device simply never triggers a rule it was
+never meant to see.
+
+`.admin-tile-actions` (the admin photo grid's per-tile action row) was the one rule that _depended_ on
+the sticky behavior to be reachable on a phone at all — it defaulted to `opacity: 0`, revealed only by
+`:hover`/`:focus-within`/`:has(.admin-fav-on)`. Gating its `:hover` member without a touch replacement
+would have made the actions unreachable by tap. The owner settled the touch treatment live at the
+2026-08-01 preview: `@media (hover: none) { .admin-tile-actions { opacity: 1; } }` — always visible on a
+non-hover device, no `:active` state and no JS reveal added, keeping the fix CSS-only. The
+`:focus-within` and `:has(.admin-fav-on)` members of that same selector group stay ungated on purpose:
+neither is hover-dependent, and gating them would have broken the keyboard-focus reveal and the
+favorited-state reveal on every device, including hover-capable ones.
+
+`tests/hover-gating.test.js` now enforces the invariant mechanically going forward: it strips comments
+and quoted strings, walks brace depth with a stack of enclosing `@media` conditions, and fails on any
+`:hover` rule (across all five sheets) that doesn't carry `(hover: hover)` on that stack — a rule added
+later with no gate fails CI the same way a forgotten one would have failed review here. The AC3
+before/after preservation check (declarations unchanged, original relative order, wrapped in place) is a
+pre-commit `git diff` comparison against `HEAD`, not a committed assertion — after merge `HEAD` becomes
+the post-change file and the comparison would be vacuous, so it lives as PR-review evidence instead.
