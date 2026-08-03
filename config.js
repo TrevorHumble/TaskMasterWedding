@@ -297,9 +297,12 @@ const config = {
   RATE_LIMIT_SOCIAL_MAX: parseInt(process.env.RATE_LIMIT_SOCIAL_MAX, 10) || 60,
 
   // RATE_LIMIT_TRACKED_MAX: hard cap on how many distinct keys ONE limiter
-  // instance from src/middleware/rate-limit.js tracks at a time. The same
-  // bound, for the same reason, as GUEST_LOGIN_TRACKED_MAX above — and it
-  // matters most on the two IP-keyed limiters (POST /join, POST /login),
+  // instance from src/middleware/rate-limit.js tracks at a time -- and,
+  // since issue #1021, the same cap on src/routes/guest/client-error.js's
+  // dedupe Map, which is not itself a limiter but reuses this module's
+  // sweepAndEvictUnderCap and this same config value to bound its own Map.
+  // The same bound, for the same reason, as GUEST_LOGIN_TRACKED_MAX above,
+  // and it matters most on the two IP-keyed limiters (POST /join, POST /login),
   // whose keys come from unauthenticated callers: a flood from many distinct
   // source IPs mints a new key per IP, and inside a single
   // RATE_LIMIT_WINDOW_MS nothing has expired for a sweep to reclaim, so
@@ -324,6 +327,19 @@ const config = {
   // (thousands of requests per window) still trips it. This targets scripts,
   // not the receiving line — see docs/north-star.md Goal A.
   RATE_LIMIT_IP_MAX: parseInt(process.env.RATE_LIMIT_IP_MAX, 10) || 300,
+
+  // CLIENT_ERROR_RATE_MAX: per-key (guest, or IP when signed out) cap on
+  // POST /client-error (issue #1021), its OWN limiter instance: never
+  // RATE_LIMIT_SOCIAL_MAX's budget, so a looping client-side crash can never
+  // burn the same budget POST /bug-report (the human fallback channel)
+  // depends on. This route's IP branch is a real bucket, not a defensive
+  // fallback -- see src/app.js's mount comment for why. Default 100 per
+  // RATE_LIMIT_WINDOW_MS, smaller than RATE_LIMIT_IP_MAX's 300 above (the
+  // same venue-NAT-IP-at-reception-opening shape that value is sized for),
+  // since this is a diagnostic signal (one beacon per real crash, not one
+  // per guest action), but generous enough that the venue's own crash
+  // reports during that same surge are not the thing this limit drops.
+  CLIENT_ERROR_RATE_MAX: parseInt(process.env.CLIENT_ERROR_RATE_MAX, 10) || 100,
 
   // Leaderboard display — the maximum number of badge icons rendered on a
   // single leaderboard row. Beyond this the row shows the first N icons plus a

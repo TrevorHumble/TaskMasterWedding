@@ -6,9 +6,18 @@
 //
 // Area map (which module owns which routes/helpers):
 //   guest/shared.js        suppressedChallengeIds + reachableLiveTaskCount
-//                          (the one-box-ceiling helpers), uploadRateLimiter +
-//                          socialRateLimiter (the two shared route-level
-//                          limiters) — issue #991 AC3's single-instance rule
+//                          (the one-box-ceiling helpers), plus all THREE
+//                          route-level rate limiters (uploadRateLimiter,
+//                          socialRateLimiter, clientErrorRateLimiter) --
+//                          issue #991 AC3's single-instance rule, widened by
+//                          issue #1021. See that file's own header comment.
+//   guest/client-error.js  POST /client-error -- issue #1021. NOT mounted by
+//                          this router: it sits directly in src/app.js,
+//                          ahead of this router's requireGuest gate (see this
+//                          file's own note on router.use(requireGuest)
+//                          below, and that mount's own comment). Listed here
+//                          only so this map stays the one place every route
+//                          under src/routes/guest/ is findable.
 //   guest/home.js          GET /               (home / own-stats page)
 //   guest/tasks.js         GET /tasks
 //                          GET /tasks/:id
@@ -46,7 +55,11 @@ const router = express.Router();
 // redirects visitors who have no valid guest link.
 const { requireGuest } = require('../middleware/session');
 
-// Every route mounted below requires a signed-in guest.
+// Every route mounted below requires a signed-in guest. POST /client-error
+// (issue #1021, guest/client-error.js) is deliberately NOT one of them -- it
+// mounts directly in src/app.js instead, ahead of this router, so a
+// signed-out visitor's crash (e.g. on /join) still reaches it. See that
+// mount's own comment in src/app.js.
 router.use(requireGuest);
 
 router.use(require('./guest/home'));

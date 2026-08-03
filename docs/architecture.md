@@ -18,6 +18,7 @@ flowchart TD
         express["Express app (src/app.js)<br/>localhost:3000"]
         express --> mw["Middleware<br/>signed cookies, body parsing,<br/>attachGuest"]
         mw --> auth["routes/auth.js<br/>/join, /login, /admin/login"]
+        mw --> clienterr["routes/guest/client-error.js<br/>POST /client-error (outside requireGuest)"]
         mw --> guest["routes/guest.js<br/>/, /tasks, /tasks/:id/submit, /me/edit,<br/>/how-to-play, /bug-report"]
         mw --> community["routes/community.js<br/>/gallery, /feed, GET /p/:submissionId,<br/>/p/:submissionId/like, /p/:submissionId/comments,<br/>/p/:submissionId/comments/:commentId/delete,<br/>/leaderboard, /u/:guestId"]
         mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, photos<br/>(takedown/restore/favorite), badges, stats, bugs, export<br/>/admin/comments retired -> 404 (renderNotFound)"]
@@ -48,7 +49,7 @@ flowchart TD
     express -. "static mounts" .-> static["/ → src/public<br/>/uploads → data/uploads<br/>/thumbs → data/thumbs"]
 ```
 
-`app.js` mounts the routers in a deliberate order: `auth.js` and `admin.js` (at `/admin`) before `guest.js`, because `guest.js` applies `requireGuest` to everything under `/` and would otherwise intercept `/admin` and redirect the admin to `/join` instead of serving the admin dashboard (issue #241 changed `requireGuest` from a 403 message card to a `/join` redirect). It also creates the `data/` directories on boot and registers the 404 and error handlers last.
+`app.js` mounts the routers in a deliberate order: `auth.js` (at `/`, its own routes -- `GET /j/:token`, `/join`, `/login`, `/onboard`, `/admin/login`, `POST /admin/logout`, `/logout` -- never gated by `requireGuest`) and `admin.js` (at `/admin`) before `guest.js`, because `guest.js` applies `requireGuest` to every path routed through it and would otherwise intercept `/admin` and redirect the admin to `/join` instead of serving the admin dashboard (issue #241 changed `requireGuest` from a 403 message card to a `/join` redirect). `POST /client-error` (issue #1021, the browser-side crash beacon) also mounts directly at `/` ahead of `guest.js` instead of through it, deliberately outside `requireGuest` for the same reason as `auth.js`'s own routes: a crash on `/join` itself must still be reported. It also creates the `data/` directories on boot and registers the 404 and error handlers last.
 
 ## Data model
 

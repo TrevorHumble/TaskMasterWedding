@@ -388,7 +388,7 @@ The gallery pages are guest-gated; the noindex posture behind that gate (`robots
 
 **Reject behavior, one shared literal:** every rejection path — the middleware's own, and the four routes acting on a `false` `assertCsrf` — renders `res.status(403).render('error', { message: 'Your session could not be verified. Please refresh the page and try again.' })` via the module's third export, `rejectCsrf(res)`. No state changes on a rejected request.
 
-**Client side, one shared owner:** `src/public/js/csrf.js` (loaded on every page via `partials/footer.ejs`, ahead of every other script tag) exposes `window.csrfToken()`/`window.csrfHeader()`, reading the token off `<meta name="csrf-token">` (`partials/head.ejs`). Every write `fetch()` in the app (`upload.js`, `feed.js`, `recap.js`, `admin-tasks.js`, and the inline `sendBeacon`/`fetch` fallback in `admin-bugs.ejs`'s "Open issue" tracking click) merges that header in. Every `<form method="post">` under `src/views/**` includes `partials/csrf-field.ejs`, a single hidden `_csrf` input, as the first field inside its opening tag — enforced by a filesystem walk in `tests/csrf.test.js` (AC5) that strips EJS tags before scanning for `<form>` open tags (an earlier version of that same test used a naive regex whose match stopped at the first `>`, which for a form whose action attribute embeds an EJS output tag is the `>` INSIDE `%>` — silently skipping several real forms; fixed alongside this note) and asserts a floor on how many forms it actually inspected, so the guard itself cannot regress back to checking almost nothing while still reporting green.
+**Client side, one shared owner:** `src/public/js/csrf.js` (loaded on every page via `partials/head.ejs`, non-deferred, ahead of every other script tag. Hoisted there from `partials/footer.ejs` by issue #1021 so the client-error beacon loaded right beside it can catch a page's own top-level parse-time throws) exposes `window.csrfToken()`/`window.csrfHeader()`, reading the token off `<meta name="csrf-token">` (`partials/head.ejs`). Every write `fetch()` in the app merges that header in -- the set of callers is not enumerated here because that list has gone stale in review three times running; grep the repo for `csrfHeader()` (`src/public/js/*.js` and `src/views/**/*.ejs`) for the current set. Every `<form method="post">` under `src/views/**` includes `partials/csrf-field.ejs`, a single hidden `_csrf` input, as the first field inside its opening tag -- enforced by a filesystem walk in `tests/csrf.test.js` (AC5) that strips EJS tags before scanning for `<form>` open tags (an earlier version of that same test used a naive regex whose match stopped at the first `>`, which for a form whose action attribute embeds an EJS output tag is the `>` INSIDE `%>` -- silently skipping several real forms; fixed alongside this note) and asserts a floor on how many forms it actually inspected, so the guard itself cannot regress back to checking almost nothing while still reporting green.
 
 **Deliberately no Content-Security-Policy.** Several views render inline event-adjacent attributes via EJS (an inline onclick built from a template literal in `admin-bugs.ejs`, for one), and a CSP tight enough to matter would need an inline-script audit this codebase has not done. Landing an untested CSP alongside the rest of this change risked breaking a page for a guess at hardening the other three headers do not carry the same risk for; the three headers that are safe to add unconditionally shipped, the one that is not did not. Those three headers themselves — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` — live in `src/app.js`'s existing response-header middleware (alongside `X-Robots-Tag`), not in `csrf.js`: that middleware runs ahead of the static-file mounts, so `/uploads`, `/thumbs`, `/js`, and `/css` carry them too — `nosniff` on `/uploads` (user-submitted photo bytes) is the header that matters most there, and a copy living inside `csrf.js` instead (which is wired in AFTER those mounts) would never reach them.
 
@@ -437,7 +437,7 @@ The gallery pages are guest-gated; the noindex posture behind that gate (`robots
 **Two DISTINCT limiters coexist, never double-counting the same request:**
 
 - `src/services/rate-limit.js` (#247/#281, pre-existing): a per-guest SLIDING-WINDOW limiter owning `POST /memories` and the HEIC-decode throttle.
-- `src/middleware/rate-limit.js` (#283, new): a FIXED-WINDOW limiter owning everything else — `POST /join`, `POST /login` (IP-keyed), `POST /tasks/:id/submit`, `POST /me/edit`, `POST /bug-report`, `POST /p/:id/like`, `POST /p/:id/comments` (guest-keyed).
+- `src/middleware/rate-limit.js` (#283, new): a FIXED-WINDOW limiter owning everything else — `POST /join`, `POST /login` (IP-keyed), `POST /tasks/:id/submit`, `POST /me/edit`, `POST /bug-report`, `POST /p/:id/like`, `POST /p/:id/comments` (guest-keyed), and `POST /client-error` (issue #1021, guest-keyed with an IP fallback since that route is unauthenticated).
 
 **Keying, per Goal A's venue-NAT constraint:** authenticated guest actions are keyed per-guest (`'g' + guest.id`), never per-IP — the whole guest list can share one venue-NAT IP, and per-IP limits on guest actions would throttle the group. Only the two unauthenticated endpoints, `POST /join` and `POST /login`, are IP-keyed, and each gets its OWN limiter instance (not a shared bucket) — a signup flood must never also lock a returning guest out of logging in from the same NAT IP, and vice versa.
 
@@ -3463,10 +3463,16 @@ Two decisions this split needed that the original four did not:
 **A sixth module joins the pattern: `src/routes/guest.js` (#991).** guest.js (1,688 lines) was the
 largest remaining handwritten module over the ceiling. It splits the same way: a thin entry (`src/routes/
 guest.js`, unchanged require path and public API, `router.use(requireGuest)` then the area mounts) plus
-seven internals under `src/routes/guest/` per its own seam table — `home.js` (`GET /`), `tasks.js`
-(`GET /tasks`, `GET /tasks/:id`, `POST /tasks/:id/submit`), `pages.js` (`GET /how-to-play`,
-`GET /how-points-work`), `bug-report.js`, `memories.js`, `profile.js` (`GET`/`POST /me/edit`,
-`POST /me/avatar/delete`), and `recap.js` — plus `shared.js` for the four cross-area members.
+the seven area modules `router.use()` mounts under `src/routes/guest/` per its own seam table,
+namely `home.js` (`GET /`), `tasks.js` (`GET /tasks`, `GET /tasks/:id`, `POST /tasks/:id/submit`),
+`pages.js` (`GET /how-to-play`, `GET /how-points-work`), `bug-report.js`, `memories.js`,
+`profile.js` (`GET`/`POST /me/edit`, `POST /me/avatar/delete`), and `recap.js`, plus `shared.js`
+for the cross-area members. The seam table also lists a ninth file the router does NOT mount,
+`client-error.js` (issue #1021): it sits directly in `src/app.js` ahead of `guest.js`'s
+`requireGuest` gate so a signed-out visitor's crash still reaches it, so it is a member of the
+directory but not one of the seven area modules or the entry's own split. Its rate limiter,
+`clientErrorRateLimiter`, is a fifth export of `shared.js` -- see that file's own header comment for
+what the file actually is.
 
 **The shared-limiter invariant.** `uploadRateLimiter` and `socialRateLimiter` (issue #283) are each one
 combined per-guest rate budget consumed by three different POST routes now living in three different
@@ -4093,12 +4099,14 @@ directive, plus a one-line "verify it's on" note in the Logs section, so the del
 depends on actually holds rather than silently not existing.
 
 **One log-line owner, one error-line owner, not two hand-copied formats.** `request-log.js` has
-five functions: `isSkippedPath` (the sole reader of `SKIP_PREFIXES`), `baseFields(req)` (the `reqId`/`method`/`path`/`guestId` field set every
-line shares — see "field-set ownership" below), `emitLine` (the single stringify + try/catch +
+six functions: `isSkippedPath` (the sole reader of `SKIP_PREFIXES`), `baseFields(req)` (the `reqId`/`method`/`path`/`guestId` field set every
+line shares, see "field-set ownership" below), `emitLine` (the single stringify + try/catch +
 `console.log` owner, used by every call site), `requestLog` (the finish/close hooks, described
-above), and the separately exported `logRequestError(req, err)`, which owns the error line's field
-set and is the ONLY thing `src/app.js`'s global error handler calls. `src/app.js` itself never knows
-the line shape, the emit stream, or the swallow policy for either line.
+above), the separately exported `logRequestError(req, err)`, which owns the error line's field
+set and is the ONLY thing `src/app.js`'s global error handler calls, and the separately exported
+`logClientError(req, report)` (issue #1021), which owns the client-error beacon's own line, covered
+in the next section. `src/app.js` itself never knows the line shape, the emit stream, or the
+swallow policy for any of these lines.
 
 **Field-set ownership: `baseFields(req)`.** The finish line, the abort line, and the error line each
 carry the same four base fields (`reqId`, `method`, `path`, `guestId`). Rather than three call sites
@@ -4230,3 +4238,108 @@ The same phase-1 preview loop that settled this row's look also settled a shared
 between badge rows is gone (the section heading's own hairline is the only line left in the list) and
 row padding tightened from `--space-4` to `--space-2`. Because both surfaces share the one component,
 that change reaches the public profile too without a second edit, by design, not as a side effect.
+
+## Client-error beacon: log-only, own budget, non-deferred, mounted outside `requireGuest` (#1021)
+
+**Date:** 2026-08-02. **Status:** shipped.
+
+Before this issue, no file under `src/public/js` registered `window.onerror`/`unhandledrejection`: a
+guest's phone freezing or throwing mid-party left zero server-side trace. `src/public/js/client-error.js`
+(the browser beacon) and `src/routes/guest/client-error.js` (`POST /client-error`) close that gap with a
+log-only line. Its `req.reqId` identifies the `/client-error` POST itself; it is NOT the same correlation
+contract `logRequestError` (#1019) uses. `logRequestError` only fires on a request ending `>= 400`, which
+`request-log.js`'s own finish hook logs for any non-skipped path, so a companion finish/close line for the same `reqId`
+exists for any request that reaches the error handler on a non-skipped path (a static path under `SKIP_PREFIXES`
+returning `>= 400` is the one case with no companion line). `POST /client-error` answers 204 and is typically fast, so under this app's default config
+(`LOG_ALL_REQUESTS` unset) no companion finish/close line is logged for it, and there is nothing to
+correlate to by `reqId` in the common case -- one exists only under `LOG_ALL_REQUESTS`, or if the POST
+itself errors or runs slow.
+
+**Non-deferred, loaded right after csrf.js in `partials/head.ejs`.** A deferred script runs only after
+every non-deferred script on the page has already run, which is exactly backwards for a beacon whose
+whole job is catching a page's OWN top-level parse-time throw. `csrf.js`'s `<script>` tag moved from
+`footer.ejs` into `head.ejs`, non-deferred, immediately ahead of `client-error.js`'s own tag and before
+every stylesheet `<link>`; both handlers are registered before a CSS fetch, or any later script, can run
+first. `head.ejs` renders on every page, including the 404 and error message-card pages, which
+previously loaded no scripts at all; both now do. The maintenance page and the 413 passthrough
+(`src/app.js`) also render through `head.ejs` but are outside the beacon's reach: both render before
+`csrfMiddleware`, so `<meta name="csrf-token">` is always empty there and a beacon POST from either
+would be CSRF-rejected. Not addressed here -- maintenance mode is a deliberate operator state, and
+reordering `csrfMiddleware` ahead of it is outside this issue.
+
+**Endpoint is deliberately NOT behind `requireGuest`.** A crash on `/join` or `/login` (a guest failing
+to get in at all) is precisely the worst case Goal A cares about, and it must still be reported even
+though no guest session exists yet. `POST /client-error` mounts directly in `src/app.js`, ahead of
+`guestRouter`, instead of through `src/routes/guest.js` (whose `router.use(requireGuest)` gates every path
+routed through it, with no per-route opt-out). It stays behind the app-wide `csrfMiddleware` and
+`attachGuest`, both mounted globally ahead of every router. `req.guest` is set when a valid session
+cookie is present, `null` otherwise, and the logged line's `guestId` follows that exactly (AC2).
+
+**Its own rate limiter, never `socialRateLimiter`'s budget.** A client stuck in an error loop must not be
+able to burn the budget `POST /bug-report` (the human-authored fallback channel) depends on. A third
+instance, `clientErrorRateLimiter`, is constructed once in `src/routes/guest/shared.js` alongside the
+other two, keyed by the same `guestOrIpKey`, but unlike the other two, whose IP-fallback branch is a
+defensive default a signed-out caller can never actually reach (their routes sit behind `requireGuest`),
+this route's IP branch is genuinely reachable: every signed-out phone at reception opening shares one
+venue-NAT IP bucket, the same shape `config.RATE_LIMIT_IP_MAX` is already sized 300 for. `config.
+CLIENT_ERROR_RATE_MAX` defaults to 100 for the same reason, scaled down from that because this is a
+diagnostic signal (one beacon per real crash), not a per-guest action budget.
+
+**Bounded, storage-less dedupe: a second Map, sharing `rate-limit.js`'s sweep/evict mechanism.** A guest
+whose page re-throws the identical error every animation frame must not write a stdout line per throw.
+`client-error.js`'s route module keeps its own `key -> expiresAt` Map (30-second window), bounded by
+calling `rate-limit.js`'s exported `sweepAndEvictUnderCap(dedupeMap, nowMs, config.RATE_LIMIT_TRACKED_MAX,
+(v) => v)` directly, the same function `createRateLimiter` itself calls on its `buckets` Map. Only the Map
+and its entry shape stay per-module: `createRateLimiter`'s `buckets` stores `{ count, resetAt }`, this
+dedupe Map stores the expiry number itself as the value, because a dedupe decision ("have I logged this
+exact report recently") and a rate decision ("has this key made too many requests this window") are
+different questions with different state shapes -- `sweepAndEvictUnderCap` takes a `getExpiry` callback
+precisely so the shared sweep/evict logic does not force either caller's shape onto the other. The dedupe key
+hashes `message` and `stack` SEPARATELY, then joins the two hashes, rather than hashing a plain
+concatenation of the two strings: a shared separator character is a normal character inside either
+field, so a naive `message + separator + stack` join risks two genuinely different reports colliding onto
+the same key. A `_size()` test accessor, same pattern as `rate-limit.js`'s own, makes the cap assertable.
+
+**Server-side truncation is authoritative.** Stack caps at 2000 characters, message at 500, url at 2000,
+applied in the route handler regardless of what the client already truncated; an oversized direct POST
+(bypassing `client-error.js` entirely) still lands within these bounds. `userAgent` is read from the
+request header, never a client-supplied body field, since a JSON field can claim anything.
+
+**`url` deliberately keeps its query string, unlike `request-log.js`'s own `path` field.** The client sends
+`window.location.href`, query string included. `request-log.js`'s `path` field strips the query string on
+the stated grounds that a query string can carry an identifier into the log -- a different posture on the
+same question, stated here rather than left looking like an oversight. This field's job is different: it is
+the crash-SITE locator, not an access-log path, and losing e.g. `?page=2` would make a paging crash
+undiagnosable. `q` (the task-search param) is the one live param today that carries guest-typed text; every
+other query param on this app's pages is an id or a flag.
+
+**One shared emit path, not a second hand-rolled `JSON.stringify` + try/catch.** `request-log.js` gains a
+third export, `logClientError(req, report)`, built on the same private `emitLine` every other line in that
+module already goes through; the route calls it rather than re-deriving the stringify-and-emit-guard
+logic a second time. `logRequestError`'s own field set (`baseFields`) is not reused here: that helper's
+`path`/`method` describe the `/client-error` POST itself, not the guest's reporting page, which is a
+different value (`url`) the route already has ready.
+
+**Not written to `bug_reports`.** That table is the human-authored, admin-UI channel (`GET /admin/bugs`);
+a machine stack trace landing there would train the host to skim past real guest reports. No schema
+change; log-only to stdout, same evidence tier as every other line `request-log.js` already emits.
+
+**Client-side flood guard.** `MIN_INTERVAL_MS` (10 seconds) plus `MAX_REPORTS` (5 per page load) are what
+actually close the loop when an exception is thrown FROM INSIDE `report()`'s own try block (e.g. `fetch`
+itself throwing synchronously instead of rejecting): `lastReportAt` is assigned before the throwing call,
+so a re-fire that lands even a millisecond later already fails the floor. `reporting` is reset in a
+`finally`, which runs during unwinding, before the exception ever leaves the listener -- so by the time any
+re-fire could observe the flag, it already reads `false` again, and the flag closes nothing in that path
+(verified: a jsdom probe of the real files, with `window.fetch` throwing synchronously and the interval
+floor neutralised so it could not mask the result, produced exactly two `fetch` calls -- proof the flag did
+not block the second one; with the floor live, as it is in production, that second attempt is blocked by
+the floor instead, producing exactly one). `reporting` is a defensive guard against a genuinely different
+shape -- a synchronous nested dispatch while the outer call is still in flight, before its `finally` has run
+at all -- for which no path from this file's own code has been found; it is not known to be reachable from
+a real browser today. `tests/client-error-script.test.js`'s re-entry-safety case does not exercise a real
+browser path either: it constructs that state directly, with a stub `fetch` that calls `dispatchError`
+itself, synchronously, as the first thing it does, before the outer `report()` call has thrown or returned
+-- a deliberate test-only construction, kept so a future refactor cannot make `reporting` load-bearing
+without a test already covering the shape it is meant to guard. `fetch(...).catch(function(){})`, the same
+fire-and-forget precedent `recap.js`'s `markSeen` already uses, so a failed beacon POST costs one missed log
+line, never a guest-visible error.

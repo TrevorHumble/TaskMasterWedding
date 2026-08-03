@@ -53,11 +53,16 @@ describe('regression: maintenance (503) still renders through the shared partial
   });
 });
 
-// Every path under '/' is guest-gated (guest.js runs `router.use(requireGuest)`
-// for the whole router), so a signed-out request never reaches the app-level
-// 404 handler — it redirects to /join first (issue #241). To exercise the
-// true 404 handler (app.js section 7) we sign in as a real guest first, same
-// as a returning guest hitting a stale/mistyped URL would.
+// guest.js runs `router.use(requireGuest)` for the whole router, so every
+// path routed through guest.js is guest-gated; a signed-out request to any
+// of those paths never reaches the app-level 404 handler, it redirects to
+// /join first (issue #241). Paths mounted separately at '/' outside guest.js
+// are NOT covered by that gate -- authRouter's own routes (full list in
+// docs/architecture.md's "Request path" section) and (issue #1021)
+// POST /client-error, mounted directly in src/app.js ahead of guest.js's
+// gate. To exercise the true 404 handler (app.js section 7) we sign in as a
+// real guest first, same as a returning guest hitting a stale/mistyped URL
+// would.
 describe('regression: unmatched route (404) still renders through the shared partial', () => {
   function signedInAgent() {
     const { db } = require('../src/db');

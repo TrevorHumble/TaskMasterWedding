@@ -1,18 +1,19 @@
 // src/routes/guest/shared.js
-// Helpers used by more than one guest area module (issue #991 split):
-// suppressedChallengeIds + reachableLiveTaskCount (the one-box-ceiling
-// derivation, shared by home.js/tasks.js/pages.js) and the two route-level
-// rate limiters uploadRateLimiter/socialRateLimiter (each shared by three
-// area modules — see the doc comments below). Single owner of all four, per
-// issue #991's helper-ownership map.
+// The single home of every guest-route limiter instance (issue #991 split,
+// widened by #1021), plus two shared helpers: suppressedChallengeIds +
+// reachableLiveTaskCount (the one-box-ceiling derivation, shared by
+// home.js/tasks.js/pages.js). Not every limiter housed here is itself shared
+// across area modules -- see each construction site's own comment below for
+// which are and which have exactly one consumer.
 'use strict';
 
 const config = require('../../../config');
 
 const { db } = require('../../db');
 
-// createRateLimiter/guestOrIpKey for the two SHARED instances constructed
-// below — see that construction site's own doc comment for the per-limiter
+// createRateLimiter/guestOrIpKey for the three limiter instances constructed
+// below (uploadRateLimiter/socialRateLimiter shared, clientErrorRateLimiter
+// solo): see each construction site's own doc comment for the per-limiter
 // detail.
 const { createRateLimiter, guestOrIpKey } = require('../../middleware/rate-limit');
 
@@ -127,9 +128,10 @@ function reachableLiveTaskCount(todayIso, guestId) {
 // Route-level rate limiting (issue #283). DISTINCT from services/rate-limit
 // (required by src/routes/guest/memories.js), which keeps owning POST
 // /memories and the HEIC-decode throttle — see src/middleware/rate-limit.js's
-// file comment for the boundary. Both instances below are guest-keyed (falls
-// back to an IP bucket for the signed-out case, which src/routes/guest.js's
-// router.use(requireGuest) would redirect anyway).
+// file comment for the boundary. All three instances below are guest-keyed
+// (guestOrIpKey, falling back to an IP bucket when signed out); whether that
+// fallback branch is live differs between the three -- see clientErrorRateLimiter's
+// own comment below, and src/app.js's mount comment, for which one and why.
 // uploadRateLimiter is SHARED between POST /tasks/:id/submit (tasks.js), POST
 // /me/edit, and POST /me/avatar/delete (both in profile.js) — one combined
 // per-guest budget, config.RATE_LIMIT_UPLOAD_MAX;
@@ -153,9 +155,23 @@ const socialRateLimiter = createRateLimiter({
   keyFn: guestOrIpKey,
 });
 
+// clientErrorRateLimiter (issue #1021) is its OWN instance, budget
+// config.CLIENT_ERROR_RATE_MAX -- never shared with socialRateLimiter above.
+// A looping client-side crash posting to /client-error must never burn the
+// budget POST /bug-report (the human fallback channel) depends on. Its one
+// consumer, src/routes/guest/client-error.js, is not gated by requireGuest --
+// see src/app.js's mount comment for why that makes its IP branch a real,
+// reachable bucket rather than a defensive default.
+const clientErrorRateLimiter = createRateLimiter({
+  windowMs: () => config.RATE_LIMIT_WINDOW_MS,
+  max: () => config.CLIENT_ERROR_RATE_MAX,
+  keyFn: guestOrIpKey,
+});
+
 module.exports = {
   suppressedChallengeIds,
   reachableLiveTaskCount,
   uploadRateLimiter,
   socialRateLimiter,
+  clientErrorRateLimiter,
 };

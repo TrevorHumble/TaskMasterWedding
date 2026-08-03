@@ -50,7 +50,9 @@
     // urlencoded parses into req.body._csrf same as any other form field);
     // the fetch fallback uses the ordinary X-CSRF-Token header via
     // window.csrfHeader() (src/public/js/csrf.js, loaded by every page via
-    // partials/footer.ejs). No double quotes anywhere in the returned
+    // partials/head.ejs; issue #1021 hoisted it there from footer.ejs so a
+    // parse-time crash beacon loaded right after it can catch a page's own
+    // top-level throws). No double quotes anywhere in the returned
     // string — this whole expression is embedded inside an onclick
     // attribute rendered by EJS's escaping output tag, which HTML-entity-
     // encodes it, and single quotes survive that round trip cleanly (see
