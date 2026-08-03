@@ -45,11 +45,24 @@ beforeAll(() => {
 // AC1: createRateLimiter unit behavior with a fake clock (no HTTP, no app).
 // ---------------------------------------------------------------------------
 describe('#283 AC1: createRateLimiter unit behavior', () => {
+  // Issue #934 AC5: the limiter's over-limit branch now calls
+  // `req.accepts(['html', 'json'])`, a real Express method every request
+  // wired through an actual route carries. These unit tests call the
+  // middleware directly with a bare object standing in for `req`, so it
+  // needs the same method stubbed — defaulting to 'html' (an ordinary
+  // browser navigation) keeps every pre-existing assertion in this block
+  // (which asserts the RENDERED-page branch) unchanged; only the AC5
+  // describe block below overrides it to 'json'.
+  function fakeReq(overrides) {
+    return Object.assign({ accepts: () => 'html' }, overrides);
+  }
+
   function fakeRes() {
     return {
       statusCode: null,
       headers: {},
       rendered: null,
+      jsonBody: null,
       status(code) {
         this.statusCode = code;
         return this;
@@ -60,6 +73,9 @@ describe('#283 AC1: createRateLimiter unit behavior', () => {
       },
       render(view, locals) {
         this.rendered = { view, locals };
+      },
+      json(body) {
+        this.jsonBody = body;
       },
     };
   }
@@ -79,12 +95,12 @@ describe('#283 AC1: createRateLimiter unit behavior', () => {
     };
 
     for (let i = 0; i < 3; i++) {
-      limiter({}, fakeRes(), next);
+      limiter(fakeReq(), fakeRes(), next);
     }
     expect(nextCalls).toBe(3);
 
     const res4 = fakeRes();
-    limiter({}, res4, next);
+    limiter(fakeReq(), res4, next);
     expect(nextCalls).toBe(3); // request 4 did NOT call next()
     expect(res4.statusCode).toBe(429);
     expect(res4.rendered.view).toBe('error');
@@ -97,7 +113,7 @@ describe('#283 AC1: createRateLimiter unit behavior', () => {
 
     // Advance the clock past the window: a 5th request is allowed again.
     clock += 60001;
-    limiter({}, fakeRes(), next);
+    limiter(fakeReq(), fakeRes(), next);
     expect(nextCalls).toBe(4);
   });
 
@@ -113,16 +129,16 @@ describe('#283 AC1: createRateLimiter unit behavior', () => {
     const next = () => {};
     const res = fakeRes();
 
-    limiter({ key: 'a' }, res, next);
-    limiter({ key: 'b' }, res, next);
-    limiter({ key: 'c' }, res, next);
+    limiter(fakeReq({ key: 'a' }), res, next);
+    limiter(fakeReq({ key: 'b' }), res, next);
+    limiter(fakeReq({ key: 'c' }), res, next);
     expect(limiter._size()).toBe(3);
 
     // Advance past the window: a/b/c are now all expired.
     clock = 1000;
     // A 4th, genuinely NEW key triggers the sweep-on-insert (map size already
     // at trackedMax).
-    limiter({ key: 'd' }, res, next);
+    limiter(fakeReq({ key: 'd' }), res, next);
     expect(limiter._size()).toBe(1); // a/b/c swept away; only 'd' remains
   });
 
@@ -143,7 +159,7 @@ describe('#283 AC1: createRateLimiter unit behavior', () => {
     const res = fakeRes();
 
     for (let i = 0; i < 30; i++) {
-      limiter({ key: `ip:198.51.100.${i}` }, res, next);
+      limiter(fakeReq({ key: `ip:198.51.100.${i}` }), res, next);
     }
 
     // 30 distinct keys, none expired, cap 3.
@@ -162,13 +178,13 @@ describe('#283 AC1: createRateLimiter unit behavior', () => {
     const next = () => {};
     const res = fakeRes();
 
-    limiter({ key: 'oldest' }, res, next); // resetAt = 1000
+    limiter(fakeReq({ key: 'oldest' }), res, next); // resetAt = 1000
     clock = 100;
-    limiter({ key: 'newer' }, res, next); // resetAt = 1100
+    limiter(fakeReq({ key: 'newer' }), res, next); // resetAt = 1100
     expect(limiter._size()).toBe(2);
 
     clock = 200;
-    limiter({ key: 'newest' }, res, next); // forces one eviction
+    limiter(fakeReq({ key: 'newest' }), res, next); // forces one eviction
 
     expect(limiter._size()).toBe(2);
     // 'oldest' (soonest resetAt) was the victim; 'newer' kept its live count.
@@ -177,12 +193,46 @@ describe('#283 AC1: createRateLimiter unit behavior', () => {
     // reinserted 'newer' would have a full budget and let all 5 through.
     for (let i = 0; i < 4; i++) {
       const r = fakeRes();
-      limiter({ key: 'newer' }, r, next);
+      limiter(fakeReq({ key: 'newer' }), r, next);
       expect(r.statusCode).toBe(null); // allowed
     }
     const over = fakeRes();
-    limiter({ key: 'newer' }, over, next);
+    limiter(fakeReq({ key: 'newer' }), over, next);
     expect(over.statusCode).toBe(429);
+  });
+
+  // ---------------------------------------------------------------------
+  // AC5 (issue #934): over-limit answers JSON when the caller prefers it via
+  // the exact `req.accepts(['html', 'json']) === 'json'` form, else the same
+  // rendered page as before — on the IDENTICAL over-limit condition (same
+  // limiter, same bucket, back to back), proving the branch is chosen by
+  // Accept preference alone, not by any other state.
+  // ---------------------------------------------------------------------
+  it('AC5: JSON-preferring req gets a 429 JSON body with Retry-After; an HTML-preferring req on the same over-limit bucket still gets the rendered page', () => {
+    let clock = 0;
+    const limiter = createRateLimiter({
+      windowMs: 1000,
+      max: 1,
+      keyFn: () => 'ac5-unit-bucket',
+      now: () => clock,
+    });
+    const next = () => {};
+
+    limiter(fakeReq(), fakeRes(), next); // consumes the sole allowed request
+
+    const jsonRes = fakeRes();
+    limiter(fakeReq({ accepts: () => 'json' }), jsonRes, next);
+    expect(jsonRes.statusCode).toBe(429);
+    expect(jsonRes.rendered).toBeNull(); // the JSON branch never calls render
+    expect(jsonRes.jsonBody).toEqual({ error: expect.any(String) });
+    expect(jsonRes.headers['Retry-After']).toBeTruthy();
+
+    const htmlRes = fakeRes();
+    limiter(fakeReq(), htmlRes, next); // default fakeReq() prefers 'html'
+    expect(htmlRes.statusCode).toBe(429);
+    expect(htmlRes.jsonBody).toBeNull(); // the HTML branch never calls json
+    expect(htmlRes.rendered.view).toBe('error');
+    expect(typeof htmlRes.rendered.locals.message).toBe('string');
   });
 });
 
@@ -325,6 +375,62 @@ describe('#283 AC2-AC4b: rate limiter wired through real routes', () => {
       // server), has its OWN untouched budget (guest-keyed, not IP-keyed).
       const r4 = await agent2.post('/bug-report').type('form').send({ body: 'guest2 bug report' });
       expect(r4.status).toBe(302);
+    } finally {
+      config.RATE_LIMIT_SOCIAL_MAX = original;
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // AC5 (issue #934): the SAME over-limit condition on POST /p/:id/like,
+  // through the real Express req, answers JSON for a fetch (Accept:
+  // application/json) and today's rendered page for an ordinary browser
+  // navigation (an Accept header ending `*/*;q=0.8`, per the issue text) —
+  // proving the branch follows the caller's real Accept header end to end,
+  // not just the middleware's own unit-level fake.
+  // ---------------------------------------------------------------------
+  it('AC5: POST /p/:id/like over budget answers 429 JSON for a JSON-preferring Accept header, the rendered error page for a browser one', async () => {
+    const original = config.RATE_LIMIT_SOCIAL_MAX;
+    config.RATE_LIMIT_SOCIAL_MAX = 1;
+    try {
+      const taskId = db
+        .prepare(`INSERT INTO tasks (title) VALUES (?)`)
+        .run('AC5 task').lastInsertRowid;
+      const authorId = db
+        .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
+        .run('ac5-author', 'AC5 Author').lastInsertRowid;
+      db.prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`).run('ac5-liker', 'AC5 Liker');
+      const submissionId = db
+        .prepare(
+          `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down)
+           VALUES (?, ?, ?, ?, 0)`
+        )
+        .run(authorId, taskId, 'ac5.jpg', 'ac5t.jpg').lastInsertRowid;
+
+      const agent = signInGuest(app, 'ac5-liker');
+
+      const r1 = await agent.post(`/p/${submissionId}/like`).set('Accept', 'application/json');
+      expect(r1.status).toBe(200); // the sole allowed request this window
+
+      // Second request, same guest, over budget — the fetch shape feed.js
+      // uses (Accept: application/json only).
+      const r2 = await agent.post(`/p/${submissionId}/like`).set('Accept', 'application/json');
+      expect(r2.status).toBe(429);
+      expect(r2.type).toBe('application/json');
+      expect(r2.body).toEqual({ error: expect.any(String) });
+      expect(r2.headers['retry-after']).toBeTruthy();
+
+      // Third request, same over-limit bucket, an ordinary browser
+      // navigation's Accept header (html preferred, json still listed at a
+      // lower priority near the end) — still gets today's rendered page.
+      const r3 = await agent
+        .post(`/p/${submissionId}/like`)
+        .set(
+          'Accept',
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        );
+      expect(r3.status).toBe(429);
+      expect(r3.type).toBe('text/html');
+      expect(r3.text).toContain('Too many requests');
     } finally {
       config.RATE_LIMIT_SOCIAL_MAX = original;
     }

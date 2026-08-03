@@ -54,6 +54,11 @@ function resolve(value) {
   return typeof value === 'function' ? value() : value;
 }
 
+// Single owner of the 429 wait-a-moment copy (issue #934): read by BOTH the
+// JSON branch and the rendered-page branch below, so the two response shapes
+// can never say something different for the identical over-limit condition.
+const RATE_LIMIT_MESSAGE = 'Too many requests. Please wait a moment and try again.';
+
 /**
  * The bounded-TTL-map mechanism itself, shared by every caller that keeps a
  * "key -> something with an expiry" Map and must stop it growing without
@@ -160,8 +165,25 @@ function createRateLimiter({
     // negative value.
     const retryAfterSec = Math.max(1, Math.ceil((entry.resetAt - nowMs) / 1000));
     res.status(429).set('Retry-After', String(retryAfterSec));
+
+    // Issue #934 AC5: a fetch-driven caller (src/public/js/feed.js's
+    // toggleLike/postComment/deleteComment) asks for JSON and must get a
+    // structured reason back instead of an HTML error page it cannot parse —
+    // the exact `req.accepts(['html', 'json']) === 'json'` call
+    // src/routes/community.js already uses for its own JSON branches (e.g.
+    // the self-like 403), NOT the bare `req.accepts('json')` form, which is
+    // truthy for an ordinary browser navigation too (its Accept header still
+    // lists json among acceptable types even though html is what it wants)
+    // and would ship raw JSON to every no-JS form POST that happens to get
+    // rate-limited. This is the shared limiter's single 429 response, so
+    // every route group wired through createRateLimiter gains this
+    // JSON-when-preferred behavior together — that blast radius is the
+    // issue's stated intent, not a one-route carve-out.
+    if (req.accepts(['html', 'json']) === 'json') {
+      return res.json({ error: RATE_LIMIT_MESSAGE });
+    }
     return res.render('error', {
-      message: 'Too many requests. Please wait a moment and try again.',
+      message: RATE_LIMIT_MESSAGE,
     });
   }
 
