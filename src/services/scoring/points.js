@@ -78,8 +78,24 @@ function photoPoints(photoBonus, worth = 0, bonusAmount = 0) {
 // There is intentionally NO join to `tasks` and NO liveness filter here, so
 // a guest keeps points/badges even if the admin later hides a task. The
 // guest home page must use this same rule for its "X of N complete" numerator.
+// Exported unaliased (issue #1022) so a caller that joins in its own table
+// under its own alias — event-stats.js's perTaskCompletion(), which aliases
+// submissions `s` — can still compose it: `taken_down`/`task_id` are
+// unambiguous against any table this rule is ever joined beside, so no alias
+// prefix is needed on either side. leaderboard.js expresses this same rule a
+// structurally different way — a conditional aggregate,
+// `COUNT(CASE WHEN s.task_id IS NOT NULL THEN 1 END)` (leaderboard.js:122),
+// over a `LEFT JOIN submissions` whose join condition (not a WHERE clause)
+// carries `${VISIBLE_WHERE}` (leaderboard.js:135) — so it cannot consume
+// this constant: COMPLETED_COUNT_WHERE is a WHERE-clause fragment, and
+// splicing it into a LEFT JOIN's condition or a WHERE clause after the join
+// would silently turn the LEFT JOIN into an INNER JOIN, dropping every guest
+// with zero submissions off the leaderboard. Left alone out of scope (issue
+// #1022 amendment) because of that shape difference, not because of scope
+// alone.
+const COMPLETED_COUNT_WHERE = 'taken_down = 0 AND task_id IS NOT NULL';
 const stmtCompletedCount = db.prepare(
-  'SELECT COUNT(*) AS c FROM submissions WHERE guest_id = ? AND taken_down = 0 AND task_id IS NOT NULL'
+  `SELECT COUNT(*) AS c FROM submissions WHERE guest_id = ? AND ${COMPLETED_COUNT_WHERE}`
 );
 
 // Read a guest's admin-set bonus points plus avatar_path in the same row
@@ -407,4 +423,5 @@ module.exports = {
   addBonusPoints,
   STARTER_PHOTO_POINT,
   starterTaskContribution,
+  COMPLETED_COUNT_WHERE,
 };

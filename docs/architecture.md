@@ -20,7 +20,7 @@ flowchart TD
         mw --> auth["routes/auth.js<br/>/join, /login, /admin/login"]
         mw --> guest["routes/guest.js<br/>/, /tasks, /tasks/:id/submit, /me/edit,<br/>/how-to-play, /bug-report"]
         mw --> community["routes/community.js<br/>/gallery, /feed, GET /p/:submissionId,<br/>/p/:submissionId/like, /p/:submissionId/comments,<br/>/p/:submissionId/comments/:commentId/delete,<br/>/leaderboard, /u/:guestId"]
-        mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, photos<br/>(takedown/restore/favorite), badges, bugs, export<br/>/admin/comments retired -> 404 (renderNotFound)"]
+        mw --> adminr["routes/admin.js (/admin)<br/>dashboard, guests, tasks, photos<br/>(takedown/restore/favorite), badges, stats, bugs, export<br/>/admin/comments retired -> 404 (renderNotFound)"]
 
         auth --> svc
         guest --> svc

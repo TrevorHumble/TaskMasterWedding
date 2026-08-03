@@ -11,6 +11,7 @@
 //   admin/dashboard.js     GET /               (dashboard)
 //                          POST /checklist/:id/toggle
 //                          GET /qrsheet        (retired -> 404)
+//   admin/stats.js         GET /stats          (event stats page, issue #1022)
 //   admin/config.js        GET/POST /config    (event timezone + wedding dates)
 //   admin/guests.js        POST /guests, /guests/bulk (retired -> 404)
 //                          GET /guests, POST /guests/:id/edit, /identity,
@@ -45,15 +46,16 @@ const router = express.Router();
 router.use(requireAdmin);
 
 // Mark every admin page as an admin context so partials/header.ejs renders the
-// ADMIN nav (Dashboard/Tasks/Guests/Photos/Poster/Log out) and the logout
-// button, instead of the GUEST nav. Set once here so no individual res.render
-// has to remember to pass isAdmin.
+// ADMIN nav (Dashboard/Tasks/Guests/Photos/Stats/Bugs/Poster/Log out) and the
+// logout button, instead of the GUEST nav. Set once here so no individual
+// res.render has to remember to pass isAdmin.
 router.use((req, res, next) => {
   res.locals.isAdmin = true;
   next();
 });
 
 router.use(require('./admin/dashboard'));
+router.use(require('./admin/stats'));
 router.use(require('./admin/config'));
 router.use(require('./admin/guests'));
 router.use(require('./admin/badges-poster'));
