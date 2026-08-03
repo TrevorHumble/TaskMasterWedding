@@ -51,6 +51,30 @@
         <span class="rule-desc">Add any photo you love. Your first is +1 point.</span>
       </span>
     </li>
+    <%
+      // Issue #1042: the ceremony notice row, on regardless of date — only
+      // whether the host has the notice enabled at all. Same
+      // `typeof ... !== 'undefined'` guard convention as partials/header.ejs
+      // (a render that skips attachGuest, e.g. a partial-render harness,
+      // omits the row rather than throwing).
+      var _ceremonyNotice = (typeof ceremonyNotice !== 'undefined' && ceremonyNotice) ? ceremonyNotice : null;
+    %>
+    <% if (_ceremonyNotice && _ceremonyNotice.enabled) { %>
+    <li class="rule-row rule-row-notice">
+      <a class="rule-notice-link" href="/no-photos">
+        <span class="rule-icon rule-icon-notice" aria-hidden="true">
+          <%- include('partials/camera-slash') %>
+        </span>
+        <span class="rule-body">
+          <span class="rule-title">No photos during the ceremony</span>
+          <span class="rule-desc">Professional photographers have the ceremony covered. Read why.</span>
+        </span>
+        <span class="rule-notice-chevron" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg>
+        </span>
+      </a>
+    </li>
+    <% } %>
   </ul>
 
   <a class="btn btn-secondary btn-block" href="/how-points-work">How to earn points</a>

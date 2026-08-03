@@ -44,7 +44,7 @@ const fs = require('fs');
 const path = require('path');
 const ejs = require('ejs');
 const config = require('../../config');
-const { db, getEventConfig } = require('../db');
+const { db, getEventConfig, isCeremonyNoticeLive } = require('../db');
 const { VISIBLE_WHERE, COMMENT_VISIBLE_WHERE } = require('./feed');
 const { relativeTime, parseSqliteDatetime, toSqliteDatetime } = require('./relative-time');
 const { isIconArtPath, iconMaskStyle } = require('./badge-icons');
@@ -345,6 +345,18 @@ const KIND_GLYPH = {
   love: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" style="fill:currentColor"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/></svg>',
   announce:
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 4v16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M6 5c3-1.4 5 1.4 8 0v8c-3 1.4-5-1.4-8 0V5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+  // Issue #1042 (review fix, MAJOR 1): the ceremony photo-notice row's own
+  // kind, a distinct row kind with already-approved art (the same
+  // camera-with-a-slash glyph the day-of band and the how-to-play onboarding
+  // row use), not a fourth per-announcement-detail decoration of `announce`
+  // (see the comment above this map for why `day`/`flash`/`task` stay
+  // unwired). Rendered below through the SAME shared partial
+  // (partials/camera-slash.ejs) every other call site renders, via
+  // ejs.compile, not a fifth hand-copy of the drawing. Before this fix the
+  // drawing here was a hand-typed string with no `fill="none"` on its root,
+  // so its paths rendered black-filled inside the red recap circle instead
+  // of a clean outline; the shared partial's own `fill="none"` on the `<svg>`
+  // root fixes that.
 };
 
 // Server-rendered badge medallion markup for a recap row's on-demand replay
@@ -365,6 +377,20 @@ const badgeArtTemplatePath = path.join(config.VIEWS_DIR, 'partials', 'badge-art.
 const renderBadgeArtPartial = ejs.compile(fs.readFileSync(badgeArtTemplatePath, 'utf8'), {
   filename: badgeArtTemplatePath,
 });
+
+// Issue #1042 (review fix, MAJOR 1): KIND_GLYPH.ceremony's markup, compiled
+// from the real src/views/partials/camera-slash.ejs, the same shared
+// partial the day-of band, the how-to-play onboarding row, and the no-photos
+// hero all render, not a hand-typed copy of the drawing. Same
+// ejs.compile(fs.readFileSync(...)) pattern as renderBadgeArtPartial above.
+const cameraSlashTemplatePath = path.join(config.VIEWS_DIR, 'partials', 'camera-slash.ejs');
+const renderCameraSlash = ejs.compile(fs.readFileSync(cameraSlashTemplatePath, 'utf8'), {
+  filename: cameraSlashTemplatePath,
+});
+// Rendered once, at module load, with the partial's own defaults (size 22,
+// stroke-width 1.7). The recap icon is always this one size (`.recap-icon
+// svg` forces 22px in CSS), so there is nothing per-row to pass in.
+KIND_GLYPH.ceremony = renderCameraSlash({});
 
 /**
  * The badge-art partial's rendered HTML for one badge, or null when there is
@@ -961,12 +987,16 @@ function passesAnnounceCursor(when, key, cursor) {
  * purpose — FETCH_LIMIT/paging is a presentation concern the two callers
  * apply on top, not part of "what exists."
  *
- * Three independent derivations per candidate task, ALL gated live by
- * ANNOUNCE_EXISTENCE_WHERE's SQL already having excluded a hidden task (issue
- * #778 AC6) — a task can qualify under more than one derivation at once (an
- * "and it's a flash today" edge is real), and each becomes its OWN row with
- * its own key, deliberately not deduplicated to one row per task: they are
- * two distinct pieces of news, not one repeated fact.
+ * Four independent derivations altogether: three are PER CANDIDATE TASK,
+ * ALL gated live by ANNOUNCE_EXISTENCE_WHERE's SQL already having excluded a
+ * hidden task (issue #778 AC6). A task can qualify under more than one of
+ * the three at once (an "and it's a flash today" edge is real), and each
+ * becomes its OWN row with its own key, deliberately not deduplicated to one
+ * row per task: they are distinct pieces of news, not one repeated fact. The
+ * fourth (d) is EVENT-WIDE, outside the per-task loop entirely. See (d)
+ * below and DESIGN.md's #1042 ADR for why it does not fit the "every fact an
+ * announcement asserts is already sitting on the task row itself" claim the
+ * three per-task derivations satisfy.
  *
  * (a) Live-transition: `live_since` is set and newer than the checkpoint —
  *     both sides are the SAME storage shape (`datetime('now')`), so this is
@@ -1001,6 +1031,14 @@ function passesAnnounceCursor(when, key, cursor) {
  *     resolution) — the same class of single-second edge DESIGN.md's "Recap"
  *     ADR already documents as an accepted limitation for likes, not a new
  *     gap this issue introduces.
+ * (d) Ceremony notice (issue #1042): EVENT-WIDE, not per-task. The whole
+ *     "for candidate task t" framing above does not apply. Read straight off
+ *     `getEventConfig()` outside the per-task loop, gated on the notice
+ *     being enabled and today being the configured ceremony date
+ *     (src/db/event-config.js's isCeremonyNoticeLive, the single owner of
+ *     that comparison), AND the checkpoint predating today's event-local
+ *     start, the same day-start comparison (b) already uses. At most one
+ *     fact per call, independent of how many candidate tasks exist.
  *
  * A null `checkpoint` (checkpointFor's contract: only a nonexistent guest id)
  * short-circuits to no facts, matching getUnreadCount's own early-return for
@@ -1069,18 +1107,43 @@ function qualifyingAnnounceFacts(checkpoint, clock) {
     }
   }
 
-  return facts.map((f) => ({
-    key: f.key,
-    kind: 'announce',
-    dead: false,
-    parts: f.parts,
-    href: '/tasks',
-    thumb: null,
-    badge: null,
-    badgeArtHtml: null,
-    glyph: KIND_GLYPH.announce,
-    when: f.when,
-  }));
+  // Issue #1042: the ceremony photo-notice — a broadcast independent of any
+  // one task row (unlike the three derivations in the loop above, each tied
+  // to a task candidate). Exactly one fact, gated on the notice being
+  // enabled, today being the configured ceremony date, and the guest's
+  // checkpoint predating today's event-local start — the same day-start
+  // comparison the challenge-unseal derivation above already uses.
+  const eventConfig = getEventConfig();
+  if (isCeremonyNoticeLive(eventConfig, clock.todayIso)) {
+    const dayStart = toSqliteDatetime(
+      eventDays.dayOpensAt(clock.todayIso, clock.timezone).getTime()
+    );
+    if (checkpoint < dayStart) {
+      facts.push({
+        key: 'announce-ceremony-notice',
+        kind: 'ceremony',
+        href: '/no-photos',
+        when: dayStart,
+        parts: [{ text: 'No photos during the ceremony' }],
+      });
+    }
+  }
+
+  return facts.map((f) => {
+    const kind = f.kind || 'announce';
+    return {
+      key: f.key,
+      kind: kind,
+      dead: false,
+      parts: f.parts,
+      href: f.href || '/tasks',
+      thumb: null,
+      badge: null,
+      badgeArtHtml: null,
+      glyph: KIND_GLYPH[kind],
+      when: f.when,
+    };
+  });
 }
 
 /**

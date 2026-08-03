@@ -1,7 +1,7 @@
 // src/middleware/session.js
 'use strict';
 
-const { db, getEventConfig } = require('../db');
+const { db, getEventConfig, isCeremonyNoticeLive } = require('../db');
 const config = require('../../config');
 // buildMemoryBatchPartialPayload below needs to bound the encoded-on-the-wire
 // byte size of a candidate cookie value before writing it. An earlier version
@@ -359,9 +359,24 @@ function attachGuest(req, res, next) {
     // timezone (cheap: a settings-table SELECT this function already runs
     // elsewhere in the request cycle) and hands it to
     // notifications.buildRecapClock, the one place the clock's shape is
-    // assembled.
-    const clock = notifications.buildRecapClock(getEventConfig().timezone);
+    // assembled. eventConfig is read once here and reused below for the
+    // ceremony notice (issue #1042) rather than a second settings read.
+    const eventConfig = getEventConfig();
+    const clock = notifications.buildRecapClock(eventConfig.timezone);
     res.locals.recapUnreadCount = notifications.getUnreadCount(guest.id, clock);
+
+    // The ceremony photo-notice band (issue #1042 plan step 4): both facts
+    // come from this same config read and the clock already built above —
+    // no new query, no second middleware. partials/header.ejs and
+    // views/how-to-play.ejs are the two readers. `enabled` is the raw
+    // toggle (how-to-play.ejs's onboarding row is date-independent by
+    // design); `live` is the folded enabled-AND-today-is-the-day predicate
+    // (src/db/event-config.js's isCeremonyNoticeLive, the single owner of
+    // that AND) the day-of band gates on.
+    res.locals.ceremonyNotice = {
+      enabled: eventConfig.ceremonyNotice,
+      live: isCeremonyNoticeLive(eventConfig, clock.todayIso),
+    };
   } else {
     res.locals.recapUnreadCount = 0;
   }

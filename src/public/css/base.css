@@ -1607,3 +1607,60 @@ a.stat {
     text-decoration: none;
   }
 }
+
+/* ---------------- Ceremony photo notice (#1042) ---------------- */
+
+/* Onboarding rule row (how-to-play). Reuses .rule-row / .rule-icon / .rule-body
+   wholesale. Only the ink and the wrapping link are new. */
+.rule-row-notice {
+  align-items: stretch;
+}
+.rule-notice-link {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  color: var(--err-ink);
+  text-decoration: none;
+}
+.rule-row-notice .rule-title {
+  color: var(--err-ink);
+}
+.rule-icon-notice {
+  background: var(--err-bg);
+  color: var(--err-ink);
+}
+.rule-notice-chevron {
+  margin-left: auto;
+  display: flex;
+  flex: none;
+  opacity: 0.55;
+}
+
+/* Explainer page. */
+.ceremony-hero {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-5) 0 var(--space-4);
+  color: var(--err-ink);
+}
+.ceremony-copy {
+  font-family: var(--font-body);
+  margin: 0 0 var(--space-4);
+  line-height: 1.6;
+  /* Full lines run edge to edge; the short last line of each paragraph
+     centres under them. */
+  text-align: justify;
+  text-align-last: center;
+}
+
+/* Admin config: the toggle row. */
+.config-rule-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.config-rule-label {
+  font-family: var(--font-body);
+}

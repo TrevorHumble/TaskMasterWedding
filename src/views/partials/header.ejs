@@ -76,13 +76,61 @@
 </header>
 
 <%
+  // Issue #644 review: this file's own single `_guest` guard, hoisted here so
+  // both the ceremony band below and the recap strip/panel further down read
+  // the SAME derivation instead of each re-deriving
+  // `typeof guest !== 'undefined' && guest`.
+  var _guest = (typeof guest !== 'undefined' && guest) ? guest : null;
+  // Issue #1042: the ceremony day-of band. res.locals.ceremonyNotice comes
+  // from src/middleware/session.js's attachGuest — the `typeof ... !==
+  // 'undefined'` guard keeps this render safe for a standalone/test render
+  // that skips that middleware (same convention this file already uses for
+  // guest/isAdmin/currentPath above). `.live` is the ONE fact ("is the
+  // notice on, and is today the configured day"). src/db/event-config.js's
+  // isCeremonyNoticeLive is the single owner of that comparison, so this
+  // partial never re-ANDs "enabled" and "is today the day" itself.
+  var _ceremonyNotice = (typeof ceremonyNotice !== 'undefined' && ceremonyNotice) ? ceremonyNotice : null;
+  var _showCeremonyBand =
+    !_isAdmin &&
+    _guest &&
+    // PR review finding: a signed-in guest hitting GET /admin/login renders
+    // this same header with _isAdmin false, the same reason the recap strip
+    // twelve lines below already carries this guard (its own comment
+    // explains the route in full).
+    typeof recapRows !== 'undefined' &&
+    _ceremonyNotice &&
+    _ceremonyNotice.live;
+%>
+<% if (_showCeremonyBand) { %>
+  <%# Same band component as the recap strip below. The .recap-strip class set
+      verbatim, so the two are identical in layout, height, and behaviour at
+      every width; .ceremony-strip only recolours it and it links out instead
+      of opening a panel. %>
+  <div class="recap-strip ceremony-strip" id="ceremony-line">
+    <a class="recap-strip-open ceremony-strip-open" href="/no-photos">
+      <span class="recap-strip-glyph" aria-hidden="true">
+        <%- include('camera-slash') %>
+      </span>
+      <span class="recap-strip-text"><strong>No photos during the ceremony</strong></span>
+      <span class="recap-strip-chevron" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+    </a>
+    <button type="button" class="recap-strip-dismiss" id="ceremony-dismiss" aria-label="Dismiss">&#215;</button>
+  </div>
+  <%# Not deferred, on purpose: it runs at this point in the parse, before the
+      band is ever painted, so an already-dismissed band never flashes. %>
+  <script src="/js/ceremony-notice.js"></script>
+<% } %>
+
+<%
   // The recap strip + panel (issue #644) render only for a SIGNED-IN guest
   // (issue #644 review): gating on `!_isAdmin` alone also shipped the panel
   // shell, /js/recap.js and an empty dialog to a signed-out visitor, since
   // join.ejs/login.ejs include this same header and `!_isAdmin` is true for
   // them too. `guest` is res.locals.guest, merged into every template's
-  // locals the same way `isAdmin`/`flash`/`currentPath` already are.
-  var _guest = (typeof guest !== 'undefined' && guest) ? guest : null;
+  // locals the same way `isAdmin`/`flash`/`currentPath` already are. `_guest`
+  // itself is hoisted above, alongside the ceremony band's own use of it.
 %>
 <% if (!_isAdmin && _guest && typeof recapRows !== 'undefined') { %>
   <%

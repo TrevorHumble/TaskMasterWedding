@@ -56,6 +56,22 @@
       <p class="field-hint config-prizes-hint">Guests see this above the standings, word for word. Leave it blank and no prizes appear anywhere.</p>
     </div>
 
+    <div class="form-row">
+      <label class="config-rule-check">
+        <input type="checkbox" id="ceremony_notice" name="ceremony_notice" value="1"<%= config.ceremonyNotice ? ' checked' : '' %>>
+        <span class="config-rule-label">Warn guests: no photos during the ceremony</span>
+      </label>
+      <p class="form-help">
+        Adds the rule to the guest onboarding screen, and on the ceremony day shows a red
+        line on every guest page plus one notification, each linking to a short explainer.
+      </p>
+    </div>
+
+    <div class="form-row">
+      <label class="form-label" for="ceremony_date">Ceremony day</label>
+      <input class="form-input" type="date" id="ceremony_date" name="ceremony_date" value="<%= config.ceremonyDate %>">
+    </div>
+
     <button class="btn--primary" type="submit">Save configuration</button>
   </form>
 

@@ -38,6 +38,9 @@ router.get('/config', (req, res) => {
       timezone: resolveSelectedZone(eventConfig.timezone),
       startDate: eventConfig.startDate,
       endDate: eventConfig.endDate,
+      // Issue #1042: the ceremony photo-notice toggle + date.
+      ceremonyNotice: eventConfig.ceremonyNotice,
+      ceremonyDate: eventConfig.ceremonyDate,
     },
     // Issue #469: the hosts' prizes blurb, its own settings key (not part of
     // eventConfig — see src/db/event-config.js's own comment on why). Read
@@ -73,6 +76,17 @@ router.post('/config', (req, res) => {
   // on that submit would be silent data loss, so only a present key writes
   // (the `prizes !== null` gate below).
   const prizes = typeof req.body.prizes === 'string' ? normalizePrizes(req.body.prizes) : null;
+  // Issue #1042: an unchecked checkbox sends no key at all, and absent must
+  // mean false here, never "leave the stored value alone" — otherwise the
+  // box can be ticked but never unticked.
+  const ceremonyNotice = Boolean(req.body.ceremony_notice);
+  // ceremony_date: absent, or present but empty after trim, means "keep the
+  // stored value" and skip validation entirely — the same treatment the
+  // `prizes` field above already takes for an absent key, and for the same
+  // reason (a stale cached form, or a host who clears the input, must not
+  // erase stored state or block the rest of the form).
+  const ceremonyDateRaw =
+    typeof req.body.ceremony_date === 'string' ? req.body.ceremony_date.trim() : '';
 
   if (!isKnownTimezone(timezone)) {
     return redirectWithMsg(res, '/admin/config?err=1', 'Please choose a valid timezone.');
@@ -87,8 +101,30 @@ router.post('/config', (req, res) => {
       'The wedding start date must be on or before the end date.'
     );
   }
+  // Validated against the dates SUBMITTED in this same request (already
+  // parsed above), not the stored ones — a save that moves the wedding
+  // dates and the ceremony day together is judged coherently (issue #1042
+  // AC2).
+  if (
+    ceremonyDateRaw &&
+    (!tasks.isRealDateString(ceremonyDateRaw) ||
+      ceremonyDateRaw < startDate ||
+      ceremonyDateRaw > endDate)
+  ) {
+    return redirectWithMsg(
+      res,
+      '/admin/config?err=1',
+      'Please enter a valid ceremony day within the wedding dates.'
+    );
+  }
 
-  setEventConfig({ timezone, startDate, endDate });
+  setEventConfig({
+    timezone,
+    startDate,
+    endDate,
+    ceremonyNotice,
+    ceremonyDate: ceremonyDateRaw || undefined,
+  });
   // Issue #469 AC6: a rejected save (any branch above) returns before this
   // line runs, so setPrizes is never called and the stored prizes text is
   // left exactly as it was — same "nothing persists unless every field

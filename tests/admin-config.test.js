@@ -65,7 +65,11 @@ describe('AC1: settings persist across save + reload', () => {
     expect(postRes.status).toBe(303);
     expect(postRes.headers.location).toContain(encodeURIComponent('Configuration saved.'));
 
-    expect(getEventConfig()).toEqual({
+    // toMatchObject, not toEqual: issue #1042 widened getEventConfig()'s
+    // return shape with two more fields (ceremonyNotice/ceremonyDate) this
+    // save never touches — this test only asserts the three fields it
+    // actually saved.
+    expect(getEventConfig()).toMatchObject({
       timezone: 'America/Phoenix',
       startDate: '2026-08-07',
       endDate: '2026-08-09',
