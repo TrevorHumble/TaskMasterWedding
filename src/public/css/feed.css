@@ -190,8 +190,18 @@
   background: rgba(20, 30, 24, 0.55);
 }
 /* Lock the page scroll while a dialog is open — the top layer scrolls its
-   own thread, the feed behind it stays put. */
-body:has(dialog[open]) {
+   own thread, the feed behind it stays put. Exactly ONE owner (#922): the
+   class below, toggled by src/public/js/dialog-scroll-lock.js from a
+   MutationObserver watching the whole document for `open`-attribute changes
+   — not a `:has(dialog[open])` selector, which fails closed on a
+   :has()-less phone browser (the page behind an open dialog would scroll
+   right along with it). No dialog in the app is server-rendered `open` —
+   every one opens via showModal() — and the lightbox's <dialog> is created
+   lazily at runtime, after this stylesheet is already active, so the
+   observer (not a load-time query) is what catches it. Do not reintroduce a
+   parallel `:has()` rule for this — two independently-written statements of
+   one rule can drift (#918). */
+body.dialog-scroll-lock {
   overflow: hidden;
 }
 /* Header: the photo's own thumbnail carries the context; the title stays

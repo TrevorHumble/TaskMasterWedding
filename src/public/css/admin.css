@@ -389,8 +389,17 @@
     opacity: 1;
   }
 }
+/* The favorited-photo half of this rule has exactly ONE owner (#922): the
+   `admin-tile-actions-fav-on` class, stamped server-side in admin-photos.ejs
+   from the same `p._fav` that colors the heart button — not a
+   `:has(.admin-fav-on)` selector, which fails closed on a :has()-less phone
+   browser (a favorited photo's controls would silently never stay visible).
+   Nothing toggles this client-side, so a server-stamped class costs nothing
+   to give up the `:has()` first-paint property for. Do not reintroduce a
+   parallel `:has()` rule for this — two independently-written statements of
+   one rule can drift (#918). */
 .admin-tile:focus-within .admin-tile-actions,
-.admin-tile-actions:has(.admin-fav-on) {
+.admin-tile-actions.admin-tile-actions-fav-on {
   opacity: 1;
 }
 /* No hover on touch devices — nothing would ever reveal the actions, so

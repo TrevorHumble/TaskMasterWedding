@@ -14,6 +14,7 @@
 // or db (see tests/helpers/testApp.js).
 'use strict';
 
+const { JSDOM } = require('jsdom');
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
 
 let app;
@@ -801,5 +802,143 @@ describe('AC3b markup: the edit dialog hidden special_date input', () => {
     dayBonusInputs.forEach((tag) => {
       expect(tag).not.toContain('checked');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #922 AC1: the worth-chip / special-option selection highlight is
+// asserted against the REAL rendered /admin/tasks markup (jsdom-parsed
+// res.text), not a hand-built fixture — tests/admin-tasks-script.test.js's
+// own header (lines 14-19) declares its fixture independent of real markup,
+// so an adjacency/highlight assertion there would stay green through a
+// template edit that broke the sibling rule this issue introduces.
+// ---------------------------------------------------------------------------
+describe('AC1 (#922): the worth-chip/special-option selection highlight is a sibling rule against real markup', () => {
+  test("within a .worth-chips group that ships one radio checked (the create dialog's Worth field, 1 pt), input:checked + .worth-chip-face matches exactly that chip's face", async () => {
+    const res = await adminAgent.get('/admin/tasks');
+    const doc = new JSDOM(res.text).window.document;
+    const createDialog = doc.getElementById('task-create-dialog');
+    const worthGroup = createDialog.querySelector('.worth-chips');
+    const checkedRadio = worthGroup.querySelector('input:checked');
+    expect(checkedRadio).not.toBeNull();
+    expect(checkedRadio.value).toBe('1');
+
+    const matches = worthGroup.querySelectorAll('input:checked + .worth-chip-face');
+    expect(matches.length).toBe(1);
+    expect(matches[0]).toBe(checkedRadio.nextElementSibling);
+  });
+
+  test("checking a radio in a group that ships with NONE checked (the edit dialog's .worth-chips) raises the page-wide input:checked + .worth-chip-face count by exactly one over the measured baseline", async () => {
+    const baselineRes = await adminAgent.get('/admin/tasks');
+    const baselineDoc = new JSDOM(baselineRes.text).window.document;
+    // The baseline is non-zero and measured, not assumed: the create
+    // dialog's 1-pt Worth chip and both dialogs' flash "Now" Starts chip
+    // (special-flash-option.ejs, included by both task-create-dialog.ejs and
+    // task-edit-dialog.ejs) already ship checked in server markup — three
+    // faces as this page renders today. The count is not pinned to that
+    // literal: what the sibling rule owes is the delta below, and a future
+    // template that ships one more checked chip should not fail this test.
+    const baselineCount = baselineDoc.querySelectorAll(
+      '.worth-chip input:checked + .worth-chip-face'
+    ).length;
+    expect(baselineCount).toBeGreaterThan(0);
+
+    const res = await adminAgent.get('/admin/tasks');
+    const doc = new JSDOM(res.text).window.document;
+    const editDialog = doc.getElementById('task-edit-dialog');
+    const editWorthGroup = editDialog.querySelector('.worth-chips');
+    const radio = editWorthGroup.querySelector('input[name="worth"][value="2"]');
+    expect(radio).not.toBeNull();
+    expect(radio.checked).toBe(false);
+
+    radio.checked = true;
+
+    const afterCount = doc.querySelectorAll('.worth-chip input:checked + .worth-chip-face').length;
+    expect(afterCount).toBe(baselineCount + 1);
+  });
+
+  test("checking a special_mode radio in the edit dialog's Special group (which ships with neither None nor Hidden checked) raises the page-wide input:checked + .special-option-face count by exactly one over the measured baseline", async () => {
+    const baselineRes = await adminAgent.get('/admin/tasks');
+    const baselineDoc = new JSDOM(baselineRes.text).window.document;
+    // Baseline is measured, not assumed: the create dialog's special_mode
+    // ships "none" checked (task-create-dialog.ejs:62) — the edit dialog's
+    // own None/Hidden radios do not (task-edit-dialog.ejs:79/85). As with the
+    // worth chips above, the delta is the assertion; the baseline is measured
+    // rather than pinned to a literal a future template could move.
+    const baselineCount = baselineDoc.querySelectorAll(
+      '.special-option input:checked + .special-option-face'
+    ).length;
+    expect(baselineCount).toBeGreaterThan(0);
+
+    const res = await adminAgent.get('/admin/tasks');
+    const doc = new JSDOM(res.text).window.document;
+    const editDialog = doc.getElementById('task-edit-dialog');
+    const hiddenRadio = editDialog.querySelector('input[name="special_mode"][value="hidden"]');
+    expect(hiddenRadio).not.toBeNull();
+    expect(hiddenRadio.checked).toBe(false);
+
+    hiddenRadio.checked = true;
+
+    const afterCount = doc.querySelectorAll(
+      '.special-option input:checked + .special-option-face'
+    ).length;
+    expect(afterCount).toBe(baselineCount + 1);
+  });
+
+  test('every .worth-chip-face and .special-option-face on the rendered page has its radio as the immediately-preceding element sibling', async () => {
+    const res = await adminAgent.get('/admin/tasks');
+    const doc = new JSDOM(res.text).window.document;
+    const faces = doc.querySelectorAll('.worth-chip-face, .special-option-face');
+    expect(faces.length).toBeGreaterThan(0);
+    faces.forEach((face) => {
+      // `input[type="radio"]`, not merely INPUT: a hidden input slipped in
+      // between a radio and its face would satisfy a tag-name check while
+      // `input:checked + .worth-chip-face` matched nothing and the highlight
+      // died silently, which is the exact failure this guard exists to catch.
+      const prev = face.previousElementSibling;
+      expect(prev).not.toBeNull();
+      expect(prev.matches('input[type="radio"]')).toBe(true);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #922 AC2: admin-tasks.css carries no `:has()` rule for the worth
+// chips, special options, or badge-picker cells any more — the replacements
+// are single owners (a sibling rule, or a JS-maintained class), not
+// additions beside the old `:has()` rule.
+// ---------------------------------------------------------------------------
+describe('AC2 (#922): no :has() rule is left for any of the five original consumers, in any of the three sheets', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  const { stripCssComments } = require('./helpers/source-text');
+
+  // Comments stripped first: each replaced rule left a comment behind naming
+  // the `:has()` selector it is NOT, so a raw read matches the prose that
+  // documents the fix and fails on correct code. stripCssComments is the one
+  // owner of that rule (#922) -- do not restate the regex here.
+  function readCss(name) {
+    return stripCssComments(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'css', name), 'utf8')
+    );
+  }
+
+  test('admin-tasks.css: no :has() selector remains for .worth-chip, .special-option, or .badge-picker-cell', () => {
+    const css = readCss('admin-tasks.css');
+    expect(css).not.toMatch(/\.worth-chip:has\(/);
+    expect(css).not.toMatch(/\.special-option:has\(/);
+    expect(css).not.toMatch(/\.badge-picker-cell:has\(/);
+  });
+
+  test('admin.css: no :has() selector remains for .admin-tile-actions', () => {
+    const css = readCss('admin.css');
+    expect(css).not.toMatch(/\.admin-tile-actions:has\(/);
+  });
+
+  test('feed.css: no :has() selector remains for body/dialog[open]', () => {
+    const css = readCss('feed.css');
+    expect(css).not.toMatch(/body:has\(/);
+    expect(css).not.toMatch(/:has\(dialog\[open\]\)/);
   });
 });
