@@ -77,7 +77,8 @@ describe('#1002: Share a memory is a quiet button under the filter chips, not a 
     const res = await agent.get('/tasks');
     expect(res.status).toBe(200);
 
-    // The exact owner-approved anchor (AC1) — no points text, no caption.
+    // The exact owner-approved anchor (AC1): no points text; the caption is
+    // now the sibling .tasks-share-hint line asserted by this issue's own test.
     expect(res.text).toContain(
       '<a class="btn btn-secondary btn-block" href="/memories/new">Share a memory</a>'
     );
@@ -108,6 +109,34 @@ describe('#1002: Share a memory is a quiet button under the filter chips, not a 
 
     const memoriesNewMatches = res.text.match(/\/memories\/new/g) || [];
     expect(memoriesNewMatches.length).toBe(1);
+  });
+});
+
+describe('#1088: the Share a memory button carries a muted task-free hint line', () => {
+  test('the hint <p> sits immediately after the button anchor, adjacent with only whitespace between (AC1)', async () => {
+    seedOneTodoTask();
+    const agent = await signedInAgent('ac471-token');
+
+    const res = await agent.get('/tasks');
+    expect(res.status).toBe(200);
+
+    expect(res.text).toMatch(
+      /<a class="btn btn-secondary btn-block" href="\/memories\/new">Share a memory<\/a>\s*<p class="tasks-share-hint">Share a photo at any time, no task required<\/p>/
+    );
+  });
+
+  test('.tasks-share-hint declares the approved muted-caption tokens, with no raw length or hard-coded colour (AC2)', () => {
+    const themeSrc = readThemeCss();
+    const block = ruleBlock(themeSrc, '.tasks-share-hint');
+    expect(block).not.toBeNull();
+
+    expect(block).toMatch(/margin:\s*var\(--space-1\)\s+0\s+0;/);
+    expect(block).toMatch(/text-align:\s*center;/);
+    expect(block).toMatch(/font-size:\s*var\(--fs-eyebrow\);/);
+    expect(block).toMatch(/line-height:\s*1\.3;/);
+    expect(block).toMatch(/color:\s*var\(--color-text-muted\);/);
+    expect(block).not.toMatch(/\d+(px|rem)/);
+    expect(block).not.toMatch(/#[0-9a-fA-F]{3,8}/);
   });
 });
 
@@ -157,6 +186,7 @@ describe('AC3: the allDone .tasks-memory-cta path is untouched, and .tasks-share
     // Share a memory link (AC3).
     expect(res.text).not.toContain('class="tasks-share-cta"');
     expect(res.text).not.toContain('task-share-memory');
+    expect(res.text).not.toContain('class="tasks-share-hint"');
 
     const memoriesNewMatches = res.text.match(/\/memories\/new/g) || [];
     expect(memoriesNewMatches.length).toBe(1);

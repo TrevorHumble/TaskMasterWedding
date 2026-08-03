@@ -1266,6 +1266,27 @@ price tag, so nothing on `/tasks` needs to know whether today's +1 is still avai
 first-memory-of-the-day +1 award (this ADR's actual subject — derived scoring, day-boundary math,
 `leaderboard()` ordering) is untouched; only its advertisement on `/tasks` moved.
 
+**Amended 2026-08-03 (issue #1088, owner call).** The button gained a `.tasks-share-hint` caption,
+settled live on a seeded preview: `<p class="tasks-share-hint">Share a photo at any time, no task
+required</p>`, sitting directly under the anchor inside `section.tasks-share-cta`. The approved CSS is
+`margin: var(--space-1) 0 0; text-align: center; font-size: var(--fs-eyebrow); line-height: 1.3; color:
+var(--color-text-muted)`, the same muted-caption token pair used elsewhere in `guest.css`. The
+`memoryBonusAvailable` removal and the no-points-text rule from the 2026-08-01 supersession above are
+both unaffected; the hint line names the button as a task-free path to the gallery, it does not carry a
+points promise. An earlier rejected placement, nesting the hint as a second line inside the button
+itself, surfaced that `.btn` (`src/public/css/base.css:1111`) sets `text-transform: uppercase` and
+`letter-spacing: 0.1em`, both inherited by every descendant of a `.btn`; any future attempt to nest text
+inside a button must override both or it renders as shouted capitals.
+
+The caption is its own `.tasks-share-hint` class rather than a reuse of `.field-hint` because the two
+solve different problems despite looking alike: `.field-hint` is left-aligned help text bound to a form
+control inside a `.form-row`, and this is a centered caption under a full-width block button outside any
+form. The shared part, the muted-caption look, is already shared the right way, through the
+`--fs-eyebrow` and `--color-text-muted` token pair both rules draw from, so the duplication is in the
+two-line rule body, not in the design vocabulary. If a third centered-caption-under-a-block-button
+appears, that is the point to promote these declarations into one shared class rather than adding a
+third copy.
+
 ## Flash guest marker: shared shape, separate hue, no floor, no neutral fallback (#762)
 
 **Date:** 2026-07-21. **Status:** accepted, owner-approved live on a seeded preview.
