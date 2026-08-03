@@ -944,6 +944,24 @@ body.dialog-scroll-lock {
   display: inline-flex;
   line-height: 0;
 }
+/* First-place task badge: the winning icon renders in gold, the same
+   --place-1 gold the gallery/feed victory mark wears, so a task WON reads as
+   gold at a glance on the standings. An icon badge (bundled glyph in a
+   medallion) recolors its ring and glyph gold; a composed badge falls back to
+   a gold ring. Scoped under .lb-badges (0-3-0) rather than bare
+   .lb-badge-gold .badge-medallion (0-2-0), so this wins over the
+   .lb-badges .badge-medallion green-ring rule below regardless of source
+   order instead of losing to it on equal specificity. */
+.lb-badges .lb-badge-gold .badge-medallion {
+  border-color: var(--place-1);
+  box-shadow:
+    inset 0 0 0 1px var(--white),
+    inset 0 0 0 2px var(--place-1);
+  --badge-icon-color: var(--place-1);
+}
+.lb-badge-gold .lb-badge-icon {
+  box-shadow: 0 0 0 2px var(--place-1);
+}
 .lb-badge-icon {
   width: 24px;
   height: 24px;

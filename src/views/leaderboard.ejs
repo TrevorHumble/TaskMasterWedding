@@ -103,8 +103,43 @@
           </a>
 
           <span class="lb-badges">
-            <% r.badges.slice(0, badgeCap).forEach(function (b) { %>
-              <a href="/badge/<%= b.code %>" title="<%= b.name %>">
+            <%
+              // A Task Master badge is flagged isTaskMaster by guest-badges.js's
+              // getGuestBadges (#489 findings 2-3, discriminant task_id != null,
+              // decoded once at the data layer, never `type`, per the badge
+              // detail route's own rule at src/routes/community.js's GET
+              // /badge/:code: POST /admin/badges mints host `type='custom'`
+              // badges with task_id NULL that must render as plain system
+              // badges). Task Master badges sort ahead of system badges before
+              // the cap slice (stable sort preserves each group's own order).
+              // AC6.
+              var ordered = r.badges.slice().sort(function (a, c) {
+                return (c.isTaskMaster ? 1 : 0) - (a.isTaskMaster ? 1 : 0);
+              });
+            %>
+            <% ordered.slice(0, badgeCap).forEach(function (b) { %>
+              <%
+                // Whole-icon gold for a first-place task win (AC2/AC3): the
+                // owner-approved look, matching the gallery/feed victory mark's
+                // --place-1 gold. The decode itself (task award that placed
+                // first) is owned by guest-badges.js's isFirstPlaceTaskWin; the
+                // view only maps that flag to a CSS class name.
+                var gold = b.isFirstPlaceTaskWin;
+                // A Task Master badge with a still-visible winning photo links
+                // straight to it (AC4); everything else (system badge, or a
+                // task badge with no/taken-down photo) falls back to the
+                // badge's own detail page (AC1/AC5). This is URL composition,
+                // not a business decode: the badge FACTS (isTaskMaster,
+                // submission_id, submission_visible) are decided in the data
+                // layer, and the feed-URL grammar is a routing/presentation
+                // concern that has no place in guest-badges.js. The route that
+                // would otherwise own such a helper (community.js) is outside
+                // this issue's Touches.
+                var href = (b.isTaskMaster && b.submission_id != null && b.submission_visible)
+                  ? '/feed?from=' + b.submission_id + '#photo-' + b.submission_id
+                  : '/badge/' + b.code;
+              %>
+              <a class="lb-badge<%= gold ? ' lb-badge-gold' : '' %>" href="<%= href %>" title="<%= b.name %>">
                 <%- include('partials/badge-art', { badge: b, imgClass: 'lb-badge-icon', width: 24, height: 24 }) %>
               </a>
             <% }); %>

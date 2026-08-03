@@ -9,6 +9,7 @@
 const { db } = require('../../db');
 const { VISIBLE_WHERE } = require('../feed');
 const { badgeByCode } = require('./badge-engine');
+const { isFirstPlaceRank } = require('../task-badges');
 
 // ---------------------------------------------------------------------------
 // Badges a single guest holds (with display fields)
@@ -28,11 +29,26 @@ const { badgeByCode } = require('./badge-engine');
 // the array it gets back locally instead of re-deriving this join with a
 // second SQL statement (issue #487 design-philosophy review) — this
 // function stays the ONE place the guest_badges/badges join is written.
+//
+// task_id/rank/submission_id/submission_visible (issue #489) are additive
+// projection columns for the leaderboard's earned-badge display (gold rank-1
+// treatment, winning-photo link). Every other caller (guest home, public
+// profile, admin guest view, rankBadgeCandidates) ignores them, exactly like
+// it already ignores awarded_by/created_at. submission_visible is a LEFT
+// JOIN CASE, not a WHERE filter, so a taken-down or missing earning photo
+// reads 0 without dropping the guest_badges row itself (mirrors
+// stmtBadgeHolders' own visibility-in-the-JOIN pattern below). The join is
+// aliased `gbs`, not `s`, so it cannot cleanly consume feed.js's `s.`-aliased
+// VISIBLE_WHERE constant. See that constant's own declaration-site comment
+// on differently-aliased subqueries keeping their own literal by design.
 const stmtGuestBadgesFull = db.prepare(
   `SELECT b.id AS badge_id, b.code, b.name, b.art_path, b.type, b.threshold, b.description,
-          gb.awarded_by, gb.points, gb.created_at
+          b.task_id AS task_id,
+          gb.awarded_by, gb.points, gb.created_at, gb.rank, gb.submission_id,
+          CASE WHEN gbs.taken_down = 0 THEN 1 ELSE 0 END AS submission_visible
      FROM guest_badges gb
      JOIN badges b ON b.id = gb.badge_id
+     LEFT JOIN submissions gbs ON gbs.id = gb.submission_id
     WHERE gb.guest_id = ?
     ORDER BY CASE WHEN b.type = 'special' THEN 1 ELSE 0 END ASC,
              b.threshold ASC,
@@ -51,9 +67,21 @@ const stmtGuestBadgesFull = db.prepare(
  * pointsLabel (issue #487) is the ONE place "show a points suffix only when
  * the award is worth something" is decided: "+<points> pts" when points > 0,
  * else '' (falsy, so `<% if (b.pointsLabel) %>` in a template skips it
- * cleanly for a 0-pt badge — AC1/AC2). Every caller renders this precomputed
+ * cleanly for a 0-pt badge, AC1/AC2). Every caller renders this precomputed
  * value rather than re-testing `points > 0` itself, so the rule can't drift
  * between the guest-home and public-profile templates.
+ *
+ * isTaskMaster and isFirstPlaceTaskWin (issue #489) are the same kind of
+ * precomputed decode: isTaskMaster is `task_id != null` (a task-badge award,
+ * as opposed to a system/custom badge with no owning task), and
+ * isFirstPlaceTaskWin is the whole gold-treatment rule as ONE owned flag: a
+ * task award (task_id set) that also placed first, deferring the rank-1 half
+ * to task-badges.js's isFirstPlaceRank, the single owner of that decode
+ * (issue #611). Both live here, not in a caller's template, for the same
+ * reason pointsLabel does: one place decides the business rule, every renderer
+ * just reads the flag. (What the leaderboard still composes in its own view is
+ * presentation only: the CSS class name and the winning-photo URL grammar,
+ * neither of which belongs in this data layer.)
  * @param {number} guestId
  * @returns {Array<object>}
  */
@@ -61,6 +89,8 @@ function getGuestBadges(guestId) {
   return stmtGuestBadgesFull.all(guestId).map((b) => ({
     ...b,
     pointsLabel: b.points > 0 ? `+${b.points} pts` : '',
+    isTaskMaster: b.task_id != null,
+    isFirstPlaceTaskWin: b.task_id != null && isFirstPlaceRank(b.rank),
   }));
 }
 
