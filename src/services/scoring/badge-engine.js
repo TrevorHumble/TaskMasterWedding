@@ -210,6 +210,54 @@ function thresholdCompletedCount(guestId) {
 }
 
 /**
+ * The next unearned threshold badge this guest could still reach, or null
+ * when every threshold is already held, or when the smallest unearned
+ * threshold exceeds `reachableTaskCount` (issue #1057). The single owner of
+ * the next-badge nudge derivation: reads thresholdCompletedCount (issue
+ * #1060) rather than the bare getCompletedCount, so the remaining count this
+ * returns and the count recomputeThresholdBadges grants on are always the
+ * same scale (AC7) and can never disagree.
+ *
+ * BADGE_THRESHOLDS is already ordered ascending (5, 10, 15), so the first
+ * entry with `n > completed` is the smallest reachable-or-not next
+ * threshold. Reachability is then a single comparison against
+ * `reachableTaskCount`, the caller's own denominator (GET / passes
+ * `totalTasks`, the same figure the progress caption prints). This
+ * function never recomputes that count itself, so the two can never use a
+ * different set.
+ *
+ * name/art_path are read via the exported badgeByCode(code) wrapper above,
+ * never a second `SELECT … FROM badges` beside the private stmtBadgeByCode
+ * it already owns. A missing catalog row (e.g. the stag variant deliberately
+ * has no GARDEN entry, scripts/badge-catalog.js, while BADGE_THRESHOLDS still
+ * lists it) returns null here too: that branch is reachable in production,
+ * not merely defensive.
+ *
+ * @param {number} guestId
+ * @param {number} reachableTaskCount - the same denominator the progress
+ *   caption prints (active reachable tasks plus the profile-photo starter).
+ * @returns {{code: string, name: string, art_path: string, threshold: number, remaining: number}|null}
+ */
+function nextThresholdBadge(guestId, reachableTaskCount) {
+  const completed = thresholdCompletedCount(guestId);
+  const next = BADGE_THRESHOLDS.find(({ n }) => n > completed);
+  if (!next || next.n > reachableTaskCount) {
+    return null;
+  }
+  const badge = badgeByCode(next.code);
+  if (!badge) {
+    return null;
+  }
+  return {
+    code: badge.code,
+    name: badge.name,
+    art_path: badge.art_path,
+    threshold: next.n,
+    remaining: next.n - completed,
+  };
+}
+
+/**
  * Recompute the three AUTO threshold badges (BLOOM/BOUQUET/GARDEN) for one
  * guest, keyed on thresholdCompletedCount (issue #1060) rather than the bare
  * task-submission count. Split out of recomputeBadges (below) so a caller
@@ -539,6 +587,7 @@ module.exports = {
   AUTO_THRESHOLDS,
   badgeByCode,
   thresholdCompletedCount,
+  nextThresholdBadge,
   recomputeThresholdBadges,
   recomputeBadges,
   recomputeTransferableBadges,

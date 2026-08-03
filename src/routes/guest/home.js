@@ -83,6 +83,17 @@ router.get('/', function (req, res) {
   const points = scoring.getPoints(guest.id);
   const badges = scoring.getGuestBadges(guest.id); // each: {code,name,art_path,description,points,...}
 
+  // Issue #1057: the next unearned threshold badge, or null when every
+  // threshold is held or the smallest unearned one is out of reach. The
+  // ceiling is totalTasks (below), not totalActiveCount: once #1060 landed
+  // the starter task counts on the completion side (thresholdCompletedCount),
+  // so it must count on the reachable side too, or a threshold exactly equal
+  // to the real task count would be judged unreachable and the row would
+  // hide when it should show. Both sides of this reachability comparison
+  // count the same set; that identity is the invariant, not any particular
+  // variable name.
+  const nextBadge = scoring.nextThresholdBadge(guest.id, totalTasks);
+
   // The guest's own (non-taken-down) submissions, newest first, joined to
   // task title so we can label each thumbnail on the home page. LEFT JOIN
   // (not JOIN): a memory (issue #247, task_id IS NULL) has no task row to
@@ -100,10 +111,13 @@ router.get('/', function (req, res) {
     )
     .all(guest.id);
 
-  // Progress bar reflects task completion (X of Y), not badge thresholds —
-  // the "next badge" framing was removed because it contradicted this bar
-  // whenever the highest badge threshold was unreachable given the active
-  // task count (see issue #88).
+  // Progress bar reflects task completion (X of Y), not badge thresholds.
+  // Issue #88 removed an earlier "next badge" framing because it
+  // contradicted this bar whenever the highest badge threshold was
+  // unreachable given the active task count. Issue #1057 brought the nudge
+  // back (nextBadge, above) in a reachability-gated form: it renders only
+  // when the next threshold is at or below totalTasks, so it can never
+  // repeat that broken promise.
   //
   // completedTasks uses the canonical count (visible submissions, NO
   // liveness filter) while totalTasks counts only live tasks, so a guest
@@ -128,6 +142,7 @@ router.get('/', function (req, res) {
       title: 'Home',
       points: points,
       badges: badges,
+      nextBadge: nextBadge,
       submissions: submissions,
       totalTasks: totalTasks,
       completedTasks: clampedCompletedTasks,

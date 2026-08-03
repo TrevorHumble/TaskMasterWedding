@@ -171,9 +171,21 @@ describe('AC2: BLOOM badge appears only after the 5th distinct completed task', 
 
     const afterFour = await agent.get('/');
     expect(afterFour.status).toBe(200);
-    // Absent: neither the alt text nor the badge art src appears yet.
+    // BLOOM is not yet EARNED, but its art legitimately appears on the page
+    // anyway: the next-badge nudge (issue #1057) renders bloom.svg as the
+    // locked row pinned above the (still-empty) earned list, because the
+    // reachable set here is 8 (the 7 active tasks live at this point, 2
+    // seeded by AC1 above plus these 5, plus the starter task), comfortably
+    // above BLOOM's threshold of 5. A bare substring check on bloom.svg
+    // would therefore be a false negative now, so the negative is scoped to
+    // the EARNED row instead: only an earned badge wraps its art in
+    // <li class="badge-item"><a href="/badge/:code">, the locked row has
+    // neither that exact class (it carries badge-item-locked too) nor an
+    // anchor, so this pattern can only ever match a real grant.
     expect(afterFour.text).not.toContain('alt="First Bloom badge"');
-    expect(afterFour.text).not.toContain('src="/badges/bloom.svg"');
+    expect(afterFour.text).not.toMatch(
+      /<li class="badge-item">\s*<a href="\/badge\/BLOOM">[\s\S]*?\/badges\/bloom\.svg/
+    );
     expect(
       db
         .prepare('SELECT 1 FROM guest_badges WHERE guest_id = ? AND badge_id = ?')
