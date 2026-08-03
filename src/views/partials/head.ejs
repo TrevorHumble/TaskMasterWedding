@@ -19,6 +19,35 @@
   // inject extra whitespace into the rendered <head>, breaking AC1's
   // byte-identical wedding output.
   var _isStag = (typeof isStag !== 'undefined' && isStag);
+
+  // Issue #1021: the crash beacon loads below, in the head and NOT deferred,
+  // because it exists to catch a parse-time throw in this page's own
+  // scripts. A deferred beacon runs after every non-deferred script on the
+  // page and so misses exactly the top-level throw it was added for. It
+  // sits ahead of the stylesheet links for the same reason: registration
+  // must not queue behind a CSS fetch.
+  //
+  // csrf.js moves up from footer.ejs (issue #284's original load site) to
+  // sit immediately before it, so the beacon reads the token through the
+  // same window.csrfHeader() every other write-fetch uses rather than
+  // growing a second token reader. Keeping it non-deferred and first
+  // preserves #284's guarantee that window.csrfHeader()/csrfToken() are
+  // defined for the whole page before any other script runs; from the head
+  // that guarantee is strictly stronger than it was from the footer.
+  //
+  // Side effect, deliberate: slideshow.ejs renders head.ejs without
+  // footer.ejs, so it gains csrf.js. Harmless, and it gains the beacon too.
+  // The 404 and error message-card pages also gain both, which is the
+  // point: those pages previously loaded no script at all, so a guest who
+  // crashed into one left no trace. The maintenance page and the 413
+  // passthrough are the two renders where that gain doesn't apply -- see the
+  // <meta name="csrf-token"> comment below for why.
+  //
+  // This comment lives here, in the already-slurped scriptlet block
+  // (renders nothing), rather than inline between the <script> tags below,
+  // per the convention this file already documents above: an inline EJS
+  // comment tag there would inject extra whitespace into the rendered
+  // <head>.
 -%>
 <!DOCTYPE html>
 <html lang="en"<%- _isStag ? ' data-theme="stag"' : '' %>>
@@ -31,11 +60,15 @@
       window.csrfHeader() (src/public/js/csrf.js). Same token
       partials/csrf-field.ejs renders as a hidden form field; this tag is the
       one place client JS (which has no form to read a hidden input from) gets
-      it. Falls back to an empty string on a render this local was never
-      passed to (there is none today — csrfMiddleware runs on every request —
-      but this view is included by every page, so it must not throw on a
-      hypothetical future one that skips the middleware). %>
+      it. Falls back to an empty string when this local was never passed to
+      the render -- true today for two renders that happen before
+      csrfMiddleware runs (src/app.js's maintenance-mode render and its 413
+      passthrough, both section-numbered ahead of csrfMiddleware in that
+      file), and for any hypothetical future render that skips the
+      middleware. %>
   <meta name="csrf-token" content="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+  <script src="/js/csrf.js"></script>
+  <script src="/js/client-error.js"></script>
   <title><%= (typeof title !== 'undefined' && title) ? title : (_isStag ? 'Stag Master' : 'Wedding Master') %></title>
   <%# Every font (display, body, and the masthead script face) is self-hosted
       under src/public/fonts/ — no external font-CDN request at the venue

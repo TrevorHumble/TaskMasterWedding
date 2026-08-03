@@ -3,9 +3,19 @@
 // General-purpose fixed-window rate-limiting middleware (issue #283) for the
 // unauthenticated and authenticated-guest WRITE routes this app exposes on
 // the public internet: POST /join, POST /login (IP-keyed, src/routes/auth.js)
-// and POST /tasks/:id/submit, POST /me/edit, POST /bug-report (guest-keyed,
-// src/routes/guest.js), POST /p/:id/like, POST /p/:id/comments (guest-keyed,
-// src/routes/community.js).
+// and POST /tasks/:id/submit (guest-keyed, src/routes/guest/tasks.js),
+// POST /me/edit (src/routes/guest/profile.js), POST /bug-report
+// (src/routes/guest/bug-report.js), POST /p/:id/like, POST /p/:id/comments
+// (guest-keyed, src/routes/community.js), and POST /client-error
+// (guest-or-IP-keyed, issue #1021, src/routes/guest/client-error.js -- see
+// src/app.js's mount comment for why that one route's IP branch is a real
+// bucket, not a defensive default).
+//
+// This module also exports `sweepAndEvictUnderCap` (issue #1021), the
+// bounded-TTL-map mechanism `createRateLimiter` uses internally, as a
+// general-purpose primitive: `client-error.js`'s dedupe Map, which is not a
+// rate limiter, calls it directly rather than hand-rolling a second copy.
+// See that function's own doc comment for the two-step reasoning.
 //
 // DISTINCT FROM src/services/rate-limit.js: that module is the #247/#281
 // per-guest SLIDING-WINDOW limiter that owns POST /memories and the
@@ -45,6 +55,46 @@ function resolve(value) {
 }
 
 /**
+ * The bounded-TTL-map mechanism itself, shared by every caller that keeps a
+ * "key -> something with an expiry" Map and must stop it growing without
+ * ever running a `setInterval` (see the file header for why: this app has
+ * none, so memory hygiene happens on insert). Two steps -- sweep expired
+ * entries, then evict soonest-to-expire survivors until back under `cap` --
+ * run only when the map is already at `cap` and a genuinely NEW key is about
+ * to be inserted; see the file header for the full two-step reasoning.
+ *
+ * Two callers today, two different entry shapes, which is why eviction is
+ * expiry-only and the caller supplies `getExpiry`: `createRateLimiter`'s
+ * `buckets` Map stores `{ count, resetAt }` objects (below); `client-error.js`'s
+ * dedupe Map stores the expiry number itself as the value.
+ *
+ * @param {Map<any, any>} map
+ * @param {number} nowMs
+ * @param {number} cap
+ * @param {function(value: any): number} getExpiry - reads an entry's expiry
+ *   timestamp (ms epoch) given its Map value.
+ */
+function sweepAndEvictUnderCap(map, nowMs, cap, getExpiry) {
+  if (map.size < cap) return;
+  for (const [k, v] of map) {
+    if (nowMs >= getExpiry(v)) map.delete(k);
+  }
+  while (map.size >= cap) {
+    let victim = null;
+    let soonest = Infinity;
+    for (const [k, v] of map) {
+      const expiry = getExpiry(v);
+      if (expiry < soonest) {
+        soonest = expiry;
+        victim = k;
+      }
+    }
+    if (victim === null) break;
+    map.delete(victim);
+  }
+}
+
+/**
  * Create one Express middleware instance backed by its own fixed-window Map.
  * Route wiring creates one instance per route GROUP at module load, so every
  * route sharing that instance shares its counts (see the route files' own
@@ -78,26 +128,6 @@ function createRateLimiter({
   // key -> { count, resetAt }
   const buckets = new Map();
 
-  /**
-   * Evict the entry whose window expires soonest — the one closest to being
-   * reclaimed by a sweep anyway, so it costs the least to drop. Called only
-   * when the map is at the cap after a sweep freed nothing.
-   * @returns {boolean} true if an entry was evicted (false only when empty).
-   */
-  function evictSoonestExpiring() {
-    let victim = null;
-    let soonest = Infinity;
-    for (const [k, v] of buckets) {
-      if (v.resetAt < soonest) {
-        soonest = v.resetAt;
-        victim = k;
-      }
-    }
-    if (victim === null) return false;
-    buckets.delete(victim);
-    return true;
-  }
-
   function rateLimiter(req, res, next) {
     const resolvedWindowMs = resolve(windowMs);
     const resolvedMax = resolve(max);
@@ -107,26 +137,12 @@ function createRateLimiter({
     let entry = buckets.get(key);
     if (!entry || nowMs >= entry.resetAt) {
       // New key, or this key's prior window has elapsed: start a fresh
-      // window. The sweep + cap (see the two-step note in the file header)
-      // run only for a genuinely NEW key — an existing key's own window
-      // rolling over reuses its slot and cannot grow the map.
+      // window. sweepAndEvictUnderCap (see its own doc comment for the
+      // two-step reasoning) runs only for a genuinely NEW key -- an existing
+      // key's own window rolling over reuses its slot and cannot grow the map.
       if (!entry) {
         const resolvedTrackedMax = resolve(trackedMax);
-        if (buckets.size >= resolvedTrackedMax) {
-          // Step 1: reclaim anything already expired. May free nothing —
-          // inside one window there is nothing to reclaim.
-          for (const [k, v] of buckets) {
-            if (nowMs >= v.resetAt) buckets.delete(k);
-          }
-          // Step 2: the real bound. Evict until this insert lands at or under
-          // the cap. A loop, not one eviction: trackedMax is read fresh, so a
-          // lowered value must be converged on rather than approached one
-          // entry per request. evictSoonestExpiring returning false means the
-          // map is empty, which terminates the loop.
-          while (buckets.size >= resolvedTrackedMax) {
-            if (!evictSoonestExpiring()) break;
-          }
-        }
+        sweepAndEvictUnderCap(buckets, nowMs, resolvedTrackedMax, (v) => v.resetAt);
       }
       entry = { count: 0, resetAt: nowMs + resolvedWindowMs };
       buckets.set(key, entry);
@@ -160,12 +176,12 @@ function createRateLimiter({
 /**
  * The single owner of the "guest-keyed, falls back to an IP bucket when
  * signed out" key rule shared by every guest-keyed limiter this app wires up
- * (src/routes/guest.js's upload/social limiters, src/routes/community.js's
- * like+comments limiter). A signed-out caller never actually reaches a
- * guest-gated handler (requireGuest redirects to /join first), so the IP
- * fallback here is a defensive default, not a real bucket in practice — but
- * one function is still the single place that decision is written, instead
- * of each route file re-typing the same ternary.
+ * (src/routes/guest/shared.js's upload/social limiters, src/routes/community.js's
+ * like+comments limiter, src/routes/guest/client-error.js's own limiter):
+ * one function, instead of each route file re-typing the same ternary.
+ * Whether the IP branch is a live bucket or a defensive default a
+ * signed-out caller can never reach differs per limiter: see src/app.js's
+ * POST /client-error mount comment for the one exception and why.
  * @param {import('express').Request} req
  * @returns {string}
  */
@@ -173,4 +189,4 @@ function guestOrIpKey(req) {
   return req.guest ? 'g' + req.guest.id : 'ip:' + req.ip;
 }
 
-module.exports = { createRateLimiter, guestOrIpKey };
+module.exports = { createRateLimiter, guestOrIpKey, sweepAndEvictUnderCap };

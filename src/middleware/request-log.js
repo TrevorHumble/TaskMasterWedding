@@ -6,10 +6,12 @@
 // documents only what the code itself needs to be read correctly.
 //
 // One line per request comes from the 'finish' hook, plus a 'close' hook that
-// covers a client-aborted request 'finish' never fires for. The one other
-// emit site is logRequestError below, called once by src/app.js's global
-// error handler for a SECOND, supplementary line (message + stack)
-// correlated to the finish/close line by req.reqId.
+// covers a client-aborted request 'finish' never fires for. Two other emit
+// sites share this module's single emitLine owner: logRequestError below
+// (src/app.js's global error handler) and logClientError (issue #1021,
+// src/routes/guest/client-error.js's POST handler) -- each documented at its
+// own definition below; full rationale for how the three lines correlate:
+// DESIGN.md § "Structured per-request JSON logging (#1019)".
 //
 // A fast, successful app-route request is silent on purpose -- this is a
 // trouble/diagnosis log, not an access log.
@@ -198,4 +200,29 @@ function logRequestError(req, err) {
   );
 }
 
-module.exports = { requestLog, logRequestError };
+/**
+ * The client-error beacon's (issue #1021) one log line. req.reqId here
+ * identifies the /client-error POST request itself, not necessarily a
+ * correlated finish/close companion line -- see DESIGN.md § "Client-error
+ * beacon: log-only, own budget, non-deferred, mounted outside
+ * `requireGuest` (#1021)" for when a companion line does and does not exist
+ * for this route, why this is routed through emitLine rather than a second
+ * hand-rolled stringify+emit, and why this is deliberately not built on
+ * baseFields(req).
+ * @param {import('express').Request} req
+ * @param {{message: string, stack: string, url: string, userAgent: string|null}} report
+ *   already truncated by the caller; this function does no truncation of its own.
+ */
+function logClientError(req, report) {
+  emitLine({
+    kind: 'client-error',
+    reqId: req.reqId,
+    guestId: req.guest?.id ?? null,
+    message: report.message,
+    stack: report.stack,
+    url: report.url,
+    userAgent: report.userAgent,
+  });
+}
+
+module.exports = { requestLog, logRequestError, logClientError };

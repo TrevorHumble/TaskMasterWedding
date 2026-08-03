@@ -127,10 +127,12 @@ describe('request-log middleware (#1019)', () => {
 
     // --- 404 on a non-static app path -----------------------------------
     // Signed-in agent: guest.js mounts a whole-router requireGuest gate on
-    // every path under '/' (src/routes/guest.js), so an UNAUTHENTICATED
-    // request to an unmatched path is redirected (302) to /join before it
-    // ever reaches the app's own 404 handler. A signed-in guest clears that
-    // gate and actually reaches the 404 case this test wants.
+    // every path routed through guest.js (src/routes/guest.js), so an
+    // UNAUTHENTICATED request to an unmatched path is redirected (302) to
+    // /join before it ever reaches the app's own 404 handler. A signed-in
+    // guest clears that gate and actually reaches the 404 case this test
+    // wants. (Paths outside guest.js -- authRouter's routes and POST
+    // /client-error, issue #1021 -- are not covered by this gate at all.)
     {
       const { agent } = makeSignedInGuest();
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

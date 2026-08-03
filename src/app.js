@@ -372,9 +372,27 @@ app.use(csrfMiddleware);
 const authRouter = require('./routes/auth'); // mounts at '/'  (public links, onboarding, admin login)
 app.use('/', authRouter);
 
+// client-error.js (issue #1021) mounts directly here, NOT nested inside
+// guestRouter below, so a signed-out visitor's crash (e.g. on /join or
+// /login) still reaches it. Full rationale: DESIGN.md § "Client-error beacon:
+// log-only, own budget, non-deferred, mounted outside `requireGuest` (#1021)"
+// ("Endpoint is deliberately NOT behind `requireGuest`" and "Its own rate
+// limiter, never `socialRateLimiter`'s budget").
+//
+// This mount order IS load-bearing, not belt-and-suspenders: guestRouter's
+// router.use(requireGuest) is not path-scoped, so it runs for every request
+// that enters that router, including one whose path is /client-error -- if
+// guestRouter mounted first, a signed-out POST /client-error would hit that
+// gate and get redirected to /join (302) before ever reaching this route,
+// since requireGuest redirects and never calls next() (src/middleware/
+// session.js). Verified: swapping the two mounts turns AC2's signed-out 204
+// into a 302 -- see tests/client-error-beacon.test.js.
+const clientErrorRouter = require('./routes/guest/client-error'); // mounts at '/'
+app.use('/', clientErrorRouter);
+
 // admin.js MUST be before guest.js: guest.js applies requireGuest to every
-// path under '/', which would otherwise intercept /admin and redirect
-// signed-out admins to /join.
+// path routed through it, which would otherwise intercept /admin and
+// redirect signed-out admins to /join.
 const adminRouter = require('./routes/admin'); // mounts at '/admin'
 app.use('/admin', adminRouter);
 
