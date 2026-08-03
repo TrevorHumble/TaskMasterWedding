@@ -3170,6 +3170,59 @@ filtering/chaining logic (`SCOPE_RE`, `scopeGuestId`, `itemMatchesScope`, `apply
 `insertScopeChrome`, and the `scopeId`/`visBefore`/`visAfter` chaining inside `load()`) is deleted outright
 rather than adapted, since the server now guarantees every fetched window is already scoped.
 
+## Scope and origin are separate concerns, carried separately in the URL (#954)
+
+**Date:** 2026-08-03. **Status:** shipped.
+
+**The problem #952 left unsolved.** #952 (immediately above) made `?scope=` a real SQL predicate, but the
+back link it drives still hard-coded ONE destination per scope TYPE: every `guest` scope went to `/u/<id>`
+(or `/` for the viewer's own), every `task` scope went to `/gallery?view=recent&task=<id>`. That was wrong
+the moment a second screen could reach the same scope. The gallery's By-person section, a guest's own
+public profile, and "My Photos" all open a `guest` scope, but only the middle one is actually a profile:
+a tile opened from the By-person section landed the guest on `/u/<id>`, a page they never visited. The
+same defect existed unreported on the task axis: a tile from the gallery's By-task section landed on the
+`?task=`-filtered Recent wall, not the By-task list the guest actually left.
+
+**Scope answers "what is filtered"; origin answers "where did you click from," and neither can stand in
+for the other.** A `?scope=` token is deliberately silent about the screen a guest was on; it only knows
+the FILTER (one guest's photos, one task's photos). Reusing it to also carry "where does back point" would
+mean a `guest` scope could only ever have one back destination, which is exactly the bug above. So `?origin=`
+travels as its OWN query param, independently validated (`community.js`'s `ORIGIN_SHAPES` allowlist, the
+same "map a token to a server-owned destination" shape `feed.parseScope` already established for scope),
+never conflated with, or derived from, the scope token it happens to ride beside.
+
+**Why the history stack cannot serve as origin.** The obvious alternative, reading `document.referrer` or
+calling `history.back()`, cannot work here: `src/public/js/feed-scroll.js` (issue #677) rewrites the URL bar
+via `history.replaceState`-style updates as a guest scrolls bidirectionally through a feed window, so by the
+time a guest taps "back" the history stack no longer reflects the screen they actually opened the feed from.
+It reflects wherever bidirectional scrolling last rewrote it to. An explicit `?origin=` token, stamped
+onto the tile's href at RENDER time by the screen the guest is actually looking at, is the only value that
+is guaranteed to still say the truth by the time the guest taps the link.
+
+**`ORIGIN_SHAPES` is the one allowlist, mirroring `SCOPE_SHAPES`'s "one owner of the grammar" shape.** Each
+origin token names the scope type(s) it applies to and a `build(scope)` function that composes the
+destination from the scope's own already-DB-validated id, never from the raw query string (AC3's security
+shape: `isKnownOrigin` gates every lookup, so an origin naming a scope type it does not apply to is treated
+identically to a missing one, degrading to the scope type's own default rather than building a
+nonsensical href). `scopeBackLinkContext`'s default-per-scope-type branch and `ORIGIN_SHAPES`' per-token
+builds share the same small set of destination functions (`galleryUserBackLink`, `guestProfileBackLink`,
+`homeBackLink`, and so on). Each literal destination has exactly one owner regardless of whether it is
+reached as an origin override or as a scope type's fallback, so the two paths cannot quietly drift apart.
+
+**The badge scope (`b<id>`) is the fourth `SCOPE_SHAPES` row**, added alongside origin rather than as a
+separate change (owner direction 2026-07-31: the two were filed and built together because a fourth shape
+would otherwise author a `setLabel` branch and a hard-coded back destination in the exact code the origin
+change deletes and restructures). "Current holders" of a badge is read straight off `guest_badges`, the
+non-`NULL` `submission_id` rows for that `badge_id`, with no separate holder-set cache: `badge-engine.js`
+and `task-badges.js` are the only writers of that table and both `DELETE` a revoked holder's row outright,
+so the rows present at read time already are the current set.
+
+**The "showing only ___" tail is gone (AC1), and `setLabel` left with it.** The tail duplicated the back
+link's own information: "back to the gallery" already says where the guest is, so restating "showing only
+this task's photos" beneath it told the guest something the cards below already showed. `setLabel` (the
+view local carrying that sentence) and the four `scopeBackLinkContext` branches that built it are deleted
+outright, not left as dead code returning an unused field.
+
 ## Scoped admin inline feed: a client-side filter, deliberately not a server query (#953)
 
 **Date:** 2026-07-30. **Status:** shipped.

@@ -5,7 +5,22 @@
         catalog description + a plain holder list, no per-award data.
       - true:  Task Master badge (a task's own 'custom' badge) — one row per
         award with that award's points, note, and earning-photo thumbnail
-        (thumbnail only when the earning photo is still visible — AC4). %>
+        (thumbnail only when the earning photo is still visible — AC4).
+
+    Issue #954 AC5: the earning-photo thumbnail opens the feed scoped to this
+    badge's holder set (badgeScopeToken, the route's own feed.scopeToken()
+    result; this view never hand-builds the 'b<id>' token), carrying
+    origin=badge so the scoped feed's back link returns here.
+
+    This row is NOT rendered through partials/gallery-tile (issue #954 plan
+    step 6's own evaluation): the tile is a 400x400 <figure> block meant for
+    a .gallery-grid, with crown/medal overlay slots that have no meaning on a
+    60x60 award-row thumbnail sitting inline in a flex row beside the award's
+    name/points/note (.award-row-thumb-link, admin.css). Reusing it would mean
+    adding width/height overrides the partial does not support today, plus
+    stripping overlay markup that would only ever render empty here: a
+    bigger, riskier change than this row's own href/scope wiring, so the
+    one-off markup stays. Only its link target changed. %>
 <%- include('partials/head') %>
 <%- include('partials/header') %>
 
@@ -36,8 +51,18 @@
                 <% } %>
               </div>
               <% if (h.submission_id && h.thumb_path) { %>
+                <%
+                  /* Built as one JS string, then emitted through the
+                     HTML-escaping output tag, so the '&' query separators
+                     escape to '&amp;', the same convention
+                     partials/gallery-tile.ejs's own href follows (issue
+                     #952 AC2), rather than mixing literal '&' characters
+                     into the template's raw HTML source. */
+                  var thumbHref = '/feed?from=' + h.submission_id + '&scope=' + badgeScopeToken +
+                    '&origin=badge#photo-' + h.submission_id;
+                %>
                 <a class="award-row-thumb-link"
-                   href="/feed?from=<%= h.submission_id %>#photo-<%= h.submission_id %>"
+                   href="<%= thumbHref %>"
                    aria-label="View the earning photo">
                   <img class="award-row-thumb"
                        src="/thumbs/<%= h.thumb_path %>"

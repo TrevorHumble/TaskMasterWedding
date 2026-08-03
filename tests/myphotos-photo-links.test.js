@@ -33,11 +33,12 @@ let memorySubId; // memory (task_id NULL), caption "A fun day"
 let blankMemorySubId; // memory with NO caption — exercises the "a shared memory" fallback
 let guestId; // owner of every submission above — the scope=u<guestId> id.
 
-/** The scoped feed href a My Photos tile carries for submission `id` — the
- * rendered anchor HTML-escapes the query separator to &amp; (approved
- * markup, issue #952 AC2). */
+/** The scoped feed href a My Photos tile carries for submission `id`. The
+ * rendered anchor HTML-escapes the query separators to &amp; (approved
+ * markup, issue #952 AC2), and carries origin=home (issue #954) so the
+ * scoped feed's back link returns to this My Photos page. */
 function scopedFeedHref(id) {
-  return `href="/feed?from=${id}&amp;scope=u${guestId}#photo-${id}"`;
+  return `href="/feed?from=${id}&amp;scope=u${guestId}&amp;origin=home#photo-${id}"`;
 }
 
 /** Slice from a tile's own opening <a ...> through its closing '>', so an

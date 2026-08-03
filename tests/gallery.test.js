@@ -37,13 +37,16 @@ describe('gallery page', () => {
     expect(p.status).toBe(200);
     expect(p.text).toContain('src="/thumbs/t.jpg"');
     // Thumbnails open the feed scoped to this profile's own photos (issue
-    // #952 — gallery parity), not the old /p/<id> dead end. The rendered
-    // anchor HTML-escapes the query separator to &amp; (approved markup).
+    // #952, gallery parity), not the old /p/<id> dead end, carrying
+    // origin=profile (issue #954) so the scoped feed's back link returns to
+    // this exact profile page. The rendered anchor HTML-escapes the query
+    // separators to &amp; (approved markup).
     expect(p.text).toContain(
       'href="/feed?from=' +
         ids.submissionId +
         '&amp;scope=u' +
         ids.guestId +
+        '&amp;origin=profile' +
         '#photo-' +
         ids.submissionId +
         '"'

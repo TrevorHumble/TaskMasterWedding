@@ -173,6 +173,9 @@ describe('AC2-AC4, AC6: Task Master badge (GOLDENMOVE) shows per-award note/poin
       note: 'The toast',
     });
     expect(priyaAward.id).toBe(goldenMoveTaskBadgeId);
+    // Issue #954 AC5: every earning-photo thumbnail on this page is scoped to
+    // this SAME badge's holder set, 'b<badge.id>'.
+    const badgeScope = 'b' + goldenMoveTaskBadgeId;
     const marcusAward = taskBadges.awardTaskBadge(taskId, marcusSubmissionId, {
       points: 3,
       note: 'First dance',
@@ -198,14 +201,16 @@ describe('AC2-AC4, AC6: Task Master badge (GOLDENMOVE) shows per-award note/poin
     expect(res.text).toContain('+3 pts');
     expect(res.text).toContain('First dance');
 
-    // AC3: Priya's visible earning photo links to its exact feed anchor.
-    expect(res.text).toContain(`href="/feed?from=${priyaSubmissionId}#photo-${priyaSubmissionId}"`);
-
-    // AC4: Marcus's taken-down photo contributes no feed href for its id —
-    // his name/note/points above already proved his row still rendered.
-    expect(res.text).not.toContain(
-      `href="/feed?from=${marcusSubmissionId}#photo-${marcusSubmissionId}"`
+    // AC3 (widened by #954 AC5): Priya's visible earning photo links to its
+    // exact feed anchor, scoped to this badge's holder set, carrying
+    // origin=badge so the scoped feed's back link returns to this page.
+    expect(res.text).toContain(
+      `href="/feed?from=${priyaSubmissionId}&amp;scope=${badgeScope}&amp;origin=badge#photo-${priyaSubmissionId}"`
     );
+
+    // AC4: Marcus's taken-down photo contributes no feed href for its id.
+    // His name/note/points above already proved his row still rendered.
+    expect(res.text).not.toContain(`from=${marcusSubmissionId}&amp;scope=`);
 
     // AC6: both names are wrapped in a link to their public profile.
     expect(res.text).toContain(`href="/u/${priya.id}">Priya<`);
