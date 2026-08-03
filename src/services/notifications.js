@@ -2,8 +2,10 @@
 //
 // The recap ("what you missed") service — issue #644. The single owner of
 // "what does this guest see": unions STORED events (notification_events —
-// badge grants/revokes, and moderation kinds #783 will add) with THREE
-// DERIVED sources (likes, comments, and — issue #778 — host announcements),
+// badge grants/revokes, and moderation kinds #783 will add) with FOUR
+// DERIVED sources (likes, comments, host announcements (issue #778), and —
+// issue #647 — couple-likes, each couple-flagged guest's like split out of
+// the ordinary batch into its own named "<name> loved your photo" row),
 // scoped by the same visibility owners the rest of the app already uses —
 // feed.VISIBLE_WHERE for the photo, feed.COMMENT_VISIBLE_WHERE for the
 // comment, both re-exported from their single owner (src/services/feed.js)
@@ -29,7 +31,10 @@
 // per-event identity, unlike a like batch which has to pick some window to
 // exist at all. An announcement row (issue #778) is EPHEMERAL like a
 // like-batch, for the same reason and more strongly so — see this file's
-// bottom section for the full announcements design note.
+// bottom section for the full announcements design note. A couple-like row
+// (issue #647) is EPHEMERAL too, and for the identical reason a like-batch
+// is: it exists only while its one like is newer than the checkpoint, no
+// lifetime record of "the couple once liked this" persists once read.
 //
 // better-sqlite3 is fully synchronous: prepare(...).get/.all/.run, no async.
 
@@ -333,6 +338,11 @@ const KIND_GLYPH = {
   photo:
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="10" r="1.4" fill="currentColor"/><path d="m5.5 16.5 4-4 3 3 3.5-4.5 3.5 4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   gold: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20s-7-4.4-9.3-8.8C1.4 8 3 5 6.2 5 8.4 5 10 6.3 12 8.4 14 6.3 15.6 5 17.8 5 21 5 22.6 8 21.3 11.2 19 15.6 12 20 12 20Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+  // The couple's bell row (issue #647): the app's standard SOLID heart —
+  // partials/couple-heart-mark.ejs's own path and partials/heart.ejs's
+  // wedding-branch path, both `M12 21s-8.5-5.3...` — NOT `gold`'s thin
+  // outline heart above. Owner, 2026-08-02: one heart shape everywhere.
+  love: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" style="fill:currentColor"><path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/></svg>',
   announce:
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 4v16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M6 5c3-1.4 5 1.4 8 0v8c-3 1.4-5-1.4-8 0V5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
 };
@@ -483,7 +493,7 @@ function retractGrantAnnouncement(guestId, badgeId) {
 //
 // The `('<prefix>-' || id)` computed key must match this module's own `key`
 // field format on the mapped row objects below EXACTLY (event-<id>,
-// comment-<id>, like-<submission_id>) and the ORDER BY must sort by that
+// comment-<id>, like-<submission_id>, couplelike-<like_id>) and the ORDER BY must sort by that
 // same computed expression (not the bare numeric id) — a numeric-id ORDER BY
 // can disagree with the string-key comparator at a tie (e.g. id 9 sorts
 // before id 10 numerically DESC, but "comment-9" sorts AFTER "comment-10"
@@ -513,7 +523,20 @@ const COMMENT_EXISTENCE_WHERE = `s.guest_id = ? AND ${VISIBLE_WHERE} AND ${COMME
 // row), unlike the FETCH-side cursor bound below (which only decides which
 // PAGE an already-existing row falls on) — so it belongs in the shared
 // existence predicate, not bolted on separately by each query.
-const LIKE_EXISTENCE_WHERE = `s.guest_id = ? AND ${VISIBLE_WHERE} AND l.created_at > ?`;
+//
+// `g.is_couple = 0` (issue #647) excludes a couple-flagged guest's like from
+// the ordinary batch — coupleLikeRows/COUPLE_LIKE_EXISTENCE_WHERE below is
+// its own source, giving the couple's like its own named row ("Lilly loved
+// your photo") instead of folding it into the anonymous "N people liked your
+// photo" count. Without this exclusion a couple-like would be double-counted
+// (once as its own named row, once inside the batch), which AC7 forbids.
+// Both statements below (stmtLikeBatches, stmtUnreadLikeSubmissionCount) now
+// join `guests g` so this predicate can reference g.is_couple.
+const LIKE_EXISTENCE_WHERE = `s.guest_id = ? AND ${VISIBLE_WHERE} AND l.created_at > ? AND g.is_couple = 0`;
+// The couple-likes source's own existence predicate (issue #647), the mirror
+// image of LIKE_EXISTENCE_WHERE above: only a couple-flagged guest's like,
+// on a visible photo the guest owns, newer than the checkpoint.
+const COUPLE_LIKE_EXISTENCE_WHERE = `s.guest_id = ? AND ${VISIBLE_WHERE} AND l.created_at > ? AND g.is_couple = 1`;
 
 // submission_taken_down (issue #866) is read here, NOT filtered on here —
 // this WHERE clause stays exactly EVENT_EXISTENCE_WHERE, unchanged, because
@@ -610,6 +633,7 @@ const stmtLikeBatches = db.prepare(`
          MAX(l.created_at) AS latest
     FROM likes l
     JOIN submissions s ON s.id = l.submission_id
+    JOIN guests g ON g.id = l.guest_id
    WHERE ${LIKE_EXISTENCE_WHERE}
    GROUP BY s.id
   HAVING (
@@ -618,6 +642,37 @@ const stmtLikeBatches = db.prepare(`
        OR (MAX(l.created_at) = ? AND ? IS NOT NULL AND ('like-' || s.id) < ?)
      )
    ORDER BY latest DESC, ('like-' || s.id) DESC
+   LIMIT ${FETCH_LIMIT}
+`);
+
+// DERIVED couple-like rows (issue #647): unlike stmtLikeBatches above, this
+// is NOT grouped/batched — every couple-flagged guest's like is its own row
+// ("Lilly loved your photo"), since the couple's attention is itself the
+// news, not a count. Same cursor shape as stmtCommentEvents (per-row, not
+// per-submission-aggregate). See COUPLE_LIKE_EXISTENCE_WHERE above for the
+// shared existence predicate this query and stmtUnreadCoupleLikeCount below
+// both use.
+const stmtCoupleLikeEvents = db.prepare(`
+  SELECT l.id            AS id,
+         l.submission_id  AS submission_id,
+         l.created_at     AS created_at,
+         g.name           AS liker_name
+    -- No thumb_path selected: coupleLikeRows sets thumb null on purpose, and
+    -- the frozen header.ejs renders the gold .recap-icon-love ONLY in the
+    -- else branch of its thumb test. Selecting a column this source must
+    -- never use is an invitation for a later reader to wire it up and
+    -- silently swap the approved gold heart for a thumbnail, with nothing
+    -- failing to point at it.
+    FROM likes l
+    JOIN submissions s ON s.id = l.submission_id
+    JOIN guests g ON g.id = l.guest_id
+   WHERE ${COUPLE_LIKE_EXISTENCE_WHERE}
+     AND (
+       ? IS NULL
+       OR l.created_at < ?
+       OR (l.created_at = ? AND ? IS NOT NULL AND ('couplelike-' || l.id) < ?)
+     )
+   ORDER BY l.created_at DESC, ('couplelike-' || l.id) DESC
    LIMIT ${FETCH_LIMIT}
 `);
 
@@ -778,6 +833,35 @@ function likeBatchRows(guestId, checkpoint, cursor) {
     badgeArtHtml: null,
     glyph: KIND_GLYPH.photo,
     when: l.latest,
+  }));
+}
+
+/**
+ * DERIVED couple-like rows (issue #647): one row per couple-flagged guest's
+ * like, newest first, up to FETCH_LIMIT. `thumb: null` is load-bearing, not
+ * an oversight — the frozen src/views/partials/header.ejs (and
+ * src/public/js/recap.js) render `<span class="recap-icon recap-icon-love">`
+ * ONLY in the `else` branch of `if (r.thumb)`; a non-null thumb would take
+ * the `<img class="recap-thumb">` branch instead and the approved gold-ring
+ * glyph would never render. The row leads with the heart, not the photo —
+ * that is the approved look (data/wip-issues/647-couple-heart.md).
+ * @param {number} guestId
+ * @param {string} checkpoint
+ * @param {{when: string, key: string|null}|null} cursor
+ * @returns {Array<object>}
+ */
+function coupleLikeRows(guestId, checkpoint, cursor) {
+  return stmtCoupleLikeEvents.all(guestId, checkpoint, ...cursorParams(cursor)).map((l) => ({
+    key: `couplelike-${l.id}`,
+    kind: 'love',
+    dead: false,
+    parts: [{ text: l.liker_name || 'Guest', emphasis: true }, { text: ' loved your photo' }],
+    href: `/p/${l.submission_id}`,
+    thumb: null,
+    badge: null,
+    badgeArtHtml: null,
+    glyph: KIND_GLYPH.love,
+    when: l.created_at,
   }));
 }
 
@@ -1081,15 +1165,16 @@ function defaultAnnounceClock() {
 /**
  * One bounded, time-ordered (newest first) slice of one guest's recap row
  * set — every STORED event, every visible non-self comment, every unread
- * like-batch, and every currently-true announcement (issue #778), each
- * strictly older than `cursor` (or every one, when `cursor` is null), merged
+ * like-batch, every unread couple-like (issue #647), and every currently-true
+ * announcement (issue #778), each strictly older than `cursor` (or every one,
+ * when `cursor` is null), merged
  * and sorted, capped at FETCH_LIMIT rows PER SOURCE (issue #644 review — the
  * pre-review version pulled every row of every source with no LIMIT at all).
  *
  * Correctness of the per-source FETCH_LIMIT bound: the caller (getRecap)
  * only ever wants the true top PAGE_SIZE rows of this merge, plus whether a
  * (PAGE_SIZE + 1)-th exists. Those top (PAGE_SIZE + 1) rows can include AT
- * MOST (PAGE_SIZE + 1) rows from any ONE of the four sources — trivially,
+ * MOST (PAGE_SIZE + 1) rows from any ONE of the five sources — trivially,
  * since (PAGE_SIZE + 1) is the total count wanted. So asking each source for
  * its own top FETCH_LIMIT = PAGE_SIZE + 1 rows (in the same order the merge
  * uses) is guaranteed to include the source's full contribution to the true
@@ -1110,6 +1195,7 @@ function allRows(guestId, checkpoint, cursor, clock) {
   const rows = storedRows(guestId, cursor).concat(
     commentRows(guestId, cursor),
     likeBatchRows(guestId, checkpoint, cursor),
+    coupleLikeRows(guestId, checkpoint, cursor),
     announceRows(checkpoint, clock, cursor)
   );
   rows.sort((a, b) => {
@@ -1207,7 +1293,20 @@ const stmtUnreadLikeSubmissionCount = db.prepare(`
   SELECT COUNT(DISTINCT s.id) AS n
     FROM likes l
     JOIN submissions s ON s.id = l.submission_id
+    JOIN guests g ON g.id = l.guest_id
    WHERE ${LIKE_EXISTENCE_WHERE}
+`);
+// Couple-likes are their own named row (coupleLikeRows), never batched, so
+// this chip counts one per LIKE ROW (not DISTINCT submission_id the way
+// stmtUnreadLikeSubmissionCount counts) — matching AC7's "a photo with one
+// new couple-like and three new ordinary likes" reading as two rows total,
+// one named and one batched-3, so the chip must count 2, not 1.
+const stmtUnreadCoupleLikeCount = db.prepare(`
+  SELECT COUNT(*) AS n
+    FROM likes l
+    JOIN submissions s ON s.id = l.submission_id
+    JOIN guests g ON g.id = l.guest_id
+   WHERE ${COUPLE_LIKE_EXISTENCE_WHERE}
 `);
 
 /**
@@ -1215,18 +1314,18 @@ const stmtUnreadLikeSubmissionCount = db.prepare(`
  * what the list renders" (issue #644 plan step 5): the batched-like row
  * counts once per photo, never once per like.
  *
- * This is four independent per-source counts, not a count derived from
+ * This is five independent per-source counts, not a count derived from
  * allRows/getRecap — deliberately, since getRecap's job is a bounded PAGE,
  * and a guest can have far more than one page of unread rows (the count must
- * still be exact for all of them). The three SQL sources' COUNT statements
+ * still be exact for all of them). The four SQL sources' COUNT statements
  * share their `_EXISTENCE_WHERE` constant (defined above the FETCH
  * statements, issue #644 review — the source registry) with the matching
- * FETCH query storedRows/commentRows/likeBatchRows runs, so the two are
- * STRUCTURALLY unable to disagree about which rows exist for a given
- * checkpoint — not "kept in lockstep by hand." The fourth source, announcements (issue
- * #778), follows the identical shape one level up in JS rather than SQL:
- * announceCount() and announceRows() both consume the SAME
- * qualifyingAnnounceFacts(), so they too cannot disagree about which
+ * FETCH query storedRows/commentRows/likeBatchRows/coupleLikeRows runs, so
+ * the two are STRUCTURALLY unable to disagree about which rows exist for a
+ * given checkpoint — not "kept in lockstep by hand." The fifth source,
+ * announcements (issue #778), follows the identical shape one level up in
+ * JS rather than SQL: announceCount() and announceRows() both consume the
+ * SAME qualifyingAnnounceFacts(), so they too cannot disagree about which
  * announcements exist for a given checkpoint/clock.
  * @param {number} guestId
  * @param {{todayIso: string, nowMs: number, timezone: string}} [clock] -
@@ -1242,8 +1341,9 @@ function getUnreadCount(guestId, clock) {
   const events = stmtUnreadEventCount.get(guestId, checkpoint).n;
   const comments = stmtUnreadCommentCount.get(guestId, checkpoint).n;
   const likes = stmtUnreadLikeSubmissionCount.get(guestId, checkpoint).n;
+  const coupleLikes = stmtUnreadCoupleLikeCount.get(guestId, checkpoint).n;
   const announces = announceCount(checkpoint, clock || defaultAnnounceClock());
-  return events + comments + likes + announces;
+  return events + comments + likes + coupleLikes + announces;
 }
 
 const stmtMarkSeen = db.prepare(

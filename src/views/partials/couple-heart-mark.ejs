@@ -1,0 +1,27 @@
+<%# src/views/partials/couple-heart-mark.ejs — the Couple's Heart (issue #647):
+    the gold heart a photo wears when Lilly or Axel liked it. One renderer for
+    every surface that shows it, the same single-owner rule
+    partials/crowd-favorite-mark.ejs follows for the crown, so the mark never
+    drifts per page.
+
+    NOT partials/heart.ejs: that partial is the brand ORNAMENT and becomes a
+    martini glass on the stag variant (#640). A like is a like in both
+    variants, so this mark stays a heart — the same rule feed.ejs's own
+    .like-heart already follows.
+
+    role="img" is load-bearing, not decoration: a bare <span> maps to the
+    `generic` role, whose author-supplied name is PROHIBITED, so without the
+    role a screen reader drops the aria-label and announces nothing at all —
+    the reward this whole mark exists to deliver would be silent. Same rule,
+    same wording, as partials/badge-victory-mark.ejs, where the #869 review
+    adjudicated it.
+
+    Locals:
+      names (optional) — the couple members who liked, for the aria-label.
+                         Defaults to the generic "the couple". %>
+<% var chNames = (typeof names !== 'undefined' && names && names.length) ? names.join(' and ') : 'the couple'; %>
+<span class="couple-heart" role="img" aria-label="Loved by <%= chNames %>">
+  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+    <path d="M12 21s-8.5-5.3-8.5-11.2A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 3.2C20.5 15.7 12 21 12 21z"/>
+  </svg>
+</span>

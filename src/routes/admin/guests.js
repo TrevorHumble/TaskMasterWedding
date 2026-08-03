@@ -43,6 +43,10 @@ router.get('/guests', (req, res) => {
       name: g.name || '',
       bonus_points: g.bonus_points,
       pinned: g.pinned,
+      // is_couple (issue #647) — the admin-guests view reads g.is_couple to
+      // render the "The couple" checkbox checked/unchecked; without exposing
+      // it here the checkbox would always render unchecked with no error.
+      is_couple: g.is_couple,
       points: scoring.getPoints(g.id),
       completed: scoring.getCompletedCount(g.id),
       heldCodes: held,
@@ -74,20 +78,28 @@ router.get('/guests', (req, res) => {
   });
 });
 
-// POST /admin/guests/:id/edit  — rename a guest and set their gallery pin.
-// The pin (guests.pinned, issue #251) hoists this guest's section to the top
-// of the gallery's By-person view — meant for the couple's own rows. An
-// unchecked checkbox posts no `pinned` field at all, which is exactly the
-// "unpin" signal.
+// POST /admin/guests/:id/edit  — rename a guest, set their gallery pin, and
+// flag them as the couple (issue #647). The pin (guests.pinned, issue #251)
+// hoists this guest's section to the top of the gallery's By-person view.
+// is_couple flags a guest whose likes render the gold couple's-heart mark and
+// whose name appears in the bell's "<name> loved your photo" row. Both
+// checkboxes follow the SAME absent-key-is-false rule: an unchecked checkbox
+// posts no field at all, which is the "unpin"/"un-flag" signal.
 router.post('/guests/:id/edit', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const name = (req.body.name || '').trim();
   const pinned = req.body.pinned ? 1 : 0;
+  const isCouple = req.body.is_couple ? 1 : 0;
   const guest = db.prepare('SELECT id FROM guests WHERE id = ?').get(id);
   if (!guest) {
     return redirectWithMsg(res, '/admin/guests', 'Guest not found.');
   }
-  db.prepare('UPDATE guests SET name = ?, pinned = ? WHERE id = ?').run(name, pinned, id);
+  db.prepare('UPDATE guests SET name = ?, pinned = ?, is_couple = ? WHERE id = ?').run(
+    name,
+    pinned,
+    isCouple,
+    id
+  );
   redirectWithMsg(res, '/admin/guests', 'Guest updated.');
 });
 

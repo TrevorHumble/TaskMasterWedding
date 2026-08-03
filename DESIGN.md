@@ -4343,3 +4343,88 @@ itself, synchronously, as the first thing it does, before the outer `report()` c
 without a test already covering the shape it is meant to guard. `fetch(...).catch(function(){})`, the same
 fire-and-forget precedent `recap.js`'s `markSeen` already uses, so a failed beacon POST costs one missed log
 line, never a guest-visible error.
+
+## Couple's Heart: a fifth recap source, not a variant of the like batch (#647)
+
+A like from a couple-flagged guest (`guests.is_couple`, a plain admin checkbox next to `pinned`)
+renders a gold heart on the photo (feed card, gallery tiles on all three views, `/u/:guestId`, and
+the likers dialog) and names them in the bell ("Lilly loved your photo") instead of folding into
+the ordinary "N people liked your photo" batch. No extra points, no extra vote weight — a
+couple-like counts as exactly one like, same as anyone's.
+
+**Why a separate recap source (`coupleLikeRows`) rather than teaching `likeBatchRows` a
+couple-flag branch.** The two rows are structurally different, not just cosmetically different:
+`likeBatchRows` is GROUPED (one row per submission, `COUNT(*)` of everyone's likes since the
+checkpoint); `coupleLikeRows` is UNGROUPED — every couple-like is its own row, because the couple's
+individual attention is itself the news, not a tally. Branching a single query to sometimes group
+and sometimes not would mean a `CASE`-driven `GROUP BY`, a second row-shape out of one `map()`, and
+a doc comment explaining which half of the output means what — worse than the module's own
+registry pattern (`_EXISTENCE_WHERE` defined once per source, reused by that source's FETCH and
+COUNT statements) already gives for free. `LIKE_EXISTENCE_WHERE` gained one clause
+(`g.is_couple = 0`) so an ordinary batch can never double-count a couple-like that also has its own
+named row — `COUPLE_LIKE_EXISTENCE_WHERE` is its mirror image (`g.is_couple = 1`). `getUnreadCount`
+sums five per-source counts now, not four; `allRows` unions five sources, not four. Each pair still
+shares its one `_EXISTENCE_WHERE` constant between its FETCH and COUNT statement, so the chip and
+the list remain structurally unable to disagree, the same guarantee the module's other four
+sources already hold.
+
+**Why `thumb: null` on every couple-like row.** The frozen `partials/header.ejs` and
+`public/js/recap.js` both render `<span class="recap-icon recap-icon-love">` (the gold-ring glyph)
+only in the `else` branch of `if (r.thumb)` — a non-null thumb takes the `<img class="recap-thumb">`
+branch instead, and the approved icon never renders. The row leads with the heart, not the photo,
+by design; a bug here would be silent (no thrown error, just the wrong branch), so the field is
+called out explicitly rather than left to be inferred from `likeBatchRows`' shape.
+
+**Why the mark's surface set is exactly the "yes" table the issue specifies.** `coupleLikersFor()`
+is a grouped read-model helper next to `crownRankState()` — same one-query-per-request shape, fed
+into the three render-locals blocks that already spread `crownRankState()` (`/gallery`, `/feed`,
+`/u/:guestId`). The one deliberate omission is guest-home's My Photos: EJS merges parent locals
+into an include even when the include passes its own data object, so a `coupleLikers` local placed
+in a route's render locals reaches `partials/gallery-tile.ejs` whether or not the include passes it
+explicitly. My Photos' bare-tile contract (`src/views/guest-home.ejs:87-92`, unedited by this
+issue) is therefore enforced entirely by the guest-home route never adding `coupleLikers` to its
+locals at all — there is no other way to suppress the mark without editing that frozen view.
+
+**New column, not a new table.** `guests.is_couple INTEGER NOT NULL DEFAULT 0`, added by
+`ensureIsCoupleColumn` — the exact `ensurePinnedColumn` shape (PRAGMA table_info guard, ALTER TABLE
+at most once), and deliberately absent from the `guests` CREATE TABLE in `src/db/schema.js` for the
+same reason `pinned` is: the guard's own no-op-on-a-fresh-DB behavior depends on the column not
+already existing when the migration runs.
+
+**New shared partial.** `partials/couple-heart-mark.ejs` is the single renderer of the gold heart
+mark (feed card, gallery tile, likers-dialog row) — the same "one partial, every call site" rule
+`partials/crowd-favorite-mark.ejs` already established for the crown, so the mark can never drift
+per page the way a copy-pasted `<span class="couple-heart">` in three views eventually would. It
+carries `role="img"` beside its `aria-label`: a bare `<span>` maps to the `generic` role, whose
+author-supplied name is prohibited, so without the role the label is dropped and the mark announces
+nothing. Same rule `partials/badge-victory-mark.ejs` records from the #869 review.
+
+**Gold is a mark colour, never an ink.** Settled with the owner in the phase-1 loop, 2026-08-02,
+reaffirming his 2026-07-21 rule (recorded at `base.css`'s `.success-card--lucky .success-points`).
+`--place-1` `#c8a24c` measures 2.41:1 on white, well under the WCAG AA 4.5:1 floor for text, so it
+appears here only as a glyph on a dark disc or as a ring. The couple's NAMES render in the ordinary
+green at weight 700. Two alternatives were built and rejected live: a deeper `#8a7136` (4.67:1,
+passed the floor, rejected for splitting the app's one gold in two) and a gold pill with dark ink
+(passed, rejected on taste). The recap row's icon is `#b08a2b` (3.22:1) rather than `--place-1`
+because it has no dark disc behind it and must clear SC 1.4.11's 3:1 for a non-text mark.
+
+**Transient panels outrank ambient marks (`z-index`).** `src/public/css/feed.css`'s open
+`.photo-owner-menu-panel` moved from `z-index: 2` to `3`. Every mark a photo wears — `.cf-crown`,
+`.tile-victory`, and now `.couple-heart` — sits at 2 and appears LATER in the card's DOM than the
+menu, so at an equal z-index the paint-order tiebreak put the mark on top and the new top-right
+heart punched a hole through the open menu (owner-reported, 2026-08-02). The crown carried the
+identical latent bug and escaped it only by sitting away from where the panel opens. Stated as a
+rule rather than a patch: a transient, interactive panel outranks every ambient mark, so a future
+mark inherits the fix instead of rediscovering the bug.
+
+**Accepted: the live like-toggle tally goes stale, never negative.** `data-couple-count` is
+server-rendered once per page load, and the like-toggle response carries only a TOTAL, so
+`src/public/js/feed.js` subtracts the couple's published share to recover the "others" count. When a
+couple member likes or unlikes from a page whose attribute predates their action, that subtraction
+is off by their share until the next render — "Axel and 5 other likes" where the truth is 4. The
+alternative, returning the others count from `POST /p/:id/like`, would delete the attribute, the
+subtraction, and the staleness together; it is the right shape and is left to a follow-up, since
+both the view and the script are inside the frozen approved surface for this issue. What is NOT
+accepted is the degenerate case: an unlike can drive the raw subtraction to -1, which renders
+"-1 other likes" and unhides both tails at once (neither `=== 0` nor `> 0` holds for a negative), so
+the subtraction is floored at 0. Clamped, the bad window degrades to merely stale.

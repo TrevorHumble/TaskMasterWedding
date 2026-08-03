@@ -30,6 +30,21 @@
             <input type="checkbox" name="pinned" value="1" <%= g.pinned ? 'checked' : '' %> />
             Pin first in the gallery
           </label>
+          <%# The couple flag (issue #647) — a checkbox on the guest ROW, not a
+              picker in its own section (owner, 2026-08-02). The deciding case
+              is duplicate accounts: if Axel signs up twice, two identical
+              "Axel" entries in a dropdown are indistinguishable, while the row
+              carries the points, task count, contact and PIN that tell the
+              host WHICH Axel is the real one. Same control shape as the pin
+              above — same form, same POST, same label class — so the row keeps
+              one save button, not two. %>
+          <label class="guest-pin-label">
+            <input type="checkbox" name="is_couple" value="1" <%= g.is_couple ? 'checked' : '' %> />
+            <span class="guest-couple-label">
+              The couple
+              <span class="guest-couple-hint">likes show gold</span>
+            </span>
+          </label>
           <button type="submit" class="btn btn-sm btn-secondary">Save</button>
         </form>
 

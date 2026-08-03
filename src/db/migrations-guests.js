@@ -180,9 +180,31 @@ function ensureRecapCheckedAtColumn(db) {
   db.exec(`UPDATE guests SET recap_checked_at = datetime('now') WHERE recap_checked_at IS NULL`);
 }
 
+// --- Guarded migration: guests.is_couple (issue #647) ---
+/**
+ * Add guests.is_couple if it is not already present.
+ *
+ * is_couple = 1 marks a guest as one of the couple (Lilly/Axel) — a like from
+ * this guest renders the gold couple's-heart mark (src/routes/community.js's
+ * coupleLikersFor) and names them in the bell's "<name> loved your photo" row
+ * (src/services/notifications.js's coupleLikeRows). Exactly ensurePinnedColumn's
+ * shape above: the guests CREATE TABLE deliberately omits the column, PRAGMA
+ * table_info detects absence, and the ALTER TABLE runs at most once — so both
+ * a fresh DB and an existing pre-#647 app.db gain the column on first boot,
+ * and every later boot is a no-op. Exported so tests bind to this real guard
+ * rather than an inline copy of it.
+ */
+function ensureIsCoupleColumn(db) {
+  const cols = db.prepare(`PRAGMA table_info(guests)`).all();
+  if (!cols.some((col) => col.name === 'is_couple')) {
+    db.exec(`ALTER TABLE guests ADD COLUMN is_couple INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
 module.exports = {
   ensurePinnedColumn,
   ensureGuestIdentityColumns,
   ensureAvatarPointAwardedRetired,
   ensureRecapCheckedAtColumn,
+  ensureIsCoupleColumn,
 };
