@@ -602,53 +602,155 @@ router.get('/gallery', (req, res) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// The scoped feed's back-link frame (issue #954, superseding #952 AC5):
+// where "back" leads. Two independent concerns feed this, never conflated:
+//   - SCOPE (feed.parseScope) is what the feed is FILTERED to.
+//   - ORIGIN ('?origin=' below) is which SCREEN the guest actually clicked
+//     the tile from.
+// The same scope can be reached from more than one screen. A task's photos
+// open from the gallery's By-task section OR from the ?task=-filtered Recent
+// wall; a guest's photos open from the gallery's By-person section, that
+// guest's own public profile, OR the signed-in guest's own home. See
+// DESIGN.md's own note on why scope alone can never answer "where do I go
+// back to." Origin travels explicitly in the URL rather than being read off
+// document.referrer or the history stack: src/public/js/feed-scroll.js
+// rewrites history mid-scroll (issue #677), so by the time a guest taps
+// "back" the stack no longer reflects where they actually came from.
+//
+// Each destination-building function below (galleryUserBackLink,
+// guestProfileBackLink, and so on) is the single owner of one literal
+// destination: a badge/guest/task/memory branch appears in EXACTLY one
+// function each, whether it is reached as an origin override or as the
+// scope type's own default, so the two paths can never quietly drift apart.
+// ---------------------------------------------------------------------------
+
+function galleryUserBackLink() {
+  return { backHref: '/gallery?view=user', backLabel: '← Back to the gallery' };
+}
+
+function galleryTaskListBackLink() {
+  return { backHref: '/gallery?view=task', backLabel: '← Back to the gallery' };
+}
+
+function galleryRecentTaskBackLink(scope) {
+  return { backHref: '/gallery?view=recent&task=' + scope.id, backLabel: '← Back to the gallery' };
+}
+
+function homeBackLink() {
+  return { backHref: '/', backLabel: '← Back to your photos' };
+}
+
+function guestProfileBackLink(scope) {
+  const owner = db.prepare('SELECT name FROM guests WHERE id = ?').get(scope.id);
+  const name = (owner && owner.name) || 'Guest';
+  return { backHref: '/u/' + scope.id, backLabel: '← Back to ' + name + "'s profile" };
+}
+
+function badgeDetailBackLink(scope) {
+  const badgeRow = db.prepare('SELECT code FROM badges WHERE id = ?').get(scope.id);
+  // A badge row deleted out from under a live scope token between the tile
+  // render and this request is not reachable via the app's own admin UI
+  // (badges are never deleted, only their guest_badges holder rows), and
+  // parseScope's own EXISTS check already refuses a dangling badge id before
+  // this ever runs, so badgeRow is always found here. The fallback stays as
+  // a defensive, never-taken branch rather than a non-null assertion.
+  return {
+    backHref: badgeRow ? '/badge/' + badgeRow.code : '/feed',
+    backLabel: '← Back to the badge',
+  };
+}
+
 /**
- * The scoped feed's back-link frame (issue #952 AC5): where "back" leads for
- * a scope, and what the scoped set is called. A task/memories scope came
- * from the gallery; a person scope came from that person's profile — or,
- * for the signed-in guest's own photos, their home. Looked up ONCE per
- * request (task title / guest name), straight from the DB rather than from
- * any rendered row — an empty scoped set (AC4) still has to name itself.
- * Returns `{ backHref: null, backLabel: null, setLabel: null }` for no scope
- * (or an invalid one, already resolved to null by feed.parseScope), which
- * the view reads as "render the plain unscoped frame".
+ * The default back destination for a scope TYPE, used whenever no origin is
+ * given or the given origin does not apply (ORIGIN_SHAPES below). This is the
+ * pre-#954 behavior, preserved unchanged as the fallback: a task/memory scope
+ * points at the gallery, a guest scope points at "your photos" for the
+ * viewer's own id or that guest's profile otherwise, and a badge scope always
+ * points at its own detail page (it has exactly one possible origin).
  *
- * @param {{type: 'guest'|'task'|'memory', id?: number}|null} scope
- * @param {number|null} viewerGuestId - req.guest.id, for the "your photos"
- *        special case (AC5's fourth bullet).
+ * @param {{type: 'guest'|'task'|'memory'|'badge', id?: number}} scope
+ * @param {number|null} viewerGuestId
  */
-function scopeBackLinkContext(scope, viewerGuestId) {
+function defaultBackLinkFor(scope, viewerGuestId) {
+  switch (scope.type) {
+    case 'task':
+      return galleryRecentTaskBackLink(scope);
+    case 'memory':
+      return galleryTaskListBackLink();
+    case 'guest':
+      return viewerGuestId === scope.id ? homeBackLink() : guestProfileBackLink(scope);
+    case 'badge':
+      return badgeDetailBackLink(scope);
+    default:
+      throw new Error('unknown scope type: ' + scope.type);
+  }
+}
+
+// The ONE allowlist mapping an '?origin=' token to the scope type(s) it
+// applies to and the destination it builds. This mirrors feed.parseScope's
+// "one owner of the grammar" shape: string -> a server-owned destination,
+// never a raw href out of the query string. A token absent here, or paired
+// with a scope type not in its `scopeTypes` list, is not a member of the
+// known set (AC3) and is treated exactly like a missing origin.
+//
+// A Map, not a plain object: `req.query.origin` is an arbitrary,
+// user-controlled string handed straight to this lookup (isKnownOrigin
+// below), and a plain-object lookup keyed by an unconstrained string resolves
+// an inherited name like 'constructor' or 'toString' to a real (truthy, but
+// shapeless) value from Object.prototype instead of undefined. The
+// `.scopeTypes.includes(...)` read just below would then throw on a request
+// that never touched a scope-owned code path. Map.prototype.get has no such
+// prototype-chain fallback: an unrecognized key always reads back undefined.
+const ORIGIN_SHAPES = new Map([
+  ['gallery-user', { scopeTypes: ['guest'], build: galleryUserBackLink }],
+  ['profile', { scopeTypes: ['guest'], build: guestProfileBackLink }],
+  ['home', { scopeTypes: ['guest'], build: homeBackLink }],
+  ['gallery-task', { scopeTypes: ['task', 'memory'], build: galleryTaskListBackLink }],
+  ['gallery-recent', { scopeTypes: ['task'], build: galleryRecentTaskBackLink }],
+  ['badge', { scopeTypes: ['badge'], build: badgeDetailBackLink }],
+]);
+
+/**
+ * Is `raw` a known origin token that applies to this scope type? The one
+ * guarded lookup into ORIGIN_SHAPES: both scopeBackLinkContext (below) and
+ * GET /feed's pager-href construction go through this, so "is this origin
+ * usable here" is answered identically in both places.
+ * @param {*} raw - req.query.origin, of unknown shape.
+ * @param {string} scopeType
+ * @returns {boolean}
+ */
+function isKnownOrigin(raw, scopeType) {
+  if (typeof raw !== 'string') {
+    return false;
+  }
+  const shape = ORIGIN_SHAPES.get(raw);
+  return !!shape && shape.scopeTypes.includes(scopeType);
+}
+
+/**
+ * The scoped feed's back-link frame (issue #954): the destination is a
+ * function of ORIGIN, with the scope type supplying only the default when no
+ * usable origin is given. Looked up ONCE per request, straight from the DB
+ * rather than from any rendered row: an empty scoped set (AC4) still has to
+ * name itself. Returns `{ backHref: null, backLabel: null }` for no scope (or
+ * an invalid one, already resolved to null by feed.parseScope), which the
+ * view reads as "render the plain unscoped frame".
+ *
+ * @param {{type: 'guest'|'task'|'memory'|'badge', id?: number}|null} scope
+ * @param {number|null} viewerGuestId - req.guest.id, for the "your photos"
+ *        default (no origin case only; an explicit 'home'/'profile' origin
+ *        never needs it).
+ * @param {*} originRaw - req.query.origin, of unknown shape.
+ */
+function scopeBackLinkContext(scope, viewerGuestId, originRaw) {
   if (!scope) {
-    return { backHref: null, backLabel: null, setLabel: null };
+    return { backHref: null, backLabel: null };
   }
-  if (scope.type === 'task') {
-    const task = db.prepare('SELECT title FROM tasks WHERE id = ?').get(scope.id);
-    return {
-      backHref: '/gallery?view=recent&task=' + scope.id,
-      backLabel: '← Back to the gallery',
-      setLabel: task && task.title ? '“' + task.title + '”' : 'this task',
-    };
+  if (isKnownOrigin(originRaw, scope.type)) {
+    return ORIGIN_SHAPES.get(originRaw).build(scope, viewerGuestId);
   }
-  if (scope.type === 'memory') {
-    return {
-      backHref: '/gallery?view=task',
-      backLabel: '← Back to the gallery',
-      setLabel: 'shared memories',
-    };
-  }
-  if (scope.type === 'guest') {
-    if (viewerGuestId === scope.id) {
-      return { backHref: '/', backLabel: '← Back to your photos', setLabel: 'your photos' };
-    }
-    const owner = db.prepare('SELECT name FROM guests WHERE id = ?').get(scope.id);
-    const name = (owner && owner.name) || 'Guest';
-    return {
-      backHref: '/u/' + scope.id,
-      backLabel: '← Back to ' + name + "'s profile",
-      setLabel: name + "'s photos",
-    };
-  }
-  throw new Error('unknown scope type: ' + scope.type);
+  return defaultBackLinkFor(scope, viewerGuestId);
 }
 
 // ---------------------------------------------------------------------------
@@ -663,16 +765,24 @@ function scopeBackLinkContext(scope, viewerGuestId) {
 // feed query itself; comments, likers (issue #890), per-photo points, and
 // the viewer's own liked state are attached per-window here.
 //
-// ?scope=u<id>|t<id>|m (issue #952) constrains the window to one profile,
-// task, or the Memories section — feed.parseScope resolves the string (null
-// for missing/malformed/nonexistent, which is indistinguishable from no
-// scope at all below) and feed.feedWindow threads it into the SQL predicate,
-// so a non-matching photo is never even fetched, let alone rendered.
+// ?scope=u<id>|t<id>|m|b<id> (issue #952, widened by #954) constrains the
+// window to one profile, task, the Memories section, or one badge's holder
+// set. feed.parseScope resolves the string (null for missing/malformed/
+// nonexistent, which is indistinguishable from no scope at all below) and
+// feed.feedWindow threads it into the SQL predicate, so a non-matching photo
+// is never even fetched, let alone rendered.
+//
+// ?origin=<token> (issue #954) says which SCREEN the guest tapped the tile
+// from, a separate concern from scope (see scopeBackLinkContext's own file
+// comment above). isKnownOrigin gates it the same way feed.parseScope gates
+// ?scope=: a missing/malformed/inapplicable token is silently treated as no
+// origin at all, never surfaced as an error.
 // ---------------------------------------------------------------------------
 router.get('/feed', (req, res) => {
   const fromParam = parseInt(req.query.from, 10);
   const fromId = Number.isInteger(fromParam) && fromParam >= 1 ? fromParam : null;
   const scope = feed.parseScope(req.query.scope);
+  const origin = scope && isKnownOrigin(req.query.origin, scope.type) ? req.query.origin : null;
 
   const window = feed.feedWindow(fromId, scope);
   const photos = attachViewerLikes(
@@ -682,19 +792,23 @@ router.get('/feed', (req, res) => {
 
   const scopeToken = feed.scopeToken(scope);
   const scopeQS = scopeToken ? '&scope=' + scopeToken : '';
+  // origin only ever rides ALONGSIDE a scope token, never on an unscoped
+  // href: it is meaningless without the scope it qualifies, and `origin`
+  // above is already null whenever `scope` is null.
+  const originQS = origin ? '&origin=' + origin : '';
   // hasNewer with a null newerFromId means "the newer page is the first
-  // page" — fewer than a full window of newer photos exist, so /feed (no
+  // page": fewer than a full window of newer photos exist, so /feed (no
   // anchor) shows them all without a gap. Both pager hrefs carry the same
-  // scope token (AC4) so the no-JS pager, and feed-scroll.js's window
-  // loader reading these same hrefs off the fetched page, never wander out
-  // of the scoped set.
+  // scope token AND origin token (AC4) so the no-JS pager, and
+  // feed-scroll.js's window loader reading these same hrefs off the fetched
+  // page, never wander out of the scoped set or lose the back-link's origin.
   const olderHref =
-    window.olderFromId !== null ? '/feed?from=' + window.olderFromId + scopeQS : null;
+    window.olderFromId !== null ? '/feed?from=' + window.olderFromId + scopeQS + originQS : null;
   const newerHref = window.hasNewer
     ? window.newerFromId !== null
-      ? '/feed?from=' + window.newerFromId + scopeQS
+      ? '/feed?from=' + window.newerFromId + scopeQS + originQS
       : scopeToken
-        ? '/feed?scope=' + scopeToken
+        ? '/feed?scope=' + scopeToken + originQS
         : '/feed'
     : null;
 
@@ -712,7 +826,7 @@ router.get('/feed', (req, res) => {
       // an explicit boolean straight from feed.parseScope's result, not
       // inferred from backHref's truthiness downstream.
       isScoped: Boolean(scope),
-      ...scopeBackLinkContext(scope, req.guest ? req.guest.id : null),
+      ...scopeBackLinkContext(scope, req.guest ? req.guest.id : null, req.query.origin),
       // One crowdFavorites() call per request (issue #788 AC1); crownGoldId
       // (issue #811 AC4) is folded out of that same call.
       ...crownRankState(),
@@ -1249,6 +1363,13 @@ router.get('/badge/:code', (req, res) => {
       badge: result.badge,
       holders: result.holders,
       isTaskMaster: result.badge.task_id != null,
+      // The holder-photo grid's own scope token (issue #954 AC5): every
+      // earning-photo thumbnail on this page belongs to THIS badge's current
+      // holder set, so the token is resolved once, here, via feed.scopeToken.
+      // The view never hand-builds the 'b<id>' token itself, the same
+      // "route resolves the token" rule GET /gallery and GET /u/:guestId
+      // already follow.
+      badgeScopeToken: feed.scopeToken({ type: 'badge', id: result.badge.id }),
     })
   );
 });

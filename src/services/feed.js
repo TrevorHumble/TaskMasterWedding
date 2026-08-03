@@ -225,32 +225,63 @@ function recentPage(taskFilter, page) {
 // cards); doing it here, in the WHERE clause, is what actually saves the
 // venue-wifi bytes issue #194 exists to bound.
 //
-// A scope is one of three shapes. SCOPE_SHAPES is the ONE table that owns
-// each shape's predicate/args/matches/token — the SQL predicate, the query
-// args, the row-membership test, and the '?scope=' token — so changing any
+// A scope is one of four shapes. SCOPE_SHAPES is the ONE table that owns
+// each shape's predicate/args/matches/token: the SQL predicate, the query
+// args, the row-membership test, and the '?scope=' token, so changing any
 // of THOSE four means editing one row here, not hunting four separate
 // switches. It is not the only place a new shape must be touched, though:
 // parseScope() below is the other half of the token grammar (string ->
 // descriptor, the mirror of this table's token() direction), and
 // community.js's scopeBackLinkContext owns the back-link copy (where "back"
-// leads and what the scoped set is called) for each shape — a fourth shape
+// leads and what the scoped set is called) for each shape. A fifth shape
 // needs a row here AND a parseScope branch AND a scopeBackLinkContext branch,
 // not just this table:
 //   'guest'  -> s.guest_id = ?    (a profile's own photos)
 //   'task'   -> s.task_id = ?     (one gallery task section)
 //   'memory' -> s.task_id IS NULL (the task-free Memories section)
+//   'badge'  -> s.id IN (earning submissions of this badge's current
+//               holders). Issue #954: a badge detail page's holder photos.
+//               "Current holders" is read straight off guest_badges, the
+//               single write path for grant/revoke. src/services/scoring/
+//               badge-engine.js and task-badges.js both delete the row on
+//               revoke, never leave a stale one behind, so this predicate
+//               never re-derives holder membership on its own.
 // buildScopedStatements() stamps out the same three statements (anchor
-// window / first page / newer-ids) once per shape below — precompiled at
-// module load, not rebuilt per request — plus once more for the synthetic
+// window / first page / newer-ids) once per shape below, precompiled at
+// module load, not rebuilt per request, plus once more for the synthetic
 // 'none' shape (today's unscoped feed, which owns no descriptor and so has
 // no row in SCOPE_SHAPES), so feedWindow() picks a ready statement set
 // instead of composing SQL text on every call.
 //
 // A lookup keyed by a scope.type absent from this table (which should never
-// happen — parseScope below is the only producer of a scope descriptor, and
+// happen: parseScope below is the only producer of a scope descriptor, and
 // it only ever returns a type present here) throws rather than silently
 // falling through to another shape's behavior; see shapeFor().
 // ---------------------------------------------------------------------------
+// The ONE definition of "is this submission one of badge_id's CURRENT
+// holders' earning submissions" (the non-NULL submission_id rows on
+// guest_badges for that badge_id): a bare WHERE fragment, not a full
+// statement, so both the badge shape's bulk `predicate` below (an IN
+// subquery, scanning the whole set) and the point-lookup `matches` check
+// just after it (one submission at a time, for AC4's out-of-scope-`from`
+// fallback) compose the SAME condition text rather than each hand-typing an
+// independent copy that could quietly drift apart if the holder-set rule
+// ever grew a second condition.
+const BADGE_HOLDER_SUBMISSION_WHERE = 'badge_id = ? AND submission_id IS NOT NULL';
+
+// The one row-membership check for the 'badge' shape (matches, below): does
+// submission `submissionId` belong to badge `badgeId`'s current holder set?
+// A single prepared statement rather than materializing the whole holder set
+// per call. matches() is only ever asked about the one anchor row a
+// feedWindow() call is checking (AC4's out-of-scope-`from` fallback), never a
+// whole page. The `submission_id = ?` clause narrows BADGE_HOLDER_SUBMISSION_
+// WHERE's own `submission_id IS NOT NULL` to one exact id, so a caller
+// checking a REAL row's own (always non-null) submission_id never needs to
+// separately re-assert that condition.
+const stmtScopeBadgeSubmissionMatch = db.prepare(
+  `SELECT 1 FROM guest_badges WHERE ${BADGE_HOLDER_SUBMISSION_WHERE} AND submission_id = ?`
+);
+
 const SCOPE_SHAPES = {
   guest: {
     predicate: 's.guest_id = ?',
@@ -269,6 +300,12 @@ const SCOPE_SHAPES = {
     args: () => [],
     matches: (row) => row.task_id === null,
     token: () => 'm',
+  },
+  badge: {
+    predicate: `s.id IN (SELECT submission_id FROM guest_badges WHERE ${BADGE_HOLDER_SUBMISSION_WHERE})`,
+    args: (scope) => [scope.id],
+    matches: (row, scope) => !!stmtScopeBadgeSubmissionMatch.get(scope.id, row.submission_id),
+    token: (scope) => 'b' + scope.id,
   },
 };
 
@@ -346,6 +383,7 @@ function statementsFor(scope) {
 // by community.js (only needed when a valid scope is actually rendered).
 const stmtScopeGuestExists = db.prepare('SELECT 1 FROM guests WHERE id = ?');
 const stmtScopeTaskExists = db.prepare('SELECT 1 FROM tasks WHERE id = ?');
+const stmtScopeBadgeExists = db.prepare('SELECT 1 FROM badges WHERE id = ?');
 
 /**
  * Parse a `?scope=` query value into a scope descriptor. The single owner of
@@ -355,9 +393,9 @@ const stmtScopeTaskExists = db.prepare('SELECT 1 FROM tasks WHERE id = ?');
  *
  * @param {*} raw - req.query.scope, of unknown shape (string, array, undefined).
  * @returns {{type: 'guest', id: number} | {type: 'task', id: number} |
- *   {type: 'memory'} | null} null for a missing, malformed, or well-formed-
- *   but-nonexistent scope (AC4) — every one of those degrades to the plain
- *   unscoped feed.
+ *   {type: 'memory'} | {type: 'badge', id: number} | null} null for a
+ *   missing, malformed, or well-formed-but-nonexistent scope (AC4). Every
+ *   one of those degrades to the plain unscoped feed.
  */
 function parseScope(raw) {
   if (typeof raw !== 'string') {
@@ -372,6 +410,11 @@ function parseScope(raw) {
   if (m) {
     const id = parseInt(m[1], 10);
     return stmtScopeTaskExists.get(id) ? { type: 'task', id } : null;
+  }
+  m = /^b(\d+)$/.exec(raw);
+  if (m) {
+    const id = parseInt(m[1], 10);
+    return stmtScopeBadgeExists.get(id) ? { type: 'badge', id } : null;
   }
   if (raw === 'm') {
     return { type: 'memory' };

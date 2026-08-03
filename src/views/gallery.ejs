@@ -76,8 +76,13 @@
        (issue #952 AC3/AC4) — 'u<guestId>' | 't<taskId>' | 'm' (memories),
        resolved by feed.parseScope and enforced in the feedWindow() SQL
        predicate, not filtered after the fact. The Recent everyone-wall
-       passes null and stays unscoped. */
-    function renderTile(p, overlayCount, overlayHref, scopeToken) {
+       passes null and stays unscoped.
+       origin (issue #954): which gallery SECTION this tile lives in, a
+       separate concern from scopeToken, consumed by the scoped feed's
+       back-link (community.js's scopeBackLinkContext). Passed straight
+       through to partials/gallery-tile, which already no-ops it when
+       scopeToken is falsy. */
+    function renderTile(p, overlayCount, overlayHref, scopeToken, origin) {
       var alt = p.task_title || 'a shared memory';
   %>
     <%- include('partials/gallery-tile', {
@@ -85,6 +90,7 @@
           id: p.submission_id,
           alt: alt,
           scopeToken: scopeToken,
+          origin: origin,
           crownRank: crownRank,
           crownGoldId: crownGoldId,
           badgeVictory: badgeVictory,
@@ -95,12 +101,12 @@
 
   <%
     /* A flat grid of photo tiles — the recent wall and each grouped preview. */
-    function renderGrid(items, groupTotal, overlayHref, scopeToken) {
+    function renderGrid(items, groupTotal, overlayHref, scopeToken, origin) {
   %>
     <div class="gallery-grid" id="galleryGrid">
       <% items.forEach(function (p, i) { %>
         <% var overflow = groupTotal > items.length && i === items.length - 1; %>
-        <%- renderTile(p, overflow ? groupTotal - items.length : 0, overlayHref, scopeToken) %>
+        <%- renderTile(p, overflow ? groupTotal - items.length : 0, overlayHref, scopeToken, origin) %>
       <% }); %>
     </div>
   <% } %>
@@ -136,16 +142,23 @@
             route (community.js's GET /gallery, via feed.js's scopeToken) —
             this view only ever consumes the ready string, never
             hand-concatenates or re-derives the 'u<id>'/'t<id>'/'m' grammar
-            itself. %>
-        <%- renderGrid(g.photos, g.total, sectionHref, g.scopeToken) %>
+            itself.
+            origin (issue #954): By-person tiles carry 'gallery-user' (back
+            leads to ?view=user); By-task AND Memories tiles both carry
+            'gallery-task' (back leads to ?view=task). The Memories group is
+            just the task-free member of this SAME view==='task' loop, so it
+            shares the one origin token every other row here uses. %>
+        <%- renderGrid(g.photos, g.total, sectionHref, g.scopeToken, view === 'user' ? 'gallery-user' : 'gallery-task') %>
       </section>
     <% }); %>
   <% } else if (photos.length > 0) { %>
     <%# The Recent everyone-wall is unscoped — unless it is the ?task=N
         filtered wall, whose set IS that task's photos. taskWallScope is
         already resolved by the route, the same ready-string shape g.scopeToken
-        above uses. %>
-    <%- renderGrid(photos, photos.length, null, taskWallScope) %>
+        above uses. origin 'gallery-recent' (issue #954) is a no-op when
+        taskWallScope is null (gallery-tile only ever emits '&origin=' beside
+        a real scopeToken), so passing it unconditionally is safe. %>
+    <%- renderGrid(photos, photos.length, null, taskWallScope, 'gallery-recent') %>
 
     <% if (page < totalPages) { %>
       <nav class="show-more" aria-label="More photos">

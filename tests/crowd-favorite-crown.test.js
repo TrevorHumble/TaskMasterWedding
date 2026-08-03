@@ -171,10 +171,11 @@ function galleryTileCrown(text, submissionId) {
 
 // Issue #952 (gallery parity): a profile tile's feed link is now scoped to
 // the profile's own guest id (/feed?from=<id>&scope=u<profileGuestId>...),
-// not the old /p/<id> dead end — profileGuestId is the id in the /u/:id URL
+// not the old /p/<id> dead end. profileGuestId is the id in the /u/:id URL
 // the page under test was fetched with (every submission on a profile page
 // belongs to that same owner, so it also doubles as the submission's own
-// guest_id here).
+// guest_id here). Carries origin=profile (issue #954) so the scoped feed's
+// back link returns to this exact profile page.
 function profileTileCrown(text, submissionId, profileGuestId) {
   return crownStateFromChunk(
     text,
@@ -182,6 +183,7 @@ function profileTileCrown(text, submissionId, profileGuestId) {
       submissionId +
       '&amp;scope=u' +
       profileGuestId +
+      '&amp;origin=profile' +
       '#photo-' +
       submissionId +
       '"',

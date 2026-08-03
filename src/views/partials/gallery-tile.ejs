@@ -38,9 +38,19 @@
       alt          (required) — the <img>'s alt text; also seeds the tile's
                    own aria-label ("View photo for <alt>").
       scopeToken   (optional) — the feed's already-tokenized '?scope=' value
-                   ('u<id>' | 't<id>' | 'm'), from feed.scopeToken() — never
-                   built here or by the caller from raw parts. Falsy (the
-                   default) omits the scope param entirely, an unscoped link.
+                   ('u<id>' | 't<id>' | 'm' | 'b<id>'), from feed.scopeToken().
+                   Never built here or by the caller from raw parts. Falsy
+                   (the default) omits the scope param entirely, an unscoped
+                   link.
+      origin       (optional, issue #954): which SCREEN this tile's caller
+                   is rendering ('gallery-user' | 'profile' | 'home' |
+                   'gallery-task' | 'gallery-recent' | 'badge'), consumed by
+                   community.js's scopeBackLinkContext to pick the scoped
+                   feed's back-link destination. A separate concern from
+                   scopeToken (what the feed is filtered to). Only ever rides
+                   ALONGSIDE a scopeToken: falsy, or supplied with no
+                   scopeToken, omits the '&origin=' param entirely. Origin
+                   qualifies a scope and is meaningless without one.
       crownRank    (optional) — submission_id -> rank map (issue #788).
                    Defaults to {} (the crown matches nothing).
       crownGoldId  (optional) — the sole rank-1 submission id, or null.
@@ -64,7 +74,8 @@
 <% var badgeVictory = (typeof badgeVictory !== 'undefined' && badgeVictory) ? badgeVictory : {}; %>
 <% var overlayCount = (typeof overlayCount !== 'undefined') ? overlayCount : 0; %>
 <% var scopeToken = (typeof scopeToken !== 'undefined' && scopeToken) ? scopeToken : null; %>
-<% var href = '/feed?from=' + id + (scopeToken ? '&scope=' + scopeToken : '') + '#photo-' + id; %>
+<% var origin = (typeof origin !== 'undefined' && origin) ? origin : null; %>
+<% var href = '/feed?from=' + id + (scopeToken ? '&scope=' + scopeToken + (origin ? '&origin=' + origin : '') : '') + '#photo-' + id; %>
 <% var ariaLabel = 'View photo for ' + alt; %>
 <figure class="gallery-item">
   <a

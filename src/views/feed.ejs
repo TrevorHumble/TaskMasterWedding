@@ -26,16 +26,17 @@
       lookup when a caller omits it, so the mark simply matches nothing. %>
   <% var coupleLikers = (typeof coupleLikers !== 'undefined' && coupleLikers) ? coupleLikers : {}; %>
 
-  <%# Scoped-feed back-link frame (issue #952 AC5): community.js's GET /feed
-      supplies backHref/backLabel/setLabel/isScoped only for a valid ?scope=
-      — isScoped false and the other three null on every other request
-      (unscoped, or an invalid scope that already fell back to unscoped in
-      feed.parseScope), which is this guard's default. isScoped is the one
-      signal that gates the scoped frame and the empty-state copy choice
-      below. %>
+  <%# Scoped-feed back-link frame (issue #954, superseding #952 AC5):
+      community.js's GET /feed supplies backHref/backLabel/isScoped only for
+      a valid ?scope=. isScoped is false and the other two are null on every
+      other request (unscoped, or an invalid scope that already fell back to
+      unscoped in feed.parseScope), which is this guard's default. isScoped
+      is the one signal that gates the scoped frame and the empty-state copy
+      choice below. There is no setLabel local (issue #954 AC1): the "showing
+      only ___" tail this fed is gone, and the back link is the only chrome
+      a scoped feed wears above its cards. %>
   <% var backHref = (typeof backHref !== 'undefined') ? backHref : null; %>
   <% var backLabel = (typeof backLabel !== 'undefined') ? backLabel : null; %>
-  <% var setLabel = (typeof setLabel !== 'undefined') ? setLabel : null; %>
   <% var isScoped = (typeof isScoped !== 'undefined') ? isScoped : false; %>
 
   <%# Issue #677: top edge for in-place loading of NEWER photos. The sentinel
@@ -51,14 +52,13 @@
     </div>
   <% } %>
 
-  <%# Scoped-feed top back link (issue #952 AC5): "<- Back to ..." plus which
-      set is showing. Server-rendered now (phase 1 built this client-side in
-      src/public/js/feed-scroll.js, deleted by this same change) — same
-      copy, same position (immediately above the card list); .muted alone
-      does the styling, no unread hook class riding along. %>
+  <%# Scoped-feed top back link (issue #954): the back link alone, immediately
+      above the card list. The old "showing only ___" tail is gone: the photos
+      below already are the set, so the sentence only told the guest what they
+      can already see. %>
   <% if (isScoped) { %>
     <p class="muted">
-      <a href="<%= backHref %>"><%= backLabel %></a> — showing only <%= setLabel %>
+      <a href="<%= backHref %>"><%= backLabel %></a>
     </p>
   <% } %>
 

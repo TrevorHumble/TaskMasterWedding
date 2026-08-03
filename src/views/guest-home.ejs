@@ -105,7 +105,10 @@
           contract (no crown or medal, matching the approved look), not an
           accident of omitting locals the partial happens to default; the
           partial's own guards treat an explicit null identically to the
-          local being absent. %>
+          local being absent.
+          origin 'home' (issue #954): this IS the guest's own home, so the
+          scoped feed's back link leads back here ('/'), reading "your
+          photos," never the other-guest profile phrasing. %>
       <div class="gallery-grid">
         <% submissions.forEach(function (s) { %>
           <%
@@ -118,6 +121,7 @@
                 id: s.id,
                 alt: photoName,
                 scopeToken: scopeToken,
+                origin: 'home',
                 crownRank: null,
                 crownGoldId: null,
                 badgeVictory: null
