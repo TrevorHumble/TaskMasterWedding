@@ -5,8 +5,11 @@
 //      the server answers { liked, likeCount } to an Accept: application/json
 //      request — then update the count and the button's pressed state in
 //      place. The highest-frequency tap in the app must not cost a full page
-//      re-download. Any failure falls back to the plain form POST (redirect
-//      to the bounded page), which is also the no-JS path.
+//      re-download. A rejected fetch or a non-ok response (issue #934) shows
+//      the card's pre-rendered `.feed-action-error` line in place instead —
+//      never a full-page re-POST, which would throw the guest off the feed
+//      and lose their scroll position. The plain form POST survives only as
+//      the no-JS baseline (`!window.fetch` below).
 //   2. Comments dialog: the comment button and the "See all <N> comments"
 //      line both carry data-open-comments="<submissionId>" — a click on
 //      either opens the matching <dialog id="comments-dialog-<id>"> via
@@ -26,8 +29,11 @@
 //      application/json — the server answers { comment, commentCount } — and
 //      the client appends the comment to the dialog thread, updates the
 //      comment-button badge, the "See all <N>" line, and the card's 4
-//      preview rows, then clears and re-shrinks the textarea. Any failure
-//      falls back to the plain form POST (redirect), also the no-JS path.
+//      preview rows, then clears and re-shrinks the textarea. A rejected
+//      fetch or a non-ok response (issue #934) shows the dialog's
+//      pre-rendered `.comment-error` line instead of the plain form POST
+//      fallback (no navigation); the Post button reads "Posting…" and is
+//      disabled for the duration (see the in-flight guard below).
 //   5. Comment delete (#338): each own-comment row's ⋯ menu is a native
 //      <details>/<summary> disclosure that opens/closes with no JS. The
 //      `.comment-delete-form` inside it (`[data-delete-comment]` button)
@@ -36,15 +42,24 @@
 //      re-runs that exact check (window.confirm, cancel -> preventDefault,
 //      stop) before fetching the delete route with Accept: application/json.
 //      On success the row (menu included) is removed from the dialog thread
-//      and the card preview/badge/See-all line are refreshed in place; on
-//      failure (or no fetch support) the plain form POST runs, which is also
-//      the no-JS path. Any other open menu is closed on an outside tap.
+//      and the card preview/badge/See-all line are refreshed in place; a
+//      rejected fetch or a non-ok response (issue #934) shows the dialog's
+//      `.comment-error` line instead. Any other open menu is closed on an
+//      outside tap.
 //   6. Likers dialog (issue #890): the "N likes" link opens a matching
 //      <dialog id="likes-dialog-<submissionId>"> the same way (data-open-
 //      likes/data-close-likes, one-dialog-at-a-time via openModalDialog).
 //      On a like-toggle response the "N likes" text/aria-label update in
 //      place, and the signed-in guest's own row is inserted into (or
 //      removed from) that dialog without a reload — see updateLikesDialog.
+//   7. In-flight guards (issue #934): toggleLike, postComment, and
+//      deleteComment each arm a PER-FORM guard (beginInFlight below) before
+//      their fetch — a second tap on the SAME form while one is pending is
+//      ignored outright (no second fetch), while every OTHER card's controls
+//      stay live (the guard's state lives on that one form element, never a
+//      module-global flag). The guard force-releases after
+//      IN_FLIGHT_RELEASE_MS even if the fetch never settles, so a dropped
+//      request can never permanently mute a control.
 'use strict';
 
 (function () {
@@ -79,6 +94,75 @@
   });
 
   // ------------------------------------------------------------------
+  // Per-form in-flight guard (issue #934 AC1/AC2/AC4). A trained double-tap
+  // on a heart or a Post button must send exactly one request, and a hung
+  // fetch (the dropped-radio case this issue is filed from) must never mute
+  // a control forever. Both properties come from ONE mechanism, keyed on the
+  // form element itself — never a module-global flag, which would mute
+  // every OTHER card's controls too while one card's request is in flight.
+  // ------------------------------------------------------------------
+
+  // Named per issue #934 AC4: long enough that a slow venue-wifi round trip
+  // still completes normally, short enough that a guest who gives up on a
+  // hung request and taps again is never locked out for long.
+  var IN_FLIGHT_RELEASE_MS = 10000;
+
+  /**
+   * Arm a per-form in-flight guard. Returns null if `form` is ALREADY
+   * pending (a tap landed while a prior request on this exact form is still
+   * in flight) — the caller's job is to return immediately in that case,
+   * before ever calling fetch, so the double-tap sends nothing. Otherwise
+   * returns a `release` function the caller must call from both its settle
+   * path (fetch resolved or rejected) AND nowhere else — the watchdog below
+   * calls it on its own if the caller never does.
+   *
+   * `release` is idempotent and stale-safe: it no-ops once already released,
+   * and it no-ops if a NEWER call to beginInFlight has since re-armed the
+   * same form (a late response from an abandoned request must not clear a
+   * DIFFERENT, newer request's own in-flight state) — enforced by comparing
+   * a fresh token against the one stamped on the form at arm time.
+   *
+   * `release` RETURNS whether it actually acted: `true` on the one call that
+   * releases this request's own token, `false` on any no-op (already released,
+   * or the watchdog fired first, or a newer request re-armed the form). A
+   * caller MUST gate its response processing on that return — `if (!release())
+   * return;` — so a late-settling abandoned request cannot mutate the DOM
+   * (hide a fresh error line, append a stale payload) after the guest has
+   * already given up on it and retried. Only guarding the guest STATE (the
+   * token) is not enough; the response handler must short-circuit too.
+   *
+   * @param {HTMLFormElement} form
+   * @param {function(): void} [onRelease] - extra cleanup (e.g. restoring a
+   *   button's disabled/label state) run exactly once, whichever path
+   *   releases first: the caller's own settle, or the watchdog.
+   * @returns {(function(): boolean)|null}
+   */
+  function beginInFlight(form, onRelease) {
+    if (form.dataset.pendingToken) {
+      return null;
+    }
+    var token = String(Date.now()) + '-' + Math.random();
+    form.dataset.pendingToken = token;
+
+    var released = false;
+    function release() {
+      if (released || form.dataset.pendingToken !== token) {
+        return false;
+      }
+      released = true;
+      delete form.dataset.pendingToken;
+      clearTimeout(watchdog);
+      if (onRelease) {
+        onRelease();
+      }
+      return true;
+    }
+
+    var watchdog = setTimeout(release, IN_FLIGHT_RELEASE_MS);
+    return release;
+  }
+
+  // ------------------------------------------------------------------
   // Like toggle (issue #194). Issue #890 AC5 extends the success handler
   // below: the "N likes" link (article's only remaining .like-count — the
   // heart button lost its own count span in #890, plus its own
@@ -87,6 +171,16 @@
   // updateLikesDialog below.
   // ------------------------------------------------------------------
   function toggleLike(form) {
+    // Issue #934 AC2: a double-tap on the SAME heart while the first toggle
+    // is still in flight sends nothing — the trained double-tap gesture
+    // must not like-then-unlike itself. Other cards' forms are untouched.
+    var release = beginInFlight(form);
+    if (!release) {
+      return;
+    }
+    var article = form.closest('.feed-item');
+    var errorEl = article ? article.querySelector('.feed-action-error') : null;
+
     fetch(form.getAttribute('action'), {
       method: 'POST',
       credentials: 'same-origin',
@@ -111,10 +205,22 @@
         return res.json();
       })
       .then(function (data) {
+        // Issue #934: bail if this settle is stale (the watchdog already
+        // released, or a newer tap re-armed the form) — a late response must
+        // not hide a fresh error line or apply a stale count.
+        if (!release()) {
+          return;
+        }
+        // Issue #934 AC3: a settled (non-throwing) response — including the
+        // handled 403 above — is not the failure this line exists for; keep
+        // it hidden/re-hide it in case a PRIOR tap on this same card left it
+        // showing.
+        if (errorEl) {
+          errorEl.hidden = true;
+        }
         if (data === null) {
           return;
         }
-        var article = form.closest('.feed-item');
         if (!article) {
           return;
         }
@@ -162,9 +268,18 @@
         }
       })
       .catch(function () {
-        // Network hiccup or unexpected response — let the ordinary form POST
-        // do its redirect-based round trip instead.
-        form.submit();
+        // Issue #934 AC3: a rate-limited (429) or rejected/5xx'd toggle
+        // degrades to the card's own quiet inline line — never a full-page
+        // re-POST, which would navigate the guest off the feed and lose
+        // their scroll position. A stale late rejection (the watchdog already
+        // fired, or a newer tap re-armed the form) must not raise this line
+        // over the newer request's own state.
+        if (!release()) {
+          return;
+        }
+        if (errorEl) {
+          errorEl.hidden = false;
+        }
       });
   }
 
@@ -540,6 +655,31 @@
       // Post is muted while empty; this guards programmatic submits too.
       return;
     }
+    // Issue #934 AC1: a double-tap on Post while the first POST is still in
+    // flight sends nothing — the guard is per FORM/card, so another card's
+    // composer stays fully usable. postButton's disabled/label state is
+    // restored by the SAME release path whether it comes from the fetch
+    // settling or the watchdog firing (AC4 — a hung request can't mute Post).
+    var postButton = form.querySelector('.comment-post');
+    var postButtonRestingLabel = postButton ? postButton.textContent : 'Post';
+    var release = beginInFlight(form, function () {
+      if (postButton) {
+        postButton.disabled = false;
+        postButton.textContent = postButtonRestingLabel;
+      }
+    });
+    if (!release) {
+      return;
+    }
+    if (postButton) {
+      postButton.disabled = true;
+      // U+2026 ellipsis, per the phase-1 owner-approved copy (issue #934).
+      postButton.textContent = 'Posting…';
+    }
+
+    var dialog = form.closest('dialog');
+    var errorEl = dialog ? dialog.querySelector('.comment-error') : null;
+
     var action = form.getAttribute('action');
     // The submission id comes from the form's POST target (/p/<id>/comments),
     // a route contract — not from any DOM id's presentation format.
@@ -566,7 +706,15 @@
         return res.json();
       })
       .then(function (data) {
-        var dialog = form.closest('dialog');
+        // Issue #934: a stale settle (watchdog fired, or a newer Post
+        // re-armed this form) must not append a duplicate comment or hide a
+        // newer request's error line.
+        if (!release()) {
+          return;
+        }
+        if (errorEl) {
+          errorEl.hidden = true;
+        }
         if (!dialog) {
           return;
         }
@@ -589,9 +737,17 @@
         }
       })
       .catch(function () {
-        // Network hiccup or unexpected response — let the ordinary form POST
-        // do its redirect-based round trip instead.
-        form.submit();
+        // Issue #934 AC3: a rate-limited (429) or rejected/5xx'd post
+        // degrades to the dialog's own quiet inline line — never a
+        // full-page re-POST, which would duplicate-risk on any auto-retry
+        // and always throws the guest off the feed. A stale late rejection
+        // does not raise this line over a newer request's state.
+        if (!release()) {
+          return;
+        }
+        if (errorEl) {
+          errorEl.hidden = false;
+        }
       });
   }
 
@@ -610,6 +766,24 @@
     var item = form.closest('.feed-comment-item');
     var dialog = form.closest('dialog');
     var article = form.closest('.feed-item');
+    var errorEl = dialog ? dialog.querySelector('.comment-error') : null;
+
+    // Issue #934: a per-form guard on this exact delete form — a repeated
+    // tap on the confirm dialog while the first delete is in flight sends
+    // nothing. The Delete button is disabled for the duration and restored
+    // by the same release path the watchdog can also trigger (AC4).
+    var deleteButton = form.querySelector('.comment-delete');
+    var release = beginInFlight(form, function () {
+      if (deleteButton) {
+        deleteButton.disabled = false;
+      }
+    });
+    if (!release) {
+      return;
+    }
+    if (deleteButton) {
+      deleteButton.disabled = true;
+    }
 
     fetch(action, {
       method: 'POST',
@@ -628,6 +802,15 @@
         return res.json();
       })
       .then(function (data) {
+        // Issue #934: a stale settle (watchdog fired, or a newer delete
+        // re-armed this form) must not remove the row or hide a newer
+        // request's error line.
+        if (!release()) {
+          return;
+        }
+        if (errorEl) {
+          errorEl.hidden = true;
+        }
         if (item && item.parentNode) {
           item.parentNode.removeChild(item);
         }
@@ -643,10 +826,17 @@
         refreshCardPreview(article, dialog, submissionId, data.commentCount);
       })
       .catch(function () {
-        // Network hiccup or unexpected response (e.g. a stale 403/404) — let
-        // the ordinary form POST do its redirect-based round trip instead,
-        // the same fallback toggleLike/postComment use above.
-        form.submit();
+        // Issue #934 AC3: a rate-limited (429) or rejected/5xx'd delete
+        // degrades to the dialog's own quiet inline line — never a
+        // full-page re-POST, the same fallback toggleLike/postComment use
+        // above. A stale late rejection does not raise this line over a
+        // newer request's state.
+        if (!release()) {
+          return;
+        }
+        if (errorEl) {
+          errorEl.hidden = false;
+        }
       });
   }
 })();

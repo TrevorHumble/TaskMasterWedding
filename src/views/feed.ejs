@@ -174,6 +174,13 @@
           <span class="points-count"><%= p.points %> <%= p.points === 1 ? 'point' : 'points' %></span>
         </div>
 
+        <%# Inline like-failure line (issue #934): present but `hidden`,
+            un-hidden by src/public/js/feed.js only when a like fetch 429s or
+            rejects — so a rate-limited or 5xx'd tap degrades to this quiet
+            line in place, never a full-page re-POST that throws the guest off
+            the feed. The copy was settled at the phase-1 preview. %>
+        <p class="feed-action-error form-error" role="alert" hidden>That didn&rsquo;t go through. Give it a sec and try again.</p>
+
         <% if (commentTotal > 0) { %>
           <div class="feed-comments">
             <% commentPreview.forEach(function (c) { %>
@@ -336,6 +343,13 @@
               </div>
             <% }); %>
           </div>
+          <%# Comment-dialog failure line (issue #934), shared by the
+              comment-post and comment-delete paths: present but `hidden`,
+              un-hidden by src/public/js/feed.js when a comment or delete fetch
+              fails, replacing today's full-page re-POST. Same copy, settled at
+              the phase-1 preview. %>
+          <p class="comment-error form-error" role="alert" hidden>That didn&rsquo;t go through. Give it a sec and try again.</p>
+
           <%# Composer, Instagram pattern: viewer avatar, borderless
               auto-growing textarea (src/public/js/feed.js), Post as a
               plain text control muted while the field is empty. %>
@@ -358,6 +372,10 @@
               aria-label="Add a comment"
               required
             ></textarea>
+            <%# src/public/js/feed.js sets the in-flight state on this button
+                while a comment POST is pending (disabled + "Posting…"), then
+                restores "Post" on settle or via its re-enable watchdog so a
+                hung fetch can never mute it (issue #934). %>
             <button type="submit" class="comment-post">Post</button>
           </form>
         </dialog>

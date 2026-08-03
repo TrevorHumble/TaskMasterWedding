@@ -533,6 +533,27 @@ body.dialog-scroll-lock {
   cursor: default;
 }
 
+/* Inline failure lines (issue #934): a like, comment, or comment-delete that
+   429s or drops now shows a quiet inline message here instead of dumping the
+   guest onto a full-page re-POST. Both reuse the app's .form-error ink and
+   size (base.css) — only the placement inset differs per surface, so the two
+   rules below set margins/padding, never a second copy of the error colour.
+   .form-error's own -8px top / 16px bottom margin is replaced with a snug
+   pair that keeps the line tight under the control it belongs to. */
+.feed-action-error {
+  /* Sits directly under the action bar, sharing that row's guest-feed inset
+     (see .feed-item:not(.admin-feed-item) .feed-actionbar in guest.css) so it
+     lines up under the heart, not against the card edge. */
+  margin: var(--space-1) 0 0;
+  padding-inline: var(--space-3);
+}
+.comment-error {
+  /* Sits just above the composer, sharing its horizontal padding
+     (.comments-dialog-form) so it lines up with the avatar/field row. */
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+}
+
 /* ----------------------- Leaderboard ----------------------- */
 /* podium (#626) — dense-ranked medal podium: a crowned champion, each tier
    grows to fit its tie (capped at 9 faces + "+N"). Places are colored in the
