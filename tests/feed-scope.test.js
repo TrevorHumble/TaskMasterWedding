@@ -457,7 +457,7 @@ describe('feed.feedWindow with a badge scope', () => {
     expect(ids).not.toContain(unrelatedPhoto);
   });
 
-  it('excludes a REVOKED holder\'s earning submission (current holders only)', () => {
+  it("excludes a REVOKED holder's earning submission (current holders only)", () => {
     const exHolder = makeGuest('Badge Window Revoked Holder');
     const badgeId = makeBadge('Window Revoked Badge');
     const earning = makeSubmission({ guestId: exHolder.id });
@@ -469,7 +469,7 @@ describe('feed.feedWindow with a badge scope', () => {
     expect(ids).not.toContain(earning);
   });
 
-  it('excludes a holder\'s earning submission once taken down (same visibility rule every shape shares)', () => {
+  it("excludes a holder's earning submission once taken down (same visibility rule every shape shares)", () => {
     const holder = makeGuest('Badge Window Taken-Down Holder');
     const badgeId = makeBadge('Window Taken-Down Badge');
     const earning = makeSubmission({ guestId: holder.id, takenDown: 1 });
@@ -480,7 +480,7 @@ describe('feed.feedWindow with a badge scope', () => {
     expect(ids).not.toContain(earning);
   });
 
-  it('an anchor OUTSIDE the badge scope falls back to the scoped set\'s own newest page', () => {
+  it("an anchor OUTSIDE the badge scope falls back to the scoped set's own newest page", () => {
     const holder = makeGuest('Badge Window Anchor Holder');
     const stranger = makeGuest('Badge Window Anchor Stranger');
     const badgeId = makeBadge('Window Anchor Badge');
@@ -507,7 +507,11 @@ describe('GET /feed?scope=b<id> pager propagation', () => {
 
     const extraCount = feed.FEED_PAGE_SIZE + 3;
     for (let i = 0; i < extraCount; i++) {
-      grantHolder(badgeId, makeGuest('Badge Pager Holder ' + i).id, makeSubmission({ guestId: holder.id }));
+      grantHolder(
+        badgeId,
+        makeGuest('Badge Pager Holder ' + i).id,
+        makeSubmission({ guestId: holder.id })
+      );
     }
 
     const res = await agent.get('/feed?scope=b' + badgeId);
@@ -639,7 +643,7 @@ describe('origin allowlist: back href + label for every AC2 row', () => {
 // may reflect the raw origin string into the rendered href.
 // ---------------------------------------------------------------------------
 describe('origin allowlist: fallback for missing/malformed/inapplicable/unsafe tokens (AC3)', () => {
-  it('missing ?origin= falls back to the task scope\'s pre-#954 default', async () => {
+  it("missing ?origin= falls back to the task scope's pre-#954 default", async () => {
     const guest = makeGuest('Origin Missing Guest');
     const taskId = makeTask('Origin Missing Task');
     makeSubmission({ guestId: guest.id, taskId });

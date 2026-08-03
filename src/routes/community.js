@@ -655,7 +655,10 @@ function badgeDetailBackLink(scope) {
   // parseScope's own EXISTS check already refuses a dangling badge id before
   // this ever runs, so badgeRow is always found here. The fallback stays as
   // a defensive, never-taken branch rather than a non-null assertion.
-  return { backHref: badgeRow ? '/badge/' + badgeRow.code : '/feed', backLabel: '← Back to the badge' };
+  return {
+    backHref: badgeRow ? '/badge/' + badgeRow.code : '/feed',
+    backLabel: '← Back to the badge',
+  };
 }
 
 /**

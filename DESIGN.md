@@ -3217,7 +3217,7 @@ non-`NULL` `submission_id` rows for that `badge_id`, with no separate holder-set
 and `task-badges.js` are the only writers of that table and both `DELETE` a revoked holder's row outright,
 so the rows present at read time already are the current set.
 
-**The "showing only ___" tail is gone (AC1), and `setLabel` left with it.** The tail duplicated the back
+**The "showing only \___" tail is gone (AC1), and `setLabel` left with it.** The tail duplicated the back
 link's own information: "back to the gallery" already says where the guest is, so restating "showing only
 this task's photos" beneath it told the guest something the cards below already showed. `setLabel` (the
 view local carrying that sentence) and the four `scopeBackLinkContext` branches that built it are deleted

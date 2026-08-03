@@ -304,8 +304,7 @@ const SCOPE_SHAPES = {
   badge: {
     predicate: `s.id IN (SELECT submission_id FROM guest_badges WHERE ${BADGE_HOLDER_SUBMISSION_WHERE})`,
     args: (scope) => [scope.id],
-    matches: (row, scope) =>
-      !!stmtScopeBadgeSubmissionMatch.get(scope.id, row.submission_id),
+    matches: (row, scope) => !!stmtScopeBadgeSubmissionMatch.get(scope.id, row.submission_id),
     token: (scope) => 'b' + scope.id,
   },
 };
