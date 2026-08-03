@@ -33,32 +33,95 @@ const KEY_EVENT_TIMEZONE = 'event_timezone';
 const KEY_EVENT_START_DATE = 'event_start_date';
 const KEY_EVENT_END_DATE = 'event_end_date';
 
+// Issue #1042: the ceremony photo-notice toggle + date, same settings table,
+// same constant-name-mirrors-its-value convention as the pair above.
+// Stored as '1'/'0' (writeSetting only ever writes strings — see
+// setEventConfig's own comment for why the boolean/string conversion is
+// stated explicitly at both boundaries).
+const KEY_CEREMONY_NOTICE_ENABLED = 'ceremony_notice_enabled';
+const KEY_CEREMONY_NOTICE_DATE = 'ceremony_notice_date';
+
 /**
- * The event's configured timezone and wedding date range. Defaults
- * (America/Boise, 2026-08-07..2026-08-09) are the venue's real values, so a
+ * The event's configured timezone, wedding date range, and ceremony
+ * photo-notice setting. Defaults (America/Boise, 2026-08-07..2026-08-09,
+ * notice off, ceremony date 2026-08-07) are the venue's real values, so a
  * fresh DB -- or an existing DB from before this issue, which has never
  * written these keys -- reads sensible values with no backfill migration.
- * @returns {{ timezone: string, startDate: string, endDate: string }}
+ * `ceremonyNotice` is read back as a real boolean here ('1' -> true,
+ * anything else -> false) even though it is stored as a string -- see
+ * setEventConfig's own comment for the matching write-side conversion.
+ * @returns {{ timezone: string, startDate: string, endDate: string, ceremonyNotice: boolean, ceremonyDate: string }}
  */
 function getEventConfig(db) {
   return {
     timezone: readSetting(db, KEY_EVENT_TIMEZONE, 'America/Boise'),
     startDate: readSetting(db, KEY_EVENT_START_DATE, '2026-08-07'),
     endDate: readSetting(db, KEY_EVENT_END_DATE, '2026-08-09'),
+    ceremonyNotice: readSetting(db, KEY_CEREMONY_NOTICE_ENABLED, '0') === '1',
+    ceremonyDate: readSetting(db, KEY_CEREMONY_NOTICE_DATE, '2026-08-07'),
   };
 }
 
 /**
- * Persist the event's timezone and wedding date range. This function trusts
- * its caller -- POST /admin/config (src/routes/admin.js) is the single
- * validator (known IANA name, start <= end) and only calls this once every
- * field has already passed.
- * @param {{ timezone: string, startDate: string, endDate: string }} cfg
+ * Persist the event's timezone, wedding date range, and (issue #1042,
+ * optionally) the ceremony photo-notice setting. This function trusts its
+ * caller -- POST /admin/config (src/routes/admin/config.js) is the single
+ * validator (known IANA name, start <= end, and — for the two new fields —
+ * a real date inside the submitted start/end range) and only calls this
+ * once every field has already passed.
+ *
+ * `ceremonyNotice`/`ceremonyDate` are OPTIONAL: this function is called
+ * today with a bare `{ timezone, startDate, endDate }` object from five
+ * existing test call sites (tests/memory-day-bonus.test.js,
+ * tests/oneday-guest-surface.test.js) that destructure exactly those three
+ * fields off getEventConfig()'s own return shape (the round trip at
+ * tests/oneday-guest-surface.test.js:328, `setEventConfig(getEventConfig())`).
+ * Each new key is written ONLY when its field is `!== undefined`, leaving
+ * the stored value untouched otherwise -- better-sqlite3 refuses to bind a
+ * JS `undefined` (or a raw boolean), so a caller that never mentions these
+ * two fields must not attempt to write them at all.
+ * @param {{ timezone: string, startDate: string, endDate: string, ceremonyNotice?: boolean, ceremonyDate?: string }} cfg
  */
-function setEventConfig(db, { timezone, startDate, endDate }) {
+function setEventConfig(db, { timezone, startDate, endDate, ceremonyNotice, ceremonyDate }) {
   writeSetting(db, KEY_EVENT_TIMEZONE, timezone);
   writeSetting(db, KEY_EVENT_START_DATE, startDate);
   writeSetting(db, KEY_EVENT_END_DATE, endDate);
+  if (ceremonyNotice !== undefined) {
+    writeSetting(db, KEY_CEREMONY_NOTICE_ENABLED, ceremonyNotice ? '1' : '0');
+  }
+  if (ceremonyDate !== undefined) {
+    writeSetting(db, KEY_CEREMONY_NOTICE_DATE, ceremonyDate);
+  }
+}
+
+// A YYYY-MM-DD-shaped string, the same guard src/services/tasks.js's
+// isOnDay applies to its own `todayIso` before comparing against a stored
+// date column, mirrored here (review fix, M-a) rather than trusting a
+// caller-supplied `todayIso` unchecked.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Is the ceremony notice LIVE right now: enabled AND `todayIso` is the
+ * configured ceremony date, the ONE place BOTH facts are combined (issue
+ * #1042; review fix, M-a: previously only the date-equality half lived here,
+ * and every caller re-ANDed `.enabled` on top of it itself). Two independent
+ * consumers need it: src/middleware/session.js's attachGuest (to gate the
+ * day-of band/onboarding-row local) and src/services/notifications.js's
+ * qualifyingAnnounceFacts (to gate the recap row), neither of which can call
+ * the other — attachGuest's res.locals are not reachable from the recap
+ * service, which also runs from plain test calls with a synthetic clock. A
+ * shared pure predicate here, instead of each site re-typing the AND, is
+ * what keeps the two from silently drifting apart.
+ * @param {{ ceremonyNotice: boolean, ceremonyDate: string }} eventConfig
+ * @param {string} todayIso - YYYY-MM-DD, the event-local "today".
+ * @returns {boolean}
+ */
+function isCeremonyNoticeLive(eventConfig, todayIso) {
+  return (
+    Boolean(eventConfig.ceremonyNotice) &&
+    ISO_DATE_RE.test(todayIso) &&
+    eventConfig.ceremonyDate === todayIso
+  );
 }
 
 /**
@@ -124,6 +187,7 @@ function normalizePrizes(text) {
 module.exports = {
   getEventConfig,
   setEventConfig,
+  isCeremonyNoticeLive,
   getPrizes,
   setPrizes,
   normalizePrizes,

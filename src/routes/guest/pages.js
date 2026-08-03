@@ -79,4 +79,14 @@ router.get('/how-points-work', function (req, res) {
   res.render('how-points-work', withBadgeMoment(req, res, { title: 'How to earn points' }));
 });
 
+// GET /no-photos — the ceremony photo-notice explainer (issue #1042). Static
+// copy that never depends on the toggle (AC6): the page stays reachable so a
+// bookmarked link or a stale recap row never 404s, even with the notice off
+// or on a day other than the configured ceremony date. Same shape as
+// GET /how-points-work above, behind the same requireGuest gate every other
+// route mounted on this router already gets.
+router.get('/no-photos', function (req, res) {
+  res.render('no-photos', withBadgeMoment(req, res, { title: 'No photos during the ceremony' }));
+});
+
 module.exports = router;

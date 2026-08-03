@@ -1,0 +1,19 @@
+<!-- src/views/no-photos.ejs -->
+<%- include('partials/head', { title: title }) %>
+<%- include('partials/header') %>
+
+  <div class="ceremony-hero" aria-hidden="true">
+    <%- include('partials/camera-slash', { size: 48 }) %>
+  </div>
+  <h1 class="page-title center">No photos during the ceremony</h1>
+
+  <p class="ceremony-copy">Lilly and Axel have professional photographers covering the ceremony. Please keep phones and cameras down for all of it, from the first walk down the aisle to the last one back up it.</p>
+  <p class="ceremony-copy">A raised screen lands in the middle of the shot they have been hired to get. This is a moment worth watching with your own eyes, not through a lens.</p>
+  <p class="ceremony-copy">The game picks back up afterwards.</p>
+
+  <div class="heart-divider" style="color:var(--color-primary);"><%- include('partials/heart', { size: 20 }) %></div>
+
+  <a class="btn btn-block" href="/tasks">See your list of tasks</a>
+  <p class="back-link center"><a href="/how-to-play">Back to how to play</a></p>
+
+<%- include('partials/footer') %>

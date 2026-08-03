@@ -1269,6 +1269,23 @@ button.check-link {
   line-height: 1;
   cursor: pointer;
 }
+/* The day-of band (#1042) reuses the recap strip's own class set verbatim
+   (.recap-strip / -open / -glyph / -text / -chevron / -dismiss, in
+   admin-tasks.css) so the two bands are one component at every width. This
+   modifier only recolours it; it adds no layout of its own. */
+.ceremony-strip {
+  background: var(--err-bg);
+}
+.ceremony-strip-open {
+  color: var(--err-ink);
+  text-decoration: none;
+}
+.ceremony-strip .recap-strip-glyph,
+.ceremony-strip .recap-strip-chevron,
+.ceremony-strip .recap-strip-dismiss {
+  color: var(--err-ink);
+}
+
 .recap-panel {
   width: min(92vw, var(--app-max-width));
   padding: 0;
@@ -1490,6 +1507,13 @@ button.check-link {
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: var(--color-on-primary);
+}
+/* The recap row for the ceremony photo-notice (#1042): the red twin of
+   .recap-row-announce's own filled circle, directly above. */
+.recap-row-ceremony .recap-icon {
+  background: var(--err-ink);
+  border-color: var(--err-ink);
+  color: var(--white);
 }
 .recap-row-loss .recap-row-text {
   color: var(--color-text-muted);

@@ -112,6 +112,7 @@ module.exports = {
   // wrapped in a closure like the db-bound functions above.
   normalizePrizes: eventConfig.normalizePrizes,
   PRIZES_MAX_LENGTH: eventConfig.PRIZES_MAX_LENGTH,
+  isCeremonyNoticeLive: eventConfig.isCeremonyNoticeLive,
   getGuestByToken: (token) => guestLookups.getGuestByToken(db, token),
   getGuestById: (guestId) => guestLookups.getGuestById(db, guestId),
   getGuestByContact: (contact) => guestLookups.getGuestByContact(db, contact),
