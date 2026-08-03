@@ -32,10 +32,10 @@ function urlForOriginal(photoPath) {
   return config.UPLOADS_URL_BASE + '/' + photoPath;
 }
 
-/** Public URL for a thumbnail, served by app.use('/thumbs', ...). */
+/** Public URL for a thumbnail, served by app.use(config.THUMBS_URL_BASE, ...). */
 function urlForThumb(thumbPath) {
   if (!thumbPath) return '';
-  return '/thumbs/' + thumbPath;
+  return config.THUMBS_URL_BASE + '/' + thumbPath;
 }
 
 /** Absolute disk path of an original (used by export + hardDelete). */

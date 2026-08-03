@@ -4044,3 +4044,113 @@ drift when one side changes and the other doesn't. `src/public/js/lightbox.js`'s
 close-handler comments, and the three `special-*-option.ejs` partial headers, were updated
 alongside the CSS/JS changes — they had stated `:has()` as the live mechanism for the reveal and/or
 highlight, which this issue (and #918, for the reveal half) made false.
+
+## Structured per-request JSON logging (#1019)
+
+**Date:** 2026-08-02. **Status:** shipped.
+
+`src/middleware/request-log.js` gives an operator a fast answer to "what happened to guest X on
+path Y around time Z" from `docker compose logs`/`journalctl` during the reception, without SSHing
+in and grepping raw access logs by hand.
+
+**Mounted FIRST, ahead of the body parsers, not later.** Express routes an over-limit body straight
+from a parser to the nearest 4-arg error handler (the 413 passthrough, `src/app.js` section 3),
+skipping every non-error middleware registered AFTER that parser. Mounting `requestLog` any later
+would make the 413 case — one of the four statuses this log exists to catch — permanently invisible
+to it. Mounting first costs nothing: `req.reqId` and `req.logPath` are cheap to set, and every later
+middleware (`attachGuest`, the routers) still runs exactly as before.
+
+**One finish-hook emit site, not manual lines scattered at each failure branch.** A single
+`res.on('finish', ...)` hook fires for every response regardless of who sent it — the 404 handler,
+the rate limiter's 429 branch, a normal 200 — so there is exactly one place that decides whether a
+line is worth emitting (`status >= 400`, or slow, or `LOG_ALL_REQUESTS`), not N call sites that
+could drift out of sync with each other one at a time. The 500 case gets a second, correlated line
+instead of being folded into the same hook, because a thrown error carries a message and stack the
+finish hook's own scope does not have access to — see "One log-line owner, one error-line owner"
+below for how that second line stays a single-owner artifact rather than a second hand-copied format.
+
+**`req.guest` is read at 'finish' time, not at request-start time.** `attachGuest` (`src/app.js`
+section 5) runs after `requestLog` mounts, so by request-start `req.guest` does not exist yet.
+Deferring the read to the finish hook — which always fires after the whole middleware chain has run
+— costs nothing extra and needs no second mount point after `attachGuest`.
+
+**App-log vs. proxy-log ownership of static evidence.** `/uploads`, `/thumbs`, and every top-level
+entry served from `src/public/` are deliberately never logged here, including a takedown-guard 404
+under `/uploads`/`/thumbs`. This is an app-route diagnosis log, not an access log; the reverse
+proxy's own access log is the evidence layer for static/photo traffic (`docs/deploy.md`'s "Logs"
+section) — see the next entry for why that split only holds if the deployed proxy config actually
+turns its access log on.
+
+**Caddy's shipped block includes an explicit `log` directive.** `docs/deploy.md`'s "reverse proxy"
+section delegates `/uploads`/`/thumbs` evidence to the proxy access log, but Caddy v2 emits no
+access log at all unless one is configured. Every Caddy site block that file ships (the main site,
+the bachelor-instance subdomain, and the wedding-instance redirect block) includes a `log`
+directive, plus a one-line "verify it's on" note in the Logs section, so the delegation this design
+depends on actually holds rather than silently not existing.
+
+**One log-line owner, one error-line owner, not two hand-copied formats.** `request-log.js` has
+five functions: `isSkippedPath` (the sole reader of `SKIP_PREFIXES`), `baseFields(req)` (the `reqId`/`method`/`path`/`guestId` field set every
+line shares — see "field-set ownership" below), `emitLine` (the single stringify + try/catch +
+`console.log` owner, used by every call site), `requestLog` (the finish/close hooks, described
+above), and the separately exported `logRequestError(req, err)`, which owns the error line's field
+set and is the ONLY thing `src/app.js`'s global error handler calls. `src/app.js` itself never knows
+the line shape, the emit stream, or the swallow policy for either line.
+
+**Field-set ownership: `baseFields(req)`.** The finish line, the abort line, and the error line each
+carry the same four base fields (`reqId`, `method`, `path`, `guestId`). Rather than three call sites
+each spelling that field set out, a single `baseFields(req)` helper builds it and each call site
+spreads it into whatever else that line adds (`status`/`durationMs`/optional `ip` for the finish
+line; `status: null, aborted: true, durationMs` for the abort line; `err`/`stack` for the error
+line) — the field set itself has exactly one owner.
+
+**`path` is the query-stripped value, not `req.originalUrl` verbatim.** `path` in every line this
+module emits is the query-stripped request path (e.g. `GET /gallery?page=2` logs
+`path: "/gallery"`), computed once at mount time and stashed on `req.logPath` so every emit site —
+the finish hook, the close hook, and the separately-invoked `logRequestError` — reads the identical
+value. Besides making `jq 'select(.path == "/gallery")'`-style filtering actually work, this is also
+the privacy-preferable choice on its own: a query string can carry a guest-identifying value into a
+log line that otherwise has no reason to hold one.
+
+**The static-asset skip list is derived from the real directory, not hand-mirrored.**
+`SKIP_PREFIXES` is built from two single-sourced halves. The data-mount half is
+`config.UPLOADS_URL_BASE` and `config.THUMBS_URL_BASE` — paired, single owner of the `/uploads` and
+`/thumbs` mount prefixes, also read by `src/app.js`'s own static mounts and, for `/thumbs`, by
+`src/services/photos/paths.js`'s `urlForThumb`, so the mount, the URL builder, and this skip list
+can never silently drift apart if either prefix ever moves. The public-asset half (`css`, `js`,
+`badges`, `fonts`, `robots.txt` today) is computed once at module load via
+`fs.readdirSync(config.PUBLIC_DIR)` rather than typed out as a literal list — a future top-level
+addition under `src/public/` (a new asset directory, a second root-level file) is skipped
+automatically, with nothing to edit in this module. The cost of that derivation, recorded here
+because it is invisible in the code: a top-level entry under `src/public/` whose name collides
+with an app-route prefix silently removes that route from this log. Adding `src/public/tasks/`
+for task icons would not stop `GET /tasks/5` being answered by the guest router, but it would
+stop that request being logged, and no test would fail. Weigh a new top-level asset name against
+the route table before adding one. `/favicon.ico` and `/healthz` stay explicit
+literals because neither is a directory entry under `PUBLIC_DIR` — the former is a conventional
+browser request this app never serves a file for, the latter is a route, not a static mount.
+
+**A client-aborted request leaves one line too.** `res.on('close', ...)` covers what
+`res.on('finish', ...)` alone misses: a guest's connection dropping mid-upload (weak reception, a
+cancelled attempt) never fires `'finish'`, only `'close'`. Guarded by the same per-request `logged`
+flag the finish hook sets, plus a `res.writableFinished` check — deliberately not `res.writableEnded`.
+`writableEnded` flips to `true` synchronously inside `res.end()`, before the response is actually
+flushed; `writableFinished` only becomes `true` once `'finish'` itself has fired. Guarding on
+`writableEnded` would let a socket destroyed in that narrow window read as "already finished" in
+both handlers — the finish handler never fires (the flush never completed) and the close handler
+declines because `writableEnded` already reads `true` — so the request would log nothing at all,
+exactly the failed-delivery case this branch exists to catch. **Trade accepted:** using
+`writableFinished` instead means a response that completed writing but whose socket was then
+destroyed before flush confirmation now logs one line marked aborted (`status: null, aborted: true`)
+rather than logging nothing — a false "aborted" on an edge-case timing window is preferred over
+silently losing the evidence a real abort exists to leave. The abort line is marked distinguishably
+and, unlike the finish line, is emitted unconditionally (subject only to the same static-path skip
+list) rather than gated by `LOG_ALL_REQUESTS`/`LOG_SLOW_MS` — a dropped connection is inherently the
+kind of thing this log exists to surface, the same way an error status always logs regardless of
+those two settings.
+
+**Structured stdout does not retire stderr for a 500.** `console.log` (stdout), not `console.error`
+(stderr), is still where the structured error line lands — it needs to sit alongside the finish line
+in the same stream for a `reqId` grep to find both together. But `logRequestError` also writes a
+short one-line summary to `console.error`, so a host or container platform's own alerting rule that
+watches stderr for a 500 does not go silent just because the detailed record moved to a structured
+stdout line the rule was never watching in the first place.

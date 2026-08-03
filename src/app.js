@@ -14,8 +14,22 @@ const photos = require('./services/photos');
 const initials = require('./utils/initials');
 const badgeIcons = require('./services/badge-icons');
 const { db, cleanupSelfLikes } = require('./db');
+const { requestLog, logRequestError } = require('./middleware/request-log');
 
 const app = express();
+
+// ---------------------------------------------------------------------------
+// Structured request logging (issue #1019). Mounted as the FIRST app.use,
+// ahead of every numbered section below and ahead of the body parsers
+// (section 3) -- an oversized-body 413 is routed by Express straight from a
+// parser to the nearest 4-arg error handler, skipping any non-error
+// middleware registered AFTER the parser, so mounting this later would make
+// that 413 case unreachable. Full design rationale: DESIGN.md § "Structured
+// per-request JSON logging (#1019)". logRequestError (called from the global
+// error handler, section 8 below) is the single owner of the correlated
+// supplementary error line's shape and emit guard.
+// ---------------------------------------------------------------------------
+app.use(requestLog);
 
 // ---------------------------------------------------------------------------
 // Process-level crash guards (issue #311). Deliberately at MODULE scope --
@@ -293,7 +307,7 @@ app.use(
   express.static(config.UPLOADS_DIR, STATIC_PHOTO_OPTS)
 );
 app.use(
-  '/thumbs',
+  config.THUMBS_URL_BASE,
   photos.blockTakenDownThumb,
   express.static(config.THUMBS_DIR, STATIC_PHOTO_OPTS)
 );
@@ -399,7 +413,13 @@ app.use((req, res) => {
 // ---------------------------------------------------------------------------
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error('[app] unhandled error:', err);
+  // Structured supplementary line (issue #1019), correlated to the
+  // request-log.js 'finish' line for the SAME request by req.reqId --
+  // req.reqId is always present here because request-log is mounted first
+  // (above), ahead of every other middleware including this handler.
+  // logRequestError owns the line's shape, the emit stream, and the
+  // serialize-failure guard -- this handler does not know any of the three.
+  logRequestError(req, err);
   res.status(500).render('error', {
     message: 'Something went wrong on our end. Please try again.',
   });
