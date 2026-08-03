@@ -51,10 +51,26 @@
 
   <section class="badges-section">
     <h2 class="section-title">My Badges</h2>
-    <% if (badges.length === 0) { %>
-      <p class="muted">No badges yet — complete tasks to earn your first.</p>
+    <%# Next-badge nudge (issue #1057, graduates #653): nextBadge is
+        scoring.nextThresholdBadge's real derivation (the single owner), not
+        a phase-1 fake: null when every threshold is held or the next one
+        is out of reach for this guest, otherwise the badge row to render
+        locked, above every earned row. %>
+    <% if (badges.length === 0 && !nextBadge) { %>
+      <p class="muted">No badges yet, complete tasks to earn your first.</p>
     <% } else { %>
       <ul class="badge-grid">
+        <% if (nextBadge) { %>
+          <li class="badge-item badge-item-locked">
+            <div class="badge-locked-row">
+              <%- include('partials/badge-art', { badge: nextBadge, alt: '', width: 48, height: 48 }) %>
+              <span class="badge-text">
+                <span class="badge-name"><%= nextBadge.remaining %> task<%= nextBadge.remaining === 1 ? '' : 's' %> to <%= nextBadge.name %></span>
+                <span class="badge-desc">Complete <%= nextBadge.threshold %> tasks to earn it.</span>
+              </span>
+            </div>
+          </li>
+        <% } %>
         <% badges.forEach(function (b) { %>
           <li class="badge-item">
             <a href="/badge/<%= b.code %>">

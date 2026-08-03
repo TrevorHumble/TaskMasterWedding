@@ -4197,3 +4197,36 @@ added a task") is false when the guest removed their own photo, and its `/tasks`
 useful for that case. `recomputeThresholdBadges` takes the revoke kind as a parameter, defaulting to
 `badge_revoked` so every other caller (including `POST /me/edit`, which cannot revoke a threshold
 badge in practice) is unchanged.
+
+## The next-badge nudge returned as a reachability-gated locked row (#1057)
+
+**Date:** 2026-08-02. **Status:** shipped.
+
+Issue #88 pulled an earlier "next badge" framing off guest home because it could promise a badge
+nobody at the event could actually earn: whenever the highest threshold exceeded the active task
+count, the framing contradicted the progress bar sitting right above it. #1057 brings the nudge back
+as a single locked row pinned atop My Badges, art desaturated, not a link, but only when the next
+unearned threshold is at or below the same reachable-task denominator the progress caption already
+prints. That reachability gate is the whole reason it cannot repeat #88's mistake: a threshold past
+the guest's reach renders nothing rather than an unkeepable promise.
+
+`nextThresholdBadge(guestId, reachableTaskCount)` (`src/services/scoring/badge-engine.js`) is the
+single owner of the derivation. It reads `thresholdCompletedCount` (#1060, not the bare
+`getCompletedCount`), so the remaining count this row quotes and the count the badge engine actually
+grants on are the same figure by construction, the same guarantee #1060's own note above describes for
+the progress bar. Name and art come from the existing `badgeByCode` wrapper, never a second query
+against the `badges` table.
+
+The locked row renders its art through `partials/badge-art`, the single existing owner (#410) of how
+an `art_path` becomes markup, rather than a hand-written `<img>`. That is what makes the row survive a
+variant whose badge art is a bundled icon rather than a composed SVG (the stag instance's milestone
+badges): the partial's medallion branch renders the icon inside its ring exactly as an earned row of
+that variant would, and the same `.badge-item-locked` desaturation rule now targets both the plain
+`<img>` shape and the medallion `<span>` shape, so neither one accidentally renders at full colour and
+reads as already earned.
+
+The same phase-1 preview loop that settled this row's look also settled a shared change to
+`.badge-item`, the row component guest home and the public profile both render through: the divider
+between badge rows is gone (the section heading's own hairline is the only line left in the list) and
+row padding tightened from `--space-4` to `--space-2`. Because both surfaces share the one component,
+that change reaches the public profile too without a second edit, by design, not as a side effect.
