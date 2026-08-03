@@ -7,7 +7,9 @@
 // 10-guest demo fixture.
 //
 //   AC1  — guest count: exactly 100 guests at the default --guests.
-//   AC2  — GARDEN reachable: >= 1 guest holds it, and only with >= 15 visible.
+//   AC2: GARDEN reachable: >= 1 guest holds it, and only at >= 15 on the
+//          threshold count (issue #1060: visible task-linked submissions
+//          plus the profile-photo starter, not raw visible submissions).
 //   AC3  — realistic spread: unique strict-max top scorer + a mid-pack tie.
 //   AC4  — moderation present: taken_down = 1 count > 0.
 //   AC5  — determinism: same seed, two fresh runs, identical guest count /
@@ -19,7 +21,8 @@
 //          (re-declared here since it does not export them — see
 //          src/services/photos/moderation.js).
 //   AC8  — task headroom: >= 15 event-prefixed tasks exist (actually >= 18).
-//   AC9  — badge correctness: BLOOM/BOUQUET/GARDEN held iff >= 5/10/15.
+//   AC9: badge correctness: BLOOM/BOUQUET/GARDEN held iff the threshold
+//          count (issue #1060) is >= 5/10/15.
 //
 // REQUIRE ORDER: config / event-fixture / seed-event / scoring are required
 // only AFTER loadApp() sets DATA_DIR / DB_PATH, matching every other test in
@@ -76,7 +79,7 @@ describe('AC2: GARDEN is reachable', () => {
     eventFixture.seedEvent(db, { guests: 100, seed: 1 });
   });
 
-  it('at least 1 guest holds GARDEN, and every holder has >= 15 visible submissions', () => {
+  it('at least 1 guest holds GARDEN, and every holder is at >= 15 on the threshold count', () => {
     const holders = db
       .prepare(
         `SELECT g.id
@@ -88,11 +91,13 @@ describe('AC2: GARDEN is reachable', () => {
       .all();
     expect(holders.length).toBeGreaterThanOrEqual(1);
 
-    const stmtVisible = db.prepare(
-      'SELECT COUNT(*) AS n FROM submissions WHERE guest_id = ? AND taken_down = 0'
-    );
+    // scoring.thresholdCompletedCount (issue #1060), not a raw visible-
+    // submission COUNT(*): a guest with a profile photo can hold GARDEN at
+    // 14 visible task-linked submissions, one below the old raw figure, so
+    // asserting against raw COUNT(*) here would be a false failure once the
+    // fixture seeds an avatar-bearing guest that deep.
     for (const h of holders) {
-      expect(stmtVisible.get(h.id).n).toBeGreaterThanOrEqual(15);
+      expect(scoring.thresholdCompletedCount(h.id)).toBeGreaterThanOrEqual(15);
     }
   });
 });
@@ -339,11 +344,8 @@ describe('AC9: badge correctness', () => {
     eventFixture.seedEvent(db, { guests: 100, seed: 1 });
   });
 
-  it('every guest holds BLOOM iff >= 5, BOUQUET iff >= 10, GARDEN iff >= 15 visible submissions', () => {
+  it('every guest holds BLOOM iff >= 5, BOUQUET iff >= 10, GARDEN iff >= 15 on the threshold count', () => {
     const guests = db.prepare('SELECT id FROM guests').all();
-    const stmtVisible = db.prepare(
-      'SELECT COUNT(*) AS n FROM submissions WHERE guest_id = ? AND taken_down = 0'
-    );
     const stmtBadges = db.prepare(
       `SELECT b.code FROM guest_badges gb JOIN badges b ON b.id = gb.badge_id WHERE gb.guest_id = ?`
     );
@@ -352,7 +354,13 @@ describe('AC9: badge correctness', () => {
     let checkedAtLeastOneHolder = false;
 
     for (const g of guests) {
-      const completed = stmtVisible.get(g.id).n;
+      // scoring.thresholdCompletedCount (issue #1060), not a raw
+      // COUNT(*) over visible submissions: this fixture seeds avatars, and
+      // a raw COUNT(*) with no task_id filter would only happen to agree
+      // with the badge rule because this fixture seeds no memories
+      // (task_id IS NULL rows) either, a coincidence that would silently
+      // diverge the day one is added.
+      const completed = scoring.thresholdCompletedCount(g.id);
       const heldCodes = new Set(stmtBadges.all(g.id).map((r) => r.code));
 
       for (const [code, threshold] of Object.entries(thresholds)) {

@@ -172,7 +172,7 @@ erDiagram
     notification_events {
         int id PK
         int guest_id FK
-        text kind "badge_granted | badge_revoked | badge_removed | photo_takedown | photo_restore | comment_hidden | comment_restored"
+        text kind "badge_granted | badge_revoked | badge_removed | badge_revoked_photo | photo_takedown | photo_restore | comment_hidden | comment_restored"
         int submission_id FK "nullable"
         int badge_id FK "nullable"
         text created_at
@@ -200,7 +200,7 @@ UNIQUE constraints:
 1. A signed-in guest opens a task at `GET /tasks/:id`. The `attachGuest` middleware has already read the signed `gsid` cookie and loaded the guest onto `res.locals`; `requireGuest` confirms a guest is present.
 2. The guest submits the form to `POST /tasks/:id/submit` as `multipart/form-data`. `guest.js` hands the upload to `services/photos/intake.js`: multer's disk storage writes the original to `data/uploads/` as-is, under a random filename. A HEIC/HEIF photo (sniffed by file signature, not declared mimetype) is converted to JPEG separately at intake, in a worker thread — sharp itself never touches the original; it only builds the thumbnail (`makeThumb`, width `THUMB_WIDTH`, honoring EXIF rotation) written to `data/thumbs/`.
 3. A `submissions` row is inserted with the guest id, task id, photo and thumb paths, and any caption. The `UNIQUE(guest_id, task_id)` constraint prevents a second submission for the same task.
-4. `services/scoring.js` recomputes the guest's completed-task count (non-taken-down submissions). If the count crossed a `BADGE_THRESHOLDS` boundary (5 / 10 / 15), the matching auto badge is recorded in `guest_badges` with `awarded_by = 'system'`; `UNIQUE(guest_id, badge_id)` makes this safe to repeat.
+4. `services/scoring.js` recomputes the guest's threshold count (`thresholdCompletedCount`: non-taken-down task-linked submissions plus the profile-photo starter task, issue #1060). If the count crossed a `BADGE_THRESHOLDS` boundary (5 / 10 / 15), the matching auto badge is recorded in `guest_badges` with `awarded_by = 'system'`; `UNIQUE(guest_id, badge_id)` makes this safe to repeat.
 5. The guest is redirected back, the photo now counts toward the task's point worth (host-set per `docs/game-design-points-badges.md`), appears in `/gallery`, on the guest's profile, and affects the leaderboard.
 
 If the admin later takes the photo down, the row's `taken_down` flips to 1: the photo drops out of the gallery, profiles, and scoring, and can be restored later. The takedown is sticky (issue #190): if the guest resubmits the same task while it is still taken down, the photo is replaced in place but `taken_down` stays 1 — a resubmit no longer un-hides it — and `resubmitted` flips to 1 so `/admin/photos` flags a decision waiting. Restoring the submission clears both `taken_down` and `resubmitted`.

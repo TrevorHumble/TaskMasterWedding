@@ -125,9 +125,11 @@ Guests get instant rewards, see badges and standings, and stay active in the cel
 
 ### B2. Auto badges unlock at the right thresholds
 
-Steps: As a guest with fewer than 5 completed tasks, complete tasks one at a time (or use a guest token already near a threshold from the seed data) until you cross 5 completed tasks, watching the home page badges section after each submission.
+Steps: Pick a guest with **no profile photo set** and fewer than 5 completed tasks (a guest with a photo already holds one extra completion toward the threshold, see the note below), complete tasks one at a time (or use a guest token already near a threshold from the seed data) until you cross 5 completed tasks, watching the home page badges section after each submission.
 
-Expected: The **BLOOM** badge appears exactly when the 5th task is completed — not before. If you continue to 10 and 15, **BOUQUET** unlocks at 10 and **GARDEN** unlocks at 15. Badges never appear early.
+Expected: The **BLOOM** badge appears exactly when the 5th task is completed, not before. If you continue to 10 and 15, **BOUQUET** unlocks at 10 and **GARDEN** unlocks at 15. Badges never appear early.
+
+Note (issue #1060): the profile photo itself counts as one completed task toward these thresholds. A guest who already has a photo set reaches BLOOM at 4 real task completions, not 5, because the photo supplies the fifth. This is expected, not a bug: pick a photo-less guest for this check if you want a clean 5-completions crossing.
 
 - [ ] Pass/fail
 
@@ -237,7 +239,7 @@ Expected: That photo now wears a small crown mark on its tile. Because it is (fo
 
 ### B14. A new badge celebrates once, then the recap panel remembers it
 
-Steps: As a guest below 5 completed tasks, complete tasks until you cross the 5-task BLOOM threshold (same trigger as B2 above), watching the page that redirects you after the winning submission.
+Steps: As a guest with no profile photo set and below 5 completed tasks (see B2's note: a guest with a photo already holds one extra completion toward the threshold), complete tasks until you cross the 5-task BLOOM threshold (same trigger as B2 above), watching the page that redirects you after the winning submission.
 
 Expected: A "You earned a badge" celebration dialog opens automatically on that page load, showing the badge's name and art with a "Continue" button. Dismiss it, then reload the same page.
 
@@ -287,9 +289,9 @@ Expected: The task's position changes in the admin list, and the same new order 
 
 ### C6. Photo takedown hides a photo and recomputes badges
 
-Steps: Find a guest sitting exactly at a badge threshold (e.g. exactly 5 completed tasks, holding BLOOM). In `/admin/photos`, take down one of their photos.
+Steps: Find a guest with **no profile photo set**, sitting exactly at a badge threshold on real task completions alone (e.g. exactly 5 completed tasks, holding BLOOM). A guest who also has a profile photo holds one extra completion toward the threshold (issue #1060), so a photo takedown would need to drop them below 4, not 5, to revoke the badge; picking a photo-less guest keeps this check on the plain 5-completions boundary. In `/admin/photos`, take down one of their photos.
 
-Expected: The photo disappears from `/gallery` and from the guest's own home page immediately. Because their completed count just dropped below 5, the BLOOM badge is revoked — check the guest's profile or home page to confirm it no longer shows.
+Expected: The photo disappears from `/gallery` and from the guest's own home page immediately. Because their completed count just dropped below 5, the BLOOM badge is revoked, check the guest's profile or home page to confirm it no longer shows.
 
 - [ ] Pass/fail
 
@@ -297,7 +299,7 @@ Expected: The photo disappears from `/gallery` and from the guest's own home pag
 
 Steps: On `/admin/photos`, use the restore control on the same photo you took down in C6 (this calls the same `takedown`/`restore` pair of admin actions, just in reverse).
 
-Expected: The photo reappears in `/gallery` and on the guest's home page, and the BLOOM badge is re-granted once their completed count reaches 5 again.
+Expected: The photo reappears in `/gallery` and on the guest's home page, and the BLOOM badge is re-granted once their completed count reaches 5 again (or, for a guest with a profile photo, 4 real completions plus the photo).
 
 - [ ] Pass/fail
 

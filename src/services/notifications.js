@@ -64,8 +64,9 @@ const FETCH_LIMIT = PAGE_SIZE + 1;
 // whether the row is inert ("dead" — no link, greyed thumb), the row copy
 // (`parts`), and where it links (`href`). #644 owns the COMPLETE map so the
 // vocabulary has one author (plan step 1, matching that step's own table);
-// it emits badge_granted/badge_revoked/badge_removed itself — the four
-// moderation kinds (photo_takedown/photo_restore/comment_hidden/
+// it emits badge_granted/badge_revoked/badge_removed itself, and issue #1060
+// adds a fourth emitted kind, badge_revoked_photo (see that entry below). The
+// four moderation kinds (photo_takedown/photo_restore/comment_hidden/
 // comment_restored) get their MAP entries here but are actually EMITTED by
 // #783's moderation routes (src/routes/admin/moderation.js). #625 adds
 // crowd_favorite/crowd_favorite_lost as a THIRD emitter of this same map —
@@ -157,7 +158,7 @@ const KIND_VIEW = {
     dead: false,
     parts: (ev) => [
       { text: ev.badge_name, emphasis: true },
-      { text: ' left your profile — the hosts added a task' },
+      { text: ' left your profile. The hosts added a task.' },
     ],
     href: () => '/tasks',
   },
@@ -176,6 +177,25 @@ const KIND_VIEW = {
     dead: true,
     parts: (ev) => [{ text: ev.badge_name, emphasis: true }, { text: ' was removed by the hosts' }],
     href: () => null,
+  },
+  // The AVATAR-TRIGGERED threshold revoke (issue #1060: a guest's own
+  // POST /me/avatar/delete drops their thresholdCompletedCount below a
+  // BLOOM/BOUQUET/GARDEN boundary), kept as its own stored kind for the same
+  // reason badge_removed already has one (see the comment above it):
+  // badge_revoked's copy asserts a specific reason (the hosts added a task)
+  // that is only true for the recompute paths reached from a submission or
+  // task change, never true here, and its href to /tasks goes nowhere useful
+  // for a guest who just removed their own photo. `dead: false` and
+  // `href: '/me/edit'` (not `/tasks`), because putting the photo back is a
+  // real, reachable action, unlike badge_removed's dead end.
+  badge_revoked_photo: {
+    view: 'loss',
+    dead: false,
+    parts: (ev) => [
+      { text: ev.badge_name, emphasis: true },
+      { text: ' left with your profile photo. Add one back to earn it again.' },
+    ],
+    href: () => '/me/edit',
   },
   photo_takedown: {
     view: 'loss',

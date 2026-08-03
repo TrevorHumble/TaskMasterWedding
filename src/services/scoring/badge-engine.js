@@ -5,9 +5,9 @@
 // statement, consumed here AND by guest-badges.js's badgeWithHolders (the
 // badge detail page), so the statement itself lives in exactly one place
 // rather than being re-prepared in both, without handing every caller a raw
-// prepared statement to misuse. Requires ./points for getCompletedCount
-// (recomputeBadges' auto-threshold check) — one-directional (points.js never
-// requires this file back), so no cycle.
+// prepared statement to misuse. Requires ./points for getCompletedCount and
+// starterTaskContribution (thresholdCompletedCount's two terms, issue #1060),
+// one-directional (points.js never requires this file back), so no cycle.
 'use strict';
 
 const { db, AUTO_METRIC_BADGE_POINTS } = require('../../db');
@@ -28,11 +28,13 @@ const { TASK_BADGE_CODE_PREFIX } = require('../task-badges');
 // evaluation, no matter how many hops of top-level requires lead into
 // feed.js in between.
 const notifications = require('../notifications');
-const { getCompletedCount } = require('./points');
+const { getCompletedCount, starterTaskContribution } = require('./points');
 
 // ---------------------------------------------------------------------------
 // Canonical auto-badge thresholds. These MUST match the seeded `badges` rows
-// (section 02 seed.js): BLOOM=5, BOUQUET=10, GARDEN=15 completed tasks.
+// (section 02 seed.js): BLOOM=5, BOUQUET=10, GARDEN=15 against the threshold
+// count (thresholdCompletedCount below: visible task-linked submissions plus
+// the profile-photo starter task, issue #1060).
 //
 // Two shapes are exported on purpose:
 //   - BADGE_THRESHOLDS: array of { code, n } objects, used internally by
@@ -178,25 +180,60 @@ const stmtAllGuestIds = db.prepare('SELECT id FROM guests');
 // Auto-badge grant/revoke
 // ---------------------------------------------------------------------------
 
+// A guest's avatar_path alone, read for thresholdCompletedCount below. The
+// existing guest-row read that already carries avatar_path
+// (points.js's stmtBonusPoints) is module-private and not exported (issue
+// #1060), so this is a second, narrower statement over the same column for
+// this file's own need. starterTaskContribution (required from ./points
+// above) stays the single owner of what avatar_path MEANS (done, points,
+// counts): this statement only supplies the raw row it reads.
+const stmtGuestAvatarPath = db.prepare('SELECT avatar_path FROM guests WHERE id = ?');
+
 /**
- * Recompute every PER-GUEST badge kind for one guest: (a) the three AUTO
- * threshold badges based on their current completed-task count, and (b) every
- * 'metric' badge in the
- * registry (src/services/badges.js METRIC_BADGES), grant if its compute
- * function returns true, revoke the system row if it returns false. Special
- * and custom (admin-awarded) badges are NEVER touched here — this function
- * only ever writes/deletes `awarded_by = 'system'` rows (AC4).
+ * The single owner of "what counts toward a badge threshold" (issue #1060):
+ * a guest's visible, task-linked submission count (getCompletedCount) plus
+ * the profile-photo starter task's own contribution, read through
+ * starterTaskContribution (src/services/scoring/points.js), the single owner
+ * of the avatar_path rule. Exported so a caller elsewhere on screen (the
+ * next-badge nudge) counts the exact same way recomputeThresholdBadges below
+ * grants against, so the two numbers can never disagree: that agreement is
+ * the whole reason this function exists rather than staying a local
+ * expression inside recomputeThresholdBadges.
+ * @param {number} guestId
+ * @returns {number}
+ */
+function thresholdCompletedCount(guestId) {
+  const completed = getCompletedCount(guestId);
+  const guestRow = stmtGuestAvatarPath.get(guestId);
+  const starter = starterTaskContribution(guestRow);
+  return completed + starter.done_count;
+}
+
+/**
+ * Recompute the three AUTO threshold badges (BLOOM/BOUQUET/GARDEN) for one
+ * guest, keyed on thresholdCompletedCount (issue #1060) rather than the bare
+ * task-submission count. Split out of recomputeBadges (below) so a caller
+ * that only needs the threshold pass, an avatar write (POST /me/edit,
+ * POST /me/avatar/delete), never also runs the METRIC_BADGES loop: granting
+ * COMPLETIONIST off an avatar write, at an event with no live tasks, would be
+ * a real, unasked-for product change (isCompletionist qualifies trivially on
+ * an empty active-task set), and this narrow function is what keeps that
+ * from happening.
  *
- * Idempotent: running it repeatedly produces the same end state, so it is
- * safe to call after every submit, takedown, or restore.
+ * `revokeKind` (issue #1060) is the notification_events.kind recorded on a
+ * revoke, defaulting to 'badge_revoked' so recomputeBadges below (and every
+ * other existing caller) is unchanged. Only POST /me/avatar/delete passes
+ * 'badge_revoked_photo', naming the profile photo as the reason a threshold
+ * badge was lost.
  *
- * Wrapped in a transaction so the (possibly multiple) grant/revoke writes
- * either all apply or none do.
+ * Idempotent, and wrapped in its own transaction so the (possibly multiple)
+ * grant/revoke writes either all apply or none do.
  *
  * @param {number} guestId
+ * @param {string} [revokeKind='badge_revoked']
  */
-const recomputeBadges = db.transaction((guestId) => {
-  const completed = getCompletedCount(guestId);
+const recomputeThresholdBadges = db.transaction((guestId, revokeKind = 'badge_revoked') => {
+  const completed = thresholdCompletedCount(guestId);
 
   for (const { code, n } of BADGE_THRESHOLDS) {
     const badge = stmtBadgeByCode.get(code);
@@ -230,11 +267,36 @@ const recomputeBadges = db.transaction((guestId) => {
         stmtRevokeBadge.run(guestId, badge.id);
         // Issue #644 AC4: the guest_badges row this DELETE just removed is
         // the only record of the badge ever having been held — the event
-        // row is what lets the recap outlive it.
-        notifications.recordEvent(guestId, 'badge_revoked', { badgeId: badge.id });
+        // row is what lets the recap outlive it. revokeKind lets the
+        // caller (issue #1060) say WHY, defaulting to the original reason.
+        notifications.recordEvent(guestId, revokeKind, { badgeId: badge.id });
       }
     }
   }
+});
+
+/**
+ * Recompute every PER-GUEST badge kind for one guest: (a) the three AUTO
+ * threshold badges, via recomputeThresholdBadges above, keyed on
+ * thresholdCompletedCount (issue #1060: visible task-linked submissions plus
+ * the profile-photo starter), and (b) every 'metric' badge in the registry
+ * (src/services/badges.js METRIC_BADGES), grant if its compute function
+ * returns true, revoke the system row if it returns false. Special and
+ * custom (admin-awarded) badges are NEVER touched here. This function only
+ * ever writes/deletes `awarded_by = 'system'` rows (AC4).
+ *
+ * Idempotent: running it repeatedly produces the same end state, so it is
+ * safe to call after every submit, takedown, or restore.
+ *
+ * Wrapped in a transaction so the (possibly multiple) grant/revoke writes
+ * either all apply or none do. Nesting recomputeThresholdBadges' own
+ * transaction inside this one is safe: better-sqlite3 nests transaction
+ * functions via SAVEPOINTs.
+ *
+ * @param {number} guestId
+ */
+const recomputeBadges = db.transaction((guestId) => {
+  recomputeThresholdBadges(guestId);
 
   for (const code of Object.keys(METRIC_BADGES)) {
     const badge = stmtBadgeByCode.get(code);
@@ -476,6 +538,8 @@ module.exports = {
   BADGE_THRESHOLDS,
   AUTO_THRESHOLDS,
   badgeByCode,
+  thresholdCompletedCount,
+  recomputeThresholdBadges,
   recomputeBadges,
   recomputeTransferableBadges,
   recomputeAfterSubmissionChange,

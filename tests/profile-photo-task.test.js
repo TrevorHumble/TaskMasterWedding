@@ -6,9 +6,12 @@
 // the moment the avatar is removed, and returns the moment one is set again.
 // It is intentionally NOT a tasks/submissions row — the point flows through
 // scoring.starterTaskContribution (read by both getPoints and leaderboard),
-// so it never leaks into the public gallery/feed and never counts toward the
-// completed-task badge thresholds (BLOOM/BOUQUET/GARDEN, which count
-// submissions only).
+// so it never leaks into the public gallery/feed. Since issue #1060 it DOES
+// count toward the completed-task badge thresholds (BLOOM/BOUQUET/GARDEN):
+// scoring.thresholdCompletedCount adds the same starter contribution on top
+// of getCompletedCount's submission-only figure. That threshold behavior has
+// its own suite, tests/avatar-badge-threshold.test.js; this file stays
+// scoped to points only.
 //
 // Both real avatar-setting call sites are covered:
 //   - POST /join (signup) — the actual onboarding-time saveAvatar call site.

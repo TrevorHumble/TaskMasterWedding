@@ -40,6 +40,12 @@ const photos = require('../../services/photos');
 
 const { withBadgeMoment } = require('../../services/render-locals');
 
+// scoring.recomputeThresholdBadges (issue #1060): the profile photo now
+// counts toward the BLOOM/BOUQUET/GARDEN thresholds, so both avatar-write
+// routes below must recompute after their own UPDATE. Neither route
+// imported the scoring service before this issue.
+const scoring = require('../../services/scoring');
+
 // uploadRateLimiter (shared with POST /tasks/:id/submit, and with POST
 // /me/avatar/delete below — see src/routes/guest/shared.js) — one combined
 // per-guest budget, config.RATE_LIMIT_UPLOAD_MAX.
@@ -208,6 +214,24 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
       'UPDATE guests SET name = ?, avatar_path = ?, social_links = ?, pin = ? WHERE id = ?'
     ).run(name, newAvatarPath, socialJson, newPin, guest.id);
 
+    // Issue #1060: the profile photo now counts toward the
+    // BLOOM/BOUQUET/GARDEN thresholds (scoring.thresholdCompletedCount), so
+    // a save that sets the FIRST avatar can cross one on this same request,
+    // not only on the guest's next submission. Runs outside the
+    // `if (req.file)` branch above (which closes well before this point) so
+    // it fires once on the settled row regardless of which path wrote the
+    // avatar, and runs the narrow threshold-only recompute, never the full
+    // recomputeBadges, so this route can never grant COMPLETIONIST off an
+    // avatar write (see recomputeThresholdBadges' own doc comment). Wrapped
+    // and swallowed exactly the way src/services/submissions.js:615-619
+    // wraps its own recompute: a failure here must not turn a save that
+    // already committed into a 500 for the guest.
+    try {
+      scoring.recomputeThresholdBadges(guest.id);
+    } catch (err) {
+      console.error('recomputeThresholdBadges failed (POST /me/edit):', err);
+    }
+
     // A gate-rejected avatar already set its own error flash above — leave it
     // as the one the guest sees rather than clobbering it with the success
     // message below (setFlash writes a single one-shot cookie; see
@@ -239,6 +263,11 @@ router.post('/me/edit', uploadRateLimiter, function (req, res) {
 // point-clawback write needed. A later re-upload sets avatar_path again and
 // the point simply returns (mirrors POST /me/edit's replace path).
 //
+// Issue #1060 adds ONE more required write below: clearing the avatar can
+// also drop the guest below a BLOOM/BOUQUET/GARDEN threshold, which
+// starterTaskContribution's automatic point derivation does not cover on
+// its own, so recomputeThresholdBadges runs right after the UPDATE.
+//
 // No-op-but-safe when the guest has no avatar (idempotent redirect) — same
 // "nothing to delete" shape as POST /me/edit's replace-avatar branch, which
 // also only calls deleteOriginalFile when an old avatar actually exists.
@@ -264,6 +293,21 @@ router.post('/me/avatar/delete', uploadRateLimiter, function (req, res) {
       // Non-fatal — the column clear below is the contract, not the unlink.
     }
     db.prepare('UPDATE guests SET avatar_path = NULL WHERE id = ?').run(guest.id);
+
+    // Issue #1060: recompute right after the UPDATE, wrapped and swallowed
+    // the same way the POST /me/edit call above is (see that call's own
+    // comment): a failure here must not turn a delete that already
+    // committed into a 500 for the guest. Passes 'badge_revoked_photo' (not
+    // the default 'badge_revoked') so a threshold badge lost here reads in
+    // the recap as left with the profile photo (AC3), not the generic "the
+    // hosts added a task" copy, which would be false for a guest who just
+    // removed their own photo.
+    try {
+      scoring.recomputeThresholdBadges(guest.id, 'badge_revoked_photo');
+    } catch (err) {
+      console.error('recomputeThresholdBadges failed (POST /me/avatar/delete):', err);
+    }
+
     setFlash(res, 'success', 'Photo removed.');
   }
 
