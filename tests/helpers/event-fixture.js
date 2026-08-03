@@ -693,8 +693,10 @@ function seedEvent(db, options = {}) {
 
   const result = run();
 
-  // Recompute badges per guest from their actual visible-submission count,
-  // exactly like a real submit/takedown would: the per-guest auto/metric pass
+  // Recompute badges per guest from their actual threshold count (issue
+  // #1060: visible task-linked submissions plus the profile-photo starter,
+  // for any guest this fixture gave an avatar above), exactly like a real
+  // submit/takedown or avatar write would: the per-guest auto/metric pass
   // for each guest, then a single global transferable pass once all guests
   // exist (any registered transferable badge is a whole-population
   // comparison, so it only needs to run once at the end, not per guest).

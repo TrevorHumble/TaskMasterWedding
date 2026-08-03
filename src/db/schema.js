@@ -230,15 +230,20 @@ function applySchema(db) {
   -- are NOT stored here — they are DERIVED live by src/services/notifications.js
   -- from the likes/comments tables themselves, the same "derive over store"
   -- rule the rest of the scoring economy follows (economy-architecture.md
-  -- Rule 4). kind is the seven-value STORED vocabulary
-  -- (badge_granted/badge_revoked/badge_removed/photo_takedown/photo_restore/
-  -- comment_hidden/comment_restored) — deliberately NOT the view-treatment
+  -- Rule 4). kind is the eight-value STORED vocabulary
+  -- (badge_granted/badge_revoked/badge_removed/badge_revoked_photo/
+  -- photo_takedown/photo_restore/comment_hidden/comment_restored),
+  -- deliberately NOT the view-treatment
   -- vocabulary (announce/gold/photo/badge/loss) notifications.js maps it to;
   -- the two must never share a name (see that module's KIND_VIEW map).
   -- badge_revoked is the engine revoking a badge the guest no longer
-  -- qualifies for; badge_removed is a host un-awarding one by hand — they
-  -- read differently to the guest, so they are separate kinds. Only the
-  -- three badge_* kinds are emitted by this issue; #783 owns the
+  -- qualifies for; badge_removed is a host un-awarding one by hand; and
+  -- badge_revoked_photo (issue #1060) is the same engine revoking a
+  -- threshold badge specifically because the guest removed their own profile
+  -- photo, so the recap can name the photo instead of the generic reason.
+  -- The three revoke/remove kinds read differently to the guest, so they
+  -- stay separate. Only the three original badge_* kinds were emitted by
+  -- issue #644; #1060 adds the fourth, badge_revoked_photo. #783 owns the
   -- moderation emitters, which DO belong here (a moderation action, like a
   -- badge grant/revoke, is a fact about one specific guest with no other
   -- place to reconstruct it from). #778 (host announcements — a task going

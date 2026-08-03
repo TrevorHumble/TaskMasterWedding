@@ -56,9 +56,16 @@ router.get('/', function (req, res) {
   const todayIso = eventDays.eventLocalDateString(timezone);
   const totalActiveCount = reachableLiveTaskCount(todayIso, guest.id);
 
-  // Completed tasks for this guest — routed through scoring.getCompletedCount
-  // (issue #104) so this count can never drift from points and badges, which
-  // use the same canonical rule (visible submissions, no liveness filter).
+  // Completed tasks for this guest, routed through scoring.getCompletedCount
+  // (issue #104) so this count can never drift from points, which use the
+  // same canonical rule (visible submissions, no liveness filter). Badges no
+  // longer use this rule alone (issue #1060): the auto-badge thresholds now
+  // key on scoring.thresholdCompletedCount, this same figure plus the
+  // profile-photo starter's own contribution (starter.done_count, added into
+  // completedTasksWithStarter below). A guest with a photo therefore has a
+  // badge input exactly one higher than the bare completedTasks this
+  // comment describes; #1057's next-badge nudge must derive its remaining
+  // count from thresholdCompletedCount, not from this getCompletedCount call.
   const completedTasks = scoring.getCompletedCount(guest.id);
 
   // Issue #409: the hardcoded "Upload your profile photo" starter task is a

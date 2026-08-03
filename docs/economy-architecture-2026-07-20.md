@@ -38,7 +38,7 @@ of `src/services/scoring.js` as it stands.
 "Active" is about to mean: not deleted, not hidden (`special_mode`, #682), and not a
 future-dated challenge (#624). At least five call sites ask the question: the guest task
 list, the submit gate (src/services/submissions.js), COMPLETIONIST's task set
-(src/services/badges.js), the next-badge nudge (#653), and the lucky/flash task pickers
+(src/services/badges.js), the next-badge nudge (#1057), and the lucky/flash task pickers
 (#649/#650).
 
 **Rule:** one owner (a function or SQL fragment exported from one module) answers "which
@@ -46,6 +46,17 @@ tasks are live for guests right now"; every surface consumes it. A second hand-w
 `is_active`/`special_mode` predicate anywhere is a defect. This is also what keeps
 COMPLETIONIST honest: #624's challenge tasks are excluded from its set by the owner
 definition, in one place.
+
+Amended by #1060: the badge-threshold input this rule's own consumers care about (the
+next-badge nudge chief among them) is no longer just "visible task-linked submissions."
+`scoring.thresholdCompletedCount` (src/services/scoring/badge-engine.js) is now the single
+owner of what counts toward BLOOM/BOUQUET/GARDEN: getCompletedCount's submission figure
+plus the profile-photo starter task's own contribution. This is a sibling rule to rule 2's
+"active task" definition, not a change to it: rule 2 still answers which real tasks are
+live, and thresholdCompletedCount composes that answer's downstream count (getCompletedCount)
+with one further term. Every consumer of the threshold count reads thresholdCompletedCount,
+never a bare getCompletedCount call, so the badge grant and any surface displaying progress
+toward it can never disagree again.
 
 ## 3. One banked-bonus shape
 

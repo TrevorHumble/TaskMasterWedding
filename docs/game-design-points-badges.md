@@ -80,7 +80,10 @@ dies.
 - **Automatic set.** First Bloom (5 tasks), Bouquet Builder (10), Full Garden (15), and
   Completionist (every currently active task) are granted and revoked automatically as a
   guest's submissions and the active task set change — Completionist's revoke-on-task-change
-  behavior is #701. Each pays +1 while held (point source 7 above).
+  behavior is #701. Since #1060, "5/10/15 tasks" also counts the profile-photo starter task:
+  a guest with a photo and 4 real submissions holds First Bloom, the photo supplies the
+  fifth completion (`scoring.thresholdCompletedCount`, the single owner of that count).
+  Each pays +1 while held (point source 7 above).
 - **Task badges.** Every task has exactly one badge, required at task creation, picked
   from the bundled icon set (#682 + #410). Completing the task does not earn the badge —
   the card copy reads "Best photo wins [badge]," prize framing, not participation framing.
@@ -165,7 +168,7 @@ for the dead placeholders.
   badge dropdown, custom-badge form, and guest-level bonus points are currently live) ·
   Per-photo points route removal: #684 (closed)
 - Reward delivery: #644 (recap) + #611 (success screen slots for bonus receipts)
-- Display surfaces: #489/#490 (medals — #490's TOPSHOT half is dead), #653 (next-badge nudge), #646 (host checklist), #363 (badge art), #469 (prizes)
+- Display surfaces: #489/#490 (medals, #490's TOPSHOT half is dead), #1057 (next-badge nudge), #646 (host checklist), #363 (badge art), #469 (prizes)
 - #647 (Couple's Heart): the couple's gold heart is a like marker and pays nothing —
   unrelated to the gold badge rule above. Do not conflate the two golds.
 - #368 (memory task card): its point mechanic is superseded by #656; only the pinned card

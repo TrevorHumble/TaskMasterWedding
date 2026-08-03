@@ -1414,15 +1414,19 @@ likes and 3 new ones still reads 3", never a lifetime total). Comments sit with 
 per-event identity the way a like batch does not.
 
 **`kind` is two vocabularies, deliberately not one.** `notification_events.kind` is the STORED fact
-(`badge_granted`, `badge_revoked`, `badge_removed` — the last split from `badge_revoked` in PR review,
-see below — and four more #783/#778 will emit: `photo_takedown`, `photo_restore`, `comment_hidden`,
-`comment_restored`). `src/services/notifications.js`'s `KIND_VIEW` map is the separate VIEW treatment
-(`badge`, `loss`, `photo`, plus `announce`/`gold` from #778/#647) the frozen phase-1 markup renders as
-`.recap-row-<view>`. Four stored kinds collapse onto the single view treatment `loss`
-(`badge_revoked`/`badge_removed`/`photo_takedown`/`comment_hidden`) — that collision is exactly why the
-two can never be the same field. #644 owns the complete map (all seven stored kinds), even though it
-emits only three of them; #783 wires the emitters for the other four against a map that already has
-their row waiting.
+(`badge_granted`, `badge_revoked`, `badge_removed`, the last split from `badge_revoked` in PR review,
+see below, plus `badge_revoked_photo` (issue #1060, shipped: the same engine revoking a threshold
+badge specifically because the guest removed their own profile photo), and four more #783/#778 will
+emit: `photo_takedown`, `photo_restore`, `comment_hidden`, `comment_restored`).
+`src/services/notifications.js`'s
+`KIND_VIEW` map is the separate VIEW treatment (`badge`, `loss`, `photo`, plus `announce`/`gold` from
+#778/#647) the frozen phase-1 markup renders as `.recap-row-<view>`. Five stored kinds collapse onto
+the single view treatment `loss`
+(`badge_revoked`/`badge_removed`/`badge_revoked_photo`/`photo_takedown`/`comment_hidden`). That
+collision is exactly why the two can never be the same field. #644 owns the complete map (all eight
+stored kinds today), even though it emits only three of them; #783 wires the emitters for the four
+moderation kinds against a map that already has their row waiting; #1060 adds the eighth,
+`badge_revoked_photo`, as both map entry and emitter in the same issue.
 
 **`badge_revoked` split into `badge_revoked` (system) and `badge_removed` (host) — found in PR
 review.** `scoring.js`'s `removeSpecialBadge` (a host un-awarding a mistakenly-given special/custom
@@ -4154,3 +4158,42 @@ in the same stream for a `reqId` grep to find both together. But `logRequestErro
 short one-line summary to `console.error`, so a host or container platform's own alerting rule that
 watches stderr for a 500 does not go silent just because the detailed record moved to a structured
 stdout line the rule was never watching in the first place.
+
+## The profile photo now counts toward the badge thresholds: `thresholdCompletedCount` (#1060)
+
+**Date:** 2026-08-02. **Status:** shipped.
+
+The profile photo was already a real task everywhere a guest could see it: it counted in the home
+progress bar's numerator, rendered as a counted row on `/tasks`, and paid a point. The one place it
+did not count was the auto-badge thresholds (BLOOM/BOUQUET/GARDEN), which keyed on
+`getCompletedCount`, a count of task-linked submissions with no notion of `avatar_path`. That gap was
+invisible as long as nothing on screen showed both scales at once. #1057's next-badge nudge puts them
+side by side: a guest reading "9 of 21 tasks complete" directly above "2 tasks to Bouquet Builder"
+would find the two numbers do not add up if the photo counts for one but not the other. The owner's
+call was to fix the disagreement at its source (make the badge threshold agree with the progress bar),
+not to reword the nudge around a known inconsistency.
+
+`thresholdCompletedCount(guestId)` (`src/services/scoring/badge-engine.js`) is now the single owner of
+what counts toward a badge threshold: `getCompletedCount`'s submission figure plus the profile-photo
+starter's own contribution, read through `starterTaskContribution` (`src/services/scoring/points.js`),
+which already owned the `avatar_path` -> done/points rule for the progress bar and the tasks page.
+Composing through that existing owner, rather than re-deriving `!!avatar_path` a second time, is what
+guarantees the badge and the progress-bar numerator can never drift apart again: they are now
+arithmetically the same figure by construction, not by two authors happening to agree today.
+
+`recomputeBadges` splits into `recomputeThresholdBadges` (the BLOOM/BOUQUET/GARDEN loop alone) and the
+pre-existing `METRIC_BADGES` loop, called in that order. The split exists because the two avatar-write
+routes (`POST /me/edit`, `POST /me/avatar/delete`) need to recompute thresholds on every write, since a
+guest can cross a boundary by adding or removing their photo alone, but must never also run the
+metric pass: `COMPLETIONIST` qualifies trivially at an event with no live tasks, so wiring the full
+`recomputeBadges` into an avatar write would grant Completionist off a photo upload, a real product
+change nobody asked for. `POST /join` is deliberately excluded from both: a guest's row is inserted in
+that same request with zero submissions, so no threshold is reachable there and a recompute would be
+dead code on a guest-critical signup path.
+
+A threshold revoke reached from `POST /me/avatar/delete` carries its own stored `notification_events`
+kind, `badge_revoked_photo`, rather than reusing `badge_revoked`: the existing kind's copy ("the hosts
+added a task") is false when the guest removed their own photo, and its `/tasks` link goes nowhere
+useful for that case. `recomputeThresholdBadges` takes the revoke kind as a parameter, defaulting to
+`badge_revoked` so every other caller (including `POST /me/edit`, which cannot revoke a threshold
+badge in practice) is unchanged.
