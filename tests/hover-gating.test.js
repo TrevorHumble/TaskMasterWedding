@@ -28,15 +28,17 @@
 // before/after comparison would be vacuous).
 //
 // One further assertion names a selector outright: the AC3 check that the
-// mixed group's ":focus-within" / ":has(.admin-fav-on)" members stay UNgated.
-// That selector is the one the issue settles by name, so pinning its text is
-// the point -- if it is rewritten, this test should be re-read, not silently
-// keep passing against a rule that no longer exists.
+// mixed group's ":focus-within" / favorited-photo members stay UNgated. That
+// selector is the one the issue settles by name, so pinning its text is the
+// point -- if it is rewritten, this test should be re-read, not silently keep
+// passing against a rule that no longer exists. It HAS been rewritten once
+// (#922); the assertion's own comment carries that history.
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const { themeSheetNames } = require('./helpers/theme-css');
+const { stripCssComments } = require('./helpers/source-text');
 
 const CSS_DIR = path.join(__dirname, '..', 'src', 'public', 'css');
 
@@ -54,7 +56,9 @@ const HOVER_SELECTOR_RE = /:hover\b/i;
  * @returns {string}
  */
 function stripCssNoise(css) {
-  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Comment removal composes over stripCssComments (#922), the repo's single
+  // owner of that rule -- this function adds only the string-emptying half.
+  const noComments = stripCssComments(css);
   return noComments.replace(/'(?:[^'\\]|\\.)*'/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""');
 }
 
@@ -168,18 +172,25 @@ describe('hover-only styles are gated behind @media (hover: hover) (#921)', () =
     expect(ungated).toEqual([]);
   });
 
-  test('.admin-tile:focus-within / .admin-tile-actions:has(...) group stays ungated (AC3 non-hover exception)', () => {
+  test('.admin-tile:focus-within / .admin-tile-actions favorite group stays ungated (AC3 non-hover exception)', () => {
     // AC3 requires this exact mixed selector group -- the non-":hover"
     // members that must NOT be wrapped in "(hover: hover)" -- stays reachable
-    // without a hover event (focus-within for keyboard/AT users, :has() for
-    // a favorited heart). Locate it by name rather than asserting some
-    // generic "a non-hover rule exists somewhere", which would pass for any
-    // non-empty corpus and prove nothing about this specific promise.
+    // without a hover event (focus-within for keyboard/AT users, the
+    // favorited-heart state for a favorited photo). Locate it by name rather
+    // than asserting some generic "a non-hover rule exists somewhere", which
+    // would pass for any non-empty corpus and prove nothing about this
+    // specific promise.
+    //
+    // The favorite half was `.admin-tile-actions:has(.admin-fav-on)` until
+    // #922 replaced it with the server-stamped `.admin-tile-actions-fav-on`
+    // class, because a :has()-less phone browser failed the reveal closed.
+    // What AC3 promises is that the group stays out of "(hover: hover)", not
+    // which selector expresses the favorite state, so the pin moved with it.
     const rules = collectRules(readSheet('admin.css'));
     const focusWithinRule = rules.find(
       (r) =>
         r.selector.replace(/\s+/g, ' ').trim() ===
-        '.admin-tile:focus-within .admin-tile-actions, .admin-tile-actions:has(.admin-fav-on)'
+        '.admin-tile:focus-within .admin-tile-actions, .admin-tile-actions.admin-tile-actions-fav-on'
     );
     expect(focusWithinRule).toBeDefined();
     expect(focusWithinRule.mediaConditions).toEqual([]);

@@ -8,15 +8,14 @@
     takes, so the create flow and the edit popup are the same control and
     cannot drift.
 
-    The panel is shown by CSS alone
-    (.special-option-group:has(.special-option input:checked)), not
-    JavaScript — the same mechanism the worth chips, the Special radio and
-    #755's day/bonus accordion already use. The `.special-option` scope in
-    that selector is load-bearing: this panel's own Starts chips include an
-    always-checked `flash_start_mode="now"` radio, and an unscoped
-    `:has(input:checked)` would hold the whole accordion open from first
-    paint regardless of which Special option is picked. The day+time
-    sub-panel opens the same way, off the "Starts" chips.
+    The panel is shown by the `.special-active` class, set by admin-tasks.js's
+    syncSpecialPanels() (issue #918) — not a `:has(input:checked)` selector;
+    see that file's own comment on `.special-panel` for why. The day+time
+    sub-panel opens the same way, off the "Starts" chips: the
+    `.flash-later-active` class, also set by syncSpecialPanels(). The Special
+    radio's own selection highlight (admin-tasks.css's `.special-option
+    input:checked + .special-option-face`, issue #922) is a sibling rule, not
+    `:has()` either, for the same single-owner reasoning.
 
     "Flash" is NOT a stored special_mode (src/services/tasks.js's MODES list
     deliberately excludes it — a flash reverts on its own when the window ends,

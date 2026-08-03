@@ -9,10 +9,12 @@
     their own sibling partials in the same .special-option-group shape; none of
     them restructure the existing None/Hidden markup.
 
-    The panel is shown by CSS alone (.special-option-group:has(input:checked)),
-    not JavaScript — same `:has(input:checked)` mechanism the worth chips and
-    the Special radio already use, so it needs no admin-tasks.js wiring and
-    works before that script loads.
+    The panel is shown by the `.special-active` class, set by admin-tasks.js's
+    syncSpecialPanels() (issue #918) — not a `:has(input:checked)` selector;
+    see that file's own comment on `.special-panel` for why. The Special
+    radio's own selection highlight (admin-tasks.css's `.special-option
+    input:checked + .special-option-face`, issue #922) is a sibling rule, not
+    `:has()` either, for the same single-owner reasoning.
 
     Locals:
       idPrefix   — 'task-create' | 'task-edit'; keeps element ids unique when

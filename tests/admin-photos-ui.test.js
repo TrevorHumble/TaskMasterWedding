@@ -225,6 +225,16 @@ describe('AC4: favorite persists and shows red on tile + feed card', () => {
     expect(chunk).toContain('aria-pressed="true"');
   });
 
+  // Issue #922 AC4: the reveal that keeps a favorited tile's controls
+  // visible has exactly one owner now — a class stamped server-side from
+  // the same p._fav that colors the heart, not a `:has(.admin-fav-on)`
+  // selector (which fails closed on a :has()-less phone browser).
+  it("the favorited tile's .admin-tile-actions carries the server-stamped reveal class (#922 AC4)", async () => {
+    const res = await adminAgent.get('/admin/photos?view=fav');
+    const chunk = tileChunk(res.text, 'ac4-t.jpg');
+    expect(chunk).toContain('admin-tile-actions admin-tile-actions-fav-on');
+  });
+
   it('the inline feed card for the same photo also shows the red (liked) heart', async () => {
     const res = await adminAgent.get('/admin/photos');
     const chunk = feedCardChunk(res.text, submissionId);
@@ -259,6 +269,44 @@ describe('AC4: favorite persists and shows red on tile + feed card', () => {
   it('favoriting an unknown submission id redirects with "Submission not found."', async () => {
     const res = await adminAgent.post('/admin/photos/999999/favorite').type('form').send({});
     expect(decodeURIComponent(res.headers.location)).toMatch(/Submission not found\./);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #922 AC4: only the favorited tile carries the reveal class, and
+// admin.css's reveal rule reads that class rather than a `:has()` selector.
+// ---------------------------------------------------------------------------
+describe('AC4 (#922): unfavorited tiles carry no reveal class; admin.css owns the rule via the class', () => {
+  it("an unfavorited tile's .admin-tile-actions carries no fav-on class", async () => {
+    const taskId = insertTask('AC4-922 Task');
+    const guestId = insertGuest('AC4-922 Guest', 'ac4-922-guest');
+    insertSubmission({
+      guestId,
+      taskId,
+      photoPath: 'ac4-922.jpg',
+      thumbPath: 'ac4-922-t.jpg',
+    });
+
+    const res = await adminAgent.get('/admin/photos');
+    const chunk = tileChunk(res.text, 'ac4-922-t.jpg');
+    expect(chunk).toContain('class="admin-tile-actions"');
+    expect(chunk).not.toContain('admin-tile-actions-fav-on');
+  });
+
+  it('admin.css reveals the actions via .admin-tile-actions-fav-on, not a :has() selector', () => {
+    const fs = require('fs');
+    const path = require('path');
+    // Comments stripped first via the shared owner of that rule (#922): the
+    // replacement rule left a comment behind naming the `:has()` selector it
+    // is NOT, and a raw read would match that prose and fail on correct code.
+    // It passes raw today only because a line break happens to fall inside
+    // that comment's selector name -- rewording it would turn this red.
+    const { stripCssComments } = require('./helpers/source-text');
+    const css = stripCssComments(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'css', 'admin.css'), 'utf8')
+    );
+    expect(css).toMatch(/\.admin-tile-actions\.admin-tile-actions-fav-on\s*\{/);
+    expect(css).not.toMatch(/\.admin-tile-actions:has\(/);
   });
 });
 

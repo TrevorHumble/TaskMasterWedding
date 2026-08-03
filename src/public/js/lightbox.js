@@ -17,9 +17,11 @@
 // The overlay is built once, lazily, and reused. showModal() renders it in
 // the top layer (escaping .feed-item's content-visibility containment, the
 // same reason the #248 comments dialog is a <dialog>), makes the background
-// inert, and closes on Escape natively; feed.css's `body:has(dialog[open])`
-// rule freezes the page scroll while it is open, so the underlying page is
-// exactly where it was when the overlay closes.
+// inert, and closes on Escape natively; src/public/js/dialog-scroll-lock.js
+// (#922) freezes the page scroll while it is open — its MutationObserver
+// picks up this overlay the moment it first gains `open`, even though it is
+// created lazily, well after that script has already run — so the
+// underlying page is exactly where it was when the overlay closes.
 //
 // Social row (guest surfaces only): a trigger that carries the optional
 // data-lightbox-* social hooks renders a like/comment row inside the overlay;
@@ -283,7 +285,7 @@
   });
 
   // Restore the pre-open scroll position on close (browser Back closes the
-  // top-layer dialog too, firing this same event). `body:has(dialog[open])`
+  // top-layer dialog too, firing this same event). dialog-scroll-lock.js
   // froze the scroll while open; this guards against any focus-driven shift.
   document.addEventListener(
     'close',

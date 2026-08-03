@@ -36,6 +36,32 @@
   var saveBtn = document.getElementById('badge-picker-save');
   var cells = Array.prototype.slice.call(form.querySelectorAll('.badge-picker-cell'));
 
+  // Selection/focus highlight (issue #922): this cell is the radio's PARENT,
+  // which no sibling CSS combinator can reach, so this script is the single
+  // owner of both state classes admin-tasks.css reads — replacing the
+  // `:has(.badge-picker-radio:checked)` / `:has(.badge-picker-radio:focus-
+  // visible)` rules that used to read the radios directly. See that file's
+  // own comment for why a `:has()`-less phone browser needed this fixed.
+  var CELL_SELECTED = 'badge-picker-cell-selected';
+  var CELL_FOCUS = 'badge-picker-cell-focus';
+
+  // Whether this engine can parse `:focus-visible` at all, probed once.
+  // matches() THROWS a SyntaxError on a selector it cannot parse rather than
+  // returning false, and an unsupported pseudo-class is a parse error — so on
+  // the pre-15.4 Safari this issue exists to serve, an unguarded call would
+  // raise an uncaught exception on every focus and every keypress. Probing
+  // once is also cheaper than a try/catch on each of those events. The engines
+  // that fail this probe simply get no focus ring, which is what they render
+  // today.
+  var SUPPORTS_FOCUS_VISIBLE = (function () {
+    try {
+      document.createElement('input').matches(':focus-visible');
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  })();
+
   // Search text per cell: the display name PLUS every tag from
   // badge-icon-tags.js (loaded before this file), so typing any related word
   // ("hangover", "booze", "bride") surfaces the icon, not just its name.
@@ -51,6 +77,47 @@
       ((cell.getAttribute('data-name') || '') + ' ' + tagText).toLowerCase()
     );
   });
+
+  // Focus ring, wired separately from the search-text pass above so the two
+  // concerns stay findable on their own.
+  //
+  // Sampled on `focus`, `blur` AND `keydown` — not `focus` alone, which would
+  // paint the ring on a finger tap on every engine (a real visible change
+  // forbidden by this issue's render-identical premise; the same reasoning
+  // src/public/css/guest.css:1503-1505 already documents for :focus-visible
+  // generally). A host who clicks a cell (focus lands WITHOUT :focus-visible)
+  // and then presses an arrow or Enter is promoted to :focus-visible by the
+  // browser with no new `focus` event — the `keydown` sample is what keeps the
+  // class live for that promotion instead of stuck at its focus-time snapshot.
+  // Both events route through one sampler so the two can never drift apart.
+  cells.forEach(function (cell) {
+    var radio = cell.querySelector('.badge-picker-radio');
+    if (!radio) return;
+
+    function syncFocusCell() {
+      cell.classList.toggle(CELL_FOCUS, SUPPORTS_FOCUS_VISIBLE && radio.matches(':focus-visible'));
+    }
+
+    radio.addEventListener('focus', syncFocusCell);
+    radio.addEventListener('keydown', syncFocusCell);
+    radio.addEventListener('blur', function () {
+      cell.classList.remove(CELL_FOCUS);
+    });
+  });
+
+  // Clears the selected-cell class from every cell, then (if `radio` is
+  // given) sets it on that radio's own cell — the single place both
+  // `selectIcon` (a real pick) and `openFor` (the programmatic uncheck on
+  // reopen, which fires no `change` event) route through, so a reopened
+  // dialog never strands a previous task's highlight on a cell the host
+  // never touched this time.
+  function setSelectedCell(radio) {
+    cells.forEach(function (cell) {
+      cell.classList.remove(CELL_SELECTED);
+    });
+    var cell = radio && radio.closest('.badge-picker-cell');
+    if (cell) cell.classList.add(CELL_SELECTED);
+  }
 
   // The display name the host last accepted as auto-filled, so re-picking a
   // different icon updates the name only while the host hasn't typed their own.
@@ -74,6 +141,7 @@
     previewIcon.hidden = false;
     preview.classList.remove('badge-medallion-empty');
     saveBtn.disabled = false;
+    setSelectedCell(radio);
 
     // Suggest the icon's name the first time / while the host hasn't overridden.
     if (!nameInput.value || nameInput.value === autoFilledName) {
@@ -106,6 +174,11 @@
 
     var checked = form.querySelector('.badge-picker-radio:checked');
     if (checked) checked.checked = false;
+    // Programmatic uncheck fires no `change` event, so `selectIcon` never
+    // runs here — this is the OTHER path (AC3) that must clear the selected-
+    // cell class, or a reopened dialog would strand the previous task's
+    // highlight on a cell the host never touched this time.
+    setSelectedCell(null);
     clearPreview();
 
     search.value = '';

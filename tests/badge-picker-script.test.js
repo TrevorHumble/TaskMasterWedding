@@ -138,6 +138,22 @@ function loadBadgePicker(options) {
     dom.window.BadgeIconTags = opts.tags || { favorite: ['love', 'romance'], star: ['gold'] };
   }
 
+  // Issue #922: stands in for an engine that cannot parse `:focus-visible`
+  // (Safari < 15.4, inside the same pre-`:has()` band this issue serves).
+  // matches() THROWS on a selector it cannot parse rather than returning
+  // false, which is why badge-picker.js probes support once at load instead
+  // of calling matches() bare on every focus and keypress. Patched on the
+  // prototype BEFORE the script is required, so the probe itself sees it.
+  if (opts.focusVisibleUnsupported) {
+    const realMatches = dom.window.Element.prototype.matches;
+    dom.window.Element.prototype.matches = function (selector) {
+      if (selector === ':focus-visible') {
+        throw new dom.window.DOMException("Unknown pseudo-class ':focus-visible'", 'SyntaxError');
+      }
+      return realMatches.call(this, selector);
+    };
+  }
+
   delete require.cache[require.resolve(BADGE_ICON_MASK_JS_PATH)];
   require(BADGE_ICON_MASK_JS_PATH);
 
@@ -316,6 +332,142 @@ describe('badge-picker.js backdrop dismissal (issue #879 AC1/AC2/AC3)', () => {
     pointerdown(doc, dialogEl);
     clickOnDialog(doc, dialogEl);
     expect(dialogEl.open).toBe(true);
+
+    restore();
+  });
+});
+
+describe('badge-picker.js selection/focus cell classes (issue #922 AC3)', () => {
+  test('a change event sets the selected class on exactly the newly-picked cell', () => {
+    const { doc, restore } = loadBadgePicker();
+    const heartRadio = doc.querySelector('.badge-picker-radio[data-name="Heart"]');
+    const heartCell = heartRadio.closest('.badge-picker-cell');
+    const starCell = doc.querySelector('.badge-picker-cell[data-name="star"]');
+
+    heartRadio.checked = true;
+    change(doc, heartRadio);
+
+    expect(heartCell.classList.contains('badge-picker-cell-selected')).toBe(true);
+    expect(starCell.classList.contains('badge-picker-cell-selected')).toBe(false);
+
+    restore();
+  });
+
+  test("openFor()'s programmatic uncheck (no change event) clears the selected class, and a reopen never strands a previous pick", () => {
+    const { doc, restore } = loadBadgePicker();
+    const heartRadio = doc.querySelector('.badge-picker-radio[data-name="Heart"]');
+    const heartCell = heartRadio.closest('.badge-picker-cell');
+
+    heartRadio.checked = true;
+    change(doc, heartRadio); // a real pick, fires selectIcon
+    expect(heartCell.classList.contains('badge-picker-cell-selected')).toBe(true);
+
+    // openFor() programmatically unchecks the previous radio — no 'change'
+    // event fires for that, so setSelectedCell(null) is the only thing that
+    // can clear the class here.
+    click(doc, doc.querySelector('.badge-choose-btn'));
+
+    expect(heartCell.classList.contains('badge-picker-cell-selected')).toBe(false);
+
+    const starRadio = doc.querySelector('.badge-picker-radio[data-name="Star"]');
+    const starCell = starRadio.closest('.badge-picker-cell');
+    starRadio.checked = true;
+    change(doc, starRadio);
+
+    expect(starCell.classList.contains('badge-picker-cell-selected')).toBe(true);
+    expect(heartCell.classList.contains('badge-picker-cell-selected')).toBe(false);
+
+    restore();
+  });
+
+  test('a finger-tap focus (matches(":focus-visible") false) paints no focus class', () => {
+    const { doc, restore } = loadBadgePicker();
+    const heartRadio = doc.querySelector('.badge-picker-radio[data-name="Heart"]');
+    const heartCell = heartRadio.closest('.badge-picker-cell');
+
+    heartRadio.matches = function (selector) {
+      if (selector === ':focus-visible') return false;
+      return Object.getPrototypeOf(heartRadio).matches.call(heartRadio, selector);
+    };
+    heartRadio.dispatchEvent(new doc.defaultView.Event('focus'));
+
+    expect(heartCell.classList.contains('badge-picker-cell-focus')).toBe(false);
+
+    restore();
+  });
+
+  test('a keyboard focus (matches(":focus-visible") true) paints the focus class on exactly that cell, and clears it on blur', () => {
+    const { doc, restore } = loadBadgePicker();
+    const heartRadio = doc.querySelector('.badge-picker-radio[data-name="Heart"]');
+    const heartCell = heartRadio.closest('.badge-picker-cell');
+    const starCell = doc.querySelector('.badge-picker-cell[data-name="star"]');
+
+    heartRadio.matches = function (selector) {
+      if (selector === ':focus-visible') return true;
+      return Object.getPrototypeOf(heartRadio).matches.call(heartRadio, selector);
+    };
+    heartRadio.dispatchEvent(new doc.defaultView.Event('focus'));
+
+    expect(heartCell.classList.contains('badge-picker-cell-focus')).toBe(true);
+    expect(starCell.classList.contains('badge-picker-cell-focus')).toBe(false);
+
+    heartRadio.dispatchEvent(new doc.defaultView.Event('blur'));
+    expect(heartCell.classList.contains('badge-picker-cell-focus')).toBe(false);
+
+    restore();
+  });
+
+  test('a click-then-keydown promotion to :focus-visible paints the cell WITHOUT a fresh focus event', () => {
+    const { doc, restore } = loadBadgePicker();
+    const heartRadio = doc.querySelector('.badge-picker-radio[data-name="Heart"]');
+    const heartCell = heartRadio.closest('.badge-picker-cell');
+
+    // The click-focus case: focus lands without :focus-visible matching.
+    heartRadio.matches = function (selector) {
+      if (selector === ':focus-visible') return false;
+      return Object.getPrototypeOf(heartRadio).matches.call(heartRadio, selector);
+    };
+    heartRadio.dispatchEvent(new doc.defaultView.Event('focus'));
+    expect(heartCell.classList.contains('badge-picker-cell-focus')).toBe(false);
+
+    // The browser promotes the SAME focus to :focus-visible on a keydown, with
+    // no new 'focus' event — a bare focus listener would miss this entirely.
+    heartRadio.matches = function (selector) {
+      if (selector === ':focus-visible') return true;
+      return Object.getPrototypeOf(heartRadio).matches.call(heartRadio, selector);
+    };
+    heartRadio.dispatchEvent(new doc.defaultView.Event('keydown'));
+
+    expect(heartCell.classList.contains('badge-picker-cell-focus')).toBe(true);
+
+    restore();
+  });
+
+  test('on an engine where matches(":focus-visible") throws, the picker still loads and focus/keydown paint nothing instead of raising', () => {
+    const { dom, doc, restore } = loadBadgePicker({ focusVisibleUnsupported: true });
+    const heartRadio = doc.querySelector('.badge-picker-radio[data-name="Heart"]');
+    const heartCell = heartRadio.closest('.badge-picker-cell');
+
+    // An exception thrown inside a listener does NOT propagate out of
+    // dispatchEvent -- the DOM reports it as an uncaught error on the window
+    // instead. So a `.not.toThrow()` around the dispatch would pass against
+    // an unguarded matches() call and prove nothing; the window 'error'
+    // event is what actually witnesses the failure.
+    const errors = [];
+    dom.window.addEventListener('error', (event) => {
+      errors.push(event.message || String(event.error));
+    });
+
+    // The rest of the picker must still be wired: a probe that threw at load
+    // would have bailed out of the IIFE and bound no listeners at all.
+    change(doc, heartRadio);
+    expect(heartCell.classList.contains('badge-picker-cell-selected')).toBe(true);
+
+    heartRadio.dispatchEvent(new doc.defaultView.Event('focus'));
+    heartRadio.dispatchEvent(new doc.defaultView.Event('keydown'));
+
+    expect(errors).toEqual([]);
+    expect(heartCell.classList.contains('badge-picker-cell-focus')).toBe(false);
 
     restore();
   });

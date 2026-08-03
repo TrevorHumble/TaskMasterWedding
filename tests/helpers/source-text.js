@@ -217,4 +217,22 @@ function stripComments(source) {
   return scan(source, 0, false).result;
 }
 
-module.exports = { stripComments };
+// Issue #922: the CSS twin of stripComments, for tests that assert over
+// stylesheet source text. Every `:has()` rule #922 replaced left a comment
+// behind naming the `:has()` selector it is NOT, so a raw read of the sheet
+// matches the prose that documents the fix and fails against correct code.
+// Route every CSS source assertion through this rather than restating the
+// regex per test file, for the same reason stripComments above exists. A
+// caller that needs to strip more than comments composes over this rather
+// than carrying its own copy.
+//
+// CSS has only block comments, and they do not nest, so a single regex is
+// the whole job -- no character scanner needed. A `/*` inside a quoted CSS
+// string (e.g. `content: "/*"`) would be mistaken for a comment opener; no
+// sheet in this repo writes one, and a test asserting over such a string
+// should read the sheet raw instead.
+function stripCssComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+module.exports = { stripComments, stripCssComments };

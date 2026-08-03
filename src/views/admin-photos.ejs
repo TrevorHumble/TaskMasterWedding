@@ -102,7 +102,7 @@
       <% } %>
     <% } %>
 
-    <div class="admin-tile-actions">
+    <div class="admin-tile-actions<%= p._fav ? ' admin-tile-actions-fav-on' : '' %>">
       <form method="post" action="/admin/photos/<%= p.id %>/favorite">
         <%- include('partials/csrf-field') %>
         <input type="hidden" name="view" value="<%= view %>">

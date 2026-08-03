@@ -17,6 +17,14 @@
     for the whole page from the earliest possible moment regardless. %>
 <script src="/js/csrf.js"></script>
 
+<%# Issue #922: the single owner of the page-scroll lock behind an open
+    dialog (a MutationObserver watching the whole document for `open`-
+    attribute changes) — loaded here, ahead of any page script, so it is
+    already watching before a page's own script ever opens its first
+    dialog. See that file's own header for why a load-time query would miss
+    the lightbox's lazily-created <dialog>. %>
+<script src="/js/dialog-scroll-lock.js"></script>
+
 <% if (typeof pageScript !== 'undefined' && pageScript) { %>
   <script src="/js/<%= pageScript %>"></script>
 <% } %>

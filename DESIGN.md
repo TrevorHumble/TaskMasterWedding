@@ -3976,3 +3976,71 @@ way on a real page, not recalculating from one dimension.
 **Why day/hour/task-by-task bars normalize against their own series maximum, but the participation bands normalize against `total`.** Both are "percentage of something," but they answer different questions. A day/hour/task bar answers "how does this compare to the busiest one in this series" — own-max normalization, so the tallest bar is always full height and the shape stays readable regardless of the event's absolute scale. A participation band answers "what fraction of every guest is in this bucket" — the three bands are parts of one whole (`posting + engagingOnly + idle === total`), so they must share one denominator (`total`) or the visual proportions would misstate the split (own-max normalization would draw whichever band happens to be largest at 100%, which is not what "78% of guests posted" means). Both rules divide-by-zero-guard to `--v:0%` rather than `NaN%` — `src/routes/admin/stats.js`'s `pct()` is the one function either call site goes through.
 
 **Why participation bands replaced the single ratio, and are visibility-agnostic.** The retired `participationRatio()` collapsed "did this guest do anything" to one number, which erases a guest who only liked and commented — real, valuable participation the owner wanted visible on its own line (`Liking & commenting only`). The three bands (`posting`/`engagingOnly`/`idle`) are deliberately computed from raw activity rows, not the visibility-gated rules `engagementTotals()` uses for the Likes/Comments stat cells: a guest whose only photo was taken down still shows as `posting` (they DID post), and a guest whose only like landed on a since-moderated photo still shows as `engagingOnly` (they DID engage) — the band describes what a guest did, not what survived moderation. This is a genuinely different rule from the photo/like/comment visibility rules on the same page, not an oversight; `src/services/event-stats.js`'s own doc comment and issue #1022's pinned visibility-rule table both say so explicitly, so a future edit that "fixes" the bands to match `VISIBLE_WHERE` would be reintroducing the exact defect the redesign existed to remove.
+
+## The five remaining `:has()` consumers, each given a single non-`:has()` owner (#922)
+
+**Date:** 2026-08-02. **Status:** shipped.
+
+**Extends #918's rule to the whole app.** #918 gave the flash accordion's panel reveal and group
+corner rule a single JS-class owner in place of `:has()`, after the design-philosophy review
+rejected a mirrored fallback as duplicated ownership of one visibility rule. This issue swept the
+five `:has()` consumers #918 left standing, each taking whichever single-owner shape actually fits
+it — a sibling rule, a JS-maintained class, a server-stamped class, or a document-wide observer —
+not one mechanism reused everywhere it doesn't apply.
+
+**Worth chips and special-option faces: a sibling rule, because the markup already puts the radio
+right before the face.** `.worth-chip:has(input:checked) .worth-chip-face` and
+`.special-option:has(input:checked) .special-option-face` (plus their `:focus-visible` twins) are
+now `.worth-chip input:checked + .worth-chip-face` and `.special-option input:checked +
+.special-option-face` in `src/public/css/admin-tasks.css` — no JS at all, since every one of the
+five templates that render a `.worth-chip`/`.special-option` label puts the radio immediately before
+the face span. This gap bit hardest on the **None**/**Hidden** special options, which have no
+accordion panel to fall back on: a `:has()`-less engine gave zero selection feedback there.
+
+**Badge picker: a JS class, because the rule styles the radio's PARENT, which no sibling combinator
+can reach.** `.badge-picker-cell:has(.badge-picker-radio:checked)` becomes
+`.badge-picker-cell.badge-picker-cell-selected`, maintained by `src/public/js/badge-picker.js`
+through the one function (`setSelectedCell`) both real paths that change the radios route through:
+`selectIcon` (a `change` event) and `openFor`'s programmatic uncheck on reopen, which fires no
+`change` event and would otherwise strand a previous task's highlight on a cell the host never
+touched this time. The focus twin samples `radio.matches(':focus-visible')` on `focus`, `blur`,
+**and `keydown`** — not `focus` alone — because a host who clicks a cell (focus lands without
+`:focus-visible`) and then presses an arrow or Enter is promoted to `:focus-visible` by the browser
+with no new `focus` event; sampling only on `focus` would leave that promotion unpainted until the
+next click. `:focus-visible` (Chrome 86 / Safari 15.4) is supported more widely than `:has()`, so
+gating on it is not itself the regression this issue fixes — an engine older than both simply shows
+no focus ring, same as today.
+
+That last part is a probe, not an assumption. `Element.matches()` **throws** a `SyntaxError` on a
+selector it cannot parse rather than returning `false`, and an unsupported pseudo-class is a parse
+error, so an unguarded `radio.matches(':focus-visible')` would raise an uncaught exception on every
+focus and every keypress on exactly the old Safari this issue exists to serve. `badge-picker.js`
+therefore probes support once at load (`try { …matches(':focus-visible') } catch`) and both samples
+read that flag. Probing once rather than wrapping each event in `try`/`catch` keeps the per-event
+path free of exception handling; the visible outcome on a failing engine is unchanged (no ring).
+
+**Admin favorite reveal: a server-stamped class, because nothing toggles the state client-side.**
+`.admin-tile-actions:has(.admin-fav-on)` becomes `.admin-tile-actions.admin-tile-actions-fav-on`
+(`src/public/css/admin.css`), stamped in `src/views/admin-photos.ejs` from the same `p._fav` that
+already colors the heart button. `:has()`'s first-paint property costs nothing to give up here:
+there is no client-side toggle to race against, only a page render.
+
+**Dialog scroll lock: a document-wide MutationObserver, because no single opener owns every
+dialog.** `body:has(dialog[open])` becomes `body.dialog-scroll-lock`
+(`src/public/css/feed.css`), toggled by the new `src/public/js/dialog-scroll-lock.js` from the live
+count of `dialog[open]` elements. No dialog in this app is server-rendered `open` — every one opens
+via `showModal()` — so a load-time query of existing dialogs would already be enough for most of
+them, but the lightbox's `<dialog>` is created lazily at runtime
+(`document.createElement('dialog')` in `build()`, `src/public/js/lightbox.js`), well after page
+load. A `MutationObserver` on `document.documentElement` with `subtree: true` watching for
+`open`-attribute changes catches a dialog created at any later time, not just the ones present at
+first paint. Loaded from `src/views/partials/footer.ejs` — the one partial every view that can
+render a dialog already includes — ahead of any page script, so it is already observing before a
+page's own script ever opens its first dialog.
+
+**Every rewritten rule keeps a comment naming the single owner and warning against a `:has()`
+mirror**, the same shape #918 established: two independently-written statements of one rule can
+drift when one side changes and the other doesn't. `src/public/js/lightbox.js`'s header and
+close-handler comments, and the three `special-*-option.ejs` partial headers, were updated
+alongside the CSS/JS changes — they had stated `:has()` as the live mechanism for the reveal and/or
+highlight, which this issue (and #918, for the reveal half) made false.

@@ -7,8 +7,10 @@
     come). ONE partial, included by BOTH task-create-dialog.ejs (step 2) and
     task-edit-dialog.ejs, so the create flow and the edit popup cannot drift.
 
-    The panel is shown by CSS alone (.special-option-group:has(input:checked)),
-    like every other option in the group.
+    The panel is shown by the `.special-active` class, set by admin-tasks.js's
+    syncSpecialPanels() (issue #918), like every other option in the group —
+    not `:has(input:checked)`; see special-oneday-option.ejs's own header for
+    why.
 
     Locals:
       idPrefix   — 'task-create' | 'task-edit'; keeps element ids unique when

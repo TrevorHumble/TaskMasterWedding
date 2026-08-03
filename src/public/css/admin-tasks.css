@@ -385,11 +385,19 @@
     border-color: var(--green-300);
   }
 }
-.badge-picker-cell:has(.badge-picker-radio:checked) {
+/* Selection/focus highlight has exactly ONE owner (#922): the classes below,
+   set by badge-picker.js from the same radios these rules used to read
+   directly via `:has()` — a `:has()`-less phone browser fails that closed
+   (no selection feedback at all), and this cell is the label's PARENT, which
+   no sibling combinator can reach, so a JS class is the only single-owner
+   option here (contrast the `.worth-chip` and `.special-option` rules later
+   in this sheet, which stay sibling CSS). Do not reintroduce a parallel `:has()` rule for
+   this — two independently-written statements of one rule can drift (#918). */
+.badge-picker-cell.badge-picker-cell-selected {
   background: var(--green-50);
   border-color: var(--color-primary);
 }
-.badge-picker-cell:has(.badge-picker-radio:focus-visible) {
+.badge-picker-cell.badge-picker-cell-focus {
   outline: 2px solid var(--color-primary);
   outline-offset: 1px;
 }
@@ -733,11 +741,17 @@
   font-size: var(--fs-small);
   font-weight: 600;
 }
-.worth-chip:has(input:checked) .worth-chip-face {
+/* Selection/focus highlight has exactly ONE owner (#922): the sibling
+   combinator below — every `.worth-chip` label puts the radio immediately
+   before the face span, so a plain `input:checked + .worth-chip-face`
+   expresses the same fact `:has()` did, on every engine, with no JS. Do not
+   reintroduce a parallel `:has()` rule for this — two independently-written
+   statements of one rule can drift (#918). */
+.worth-chip input:checked + .worth-chip-face {
   background: var(--color-primary);
   color: var(--color-on-primary);
 }
-.worth-chip:has(input:focus-visible) .worth-chip-face {
+.worth-chip input:focus-visible + .worth-chip-face {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
@@ -782,11 +796,15 @@
   border-radius: var(--radius-input);
   background: var(--color-bg);
 }
-.special-option:has(input:checked) .special-option-face {
+/* Selection/focus highlight has exactly ONE owner (#922): the sibling
+   combinator below, the same reason and shape as the worth-chip rule above —
+   every `.special-option` label puts the radio immediately before the face
+   span. Do not reintroduce a parallel `:has()` rule for this (#918). */
+.special-option input:checked + .special-option-face {
   border-color: var(--color-primary);
   box-shadow: inset 0 0 0 1px var(--color-primary);
 }
-.special-option:has(input:focus-visible) .special-option-face {
+.special-option input:focus-visible + .special-option-face {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
