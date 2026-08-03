@@ -154,9 +154,12 @@ The app already compresses its own responses (issue #1012, `src/app.js`) — neg
 
 ```
 hunt.example.com {
+    log
     reverse_proxy localhost:3000
 }
 ```
+
+The bare `log` directive is required, not optional tuning: Caddy v2 emits no access log at all unless one is configured, and the app-log split above (`/uploads`, `/thumbs`, and the rest of the static/photo traffic is deliberately never logged by the app itself) depends on this proxy log being the evidence layer for that traffic. Confirm it after deploy — a request should produce a line in Caddy's own log output (`journalctl -u caddy` or wherever your Caddy install sends its default JSON access log).
 
 **nginx** (pair with certbot for certificates):
 
@@ -223,6 +226,7 @@ The "Stag Master" bachelor-party game is a **second, fully separate deployment o
 
 ```
 bp.lillyandaxel.com {
+    log
     reverse_proxy localhost:3001
 }
 ```
@@ -233,6 +237,7 @@ bp.lillyandaxel.com {
 
 ```
 lillyandaxel.com {
+    log
     redir /bachelorparty https://bp.lillyandaxel.com permanent
     reverse_proxy localhost:3000
 }
@@ -300,6 +305,24 @@ journalctl -u garden-party # Option B, unit name from your systemd file
 ```
 
 **Rotation cap (Option A, #1023).** `docker-compose.yml`'s `app` service sets `logging: driver: json-file, max-size: '20m', max-file: '5'`, capping this container's log footprint at 20 MB x 5 files = 100 MB. Without this, request logging (#1019) writing to stdout would let `docker logs` grow without bound for the life of the container. `docker compose up -d` applies the cap; it takes effect on the container's next create (a plain restart of an already-running container keeps its prior logging config, so a cap change needs `docker compose up -d`, not just `docker compose restart`).
+
+**Structured request logging (issue #1019).** Every app-route request that fails (404/413/429/500), or runs slower than `LOG_SLOW_MS`, leaves one JSON line on stdout: `{reqId, method, path, status, durationMs, guestId, ip}` (`ip` only on a 4xx/5xx line). `path` is the request path with any query string stripped (e.g. `/gallery?page=2` logs as `/gallery`) — filter on it by the exact route, not a raw URL. A client-aborted request (a guest's connection drops mid-upload before a response is ever sent) never fires the normal completion hook, so it logs its own line instead: `{reqId, method, path, status: null, aborted: true, durationMs, guestId}`, unconditionally (not gated by `LOG_ALL_REQUESTS`/`LOG_SLOW_MS`), so a dropped connection always leaves evidence. A request that throws also gets a second, supplementary line, `{reqId, method, path, guestId, err, stack}`, correlated to the first by the same `reqId`, so the two are found together by grepping the `reqId` even when other requests interleave between them — that line is also mirrored as a one-line summary on **stderr** (`[app] unhandled error reqId=... ...`), so an existing host/container alerting rule that watches stderr for a 500 still fires; the structured record itself stays on stdout, alongside the finish line. Static and photo requests (`/uploads`, `/thumbs`, and every top-level entry under `src/public/` — currently `css`, `js`, `badges`, `fonts`, `robots.txt` — plus `/favicon.ico` and `/healthz`) are deliberately never logged here, including a takedown-guard 404 under `/uploads`/`/thumbs`: the reverse proxy's own access log is the evidence layer for that traffic, this log is for app-route diagnosis only. **That only holds if the proxy's access log is actually on** — see the Caddy/nginx blocks under § Reverse proxy + TLS above; verify it before relying on this split.
+
+Two env vars, both read from the environment at process start (via `config.js`). Changing either takes effect on the next container restart, not on the running process:
+
+- `LOG_ALL_REQUESTS`: unset by default (only failures/slow requests log). Set to `1` or `true` to log every app-route request, useful for a short diagnostic window.
+- `LOG_SLOW_MS`: default `1000`. A successful (2xx/3xx) request slower than this many milliseconds still logs even with `LOG_ALL_REQUESTS` unset.
+
+Diagnosing a guest's complaint from a `reqId` or a time window, once you know roughly when it happened:
+
+```bash
+docker compose logs app | grep '"reqId":"a1b2c3d4"'          # every line for one request (the finish line and, if it threw, the error line)
+docker compose logs --no-log-prefix --since 30m app | jq -R 'fromjson? | select(.status >= 400)' # every failing app-route request in the last half hour
+```
+
+The `jq -R 'fromjson? | ...'` shape (raw-line input, per-line parse with `?` suppressing a parse error) matters, not just style: the app's log output also carries non-JSON lines (the boot banner, the `[app] created directory: ...` line, a plain-text fallback) — including, deliberately, right after a restart to flip `LOG_ALL_REQUESTS`/`LOG_SLOW_MS`, which is exactly when an operator is most likely to run a `--since` window spanning that restart. Piping straight to `jq -c 'select(...)'` (which expects every input line to already be JSON) aborts with a parse error on the first non-JSON line it hits instead of skipping it.
+
+`LOG_ALL_REQUESTS=1` runs multiply how much stdout a busy reception writes. The rotation cap described at the top of this section is what keeps that bounded, so confirm it is in effect (`docker compose up -d`, not just `restart`) before leaving the flag on for any length of time.
 
 ## Backups
 

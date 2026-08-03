@@ -171,6 +171,12 @@ const config = {
   // append '/' + filename themselves, and app.js's express.static mount
   // string must stay byte-identical to the pre-#508 literal.
   UPLOADS_URL_BASE: '/uploads',
+  // Single owner of the public /thumbs URL mount prefix, same reasoning and
+  // pairing as UPLOADS_URL_BASE directly above (issue #1019) -- the app.js
+  // static mount, src/services/photos/paths.js's urlForThumb, and
+  // src/middleware/request-log.js's skip list all read this instead of each
+  // carrying its own '/thumbs' literal.
+  THUMBS_URL_BASE: '/thumbs',
   EXPORTS_DIR: path.join(DATA_DIR, 'exports'),
   ADMIN_HASH_PATH: path.join(DATA_DIR, 'admin.hash'),
   // Deliberately OUTSIDE DATA_DIR: a backup that lives inside the same
@@ -199,6 +205,22 @@ const config = {
   // Maintenance mode — set MAINTENANCE=1 or MAINTENANCE=true in the environment
   // to serve a 503 page to guests while /admin remains reachable.
   MAINTENANCE: process.env.MAINTENANCE === '1' || process.env.MAINTENANCE === 'true',
+
+  // Structured per-request logging (issue #1019) — src/middleware/request-log.js.
+  //
+  // LOG_ALL_REQUESTS: off by default (an app route's fast, successful request
+  // stays silent). Set to '1' or 'true' to log every app-route request, not
+  // just the failures/slow ones -- same boolean idiom as MAINTENANCE above.
+  // Deliberately the `=== '1' || === 'true'` idiom rather than a truthy-string
+  // parse: a truthy parse would treat LOG_ALL_REQUESTS=0 as ON, the opposite
+  // of what an operator setting that literal almost certainly means.
+  LOG_ALL_REQUESTS: process.env.LOG_ALL_REQUESTS === '1' || process.env.LOG_ALL_REQUESTS === 'true',
+  // LOG_SLOW_MS: a 200 slower than this many milliseconds is logged even with
+  // LOG_ALL_REQUESTS unset, so a slow-but-successful request still leaves
+  // evidence. Default 1000. Note the `parseInt(...) || default` idiom below
+  // means LOG_SLOW_MS=0 falls back to the default rather than logging every
+  // request at 0ms -- if that is ever wanted, use LOG_ALL_REQUESTS instead.
+  LOG_SLOW_MS: parseInt(process.env.LOG_SLOW_MS, 10) || 1000,
 
   // Admin login throttling
   ADMIN_LOGIN_MAX_ATTEMPTS: parseInt(process.env.ADMIN_LOGIN_MAX_ATTEMPTS, 10) || 10,
