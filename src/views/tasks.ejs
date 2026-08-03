@@ -49,13 +49,15 @@
 
     <%# Share a memory sits under the To do / Done chips, above the list
         (owner call, 2026-08-01; supersedes the last-row placement of
-        2026-07-21). Quiet outlined style and just the label — no points
-        text, no caption — so the task list stays the loudest thing on the
-        page. Hidden when the finished-every-task card above renders,
-        because that card carries its own Share a memory button. %>
+        2026-07-21). Quiet outlined style with no points text (#1002 rule,
+        unchanged) plus a muted hint line naming it a task-free, always-open
+        path to the gallery (owner call, 2026-08-03). Hidden when the
+        finished-every-task card above renders, because that card carries
+        its own Share a memory button. %>
     <% if (!allDone) { %>
       <section class="tasks-share-cta">
         <a class="btn btn-secondary btn-block" href="/memories/new">Share a memory</a>
+        <p class="tasks-share-hint">Share a photo at any time, no task required</p>
       </section>
     <% } %>
 

@@ -422,6 +422,14 @@
   margin: var(--space-4) 0 var(--space-5);
 }
 
+.tasks-share-hint {
+  margin: var(--space-1) 0 0;
+  text-align: center;
+  font-size: var(--fs-eyebrow);
+  line-height: 1.3;
+  color: var(--color-text-muted);
+}
+
 /* ---- Task filter chips + section furniture ---- */
 .task-filters {
   display: flex;

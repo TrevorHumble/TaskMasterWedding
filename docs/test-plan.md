@@ -535,7 +535,7 @@ Steps: As a guest, go to `/tasks` and tap the quiet "Share a memory" button unde
 
 Expected: A "Shared! They're in the gallery." confirmation appears and every photo in the batch shows up on `/gallery`. Your points on `/` went up by 1 for the day's first memory, plus each photo's own admin bonus if any (a memory earns no automatic per-photo base the way a task photo does). Go back to `/tasks`.
 
-Expected: The "Share a memory" button under the chips still reads exactly "Share a memory," with no points text and no caption either way — it doesn't change appearance based on whether today's +1 has already been claimed. Share a second memory the same day.
+Expected: The "Share a memory" button under the chips still reads exactly "Share a memory," with no points text, and the muted hint line under it ("Share a photo at any time, no task required") is present and unchanged either way. None of it changes based on whether today's +1 has already been claimed. Share a second memory the same day.
 
 Expected: It uploads and appears in the gallery same as before, but no further points are banked for it — only the first memory of each event-local day pays the +1.
 
