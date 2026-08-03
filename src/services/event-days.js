@@ -364,6 +364,71 @@ function singleDayLabel(dateIso) {
   return fmt.format(new Date(`${dateIso}T00:00:00Z`));
 }
 
+// ---------------------------------------------------------------------------
+// Stats page helpers (issue #1022). All three stay db-free, same discipline
+// as the rest of this file (the caller reads db.getEventConfig().timezone and
+// passes it in) — event-stats.js is the only caller today.
+// ---------------------------------------------------------------------------
+
+/**
+ * `instant`'s event-local calendar date AND hour, as it reads on a wall clock
+ * in `timezone` — the one bucketing primitive event-stats.js's day/hour
+ * series both build on. Built on wallClockParts (the same full-precision
+ * reading tzOffsetMs/eventLocalInstant above already share), not a second
+ * formatToParts call, so this can never drift from eventLocalDateString's own
+ * date math.
+ * @param {string} timezone - an IANA zone name.
+ * @param {Date} [instant] - defaults to `new Date()`.
+ * @returns {{ date: string, hour: number }} date is YYYY-MM-DD, hour is 0-23.
+ */
+function eventLocalDateHour(timezone, instant) {
+  const when = instant || new Date();
+  const w = wallClockParts(timezone, when.getTime());
+  return { date: `${w.year}-${pad(w.month)}-${pad(w.day)}`, hour: w.hour };
+}
+
+/**
+ * The short ("Fri") and long ("Friday") weekday names for `dateIso`, using
+ * the same UTC-anchored Intl formula singleDayLabel() uses (so a caller
+ * pairing this with singleDayLabel() can never see the two disagree on which
+ * calendar day a string names).
+ * @param {string} dateIso - YYYY-MM-DD
+ * @returns {{ short: string, long: string }}
+ */
+function weekdayLabels(dateIso) {
+  const date = new Date(`${dateIso}T00:00:00Z`);
+  const shortFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' });
+  const longFmt = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' });
+  return { short: shortFmt.format(date), long: longFmt.format(date) };
+}
+
+/**
+ * The stats page pulse-line day range (issue #1022, pinned copy table): the
+ * first and last day of a series, composed from singleDayLabel() rather than
+ * re-deriving a month name.
+ *   - a single row (firstIso === lastIso): "Aug 7"
+ *   - same month: "Aug 7–9" (en dash, no spaces)
+ *   - different months: "Aug 30 – Sep 1" (en dash, spaced)
+ * @param {string} firstIso - YYYY-MM-DD
+ * @param {string} lastIso - YYYY-MM-DD
+ * @returns {string}
+ */
+function dayRangeLabel(firstIso, lastIso) {
+  if (firstIso === lastIso) {
+    return singleDayLabel(firstIso);
+  }
+  const firstLabel = singleDayLabel(firstIso);
+  const sameMonth = firstIso.slice(0, 7) === lastIso.slice(0, 7);
+  if (sameMonth) {
+    // Same month: no space before the dash, day number only -- taken from
+    // lastIso itself (not parsed back out of singleDayLabel()'s rendered
+    // string, which a format change could reshape without warning).
+    const lastDay = Number(lastIso.slice(8, 10));
+    return `${firstLabel}–${lastDay}`;
+  }
+  return `${firstLabel} – ${singleDayLabel(lastIso)}`;
+}
+
 module.exports = {
   timezoneOptions,
   isKnownTimezone,
@@ -373,4 +438,7 @@ module.exports = {
   dayOpensAt,
   eventLocalInstant,
   singleDayLabel,
+  eventLocalDateHour,
+  weekdayLabels,
+  dayRangeLabel,
 };

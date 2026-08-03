@@ -1,0 +1,106 @@
+<!-- src/views/admin-stats.ejs -->
+<%- include('partials/head') %>
+<%- include('partials/header') %>
+
+  <h1 class="display-title">The numbers</h1>
+
+  <p class="pulse-line"><%= pulseLine %></p>
+
+  <section class="stat-grid">
+    <div class="stat">
+      <span class="stat-num"><%= stats.guests %></span>
+      <span class="stat-label">Guests</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num"><%= stats.photos %></span>
+      <span class="stat-label">Photos</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num"><%= stats.likes %></span>
+      <span class="stat-label">Likes</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num"><%= stats.comments %></span>
+      <span class="stat-label">Comments</span>
+    </div>
+  </section>
+
+  <h2 class="section-heading" style="margin-top:var(--space-7)">How people are using it</h2>
+
+  <ul class="chart-stack">
+    <% bandRows.forEach(function (band) { %>
+      <li class="chart-stack-row">
+        <div class="chart-stack-head">
+          <span class="chart-stack-label"><%= band.label %><span class="chart-stack-sub"><%= band.sub %></span></span>
+          <span class="chart-stack-val"><%= band.val %></span>
+        </div>
+        <span class="chart-row-track"><span class="chart-row-fill" style="--v:<%= band.pct %>%"></span></span>
+      </li>
+    <% }); %>
+  </ul>
+
+  <h2 class="section-heading" style="margin-top:var(--space-7)">Through the weekend</h2>
+
+  <form class="form-row chart-day-picker" method="get" action="/admin/stats">
+    <label class="form-label" for="stats-day">Day</label>
+    <select id="stats-day" name="day">
+      <% /* Shown for a multi-row series (the pinned copy rule) and also
+            whenever a day is currently selected, even on a single-row
+            series -- otherwise a direct ?day= link into a one-day event
+            lands on the hourly chart with no option in this list that
+            clears it, and the host is stuck hand-editing the URL. */ %>
+      <% if (dayOptions.length > 1 || selectedDay) { %>
+        <option value=""<%= !selectedDay ? ' selected' : '' %>>All <%= dayOptions.length %> days</option>
+      <% } %>
+      <% dayOptions.forEach(function (opt) { %>
+        <option value="<%= opt.iso %>"<%= selectedDay === opt.iso ? ' selected' : '' %>><%= opt.label %></option>
+      <% }); %>
+    </select>
+    <noscript><button type="submit" class="btn btn-sm btn-secondary">Go</button></noscript>
+  </form>
+
+  <div class="chart-block">
+    <p class="chart-caption">Guest join time</p>
+    <ul class="chart-cols <%= chartDense ? 'chart-cols-dense' : 'chart-cols-few' %>">
+      <% joinCols.forEach(function (col) { %>
+        <li class="chart-col" aria-label="<%= col.aria %> — <%= col.val %> join<%= col.val === 1 ? '' : 's' %>">
+          <% if (!chartDense) { %><span class="chart-col-val"><%= col.val %></span><% } %>
+          <span class="chart-col-track"><span class="chart-col-fill" style="--v:<%= col.pct %>%"></span></span>
+          <span class="chart-col-label"><%= col.label %></span>
+        </li>
+      <% }); %>
+    </ul>
+  </div>
+
+  <div class="chart-block">
+    <p class="chart-caption">Photos coming in</p>
+    <ul class="chart-cols <%= chartDense ? 'chart-cols-dense' : 'chart-cols-few' %>">
+      <% photoCols.forEach(function (col) { %>
+        <li class="chart-col" aria-label="<%= col.aria %> — <%= col.val %> photo<%= col.val === 1 ? '' : 's' %>">
+          <% if (!chartDense) { %><span class="chart-col-val"><%= col.val %></span><% } %>
+          <span class="chart-col-track"><span class="chart-col-fill" style="--v:<%= col.pct %>%"></span></span>
+          <span class="chart-col-label"><%= col.label %></span>
+        </li>
+      <% }); %>
+    </ul>
+  </div>
+
+  <h2 class="section-heading" style="margin-top:var(--space-7)">Task by task</h2>
+
+  <% if (taskRows.length === 0) { %>
+    <p class="muted">No task completions yet.</p>
+  <% } else { %>
+    <ul class="chart-stack">
+      <% taskRows.forEach(function (row) { %>
+        <li class="chart-stack-row">
+          <div class="chart-stack-head">
+            <span class="chart-stack-label"><%= row.title %></span>
+            <span class="chart-stack-val"><%= row.val %></span>
+          </div>
+          <span class="chart-row-track"><span class="chart-row-fill" style="--v:<%= row.pct %>%"></span></span>
+        </li>
+      <% }); %>
+    </ul>
+  <% } %>
+
+<%- include('partials/footer') %>

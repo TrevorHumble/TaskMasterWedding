@@ -1542,3 +1542,163 @@
   margin-bottom: 0;
   line-height: var(--lh-snug);
 }
+
+/* ---------------------------------------------------------------------------
+   Event stats page (#1022) — plain-CSS data bars, no chart library.
+
+   Two shapes, one vocabulary: `.chart-cols` draws a day/hour series as
+   upright columns (the shape of the night at a glance); `.chart-stack` draws
+   a series as labelled rows, each with its own bar underneath (the
+   participation bands, task-by-task — long labels, any row count). Both read
+   their length from an inline `--v` percentage set per bar, so the view stays
+   markup and the geometry stays CSS.
+   --------------------------------------------------------------------------- */
+.chart-block {
+  margin-bottom: var(--space-6);
+}
+.chart-caption {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+}
+
+/* ---- Upright columns ---- */
+.chart-cols {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.chart-col {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.chart-col-val {
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+  line-height: 1;
+  margin-bottom: var(--space-1);
+}
+.chart-col-track {
+  width: 100%;
+  height: 96px;
+  display: flex;
+  align-items: flex-end;
+  background: var(--color-surface);
+  border-radius: var(--radius-input);
+  overflow: hidden;
+}
+.chart-col-fill {
+  width: 100%;
+  /* No minimum: an hour with nothing in it draws nothing. A floor would
+     paint a sliver at zero, which reads as "a little" when the answer is
+     none. */
+  height: var(--v, 0%);
+  background: var(--color-primary);
+}
+.chart-col-label {
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+  line-height: 1;
+  /* Reserve the line box even when the label is blank. The columns are
+     bottom-aligned, so an empty label collapsing to zero height would lift
+     its track above its neighbours' — putting the bars on staggered
+     baselines and making a shorter bar look taller than it is. */
+  min-height: 1em;
+  margin-top: var(--space-2);
+  white-space: nowrap;
+}
+
+/* `display: block` is load-bearing, not decoration: these are spans, and an
+   inline box ignores width/height outright — nothing here blockifies them,
+   since the only caller is `.chart-stack-row`, a bare child with no flex
+   context of its own, so the track and its fill declare it themselves. */
+.chart-row-track {
+  display: block;
+  height: 14px;
+  background: var(--color-surface);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.chart-row-fill {
+  display: block;
+  width: var(--v, 0%);
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: var(--radius-pill);
+}
+
+/* ---- Labelled rows, each with its own bar underneath: the participation
+   bands and Task-by-task, both rendered through this one shape ---- */
+.chart-stack {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.chart-stack-row {
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-hairline);
+}
+.chart-stack-row:last-child {
+  border-bottom: 0;
+}
+.chart-stack-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.chart-stack-label {
+  font-size: var(--fs-small);
+  color: var(--color-text);
+}
+.chart-stack-val {
+  flex: 0 0 auto;
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A one-line qualifier under a chart-stack row's label — what the row counts,
+   in words, so the number never has to be guessed at. */
+.chart-stack-sub {
+  display: block;
+  font-size: var(--fs-eyebrow);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+/* The day selector above an hourly chart. Sits tight to the chart it scopes
+   rather than carrying a form-row's full stacked spacing. */
+.chart-day-picker {
+  margin-bottom: var(--space-5);
+}
+
+/* 24 columns in a phone's width: tighter gap, and the value labels above the
+   bars are dropped (they cannot fit) — the hour ruler beneath carries the
+   axis, every third hour. */
+.chart-cols-dense {
+  gap: 1px;
+}
+.chart-cols-dense .chart-col-label {
+  font-size: 10px;
+}
+
+/* A short series — a handful of event days rather than 24 hours. Without a
+   cap, three days stretch to a third of the screen each and read as slabs
+   instead of bars; capping the column and centring the row keeps a 3-day
+   weekend and a 14-day destination event looking like the same chart. */
+.chart-cols-few {
+  justify-content: center;
+  gap: var(--space-2);
+}
+.chart-cols-few .chart-col {
+  flex: 0 1 72px;
+}

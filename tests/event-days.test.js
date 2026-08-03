@@ -22,6 +22,9 @@ const {
   dayOpensAt,
   eventLocalInstant,
   singleDayLabel,
+  eventLocalDateHour,
+  weekdayLabels,
+  dayRangeLabel,
 } = require('../src/services/event-days');
 
 describe('timezoneOptions', () => {
@@ -446,5 +449,104 @@ describe('singleDayLabel (issue #753)', () => {
       if (originalTZ === undefined) delete process.env.TZ;
       else process.env.TZ = originalTZ;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #1022 plan step 1: three stats-page helpers, same db-free discipline
+// as the rest of this file.
+// ---------------------------------------------------------------------------
+describe('eventLocalDateHour (issue #1022)', () => {
+  const originalTZ = process.env.TZ;
+  afterEach(() => {
+    if (originalTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTZ;
+  });
+
+  it('19:05 America/Boise (MDT, UTC-6) reads back as {date, hour: 19} from the UTC instant 01:05 the next day', () => {
+    // The app's own datetime('now') shape parsed through parseSqliteDatetime
+    // first, then handed here — this test hands the already-parsed Date, the
+    // same shape event-stats.js passes in.
+    expect(eventLocalDateHour('America/Boise', new Date('2026-08-09T01:05:00Z'))).toEqual({
+      date: '2026-08-08',
+      hour: 19,
+    });
+  });
+
+  it('local midnight reads hour 0, not 24', () => {
+    expect(eventLocalDateHour('America/Boise', new Date('2026-08-07T06:00:00Z'))).toEqual({
+      date: '2026-08-07',
+      hour: 0,
+    });
+  });
+
+  it('is correct regardless of the server local timezone (a UTC+14 server must not shift the reading)', () => {
+    process.env.TZ = 'Pacific/Kiritimati';
+    expect(eventLocalDateHour('America/Boise', new Date('2026-08-09T01:05:00Z'))).toEqual({
+      date: '2026-08-08',
+      hour: 19,
+    });
+  });
+
+  it('omitting `instant` defaults to "now" rather than throwing', () => {
+    const { date, hour } = eventLocalDateHour('America/Boise');
+    expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(hour).toBeGreaterThanOrEqual(0);
+    expect(hour).toBeLessThanOrEqual(23);
+  });
+
+  // Issue #1022's own plan step 1 calls for a DST-transition-adjacent
+  // instant here, and event-stats.js:91-100 documents the 25-hour-day
+  // bucket merge as contract — a fall-back transition is exactly the case
+  // where TWO different UTC instants both read back as event-local hour 1,
+  // and the contract is that both merge into the SAME bucket rather than
+  // one silently overwriting or a 25th slot appearing.
+  it('a fall-back DST transition (America/Boise, 2026-11-01) merges both readings of the repeated local hour into one bucket', () => {
+    // 2026-11-01 02:00 MDT (UTC-6) becomes 01:00 MST (UTC-7): the 1am hour
+    // happens twice. 07:30Z is 01:30 MDT (the first pass); 08:30Z is 01:30
+    // MST (the second pass, after clocks fall back).
+    expect(eventLocalDateHour('America/Boise', new Date('2026-11-01T07:30:00Z'))).toEqual({
+      date: '2026-11-01',
+      hour: 1,
+    });
+    expect(eventLocalDateHour('America/Boise', new Date('2026-11-01T08:30:00Z'))).toEqual({
+      date: '2026-11-01',
+      hour: 1,
+    });
+  });
+});
+
+describe('weekdayLabels (issue #1022)', () => {
+  it('2026-08-07 (a Friday) returns {short: "Fri", long: "Friday"}', () => {
+    expect(weekdayLabels('2026-08-07')).toEqual({ short: 'Fri', long: 'Friday' });
+  });
+
+  it('2026-08-09 (a Sunday) returns {short: "Sun", long: "Sunday"}', () => {
+    expect(weekdayLabels('2026-08-09')).toEqual({ short: 'Sun', long: 'Sunday' });
+  });
+
+  it('is correct regardless of the server local timezone (same UTC-anchoring as singleDayLabel)', () => {
+    const originalTZ = process.env.TZ;
+    try {
+      process.env.TZ = 'Pacific/Kiritimati';
+      expect(weekdayLabels('2026-08-07').short).toBe('Fri');
+    } finally {
+      if (originalTZ === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTZ;
+    }
+  });
+});
+
+describe('dayRangeLabel (issue #1022)', () => {
+  it('a single day (first === last) returns the plain "Aug 7" form', () => {
+    expect(dayRangeLabel('2026-08-07', '2026-08-07')).toBe('Aug 7');
+  });
+
+  it('same month renders an unspaced en dash: "Aug 7–9"', () => {
+    expect(dayRangeLabel('2026-08-07', '2026-08-09')).toBe('Aug 7–9');
+  });
+
+  it('a cross-month range renders a spaced en dash: "Aug 30 – Sep 1"', () => {
+    expect(dayRangeLabel('2026-08-30', '2026-09-01')).toBe('Aug 30 – Sep 1');
   });
 });

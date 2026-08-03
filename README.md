@@ -62,7 +62,7 @@ Then open <http://localhost:3000>.
 
 **Guests** scan one shared QR code (printed once, on the poster) which opens `/join`, where they sign up with a name, an email or phone, an optional avatar, and a self-chosen 4-digit PIN — one form does signup and onboarding together, and signs them in immediately (a signed `gsid` cookie). A guest who already has an account is sent to `/login` to re-enter with that same contact + PIN, on any device, and can `/logout` from any device too. From the home page they browse `/tasks`, open a task, upload a photo to complete it, or share a task-free photo at `/memories/new` (listed at `/memories`); they can also view `/gallery`, `/feed` (where they can like and comment on photos, open a photo's own page at `/p/:submissionId`, and — as its owner — edit its caption or delete it), `/leaderboard`, tap any earned badge at `/badge/:code` for its detail, watch the end-of-night `/slideshow`, and open `/recap` for what they missed (dismissed via `/recap/seen`) and profiles at `/u/:guestId`. They can revisit `/how-to-play`, remove their avatar (`/me/avatar/delete`), or send in `/bug-report` from the profile menu. This list is representative, not exhaustive — see "Where things live" below for the full route map.
 
-**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to the guest table (rename, delete, and set/read a guest's contact + PIN), the printable entry poster at `/admin/poster`, task CRUD, rank-and-award (ranking a task's submitted photos and releasing the ranking to award that task's badge), awarding bonus points and special badges, `/admin/config` (event timezone and dates), photo favorites and takedown on `/admin/photos` (where comment moderation is also handled, inline, per photo), the host-checklist dashboard, the bug-report queue at `/admin/bugs`, and `/admin/export`.
+**Admin** signs in at `/admin/login` (a signed `admin` cookie validated against `data/admin.hash`). The dashboard at `/admin` links to the guest table (rename, delete, and set/read a guest's contact + PIN), the printable entry poster at `/admin/poster`, task CRUD, rank-and-award (ranking a task's submitted photos and releasing the ranking to award that task's badge), awarding bonus points and special badges, `/admin/config` (event timezone and dates), photo favorites and takedown on `/admin/photos` (where comment moderation is also handled, inline, per photo), the host-checklist dashboard, the event stats page at `/admin/stats` (guest joins, photos, likes/comments, participation, and per-task completion — see `src/services/event-stats.js`), the bug-report queue at `/admin/bugs`, and `/admin/export`.
 
 ## Going live
 
@@ -181,12 +181,14 @@ src/
     admin.js              /admin dashboard, guests (rename/delete/identity), poster, tasks,
                            rank-and-award (/admin/tasks/:id/rank), awards, /admin/config,
                            photos (favorite/takedown, with inline comment moderation),
-                           /admin/bugs, export
+                           /admin/stats, /admin/bugs, export
   services/
     badge-icons.js        Badge art path resolution + icon-vs-file classification
     badges.js             Metric badge (Completionist) + transferable badge (TOPLIKED /
                            Crowd Favorite) registries
     event-days.js         Event-local calendar-day derivation from a configured timezone
+    event-stats.js        Admin stats page data: day/hour series, engagement totals,
+                           participation bands, per-task completion
     export.js             ZIP of photos by guest + summary.xlsx
     favorites.js          Host-scoped admin photo favorites
     feed.js               gallery/feed visibility (owns the taken_down filter), ordering, and
