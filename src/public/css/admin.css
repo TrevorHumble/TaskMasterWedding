@@ -180,19 +180,6 @@
 }
 
 /* /join signup page (issue #240) */
-.join-photo .upload-field {
-  justify-content: flex-start;
-}
-.join-photo .btn {
-  background: transparent;
-  color: var(--color-primary);
-  border: 1px solid var(--color-primary);
-}
-@media (hover: hover) {
-  .join-photo .btn:hover {
-    background: var(--color-surface);
-  }
-}
 .join-login-link {
   text-decoration: underline;
 }
