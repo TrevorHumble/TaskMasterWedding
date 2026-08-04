@@ -49,12 +49,37 @@
         }) %>
     <p class="form-error date-range-error" role="alert" data-range-error hidden></p>
 
+    <hr class="config-hairline">
+
+    <div class="form-row">
+      <span class="form-label">Milestone badges</span>
+      <div class="config-badge-thresholds">
+        <% autoBadges.forEach(function (b) { %>
+        <label class="config-badge-threshold">
+          <img class="config-badge-art" src="<%= b.art_path %>" alt="">
+          <span class="config-badge-name"><%= b.name %></span>
+          <span class="config-badge-at">at</span>
+          <input class="form-input config-badge-count" type="number" name="threshold_<%= b.code %>" min="<%= badgeThresholdMin %>" max="<%= badgeThresholdMax %>" inputmode="numeric" value="<%= b.threshold %>">
+          <span class="config-badge-tasks">tasks</span>
+        </label>
+        <% }); %>
+      </div>
+      <p class="form-help">
+        Each badge lands on its own when a guest reaches that many tasks. Keep the counts in
+        increasing order. <%= cleanSweepName %> always means every task, so it adjusts by itself.
+      </p>
+    </div>
+
+    <hr class="config-hairline">
+
     <div class="form-row">
       <label class="form-label" for="prizes">Prizes</label>
       <textarea id="prizes" name="prizes" rows="4" maxlength="<%= prizesMaxLength %>"
                 placeholder="One prize per line — shown to guests at the top of the leaderboard"><%= prizes %></textarea>
       <p class="field-hint config-prizes-hint">Guests see this above the standings, word for word. Leave it blank and no prizes appear anywhere.</p>
     </div>
+
+    <hr class="config-hairline">
 
     <div class="form-row">
       <label class="config-rule-check">

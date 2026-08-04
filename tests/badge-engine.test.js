@@ -311,6 +311,114 @@ describe('AC7 (structural, verified behaviorally): submitPhoto and hide/restore 
   });
 });
 
+// Both blocks below restore the seeded default thresholds (BLOOM=5,
+// BOUQUET=10, GARDEN=15) in a `finally`, so an assertion failure mid-test
+// still leaves later describes in this file — including the "#193 AC3"/
+// "#314" blocks below, which must stay LAST and assume those defaults — on
+// the values every other test in this file was written against.
+describe('AC1 (#1094): auto badges grant/revoke at admin-configured, non-default thresholds', () => {
+  it('lowering BLOOM/BOUQUET/GARDEN to 4/8/12 grants BLOOM at 4 completed and revokes it below 4', () => {
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
+    const guest = makeGuest('1094-ac1-guest', '1094 AC1 Guest');
+    const taskIds = [
+      makeTask('1094 AC1 Task A'),
+      makeTask('1094 AC1 Task B'),
+      makeTask('1094 AC1 Task C'),
+      makeTask('1094 AC1 Task D'),
+    ];
+    for (const t of taskIds) submit(guest, t);
+
+    scoring.setAutoBadgeThresholds([
+      { code: 'BLOOM', n: 4 },
+      { code: 'BOUQUET', n: 8 },
+      { code: 'GARDEN', n: 12 },
+    ]);
+    try {
+      // 4 completed reaches the new BLOOM threshold of 4 — the engine reads
+      // the threshold from the badges row at recompute time, no constant
+      // involved (AC1's own wording).
+      expect(heldCodes(guest)).toContain('BLOOM');
+
+      // Drop below 4 completed and recompute again: BLOOM must be revoked.
+      db.prepare('UPDATE submissions SET taken_down = 1 WHERE guest_id = ? AND task_id = ?').run(
+        guest,
+        taskIds[0]
+      );
+      scoring.recomputeThresholdBadges(guest);
+
+      expect(heldCodes(guest)).not.toContain('BLOOM');
+    } finally {
+      scoring.setAutoBadgeThresholds([
+        { code: 'BLOOM', n: 5 },
+        { code: 'BOUQUET', n: 10 },
+        { code: 'GARDEN', n: 15 },
+      ]);
+    }
+  });
+});
+
+describe('review finding 5 (#1094): autoBadgeThresholds() and autoBadgeRows() agree on the field name', () => {
+  it('both return rows keyed `threshold`, never a separate `n` alias', () => {
+    const thresholdRows = scoring.autoBadgeThresholds();
+    const fullRows = scoring.autoBadgeRows();
+
+    expect(thresholdRows.length).toBeGreaterThan(0);
+    for (const row of thresholdRows) {
+      expect(row).toHaveProperty('threshold');
+      expect(row).not.toHaveProperty('n');
+      expect(typeof row.threshold).toBe('number');
+    }
+
+    expect(fullRows.length).toBe(thresholdRows.length);
+    for (const row of fullRows) {
+      expect(row).toHaveProperty('threshold');
+      expect(row).not.toHaveProperty('n');
+    }
+  });
+});
+
+describe('AC3 (#1094): a threshold-change revoke is stored as badge_revoked_threshold, never badge_revoked', () => {
+  it('raising BLOOM past an already-held count revokes with badge_revoked_threshold and the AC3 recap copy', () => {
+    const notifications = require('../src/services/notifications');
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
+    const guest = makeGuest('1094-ac3-guest', '1094 AC3 Guest');
+    for (let i = 0; i < 5; i += 1) {
+      submit(guest, makeTask(`1094 AC3 Task ${i}`));
+    }
+    scoring.recomputeThresholdBadges(guest);
+    expect(heldCodes(guest)).toContain('BLOOM');
+
+    scoring.setAutoBadgeThresholds([
+      { code: 'BLOOM', n: 6 },
+      { code: 'BOUQUET', n: 10 },
+      { code: 'GARDEN', n: 15 },
+    ]);
+    try {
+      expect(heldCodes(guest)).not.toContain('BLOOM');
+
+      const bloomId = db.prepare('SELECT id FROM badges WHERE code = ?').get('BLOOM').id;
+      const kinds = db
+        .prepare('SELECT kind FROM notification_events WHERE guest_id = ? AND badge_id = ?')
+        .all(guest, bloomId)
+        .map((r) => r.kind);
+      expect(kinds).toContain('badge_revoked_threshold');
+      expect(kinds).not.toContain('badge_revoked');
+
+      const recap = notifications.getRecap(guest);
+      const row = recap.rows.find((r) => r.href === '/how-points-work' && r.dead === false);
+      expect(row).toBeTruthy();
+      expect(row.parts[0]).toMatchObject({ text: 'First Bloom', emphasis: true });
+      expect(row.parts[1].text).toBe(' left your profile. The hosts changed the badge milestones.');
+    } finally {
+      scoring.setAutoBadgeThresholds([
+        { code: 'BLOOM', n: 5 },
+        { code: 'BOUQUET', n: 10 },
+        { code: 'GARDEN', n: 15 },
+      ]);
+    }
+  });
+});
+
 describe('#193 AC3: engine badges fire on event-seeded data', () => {
   // seedEvent wipes submissions/guests and re-seeds event tasks, and this
   // block empties and rebuilds the badge catalog, so it must stay the LAST

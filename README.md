@@ -12,7 +12,7 @@ It runs on a small rented Linux host with a persistent disk, reachable over HTTP
 - **Photo tasks.** One photo per task per guest marks that task done. A completed task pays its host-set worth (1–3 points, set per task by the admin) plus any bonuses that apply — an admin-set per-photo bonus, a banked one-day-only challenge bonus, badge award points, and more (see `src/services/scoring.js`) — never a flat "+1".
 - **Memories.** A task-free photo share (no task required) at `/memories/new` — it earns no base point, but a guest's first visible memory on a given event day pays a once-per-day bonus point.
 - **Mystery-box challenge.** A one-day-only task (host-scheduled) stays sealed until its day, then appears as a locked "mystery box" card; a guest sees at most one locked card at a time (the one-box ceiling).
-- **Badges.** Auto badges unlock at 5 / 10 / 15 completed tasks, counting the profile photo as one of those completed tasks alongside real task submissions; a metric badge (Completionist) is computed from live data; special badges are hand-awarded by the admin; a transferable badge (the TOPLIKED / Crowd Favorite crown) is recomputed live and can change hands as likes shift; and the admin can create further `custom` badges. Not a fixed set.
+- **Badges.** Auto badges unlock at admin-configurable completed-task thresholds (5 / 10 / 15 seeded by default, editable on the Configuration page), counting the profile photo as one of those completed tasks alongside real task submissions; a metric badge (Completionist) is computed from live data; special badges are hand-awarded by the admin; a transferable badge (the TOPLIKED / Crowd Favorite crown) is recomputed live and can change hands as likes shift; and the admin can create further `custom` badges. Not a fixed set.
 - **Rank-and-award.** Per task, the admin ranks the submitted photos and releases the ranking to award that task's badge to the top finishers — this is how a task's own badge is actually won.
 - **Leaderboard + gallery.** A ranking and one shared photo gallery — tap a thumbnail to open its own photo page — visible to every signed-in guest.
 - **Feed, likes, comments.** A live `/feed` shows recent photos; guests can like and comment on any photo.
@@ -207,8 +207,9 @@ src/
                            NOT the shared join/login/upload limiter (see middleware/rate-limit.js)
     relative-time.js      SQLite datetime parsing + human-relative-time formatting
     render-locals.js      Per-request view locals shared across routes
-    scoring.js            Points (task worth + bonuses), auto badges (5/10/15), special
-                           badges, crowd favorites, leaderboard
+    scoring.js            Points (task worth + bonuses), auto badges (thresholds admin-
+                           configurable via the badges.threshold column, 5/10/15 seeded),
+                           special badges, crowd favorites, leaderboard
     submissions.js        submit-or-replace sequence for a task photo or memory
     task-badges.js        Per-task badge resolution + rank-and-award writing
     tasks.js              Task CRUD helpers, one-day-only ("mystery box") challenge rules

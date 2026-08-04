@@ -233,7 +233,9 @@ this rule would land exactly this shape. **The single enforcement point is `reso
 
 ### Badge thresholds live in scoring.js; custom badges reverse the earlier "fixed catalog" decision
 
-Auto-badge thresholds (5 / 10 / 15) live once in `src/services/scoring.js`'s `BADGE_THRESHOLDS` and are read by scoring and the guest routes; there is no second copy.
+**Superseded by issue #1094 (2026-08-04): auto-badge thresholds no longer live in a `src/services/scoring.js` constant at all.** This section's original claim — "Auto-badge thresholds (5 / 10 / 15) live once in `src/services/scoring.js`'s `BADGE_THRESHOLDS`" — is retired by name. The `badges.threshold` column is now the single runtime source of truth: `src/services/scoring/badge-engine.js`'s `autoBadgeThresholds()` reads it fresh on every call, and its `setAutoBadgeThresholds()` is the only writer of an EXISTING auto row's threshold, called from the admin Configuration page (`src/routes/admin/config.js`), which validates a submitted set as integers 1-99, strictly ascending, all-or-none, before persisting — a fresh row's initial threshold instead comes from the catalog's own INSERT (`scripts/badge-catalog.js`) on first seed, and the migration that added the column carries whatever value existed at that point; neither of those is `setAutoBadgeThresholds()` itself. This also supersedes the "Deliberately out of scope" `BADGE_THRESHOLDS` deferral recorded further down this file (originally logged as a deferred finding on parking issue #588) and the stag-variant ADR's `BADGE_THRESHOLDS` reference — see both sections' own superseding notes below for the specifics. `scripts/badge-catalog.js`'s boot re-sync (`ensureBadgeCatalog`) and the admin save path now share one composer (`src/services/badge-copy.js`'s `autoBadgeDescription`) for the `description` string this column's value implies ("Completed N tasks."), so a live threshold and its description can never drift apart across either writer.
+
+Auto-badge thresholds (5 / 10 / 15) lived once in `src/services/scoring.js`'s `BADGE_THRESHOLDS` and were read by scoring and the guest routes; there was no second copy. (Historical — see the superseding note immediately above.)
 
 This section previously said the four special badges were a fixed catalog and the admin could not invent new badge types. **Issue #80 reverses that by owner direction**: the admin can now create host-defined `custom` badges (name + `art_path`, an image path or emoji) at runtime via `POST /admin/badges`, no re-seed or SVG-add-and-redeploy required. **Amended (issue #483):** `custom` now also covers the per-task badge rows `task-badges.js` auto-provisions — one per task, never hand-created through `POST /admin/badges` — so `custom` means "not a fixed system-computed type," not "always admin-freeform." See "Task badges" below for that model.
 
@@ -1611,11 +1613,27 @@ comparison with `NaN`. `compareBadgeMoment` is exported specifically so a test c
 synthetic object, since the CHECK constraint makes it otherwise impossible to construct a real row that
 exercises it.
 
-Deliberately out of scope: `BADGE_THRESHOLDS` (`src/services/scoring.js`), which still drives which auto
-badges are _granted_ — `recomputeBadges` iterates that array, not the catalog. Deriving grant thresholds
-from the catalog would make `src/services/scoring.js` depend on `scripts/`, inverting today's layering, and
-touches guest-critical granting rather than celebration ordering; it is separate work, recorded as a
-deferred finding on parking issue #588.
+**Superseded by issue #1094 (2026-08-04):** the paragraph below recorded a deliberate deferral — deriving
+grant thresholds from the catalog was out of scope because it would make `src/services/scoring.js` depend
+on `scripts/`, inverting the layering. Issue #1094 does exactly this work, but the other direction: it makes
+the `badges.threshold` DATABASE COLUMN (not the catalog module) the source of grant thresholds, read by
+`src/services/scoring/badge-engine.js`'s `autoBadgeThresholds()` — no `services` -> `scripts` edge is
+introduced. `scripts/badge-catalog.js` reads the row's live threshold at re-sync time and requires
+`src/services/badge-copy.js` — the `scripts` -> `services` direction is allowed, but this is that file's
+FIRST require of anything (it had zero requires before this change), not a precedent already in use there.
+The resulting boot chain is `src/db` -> `scripts/badge-catalog.js` -> `src/services/badge-copy.js`, and it
+stays acyclic only because `badge-copy.js` is pure — zero requires of its own. That purity is the
+load-bearing condition: a future require added to `badge-catalog.js` of any services module that itself
+pulls in `src/db` would close a boot cycle (`src/db` -> `scripts/badge-catalog.js` -> that module ->
+`src/db`). `recomputeBadges` no longer iterates a fixed array at all. The paragraph below is kept for
+history.
+
+Deliberately out of scope (historical — see the superseding note above): `BADGE_THRESHOLDS`
+(`src/services/scoring.js`), which still drives which auto badges are _granted_ — `recomputeBadges`
+iterates that array, not the catalog. Deriving grant thresholds from the catalog would make
+`src/services/scoring.js` depend on `scripts/`, inverting today's layering, and touches guest-critical
+granting rather than celebration ordering; it is separate work, recorded as a deferred finding on parking
+issue #588.
 
 **Amended at merge with #644 (2026-07-22): the call site named above moved.** This section's claim that
 `GET /tasks/:id` calls `primaryNewBadge` "instead of carrying its own loop" describes what #714 shipped
@@ -2414,6 +2432,14 @@ variant-aware — but `recomputeBadges`' existing `if (!badge) continue` guard (
 tolerating a fresh, not-yet-seeded catalog) already skips a threshold whose `badges` row is absent. The
 missing `GARDEN` row on a stag boot is therefore safe by an EXISTING guard, not a new one — one array reused
 by two catalogs is simpler than teaching `scoring.js` which variant it is running under.
+
+**Superseded by issue #1094 (2026-08-04):** `BADGE_THRESHOLDS` no longer exists — `scoring/badge-engine.js`'s
+`autoBadgeThresholds()` reads each 'auto' row's own live `badges.threshold` column instead (`WHERE type =
+'auto' AND threshold IS NOT NULL`), so a stag boot simply never produces a `GARDEN` entry to iterate at all;
+the guard this paragraph describes is now a defensive backstop rather than the actual reason the missing row
+is safe. "One array reused by two catalogs is simpler than teaching `scoring.js` which variant it is running
+under" no longer applies either, since there is no array left to reuse — each catalog's own rows already
+carry the variant-appropriate threshold set.
 
 ## Bundled badge-icon glyphs: a theme-driven CSS mask, not a second vendored icon set (#869)
 
