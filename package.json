@@ -29,7 +29,7 @@
     "@vvo/tzdb": "^6.198.0",
     "archiver": "7.0.1",
     "bcryptjs": "3.0.3",
-    "better-sqlite3": "12.11.1",
+    "better-sqlite3": "13.0.2",
     "compression": "1.8.1",
     "cookie-parser": "1.4.7",
     "ejs": "6.0.1",
