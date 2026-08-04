@@ -26,10 +26,19 @@
       <p class="form-help">Any 4 digits, not your bank PIN.</p>
     </div>
 
-    <div class="form-row">
+    <div class="form-row form-row--tight">
       <span class="form-label">Add a photo (optional)</span>
-      <div class="join-photo">
-        <%- include('partials/upload-field', { id: 'avatar', name: 'avatar' }) %>
+      <%# task-upload-actions wraps the picker alone here, unlike the task and
+          memory forms where it encloses both actions: /join's submit lives
+          outside this form-row, so only the wrapper's `display: block` unpick
+          of .upload-field applies and its flex-direction/gap sit inert. The
+          gap to the submit button is owned by .form-row--tight instead. %>
+      <div class="task-upload-actions">
+        <%- include('partials/upload-field', {
+              id: 'avatar',
+              name: 'avatar',
+              labelClass: 'btn-secondary btn-block'
+            }) %>
       </div>
     </div>
 

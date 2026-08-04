@@ -18,15 +18,29 @@
 //      phone"; no row is created.
 // AC6: a valid avatar upload at signup is saved and recorded on the new row.
 //
+// Issue #1091 adds:
+// AC2 (#1091): the rendered <label for="avatar"> carries exactly
+//      "btn btn-secondary btn-block" (the stacked full-width picker
+//      treatment, reused from the task upload form rather than a /join
+//      one-off).
+// AC3 (#1091): the /join and /tasks/:id picker labels both carry
+//      btn-secondary and btn-block, and the now-dead .join-photo selector/
+//      class are gone from admin.css and join.ejs.
+// AC4 (#1091): the .form-row--tight gap has one owner, expressed in tokens
+//      (guest.css): the row's own margin-bottom is var(--space-4), and the
+//      picker label's caption margin inside that row is zeroed, with
+//      neither declaration a raw px/rem length.
+//
 // REQUIRE ORDER: loadApp() must run before any require of config, db, or
 // photos (see tests/helpers/testApp.js "REQUIRE ORDER MATTERS").
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const sharp = require('sharp');
 const request = require('supertest');
-const { loadApp } = require('./helpers/testApp');
+const { loadApp, signInGuest } = require('./helpers/testApp');
 
 let app;
 let db;
@@ -41,8 +55,26 @@ beforeAll(() => {
   config = require('../config');
 });
 
+const JOIN_VIEW_PATH = path.join(__dirname, '..', 'src', 'views', 'join.ejs');
+const ADMIN_CSS_PATH = path.join(__dirname, '..', 'src', 'public', 'css', 'admin.css');
+const GUEST_CSS_PATH = path.join(__dirname, '..', 'src', 'public', 'css', 'guest.css');
+
 function countGuests() {
   return db.prepare('SELECT COUNT(*) AS n FROM guests').get().n;
+}
+
+// Returns the opening <label> tag only, not its text or closing tag: the
+// class attribute is all any caller here asserts on. upload-field.ejs renders
+// the label with its attributes inline on one line, so [^>]* suffices and no
+// dotAll flag is needed.
+function extractLabel(html, forId) {
+  const re = new RegExp(`<label[^>]*for="${forId}"[^>]*>`);
+  const match = html.match(re);
+  return match ? match[0] : null;
+}
+
+function insertTask(title) {
+  return db.prepare('INSERT INTO tasks (title) VALUES (?)').run(title).lastInsertRowid;
 }
 
 // Flash cookie values are URL-encoded (cookie-parser signs + encodes them),
@@ -192,5 +224,87 @@ describe('AC6: an optional avatar at signup is saved', () => {
     expect(row).toBeTruthy();
     expect(row.avatar_path).toBeTruthy();
     expect(fs.existsSync(path.join(config.UPLOADS_DIR, row.avatar_path))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #1091 AC2: the picker markup, behavioral.
+// ---------------------------------------------------------------------------
+describe('#1091 AC2: the avatar picker label carries the stacked full-width class set', () => {
+  it('GET /join renders <label for="avatar" class="btn btn-secondary btn-block">', async () => {
+    const res = await request(app).get('/join');
+    expect(res.status).toBe(200);
+
+    const labelTag = extractLabel(res.text, 'avatar');
+    expect(labelTag).not.toBeNull();
+    expect(labelTag).toMatch(/class="btn btn-secondary btn-block"/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #1091 AC3: one shared treatment, not a /join one-off.
+// ---------------------------------------------------------------------------
+describe('#1091 AC3: the picker treatment is shared with /tasks/:id, not a /join one-off', () => {
+  it('both /join and /tasks/:id picker labels carry btn-secondary and btn-block', async () => {
+    const token = `join-align-${crypto.randomUUID()}`;
+    db.prepare('INSERT INTO guests (token, name, onboarded) VALUES (?, ?, 1)').run(
+      token,
+      'Join Align Guest'
+    );
+    const taskId = insertTask('#1091 parity task');
+    const agent = signInGuest(app, token);
+
+    const joinRes = await request(app).get('/join');
+    const taskRes = await agent.get(`/tasks/${taskId}`);
+
+    expect(joinRes.status).toBe(200);
+    expect(taskRes.status).toBe(200);
+
+    const joinLabel = extractLabel(joinRes.text, 'avatar');
+    const taskLabel = extractLabel(taskRes.text, 'photo');
+    expect(joinLabel).not.toBeNull();
+    expect(taskLabel).not.toBeNull();
+
+    [joinLabel, taskLabel].forEach((tag) => {
+      expect(tag).toMatch(/\bbtn-secondary\b/);
+      expect(tag).toMatch(/\bbtn-block\b/);
+    });
+  });
+
+  it('admin.css contains no .join-photo selector', () => {
+    const css = fs.readFileSync(ADMIN_CSS_PATH, 'utf8');
+    expect(css).not.toMatch(/\.join-photo\b/);
+  });
+
+  it('join.ejs contains no join-photo class', () => {
+    const view = fs.readFileSync(JOIN_VIEW_PATH, 'utf8');
+    expect(view).not.toMatch(/\bjoin-photo\b/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #1091 AC4: the 16px gap has exactly one owner, expressed in tokens.
+// ---------------------------------------------------------------------------
+describe('#1091 AC4: .form-row--tight owns the stacked-pair gap alone, in tokens', () => {
+  it("guest.css's .form-row--tight sets margin-bottom to var(--space-4) with no raw px/rem", () => {
+    const css = fs.readFileSync(GUEST_CSS_PATH, 'utf8');
+    const ruleMatch = css.match(/\.form-row--tight\s*\{([^}]*)\}/);
+    expect(ruleMatch).not.toBeNull();
+    const ruleBody = ruleMatch[1];
+
+    expect(ruleBody).toMatch(/margin-bottom:\s*var\(--space-4\)/);
+    // (?:\d*\.)?\d+ so a leading-dot length such as .5rem is caught too.
+    expect(ruleBody).not.toMatch(/(?:\d*\.)?\d+(?:px|rem)/);
+  });
+
+  it('guest.css zeroes the picker label caption margin inside .form-row--tight, with no raw px/rem', () => {
+    const css = fs.readFileSync(GUEST_CSS_PATH, 'utf8');
+    const ruleMatch = css.match(/\.form-row--tight \.upload-field label\.btn\s*\{([^}]*)\}/);
+    expect(ruleMatch).not.toBeNull();
+    const ruleBody = ruleMatch[1];
+
+    expect(ruleBody).toMatch(/margin-bottom:\s*0\s*;/);
+    // (?:\d*\.)?\d+ so a leading-dot length such as .5rem is caught too.
+    expect(ruleBody).not.toMatch(/(?:\d*\.)?\d+(?:px|rem)/);
   });
 });
