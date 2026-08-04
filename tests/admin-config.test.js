@@ -45,6 +45,7 @@ const { readThemeCss } = require('./helpers/theme-css');
 let app;
 let adminAgent;
 let getEventConfig;
+let db;
 
 beforeAll(async () => {
   const result = loadApp();
@@ -52,7 +53,7 @@ beforeAll(async () => {
   adminAgent = await makeAdminAgent(app);
   // Require only after loadApp() so db.js is already cached against the
   // temp DATA_DIR (see testApp.js's REQUIRE ORDER note).
-  ({ getEventConfig } = require('../src/db'));
+  ({ getEventConfig, db } = require('../src/db'));
 });
 
 describe('AC1: settings persist across save + reload', () => {
@@ -429,5 +430,226 @@ describe('issue #875 AC6 (CSS half): every icon-in-field button class a view ren
       );
       expect(css).toMatch(companionRe);
     }
+  });
+});
+
+describe('issue #1094: milestone badge thresholds are admin-configurable', () => {
+  function bloomThreshold() {
+    return db.prepare('SELECT threshold FROM badges WHERE code = ?').get('BLOOM').threshold;
+  }
+
+  const validDates = {
+    timezone: 'America/Denver',
+    start_date: '2026-08-07',
+    end_date: '2026-08-09',
+  };
+
+  // Every case below either leaves the seeded defaults in place on its own
+  // terms or is followed by this reset — a backstop so an assertion failure
+  // mid-test can't leak a changed threshold into a later test in this file.
+  afterEach(async () => {
+    await adminAgent
+      .post('/admin/config')
+      .type('form')
+      .send(
+        Object.assign({}, validDates, {
+          threshold_BLOOM: '5',
+          threshold_BOUQUET: '10',
+          threshold_GARDEN: '15',
+        })
+      );
+  });
+
+  // Review finding 1: the input's min/max and the out-of-range error message
+  // are both built from scoring.BADGE_THRESHOLD_MIN/MAX (src/services/
+  // scoring/badge-engine.js), not a hand-typed "1"/"99" literal in the route
+  // and a separate hand-typed "1"/"99" in the view.
+  it('review finding 1: the threshold inputs render min/max from BADGE_THRESHOLD_MIN/MAX, and the out-of-range message names them', async () => {
+    const scoring = require('../src/services/scoring');
+    expect(scoring.BADGE_THRESHOLD_MIN).toBe(1);
+    expect(scoring.BADGE_THRESHOLD_MAX).toBe(99);
+
+    const res = await adminAgent.get('/admin/config');
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(
+      new RegExp(
+        `name="threshold_BLOOM"[^>]*min="${scoring.BADGE_THRESHOLD_MIN}"[^>]*max="${scoring.BADGE_THRESHOLD_MAX}"`
+      )
+    );
+
+    const badRes = await adminAgent
+      .post('/admin/config')
+      .type('form')
+      .send(
+        Object.assign({}, validDates, {
+          threshold_BLOOM: '100',
+          threshold_BOUQUET: '10',
+          threshold_GARDEN: '15',
+        })
+      );
+    expect(badRes.status).toBe(303);
+    expect(badRes.headers.location).toContain(
+      encodeURIComponent(
+        `Badge thresholds must be whole numbers from ${scoring.BADGE_THRESHOLD_MIN} to ${scoring.BADGE_THRESHOLD_MAX}.`
+      )
+    );
+  });
+
+  // Review finding 2: the clean-sweep name comes from the badge catalog
+  // (scoring.badgeByCode('COMPLETIONIST').name), not a hand-typed literal —
+  // renaming the catalog row must reach this page with no code change.
+  it("review finding 2: the clean-sweep sentence reads the catalog's COMPLETIONIST name, not a hard-coded literal", async () => {
+    const before = await adminAgent.get('/admin/config');
+    expect(before.text).toContain('Completionist always means every task');
+
+    db.prepare(`UPDATE badges SET name = ? WHERE code = 'COMPLETIONIST'`).run('Grand Finisher');
+    try {
+      const after = await adminAgent.get('/admin/config');
+      expect(after.text).toContain('Grand Finisher always means every task');
+      expect(after.text).not.toContain('Completionist always means every task');
+    } finally {
+      db.prepare(`UPDATE badges SET name = ? WHERE code = 'COMPLETIONIST'`).run('Completionist');
+    }
+  });
+
+  it('AC8: GET renders one row per auto badge, each with its current threshold, and the three hairlines', async () => {
+    const res = await adminAgent.get('/admin/config');
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/name="threshold_BLOOM"[^>]*value="5"/);
+    expect(res.text).toMatch(/name="threshold_BOUQUET"[^>]*value="10"/);
+    expect(res.text).toMatch(/name="threshold_GARDEN"[^>]*value="15"/);
+    expect((res.text.match(/class="config-hairline"/g) || []).length).toBe(3);
+  });
+
+  it('AC2: saving 4/8/12 persists on the badges rows, composes the matching description, and recomputes before redirecting', async () => {
+    const res = await adminAgent
+      .post('/admin/config')
+      .type('form')
+      .send(
+        Object.assign({}, validDates, {
+          threshold_BLOOM: '4',
+          threshold_BOUQUET: '8',
+          threshold_GARDEN: '12',
+        })
+      );
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain(encodeURIComponent('Configuration saved.'));
+
+    const rows = db
+      .prepare(`SELECT code, threshold, description FROM badges WHERE type = 'auto'`)
+      .all();
+    const byCode = Object.fromEntries(rows.map((r) => [r.code, r]));
+    expect(byCode.BLOOM.threshold).toBe(4);
+    expect(byCode.BLOOM.description).toBe('Completed 4 tasks.');
+    expect(byCode.BOUQUET.threshold).toBe(8);
+    expect(byCode.BOUQUET.description).toBe('Completed 8 tasks.');
+    expect(byCode.GARDEN.threshold).toBe(12);
+    expect(byCode.GARDEN.description).toBe('Completed 12 tasks.');
+  });
+
+  it('AC4: a partial threshold set (one row missing) is rejected with the "set every badge" message, nothing persists', async () => {
+    const before = bloomThreshold();
+    const res = await adminAgent
+      .post('/admin/config')
+      .type('form')
+      .send(
+        Object.assign({}, validDates, {
+          threshold_BLOOM: '4',
+          threshold_BOUQUET: '8',
+          // threshold_GARDEN omitted on purpose — a partial set.
+        })
+      );
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('err=1');
+    expect(res.headers.location).toContain(
+      encodeURIComponent('Please set every badge threshold shown, all together.')
+    );
+    expect(bloomThreshold()).toBe(before);
+  });
+
+  // Review finding 10: an unrecognized threshold_<CODE> key gets its own
+  // accurate message, distinct from the partial-set message above — the two
+  // used to share one string even though they are different failures.
+  it('AC4 / review finding 10: an unrecognized threshold_<CODE> key is rejected with its own message, distinct from the partial-set one, nothing persists', async () => {
+    const before = bloomThreshold();
+    const res = await adminAgent
+      .post('/admin/config')
+      .type('form')
+      .send(
+        Object.assign({}, validDates, {
+          threshold_BLOOM: '4',
+          threshold_BOUQUET: '8',
+          threshold_GARDEN: '12',
+          threshold_FAKE: '20',
+        })
+      );
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('err=1');
+    expect(res.headers.location).not.toContain(
+      encodeURIComponent('Please set every badge threshold shown, all together.')
+    );
+    expect(res.headers.location).toContain(
+      encodeURIComponent(
+        "One of the submitted badge codes doesn't match a current milestone badge."
+      )
+    );
+    expect(bloomThreshold()).toBe(before);
+  });
+
+  it('AC4: a non-ascending set is rejected, nothing persists', async () => {
+    const before = bloomThreshold();
+    const res = await adminAgent
+      .post('/admin/config')
+      .type('form')
+      .send(
+        Object.assign({}, validDates, {
+          threshold_BLOOM: '10',
+          threshold_BOUQUET: '8',
+          threshold_GARDEN: '15',
+        })
+      );
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('err=1');
+    expect(bloomThreshold()).toBe(before);
+  });
+
+  it('AC4: an out-of-range or non-integer value is rejected, nothing persists', async () => {
+    const before = bloomThreshold();
+
+    const zeroRes = await adminAgent
+      .post('/admin/config')
+      .type('form')
+      .send(
+        Object.assign({}, validDates, {
+          threshold_BLOOM: '0',
+          threshold_BOUQUET: '10',
+          threshold_GARDEN: '15',
+        })
+      );
+    expect(zeroRes.status).toBe(303);
+    expect(zeroRes.headers.location).toContain('err=1');
+    expect(bloomThreshold()).toBe(before);
+
+    const wordsRes = await adminAgent
+      .post('/admin/config')
+      .type('form')
+      .send(
+        Object.assign({}, validDates, {
+          threshold_BLOOM: 'abc',
+          threshold_BOUQUET: '10',
+          threshold_GARDEN: '15',
+        })
+      );
+    expect(wordsRes.status).toBe(303);
+    expect(wordsRes.headers.location).toContain('err=1');
+    expect(bloomThreshold()).toBe(before);
+  });
+
+  it('AC5: a POST with no threshold keys at all leaves stored thresholds unchanged and still saves the rest of the form', async () => {
+    const before = bloomThreshold();
+    const res = await adminAgent.post('/admin/config').type('form').send(validDates);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain(encodeURIComponent('Configuration saved.'));
+    expect(bloomThreshold()).toBe(before);
   });
 });

@@ -18,6 +18,12 @@ const eventDays = require('../../services/event-days');
 
 const { withBadgeMoment } = require('../../services/render-locals');
 
+// scoring.autoBadgeRows() (issue #1094) — the single source of the milestone
+// badges' current names/thresholds, read here so GET /how-points-work's
+// sentence tracks an admin's Configuration-page edit instead of a hard-coded
+// literal.
+const scoring = require('../../services/scoring');
+
 // reachableLiveTaskCount (issue #754) — the single owner of "how many live
 // tasks can this guest actually reach" (shared with home.js's GET /), see
 // src/routes/guest/shared.js's own doc comment.
@@ -70,13 +76,36 @@ router.get('/how-to-play', function (req, res) {
 });
 
 // GET /how-points-work — the points-breakdown page reached from the
-// "How to earn points" button on the how-to-play card (issue #818). Static
-// copy, no dynamic data — the row titles, reward tags, and descriptions are
-// all fixed in the view, so this route just renders it (still behind
-// src/routes/guest.js's router.use(requireGuest), same gate as every route
-// mounted there).
+// "How to earn points" button on the how-to-play card (issue #818). Every
+// row's titles/tags/description is fixed copy in the view EXCEPT the
+// milestone-badges row (issue #1094): its sentence is composed here from
+// scoring.autoBadgeRows() (the same DB-backed thresholds the admin
+// Configuration page writes) plus the clean-sweep badge name, owned once by
+// scoring.cleanSweepBadgeName() (src/services/scoring/badge-engine.js)
+// rather than variant-hard-coded — scripts/badge-catalog.js's upsert already
+// re-syncs `name` to the variant's own catalog entry ("Completionist"
+// wedding, "Last Call" stag) on every boot, so reading it here instead of a
+// local isStag ternary can never disagree with what the catalog actually
+// seeded. At the seeded default thresholds (5/10/15 wedding, 5/10 stag) this
+// composes to the exact bytes the old hard-coded copy rendered (AC7): "Rack
+// up tasks and badges land on their own: <name> at <n>[, <name> at <n>...],
+// <CleanSweep> for the clean sweep." — a flat comma list with no "and",
+// matching the original literal's own punctuation exactly, so the
+// render-identical claim holds without a second hand-typed template string
+// to keep in sync.
 router.get('/how-points-work', function (req, res) {
-  res.render('how-points-work', withBadgeMoment(req, res, { title: 'How to earn points' }));
+  const cleanSweepName = scoring.cleanSweepBadgeName();
+  const milestoneParts = scoring
+    .autoBadgeRows()
+    .map((b) => `${b.name} at ${b.threshold}`)
+    .concat(`${cleanSweepName} for the clean sweep`);
+  const milestoneSentence =
+    'Rack up tasks and badges land on their own: ' + milestoneParts.join(', ') + '.';
+
+  res.render(
+    'how-points-work',
+    withBadgeMoment(req, res, { title: 'How to earn points', milestoneSentence })
+  );
 });
 
 // GET /no-photos — the ceremony photo-notice explainer (issue #1042). Static

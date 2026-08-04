@@ -343,6 +343,17 @@ describe('AC5: stag milestone badges, no GARDEN tier, re-sync survives a reboot'
     expect(row).toBeUndefined();
   });
 
+  it('issue #1094 AC7/AC8: GET /how-points-work names First Round/Second Round/Last Call, no GARDEN mention, no code change needed', async () => {
+    const agent = signInGuest(app, 'stag-milestone-guest');
+    const res = await agent.get('/how-points-work');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(
+      'Rack up tasks and badges land on their own: First Round at 5, Second Round at 10, Last Call for the clean sweep.'
+    );
+    expect(res.text).not.toContain('Full Garden');
+  });
+
   it('5 completed tasks earns "First Round" as a bare gold icon in the medallion', () => {
     for (let i = 0; i < 5; i += 1) submit(taskIds[i]);
     scoring.recomputeBadges(guestId);

@@ -77,12 +77,17 @@ dies.
 
 ## How guests earn badges
 
-- **Automatic set.** First Bloom (5 tasks), Bouquet Builder (10), Full Garden (15), and
-  Completionist (every currently active task) are granted and revoked automatically as a
-  guest's submissions and the active task set change — Completionist's revoke-on-task-change
-  behavior is #701. Since #1060, "5/10/15 tasks" also counts the profile-photo starter task:
-  a guest with a photo and 4 real submissions holds First Bloom, the photo supplies the
-  fifth completion (`scoring.thresholdCompletedCount`, the single owner of that count).
+- **Automatic set.** First Bloom, Bouquet Builder, and Full Garden are granted and revoked
+  automatically at completed-task thresholds — 5/10/15 seeded by default, but each is an
+  admin-editable number on the Configuration page (issue #1094), read live from the
+  `badges.threshold` column rather than a fixed constant — plus Completionist (every
+  currently active task), which needs no threshold at all. All four are granted/revoked as a
+  guest's submissions, the active task set, or (for the first three) the configured
+  thresholds change — Completionist's revoke-on-task-change behavior is #701, the threshold
+  badges' revoke-on-retuned-milestone behavior is #1094. Since #1060, a milestone threshold
+  also counts the profile-photo starter task: a guest with a photo and one fewer real
+  submission than the threshold still holds that badge, the photo supplying the last
+  completion (`scoring.thresholdCompletedCount`, the single owner of that count).
   Each pays +1 while held (point source 7 above).
 - **Task badges.** Every task has exactly one badge, required at task creation, picked
   from the bundled icon set (#682 + #410). Completing the task does not earn the badge —

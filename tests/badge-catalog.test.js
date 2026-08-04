@@ -204,3 +204,67 @@ describe('#655: ensureBadgeCatalog upserts a stale catalog row without touching 
     expect(result).toEqual({ inserted: 0, updated: 0, unchanged: BADGES.length });
   });
 });
+
+describe('#1094 AC6: an admin-set threshold survives ensureBadgeCatalog, with its description re-composed to match', () => {
+  let db;
+  const { ensureBadgeCatalog, BADGES } = require('../scripts/badge-catalog');
+
+  beforeAll(() => {
+    ({ db } = loadApp());
+  });
+
+  beforeEach(() => {
+    db.prepare('DELETE FROM badges').run();
+    ensureBadgeCatalog(db);
+  });
+
+  it('a threshold of 4 (with its own already-matching composed description) survives re-sync and classifies as unchanged, not updated', () => {
+    db.prepare(
+      `UPDATE badges SET threshold = 4, description = 'Completed 4 tasks.' WHERE code = 'BLOOM'`
+    ).run();
+
+    const result = ensureBadgeCatalog(db);
+
+    const bloom = db
+      .prepare('SELECT threshold, description FROM badges WHERE code = ?')
+      .get('BLOOM');
+    expect(bloom.threshold).toBe(4);
+    expect(bloom.description).toBe('Completed 4 tasks.');
+    // Every catalog row already matches (name/art_path untouched, and
+    // BLOOM's description already composes to match its own live threshold)
+    // — the re-sync must classify the whole catalog 'unchanged', never
+    // 'updated' forever just because an admin moved the threshold off the
+    // catalog's own literal default.
+    expect(result).toEqual({ inserted: 0, updated: 0, unchanged: BADGES.length });
+  });
+
+  it('a stale description on a row whose threshold is 1 re-syncs to the singular "Completed 1 task."', () => {
+    db.prepare(`UPDATE badges SET threshold = 1, description = 'stale' WHERE code = 'BLOOM'`).run();
+
+    const result = ensureBadgeCatalog(db);
+
+    const bloom = db
+      .prepare('SELECT threshold, description FROM badges WHERE code = ?')
+      .get('BLOOM');
+    expect(bloom.threshold).toBe(1);
+    expect(bloom.description).toBe('Completed 1 task.');
+    expect(result.updated).toBeGreaterThanOrEqual(1);
+  });
+
+  // Review finding 9: a NULL threshold on an existing row (never produced by
+  // this module itself — a defensive case only) must not compose "Completed
+  // null tasks." — syncedDescriptionFor falls back to the catalog entry's own
+  // threshold instead.
+  it('a NULL threshold on an existing row falls back to the catalog entry\'s own threshold, never "Completed null tasks."', () => {
+    db.prepare(
+      `UPDATE badges SET threshold = NULL, description = 'stale' WHERE code = 'BLOOM'`
+    ).run();
+
+    ensureBadgeCatalog(db);
+
+    const bloom = db.prepare('SELECT description FROM badges WHERE code = ?').get('BLOOM');
+    const catalogBloom = BADGES.find((b) => b.code === 'BLOOM');
+    expect(bloom.description).toBe(catalogBloom.description);
+    expect(bloom.description).not.toMatch(/null/i);
+  });
+});

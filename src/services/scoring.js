@@ -28,8 +28,12 @@ const leaderboardModule = require('./scoring/leaderboard');
 const guestBadges = require('./scoring/guest-badges');
 
 module.exports = {
-  BADGE_THRESHOLDS: badgeEngine.BADGE_THRESHOLDS,
-  AUTO_THRESHOLDS: badgeEngine.AUTO_THRESHOLDS,
+  BADGE_THRESHOLD_MIN: badgeEngine.BADGE_THRESHOLD_MIN,
+  BADGE_THRESHOLD_MAX: badgeEngine.BADGE_THRESHOLD_MAX,
+  autoBadgeThresholds: badgeEngine.autoBadgeThresholds,
+  autoBadgeRows: badgeEngine.autoBadgeRows,
+  badgeByCode: badgeEngine.badgeByCode,
+  cleanSweepBadgeName: badgeEngine.cleanSweepBadgeName,
   photoPoints: points.photoPoints,
   getCompletedCount: points.getCompletedCount,
   getPoints: points.getPoints,
@@ -50,6 +54,7 @@ module.exports = {
   recomputeTransferableBadges: badgeEngine.recomputeTransferableBadges,
   recomputeAfterSubmissionChange: badgeEngine.recomputeAfterSubmissionChange,
   recomputeAfterTaskChange: badgeEngine.recomputeAfterTaskChange,
+  setAutoBadgeThresholds: badgeEngine.setAutoBadgeThresholds,
   awardSpecialBadge: badgeEngine.awardSpecialBadge,
   removeSpecialBadge: badgeEngine.removeSpecialBadge,
   createCustomBadge: badgeEngine.createCustomBadge,

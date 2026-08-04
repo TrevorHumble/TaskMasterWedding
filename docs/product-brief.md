@@ -55,7 +55,7 @@ What the owner asked for, in his own words, captured from discovery. This is the
 
 ## Badges
 
-- **Auto badges are earned by completing a number of tasks:** about **3 badges**, one every **5 tasks** (so at 5, 10, and 15 completed, counting the profile photo as one of those completed tasks), plus a Completionist badge for holding every active task.
+- **Auto badges are earned by completing a number of tasks:** 3 badges, at completed-task thresholds the hosts set on the Configuration page (5, 10, and 15 out of the box, counting the profile photo as one of those completed tasks; issue #1094), plus a Completionist badge for holding every active task — Completionist needs no configuration, since it always means "every active task" and adapts by itself.
 - **Task badges are prize badges, not participation badges.** Every task has one badge; the host ranks that task's 5 best photos and all five wear it, with the best photo's copy wearing it gold.
 - **Crowd favorite** is derived from likes — the 5 most-liked photos wear it, recomputed live all weekend, rather than awarded by hand or left to change hands on a raw photo-count metric.
 - **Placeholder badge art is fine** — the owner is OK with designed placeholders.

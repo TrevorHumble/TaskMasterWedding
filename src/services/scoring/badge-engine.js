@@ -29,31 +29,72 @@ const { TASK_BADGE_CODE_PREFIX } = require('../task-badges');
 // feed.js in between.
 const notifications = require('../notifications');
 const { getCompletedCount, starterTaskContribution } = require('./points');
+const { autoBadgeDescription } = require('../badge-copy');
 
 // ---------------------------------------------------------------------------
-// Canonical auto-badge thresholds. These MUST match the seeded `badges` rows
-// (section 02 seed.js): BLOOM=5, BOUQUET=10, GARDEN=15 against the threshold
-// count (thresholdCompletedCount below: visible task-linked submissions plus
-// the profile-photo starter task, issue #1060).
-//
-// Two shapes are exported on purpose:
-//   - BADGE_THRESHOLDS: array of { code, n } objects, used internally by
-//     recomputeBadges to map a code to its threshold number.
-//   - AUTO_THRESHOLDS:  plain array of numbers [5, 10, 15], used by section 04
-//     for numeric comparisons and progress-bar math. It is derived from
-//     BADGE_THRESHOLDS so the two can never drift apart.
-// These are the single source of truth for the threshold numbers used in UI
-// copy and tests.
+// Auto-badge thresholds (issue #1094): the `badges` table's own `threshold`
+// column is now the single runtime source of truth, admin-writable from the
+// Configuration page (setAutoBadgeThresholds below) rather than a hard-coded
+// literal only a code change could move. autoBadgeThresholds() reads it fresh
+// on every call — cheap (a handful of rows, no index needed) and the only
+// way a just-saved admin edit is visible to the very next recompute in the
+// same request (setAutoBadgeThresholds's own per-guest loop below).
+// recomputeThresholdBadges and nextThresholdBadge both iterate its return
+// value rather than a fixed-length literal, so a stag boot (no GARDEN row,
+// scripts/badge-catalog.js) simply gets two entries instead of three — no
+// separate variant branch needed.
 // ---------------------------------------------------------------------------
-const BADGE_THRESHOLDS = [
-  { code: 'BLOOM', n: 5 },
-  { code: 'BOUQUET', n: 10 },
-  { code: 'GARDEN', n: 15 },
-];
+const AUTO_BADGE_WHERE = `type = 'auto' AND threshold IS NOT NULL`;
 
-// Plain numeric thresholds, e.g. [5, 10, 15]. Section 04 imports THIS one for
-// `completedTasks < AUTO_THRESHOLDS[i]` style comparisons and progress math.
-const AUTO_THRESHOLDS = BADGE_THRESHOLDS.map((b) => b.n);
+// The admin Configuration page's textarea/number-input bounds (issue #1094,
+// PR review): defined once here, beside setAutoBadgeThresholds below
+// (the function that enforces them), and re-exported through
+// src/services/scoring.js so src/routes/admin/config.js (the error-message
+// text) and src/views/admin-config.ejs (the input's min/max attributes) both
+// read the same two numbers instead of each hand-typing "1" and "99".
+const BADGE_THRESHOLD_MIN = 1;
+const BADGE_THRESHOLD_MAX = 99;
+
+const stmtAutoBadgeThresholds = db.prepare(
+  `SELECT code, threshold FROM badges WHERE ${AUTO_BADGE_WHERE} ORDER BY threshold ASC`
+);
+
+/**
+ * Every 'auto' badge's current threshold, ordered ascending — see the
+ * section comment above for why this replaced the old BADGE_THRESHOLDS
+ * constant. Same `{code, threshold}` shape as autoBadgeRows() below (issue
+ * #1094, PR review — the two used to disagree, this one aliasing the
+ * column to `n`); this one just omits the display-only columns that function
+ * carries.
+ * @returns {Array<{code: string, threshold: number}>}
+ */
+function autoBadgeThresholds() {
+  return stmtAutoBadgeThresholds.all();
+}
+
+// Same predicate as stmtAutoBadgeThresholds above (AUTO_BADGE_WHERE, defined
+// once so the two statements can never silently disagree about which rows
+// count as "the auto badges"), projecting the display fields the admin
+// Configuration page's GET handler needs (src/routes/admin/config.js) that
+// the lean {code, threshold} shape above deliberately omits.
+// recomputeThresholdBadges runs autoBadgeThresholds() once per guest per
+// recompute, so that one stays as narrow as its own callers need rather than
+// carrying these extra columns on every row.
+const stmtAutoBadgeRows = db.prepare(
+  `SELECT code, name, art_path, threshold FROM badges WHERE ${AUTO_BADGE_WHERE} ORDER BY threshold ASC`
+);
+
+/**
+ * Every 'auto' badge's full display row (code, name, art_path, threshold),
+ * ordered ascending by threshold — the Configuration page's GET handler
+ * renders one row per entry (issue #1094 AC8), and its POST handler reads
+ * this same ordering back to know which `threshold_<CODE>` fields to expect
+ * and in what order "strictly ascending" (AC4) is judged.
+ * @returns {Array<{code: string, name: string, art_path: string, threshold: number}>}
+ */
+function autoBadgeRows() {
+  return stmtAutoBadgeRows.all();
+}
 
 // Look up a badge row by its code (e.g. 'BLOOM', 'EARLYBIRD'). Private —
 // callers outside this file use the badgeByCode(code) wrapper exported
@@ -73,6 +114,18 @@ const stmtBadgeByCode = db.prepare('SELECT * FROM badges WHERE code = ?');
  */
 function badgeByCode(code) {
   return stmtBadgeByCode.get(code);
+}
+
+const CLEAN_SWEEP_CODE = 'COMPLETIONIST';
+
+/**
+ * The clean-sweep badge's display name as the catalog currently holds it
+ * ("Completionist" wedding, "Last Call" stag). The generic fallback covers
+ * only an unseeded/deleted catalog row.
+ * @returns {string}
+ */
+function cleanSweepBadgeName() {
+  return (badgeByCode(CLEAN_SWEEP_CODE) || {}).name || 'Completionist';
 }
 
 // Does this guest already hold this badge? (returns the guest_badges row or undefined)
@@ -218,20 +271,24 @@ function thresholdCompletedCount(guestId) {
  * returns and the count recomputeThresholdBadges grants on are always the
  * same scale (AC7) and can never disagree.
  *
- * BADGE_THRESHOLDS is already ordered ascending (5, 10, 15), so the first
- * entry with `n > completed` is the smallest reachable-or-not next
- * threshold. Reachability is then a single comparison against
- * `reachableTaskCount`, the caller's own denominator (GET / passes
+ * autoBadgeThresholds() already returns its rows ordered ascending by
+ * threshold, so the first entry with `threshold > completed` is the smallest
+ * reachable-or-not next threshold. Reachability is then a single comparison
+ * against `reachableTaskCount`, the caller's own denominator (GET / passes
  * `totalTasks`, the same figure the progress caption prints). This
  * function never recomputes that count itself, so the two can never use a
  * different set.
  *
  * name/art_path are read via the exported badgeByCode(code) wrapper above,
  * never a second `SELECT … FROM badges` beside the private stmtBadgeByCode
- * it already owns. A missing catalog row (e.g. the stag variant deliberately
- * has no GARDEN entry, scripts/badge-catalog.js, while BADGE_THRESHOLDS still
- * lists it) returns null here too: that branch is reachable in production,
- * not merely defensive.
+ * it already owns. A missing catalog row (the stag variant deliberately has
+ * no GARDEN entry, scripts/badge-catalog.js) can no longer even reach this
+ * `if (!badge)` branch in practice, since autoBadgeThresholds() itself only
+ * ever returns codes for rows that currently exist — the guard stays as a
+ * defensive no-op against the row being deleted between the two reads
+ * (autoBadgeThresholds() above, then this badgeByCode(next.code) call), the
+ * same residual reason recomputeThresholdBadges' own `if (!badge)` guard
+ * below stays in place.
  *
  * @param {number} guestId
  * @param {number} reachableTaskCount - the same denominator the progress
@@ -240,8 +297,8 @@ function thresholdCompletedCount(guestId) {
  */
 function nextThresholdBadge(guestId, reachableTaskCount) {
   const completed = thresholdCompletedCount(guestId);
-  const next = BADGE_THRESHOLDS.find(({ n }) => n > completed);
-  if (!next || next.n > reachableTaskCount) {
+  const next = autoBadgeThresholds().find(({ threshold }) => threshold > completed);
+  if (!next || next.threshold > reachableTaskCount) {
     return null;
   }
   const badge = badgeByCode(next.code);
@@ -252,8 +309,8 @@ function nextThresholdBadge(guestId, reachableTaskCount) {
     code: badge.code,
     name: badge.name,
     art_path: badge.art_path,
-    threshold: next.n,
-    remaining: next.n - completed,
+    threshold: next.threshold,
+    remaining: next.threshold - completed,
   };
 }
 
@@ -270,9 +327,11 @@ function nextThresholdBadge(guestId, reachableTaskCount) {
  *
  * `revokeKind` (issue #1060) is the notification_events.kind recorded on a
  * revoke, defaulting to 'badge_revoked' so recomputeBadges below (and every
- * other existing caller) is unchanged. Only POST /me/avatar/delete passes
+ * other existing caller) is unchanged. POST /me/avatar/delete passes
  * 'badge_revoked_photo', naming the profile photo as the reason a threshold
- * badge was lost.
+ * badge was lost; setAutoBadgeThresholds below (issue #1094) passes
+ * 'badge_revoked_threshold', naming a host-changed milestone as the reason
+ * instead — the two are the only non-default revokeKind callers.
  *
  * Idempotent, and wrapped in its own transaction so the (possibly multiple)
  * grant/revoke writes either all apply or none do.
@@ -283,16 +342,20 @@ function nextThresholdBadge(guestId, reachableTaskCount) {
 const recomputeThresholdBadges = db.transaction((guestId, revokeKind = 'badge_revoked') => {
   const completed = thresholdCompletedCount(guestId);
 
-  for (const { code, n } of BADGE_THRESHOLDS) {
+  for (const { code, threshold } of autoBadgeThresholds()) {
     const badge = stmtBadgeByCode.get(code);
     if (!badge) {
-      // Badge catalog not seeded yet — skip rather than crash. Run seed.js.
+      // Defensive no-op, same spirit as nextThresholdBadge's own `if
+      // (!badge)` guard above: guards against the row this code names being
+      // deleted between the autoBadgeThresholds() read just above and this
+      // stmtBadgeByCode read, not an expected steady state — skip rather
+      // than crash.
       continue;
     }
 
     const has = stmtGuestBadge.get(guestId, badge.id);
 
-    if (completed >= n) {
+    if (completed >= threshold) {
       // Threshold met: grant if missing. awarded_by = 'system'. Carries
       // AUTO_METRIC_BADGE_POINTS (issue #709) — an auto badge is worth +1
       // for as long as the guest holds it; revocation below deletes the
@@ -479,6 +542,73 @@ const recomputeAfterTaskChange = db.transaction(() => {
   recomputeTransferableBadges();
 });
 
+// Writes a new threshold + composed description for one auto badge row —
+// used only by setAutoBadgeThresholds below.
+const stmtSetAutoThreshold = db.prepare(
+  `UPDATE badges SET threshold = ?, description = ? WHERE code = ?`
+);
+
+/**
+ * Persist a new threshold for every currently-seeded 'auto' badge (issue
+ * #1094 plan step 1), composing each row's matching `description` through
+ * the shared composer (badge-copy.js's autoBadgeDescription — the single
+ * writer both this function and scripts/badge-catalog.js's boot re-sync
+ * consume, AC6), then recomputing every guest's threshold badges through the
+ * existing recomputeThresholdBadges(guestId, revokeKind) seam with
+ * revokeKind = 'badge_revoked_threshold' (AC3 — the recap must name the
+ * hosts' pacing change, not a fabricated task-change reason), followed by the
+ * one global transferable pass — the same ordered pair recomputeAfterTaskChange
+ * already runs for a task-set change, since a threshold change is the
+ * identical shape of event: any guest's badge state can move, not only the
+ * guest who happened to submit the form. recomputeAfterTaskChange itself is
+ * unsuited here because it cannot thread a revoke kind through to
+ * recomputeThresholdBadges — it always calls the full recomputeBadges, which
+ * defaults to plain 'badge_revoked'.
+ *
+ * `updates` is validated against the CURRENT auto badge codes, not trusted
+ * blind: every code autoBadgeThresholds() currently returns must appear
+ * exactly once in `updates`, and `updates` must carry no other code — a
+ * caller passing a stale, partial, or foreign code set throws rather than
+ * silently leaving an auto badge's threshold unset or writing a threshold
+ * onto a code that isn't a current auto row. Each `n` is also range-checked
+ * against BADGE_THRESHOLD_MIN/BADGE_THRESHOLD_MAX above. src/routes/admin/
+ * config.js is the caller that already enforces the full AC4 shape (integers
+ * BADGE_THRESHOLD_MIN-BADGE_THRESHOLD_MAX, strictly ascending, all-or-none)
+ * before this function ever runs; this is the engine's own defense against
+ * being reached with anything else.
+ *
+ * @param {Array<{code: string, n: number}>} updates
+ */
+const setAutoBadgeThresholds = db.transaction((updates) => {
+  const currentCodes = autoBadgeThresholds().map((row) => row.code);
+  const updateCodes = updates.map((u) => u.code);
+  const sameSet =
+    currentCodes.length === updateCodes.length &&
+    currentCodes.every((code) => updateCodes.includes(code));
+  if (!sameSet) {
+    throw new Error(
+      'setAutoBadgeThresholds: updates must name exactly the current auto badge codes'
+    );
+  }
+  const inRange = updates.every(
+    (u) => Number.isInteger(u.n) && u.n >= BADGE_THRESHOLD_MIN && u.n <= BADGE_THRESHOLD_MAX
+  );
+  if (!inRange) {
+    throw new Error(
+      `setAutoBadgeThresholds: every threshold must be an integer from ${BADGE_THRESHOLD_MIN} to ${BADGE_THRESHOLD_MAX}`
+    );
+  }
+
+  for (const { code, n } of updates) {
+    stmtSetAutoThreshold.run(n, autoBadgeDescription(n), code);
+  }
+
+  for (const { id } of stmtAllGuestIds.all()) {
+    recomputeThresholdBadges(id, 'badge_revoked_threshold');
+  }
+  recomputeTransferableBadges();
+});
+
 // ---------------------------------------------------------------------------
 // Special (hand-awarded) badges
 // ---------------------------------------------------------------------------
@@ -583,9 +713,12 @@ function createCustomBadge({ code, name, type, artPath, description }) {
 }
 
 module.exports = {
-  BADGE_THRESHOLDS,
-  AUTO_THRESHOLDS,
+  BADGE_THRESHOLD_MIN,
+  BADGE_THRESHOLD_MAX,
+  autoBadgeThresholds,
+  autoBadgeRows,
   badgeByCode,
+  cleanSweepBadgeName,
   thresholdCompletedCount,
   nextThresholdBadge,
   recomputeThresholdBadges,
@@ -593,6 +726,7 @@ module.exports = {
   recomputeTransferableBadges,
   recomputeAfterSubmissionChange,
   recomputeAfterTaskChange,
+  setAutoBadgeThresholds,
   awardSpecialBadge,
   removeSpecialBadge,
   createCustomBadge,
