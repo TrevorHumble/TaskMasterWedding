@@ -62,12 +62,19 @@
     }
 
     // Backdrop click: the dialog element is the target only when the click
-    // lands on its ::backdrop, not on its children.
+    // lands on its ::backdrop, not on its children. Issue #1041: also
+    // requires the press (not just the release) to have landed on the
+    // dialog, via the guarded read of window.DialogDismiss's delegated
+    // predicate (src/public/js/dialog-dismiss.js) — a drag-select started
+    // inside the caption field and released past the dialog's edge
+    // retargets the click the same way a genuine backdrop press does. Falls
+    // back to today's click-target-only check when the module never loaded.
     var target = event.target;
     if (
       target.classList &&
       target.classList.contains('caption-dialog') &&
-      typeof target.close === 'function'
+      typeof target.close === 'function' &&
+      (!window.DialogDismiss || window.DialogDismiss.pressAllowsDelegatedClose(event))
     ) {
       target.close();
     }

@@ -22,6 +22,14 @@
 // Plain ES5-style browser script, no bundler — same convention as every
 // other file under src/public/js/, loaded via a bare <script defer> tag
 // before its consumers (src/views/admin-tasks.ejs, src/views/admin-dashboard.ejs).
+//
+// Issue #1041 adds a second, DELEGATED variant of the same press-target rule
+// for the guest surface (src/public/js/feed.js's comments dialog,
+// src/public/js/photo-owner-menu.js's caption dialog).
+//
+// Full rationale (why delegation, not per-element registration, is
+// load-bearing here; the fail-safe shape; the load-order resolution) lives
+// in DESIGN.md, "One shared backdrop-dismiss owner" ADR, #1041 paragraphs.
 (function (global) {
   'use strict';
 
@@ -71,7 +79,51 @@
     });
   }
 
+  // ------------------------------------------------------------------
+  // Delegated variant (issue #1041): same press-target rule, document-level
+  // rather than per dialog element, for a page that opens dialogs the
+  // module could not have registered against individually at load time.
+  // ------------------------------------------------------------------
+
+  // Raw target of the most recent primary-pointer press, tracked at the
+  // document level. There is exactly one press between a dialog's own click
+  // and the click that follows it, so this reflects the press that led to
+  // the CURRENT click by construction — no per-dialog reset is needed the
+  // way backdrop()'s per-dialog boolean needs one, because a raw target
+  // reference (not a "was it on THIS dialog" boolean) is meaningless until
+  // compared against a specific click's own target below.
+  var delegatedPressTarget = null;
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('pointerdown', function (event) {
+      // Same non-primary-pointer guard backdrop() documents above: a second
+      // simultaneous touch must not overwrite the press that the primary
+      // touch's later click will be checked against.
+      if (event.isPrimary === false) return;
+      delegatedPressTarget = event.target;
+    });
+  }
+
+  /**
+   * True only when the most recently recorded primary-pointer press target
+   * is the same element as `clickEvent`'s own target — the delegated
+   * equivalent of `backdrop()`'s `pressWasOnDialog && event.target ===
+   * dialogEl` check. A caller's own click handler has already established
+   * that `clickEvent.target` is the dialog element it cares about (e.g. via
+   * a `classList.contains('comments-dialog')` check); this predicate only
+   * answers whether the PRESS agreed with that same target, so a
+   * press-inside/release-outside drag (retargeted click, but a different
+   * press target) returns false.
+   *
+   * @param {Event|null|undefined} clickEvent
+   * @returns {boolean}
+   */
+  function pressAllowsDelegatedClose(clickEvent) {
+    return !!clickEvent && !!delegatedPressTarget && delegatedPressTarget === clickEvent.target;
+  }
+
   global.DialogDismiss = {
     backdrop: backdrop,
+    pressAllowsDelegatedClose: pressAllowsDelegatedClose,
   };
 })(typeof window !== 'undefined' ? window : this);
