@@ -51,7 +51,7 @@ module.exports = {
   rankBadgeCandidates: guestBadges.rankBadgeCandidates,
   badgeWithHolders: guestBadges.badgeWithHolders,
   thresholdCompletedCount: badgeEngine.thresholdCompletedCount,
-  nextThresholdBadge: badgeEngine.nextThresholdBadge,
+  upcomingAutoBadges: badgeEngine.upcomingAutoBadges,
   recomputeThresholdBadges: badgeEngine.recomputeThresholdBadges,
   recomputeBadges: badgeEngine.recomputeBadges,
   recomputeTransferableBadges: badgeEngine.recomputeTransferableBadges,

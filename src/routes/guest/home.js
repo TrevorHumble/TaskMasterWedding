@@ -64,8 +64,9 @@ router.get('/', function (req, res) {
   // profile-photo starter's own contribution (starter.done_count, added into
   // completedTasksWithStarter below). A guest with a photo therefore has a
   // badge input exactly one higher than the bare completedTasks this
-  // comment describes; #1057's next-badge nudge must derive its remaining
-  // count from thresholdCompletedCount, not from this getCompletedCount call.
+  // comment describes; #1108's upcoming-badge rows (upcomingAutoBadges below)
+  // must derive their remaining counts from thresholdCompletedCount, not from
+  // this getCompletedCount call.
   const completedTasks = scoring.getCompletedCount(guest.id);
 
   // Issue #409: the hardcoded "Upload your profile photo" starter task is a
@@ -83,16 +84,17 @@ router.get('/', function (req, res) {
   const points = scoring.getPoints(guest.id);
   const badges = scoring.getGuestBadges(guest.id); // each: {code,name,art_path,description,points,...}
 
-  // Issue #1057: the next unearned threshold badge, or null when every
-  // threshold is held or the smallest unearned one is out of reach. The
-  // ceiling is totalTasks (below), not totalActiveCount: once #1060 landed
-  // the starter task counts on the completion side (thresholdCompletedCount),
-  // so it must count on the reachable side too, or a threshold exactly equal
-  // to the real task count would be judged unreachable and the row would
-  // hide when it should show. Both sides of this reachability comparison
-  // count the same set; that identity is the invariant, not any particular
-  // variable name.
-  const nextBadge = scoring.nextThresholdBadge(guest.id, totalTasks);
+  // Issue #1108 (supersedes #1057's single next-badge row): every unearned,
+  // reachable auto badge as a compact row above My Badges, ascending
+  // threshold order, plus an unearned Completionist row last. The ceiling is
+  // totalTasks (below), not totalActiveCount: once #1060 landed the starter
+  // task counts on the completion side (thresholdCompletedCount), so it must
+  // count on the reachable side too, or a threshold exactly equal to the
+  // real task count would be judged unreachable and its row would hide when
+  // it should show. Both sides of this reachability comparison count the
+  // same set; that identity is the invariant, not any particular variable
+  // name.
+  const upcomingBadges = scoring.upcomingAutoBadges(guest.id, totalTasks);
 
   // The guest's own (non-taken-down) submissions, newest first, joined to
   // task title so we can label each thumbnail on the home page. LEFT JOIN
@@ -115,8 +117,9 @@ router.get('/', function (req, res) {
   // Issue #88 removed an earlier "next badge" framing because it
   // contradicted this bar whenever the highest badge threshold was
   // unreachable given the active task count. Issue #1057 brought the nudge
-  // back (nextBadge, above) in a reachability-gated form: it renders only
-  // when the next threshold is at or below totalTasks, so it can never
+  // back in a reachability-gated form, and #1108 (upcomingBadges, above)
+  // widened it to every unearned reachable badge: each row renders only
+  // when its own threshold is at or below totalTasks, so the list can never
   // repeat that broken promise.
   //
   // completedTasks uses the canonical count (visible submissions, NO
@@ -142,7 +145,7 @@ router.get('/', function (req, res) {
       title: 'Home',
       points: points,
       badges: badges,
-      nextBadge: nextBadge,
+      upcomingBadges: upcomingBadges,
       submissions: submissions,
       totalTasks: totalTasks,
       completedTasks: clampedCompletedTasks,

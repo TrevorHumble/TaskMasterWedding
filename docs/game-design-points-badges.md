@@ -101,6 +101,12 @@ dies.
   completion (`scoring.thresholdCompletedCount`, the single owner of that count).
   The three milestone badges each pay +1 while held; Completionist (the clean sweep) pays
   +3 (point-system rebalance, #1105, see point source 7 above).
+  **Surfacing the thresholds (#1108, supersedes #1057's single next-badge nudge):** guest home
+  shows a compact row above My Badges for every unearned, reachable auto badge, ascending
+  threshold order, Completionist last, each stating its live remaining count and point value
+  (`scoring.upcomingAutoBadges`); a badge the guest holds drops out of this list and appears in
+  My Badges instead. The same reachability gate #1057 introduced (a threshold past the guest's
+  reachable task count renders no row) now applies to every row, not just one.
 - **Task badges.** Every task has exactly one badge, required at task creation, picked
   from the bundled icon set (#682 + #410). Completing the task does not earn the badge:
   the card copy reads "Best photo wins [badge]," prize framing, not participation framing.
@@ -186,7 +192,8 @@ for each task's real badge, not for the dead placeholders.
   badge dropdown, custom-badge form, and guest-level bonus points are currently live) ·
   Per-photo points route removal: #684 (closed)
 - Reward delivery: #644 (recap) + #611 (success screen slots for bonus receipts)
-- Display surfaces: #489/#490 (medals, #490's TOPSHOT half is dead), #1057 (next-badge nudge), #646 (host checklist), #363 (badge art), #469 (prizes)
+- Display surfaces: #489/#490 (medals, #490's TOPSHOT half is dead), #1057 (next-badge nudge,
+  superseded by #1108's upcoming-badge rows), #646 (host checklist), #363 (badge art), #469 (prizes)
 - #647 (Couple's Heart): the couple's gold heart is a like marker, unrelated to the gold badge
   rule above: do not conflate the two golds. It paid nothing at ship time; #1107 reversed that
   in the point-system rebalance to 1 point per couple like, uncapped, fully derived (point source
@@ -382,7 +389,7 @@ flowchart LR
     A2["submit gate"] --> A0
     A3["Completionist set"] --> A0
     A4["lucky + flash pickers"] --> A0
-    A5["next-badge nudge"] --> A0
+    A5["upcoming-badge rows (#1108)"] --> A0
   end
 
   subgraph W3["Wall 3: one banked-bonus shape"]

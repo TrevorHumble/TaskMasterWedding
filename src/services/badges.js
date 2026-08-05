@@ -79,11 +79,25 @@ const stmtMissingActiveTaskCount = db.prepare(`
 `);
 
 /**
+ * The count itself (issue #1108 plan step 1), factored out of isCompletionist
+ * below so the guest-home upcoming-badges list (badge-engine.js's
+ * upcomingAutoBadges) can show the SAME number the grant check counts down
+ * to zero, so the two can never disagree, since isCompletionist is now
+ * expressed directly in terms of this function rather than a parallel query.
+ * @param {number} guestId
+ * @returns {number} live, non-challenge tasks this guest has no visible
+ *   submission for.
+ */
+function missingActiveTaskCount(guestId) {
+  return stmtMissingActiveTaskCount.get(guestId).n;
+}
+
+/**
  * @param {number} guestId
  * @returns {boolean} true if the guest currently covers every active task.
  */
 function isCompletionist(guestId) {
-  return stmtMissingActiveTaskCount.get(guestId).n === 0;
+  return missingActiveTaskCount(guestId) === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,4 +152,5 @@ const TRANSFERABLE_BADGES = {
 module.exports = {
   METRIC_BADGES,
   TRANSFERABLE_BADGES,
+  missingActiveTaskCount,
 };
