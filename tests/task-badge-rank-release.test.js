@@ -7,7 +7,7 @@
 // AC1 — GET renders the pick grid + ranked list (structural: the approved
 //       look/drag behavior is covered by the visual-approval freeze, not
 //       this file).
-// AC2 — release writes 5/4/3/2/1 by rank in one transaction; getPoints and
+// AC2 — release writes 5/3/2 by rank in one transaction; getPoints and
 //       leaderboard() both reflect it. Covers the 1-winner and 3-winner cases.
 // AC3 — over-cap/duplicate/wrong-task/taken-down/unknown ids are refused;
 //       zero winners (issue #892) is instead a DELIBERATE clear-all, covered
@@ -15,7 +15,7 @@
 // AC4 — takedown/restore of a winning photo is free (scoring.js's existing
 //       visibility rule) — asserted here against a REAL ranked award, not
 //       re-implemented.
-// AC5 — same-guest collapse: ranks 1 + 4 -> one row, 7 points, rank 1,
+// AC5 — same-guest collapse: ranks 1 + 3 -> one row, 7 points, rank 1,
 //       submission_id = the 1st-place photo.
 // AC6 — reopening a released task's page renders read-only; re-ranking
 //       replaces the whole award set atomically.
@@ -75,11 +75,11 @@ beforeAll(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC2: release writes 5/4/3/2/1 by rank, in one transaction; getPoints and
+// AC2: release writes 5/3/2 by rank, in one transaction; getPoints and
 // leaderboard() both reflect the new totals. Covers the 1-winner and
 // 3-winner cases named in the issue's plan.
 // ---------------------------------------------------------------------------
-describe('AC2: release pays 5/4/3/2/1 by rank and both getPoints/leaderboard reflect it', () => {
+describe('AC2: release pays 5/3/2 by rank and both getPoints/leaderboard reflect it', () => {
   it('a single winner (K=1) pays exactly 5', () => {
     const taskId = makeTask('AC2 Solo Task');
     const guestId = makeGuest('AC2 Solo Guest');
@@ -102,7 +102,7 @@ describe('AC2: release pays 5/4/3/2/1 by rank and both getPoints/leaderboard ref
     expect(lbRow.points).toBe(8);
   });
 
-  it('three distinct winners (K=3) pay 5/4/3 in one transaction', () => {
+  it('three distinct winners (K=3) pay 5/3/2 in one transaction', () => {
     const taskId = makeTask('AC2 Trio Task');
     const g1 = makeGuest('AC2 Trio Guest 1');
     const g2 = makeGuest('AC2 Trio Guest 2');
@@ -121,23 +121,23 @@ describe('AC2: release pays 5/4/3/2/1 by rank and both getPoints/leaderboard ref
       .all(result.badge.id);
     expect(rows).toEqual([
       { guest_id: g1, points: 5, rank: 1, submission_id: s1 },
-      { guest_id: g2, points: 4, rank: 2, submission_id: s2 },
-      { guest_id: g3, points: 3, rank: 3, submission_id: s3 },
+      { guest_id: g2, points: 3, rank: 2, submission_id: s2 },
+      { guest_id: g3, points: 2, rank: 3, submission_id: s3 },
     ]);
 
     // Each guest completed exactly this one task (3 base points) + their award.
     expect(scoring.getPoints(g1)).toBe(3 + 5);
-    expect(scoring.getPoints(g2)).toBe(3 + 4);
-    expect(scoring.getPoints(g3)).toBe(3 + 3);
+    expect(scoring.getPoints(g2)).toBe(3 + 3);
+    expect(scoring.getPoints(g3)).toBe(3 + 2);
   });
 
-  it('a full 5-winner release pays 5/4/3/2/1 (only existing ranks paid, per POINTS_BY_RANK)', () => {
-    const taskId = makeTask('AC2 Full Five Task');
-    const guests = [1, 2, 3, 4, 5].map((n) => makeGuest('AC2 Full Guest ' + n));
+  it('a full 3-winner release pays 5/3/2 (every rank paid, per POINTS_BY_RANK; a 5-entry release is now the refusal case, see AC3)', () => {
+    const taskId = makeTask('AC2 Full Three Task');
+    const guests = [1, 2, 3].map((n) => makeGuest('AC2 Full Guest ' + n));
     const subs = guests.map((g) => makeSubmission(g, taskId));
 
     const result = taskBadges.releaseRanking(taskId, subs);
-    expect(result.winners).toBe(5);
+    expect(result.winners).toBe(3);
 
     const points = db
       .prepare('SELECT points FROM guest_badges WHERE badge_id = ? ORDER BY rank')
@@ -337,35 +337,31 @@ describe("AC4: a ranked winner's photo takedown/restore moves their points; the 
 // that cannot exist.
 // ---------------------------------------------------------------------------
 describe('AC5: same-guest multi-win collapses to one row', () => {
-  it('foldRankedPlacements: ranks 1 and 4 for the same guest -> one entry, 7 points, rank 1, submissionId = the 1st-place photo', () => {
+  it('foldRankedPlacements: ranks 1 and 3 for the same guest -> one entry, 7 points, rank 1, submissionId = the 1st-place photo', () => {
     const resolved = [
       { submissionId: 101, guestId: 55 }, // rank 1 (5 pts)
-      { submissionId: 102, guestId: 66 }, // rank 2 (4 pts)
-      { submissionId: 103, guestId: 77 }, // rank 3 (3 pts)
-      { submissionId: 104, guestId: 55 }, // rank 4 (2 pts) — same guest as rank 1
+      { submissionId: 102, guestId: 66 }, // rank 2 (3 pts)
+      { submissionId: 103, guestId: 55 }, // rank 3 (2 pts) — same guest as rank 1
     ];
 
     const byGuest = taskBadges.foldRankedPlacements(resolved);
 
-    expect(byGuest.size).toBe(3); // 4 placements, 3 distinct guests
+    expect(byGuest.size).toBe(2); // 3 placements, 2 distinct guests
     expect(byGuest.get(55)).toEqual({ points: 7, rank: 1, submissionId: 101 });
-    expect(byGuest.get(66)).toEqual({ points: 4, rank: 2, submissionId: 102 });
-    expect(byGuest.get(77)).toEqual({ points: 3, rank: 3, submissionId: 103 });
+    expect(byGuest.get(66)).toEqual({ points: 3, rank: 2, submissionId: 102 });
   });
 
-  it('foldRankedPlacements: a guest placing 1st AND 5th still pins to the 1st-place submission (first-seen, never overwritten by a later, worse placement)', () => {
+  it('foldRankedPlacements: a guest placing 2nd AND 3rd (first-seen is not rank 1) still pins to the 2nd-place submission (first-seen, never overwritten by a later, worse placement)', () => {
     const resolved = [
-      { submissionId: 301, guestId: 9 }, // rank 1 (5 pts) — seeds guest 9's entry
-      { submissionId: 302, guestId: 8 }, // rank 2 (4 pts)
-      { submissionId: 303, guestId: 7 }, // rank 3 (3 pts)
-      { submissionId: 304, guestId: 6 }, // rank 4 (2 pts)
-      { submissionId: 305, guestId: 9 }, // rank 5 (1 pt) — same guest as rank 1, strictly worse
+      { submissionId: 201, guestId: 77 }, // rank 1 (5 pts), different guest
+      { submissionId: 302, guestId: 9 }, // rank 2 (3 pts), seeds guest 9's entry
+      { submissionId: 303, guestId: 9 }, // rank 3 (2 pts), same guest as rank 2, strictly worse
     ];
     const byGuest = taskBadges.foldRankedPlacements(resolved);
     // Inverting foldRankedPlacements' "never move off the first-seen
     // placement" rule (e.g. always overwriting rank/submissionId on every
-    // fold) would make this read rank 5 / submissionId 305 instead.
-    expect(byGuest.get(9)).toEqual({ points: 6, rank: 1, submissionId: 301 });
+    // fold) would make this read rank 3 / submissionId 303 instead.
+    expect(byGuest.get(9)).toEqual({ points: 5, rank: 2, submissionId: 302 });
   });
 
   it('releaseRanking end-to-end: 3 DISTINCT guests never collapse (the real, reachable case for one task)', () => {
@@ -686,6 +682,49 @@ describe('AC8: release emits a recap row naming the badge + rank, linking to the
     const thirdBadgeRow = thirdRows.find((r) => r.badge);
     expect(partsText(thirdBadgeRow.parts)).toContain('You placed 3rd for');
     expect(thirdBadgeRow.href).toBe('/p/' + s3);
+  });
+
+  it('a preserved pre-#1106 rank-4 award still reads "You placed 4th for <badge>" (RANK_ORDINAL keeps ranks 4-5 even though releaseRanking itself now caps at 3)', () => {
+    const taskId = makeTask('AC8 Legacy Rank4 Task');
+    const guestId = makeGuest('AC8 Legacy Rank4 Guest');
+    const sub = makeSubmission(guestId, taskId);
+
+    const result = taskBadges.releaseRanking(taskId, [sub]);
+
+    // releaseRanking itself refuses anything past MAX_RANKED_WINNERS (3)
+    // today, so the only way a live guest_badges row reaches rank 4 is a
+    // release banked before #1106 narrowed the cap. Simulate that preserved
+    // row directly rather than through releaseRanking.
+    db.prepare('UPDATE guest_badges SET rank = 4 WHERE guest_id = ? AND badge_id = ?').run(
+      guestId,
+      result.badge.id
+    );
+
+    const { rows } = notifications.getRecap(guestId);
+    const badgeRow = rows.find((r) => r.badge && r.badge.code === result.badge.code);
+    expect(badgeRow).toBeTruthy();
+    expect(partsText(badgeRow.parts)).toBe('You placed 4th for ' + badgeRow.badge.name);
+  });
+
+  it('a preserved pre-#1106 rank-5 award still reads "You placed 5th for <badge>" (the last entry RANK_ORDINAL keeps past the new cap)', () => {
+    const taskId = makeTask('AC8 Legacy Rank5 Task');
+    const guestId = makeGuest('AC8 Legacy Rank5 Guest');
+    const sub = makeSubmission(guestId, taskId);
+
+    const result = taskBadges.releaseRanking(taskId, [sub]);
+
+    // Same preserved-row simulation as the rank-4 case above; rank 5 is the
+    // deepest rank an old-mapping release could bank, so this pins the far
+    // end of the table a tidy-up to the new cap would truncate first.
+    db.prepare('UPDATE guest_badges SET rank = 5 WHERE guest_id = ? AND badge_id = ?').run(
+      guestId,
+      result.badge.id
+    );
+
+    const { rows } = notifications.getRecap(guestId);
+    const badgeRow = rows.find((r) => r.badge && r.badge.code === result.badge.code);
+    expect(badgeRow).toBeTruthy();
+    expect(partsText(badgeRow.parts)).toBe('You placed 5th for ' + badgeRow.badge.name);
   });
 
   it('an auto/metric badge_granted event (no rank) is unaffected — still "You earned X", no link', () => {

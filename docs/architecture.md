@@ -138,7 +138,7 @@ erDiagram
         text note
         int submission_id FK "nullable — earning photo for a task-badge award (#483)"
         text celebrated_at "NULL = celebration owed (#644)"
-        int rank "1-5 for a ranked task-badge release, else NULL (#661)"
+        int rank "1-3 for a new ranked task-badge release, else NULL (#661/#1106; a release banked before #1106 may still hold 4 or 5, not backfilled)"
         text created_at
     }
     likes {

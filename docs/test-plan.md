@@ -353,11 +353,11 @@ Expected: A confirmation message appears and the page reloads showing your new v
 
 ### C13. Rank a task's photos and release its badge and points
 
-Steps: Make sure at least one guest has submitted a photo to some task. In the admin window, go to `/admin/photos?view=task`, open that task's group, and tap "Rank & award this task's photos" (or its rank link) to reach `/admin/tasks/<id>/rank`. Pick between 1 and 5 of the task's photos and place them in order (drag to reorder), then hit Release.
+Steps: Make sure at least one guest has submitted a photo to some task. In the admin window, go to `/admin/photos?view=task`, open that task's group, and tap "Rank & award this task's photos" (or its rank link) to reach `/admin/tasks/<id>/rank`. Pick between 1 and 3 of the task's photos and place them in order (drag to reorder), then hit Release.
 
-Expected: A confirmation message names how many winners the badge released to (e.g. "Badge released to 3 winners."). The 1st-place photo pays 5 points, 2nd pays 4, and so on down to 1 point for 5th — a host can award as few as one winner (5 points, one badge) or as many as five; it is never forced to a full five. Go check the winning guest(s)' public profile (`/u/<id>`) and the photo itself on `/gallery` or `/feed`.
+Expected: A confirmation message names how many winners the badge released to (e.g. "Badge released to 3 winners."). The 1st-place photo pays 5 points, 2nd pays 3, and 3rd pays 2. A host can award as few as one winner (5 points, one badge) or as many as three; it is never forced to a full three (issue #1106 narrowed this from a top 5). Go check the winning guest(s)' public profile (`/u/<id>`) and the photo itself on `/gallery` or `/feed`.
 
-Expected: Each winner's profile shows the task's badge. The winning photo(s) wear a small medal mark on their tile — gold for 1st place, plain for 2nd-5th.
+Expected: Each winner's profile shows the task's badge. The winning photo(s) wear a small medal mark on their tile: gold for 1st place, plain for 2nd-3rd.
 
 - [ ] Pass/fail
 

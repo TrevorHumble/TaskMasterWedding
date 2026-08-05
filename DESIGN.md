@@ -271,6 +271,8 @@ This issue is the **foundation** slice only: the schema, the resolver, the admin
 
 **Amended (issue #706): the award model above is superseded by ranked award, owner-settled 2026-07-19/20, further amended 2026-07-23.** This section's `awardTaskBadge(taskId, submissionId, { points, note })` awards one task's badge to one photo — it is left in place for its own existing callers/tests, but is no longer the route-facing write path. **Corrected 2026-07-23 (owner, superseding the "five-photo" framing immediately above): the host ranks 1 to 5 of a task's best photos, their choice, not a forced five** — rank 1 pays 5 points and wears the badge gold, rank 2 pays 4, down to whichever rank is last paying 1; a single-winner release is valid (one badge, 5 points). `task-badges.releaseRanking(taskId, submissionIds)` is the new, SEPARATE write path (see "Rank & award" ADR below) consolidating onto the badge substrate this section already established (`badges` + `guest_badges`, points and submission carried on the award row) rather than the disconnected `badge_winners` picker table — which #661 deletes outright, along with its sole reader/writer `photo-badges.js`, rather than repointing it (see that ADR for why). Full model: `docs/game-design-points-badges.md` — that doc still describes a forced-five/worksheet-survives shape as of this writing and has not yet been reconciled with this correction; flagged for a follow-up doc-sync pass, not fixed in this change (out of #661's own `Touches`).
 
+**Amended (issue #1106): the "1 to 5" ranked ceiling above is historical.** As of the point-system rebalance, a release pays a top **3** (5/3/2), not a top 5: the full rescale record lives in this file's "Point-system rebalance (2026-08-04)" section. A release banked under this older 1-to-5/5-4-3-2-1 mapping is not backfilled and keeps reading exactly as it did (AC5 of #1106), so the "5 points, rank 1 gold, down to whichever rank is last paying 1" framing above stays accurate for pre-#1106 data, even though it no longer describes what a NEW release pays.
+
 ### Two UNIQUE constraints enforce the core rules in the schema
 
 - `submissions UNIQUE(guest_id, task_id)` — one submission per guest per **task**, so a task cannot be completed twice for double points. This defines the duplicate error out of existence at the database layer rather than checking for it in application code. **Amended (issue #247):** `task_id` may be `NULL` for a "memory" (a submission not tied to any task). SQLite treats every `NULL` as distinct from every other value under a `UNIQUE` constraint, so this same constraint lets a guest hold any number of `(guest_id, NULL)` memory rows alongside their at-most-one-row-per-real-task submissions — no separate constraint or table was needed.
@@ -1943,6 +1945,12 @@ task-card reorder (`src/public/js/admin-tasks.js`: pointer events, `setPointerCa
 lifts and follows via `transform`, displaced rows glide via a First-Last-Invert-Play transform), and
 releases the badge + 5/4/3/2/1 points in one confirm.
 
+**Amended (issue #1106): the ceiling and payout above are historical.** The point-system rebalance
+narrows this to a top 3 (5/3/2): see this file's "Point-system rebalance (2026-08-04)" section, sub-
+heading "Task-badge ranking pays a top 3, not a top 5 (#1106)", for the full record. This paragraph's
+"1-to-5"/"5/4/3/2/1" framing still describes the release this ADR shipped at the time; it is not the
+current ceiling or mapping.
+
 **New component, not a new architectural pattern.** This is a genuinely new page + route + client script,
 which is why the architecture lens gates this change per the review dispatch table — but it reuses every
 existing seam it can: `task-badges.resolveTaskBadge`/`toTaskBadgeView` for the badge row, the
@@ -2003,7 +2011,7 @@ shape as every other column this table has grown) — NULL for every award path 
 convention a caller could forget to honor. `task-badges.releaseRanking(taskId, submissionIds)` is the new,
 whole-set-atomic write path (`awardTaskBadge`/`removeTaskAward`, #483's original single-photo award/remove
 pair, are untouched — kept for their own existing callers/tests, superseded only as the route-facing path):
-validates 1-5 entries (amended by #892, see below — 0 is now a deliberate clear-all, not a refusal), no
+validates 1-3 entries (narrowed from the original 1-5 ceiling by #1106, see below; amended by #892, see below, so 0 is now a deliberate clear-all, not a refusal), no
 duplicates, and every id a CURRENTLY VISIBLE submission of THIS task (refusing
 the WHOLE release otherwise, never silently dropping one bad entry — a partial write would shift every
 following rank/points value out from under the host's on-screen order without telling them); folds
@@ -2981,6 +2989,12 @@ nothing to iterate, so it writes zero rows and emits zero events — no guest is
 the existing (undocumented until now) behavior of a shrinking re-release that drops a winner with no
 replacement. `markTaskBadgeAwarded` still runs unconditionally, so the badge stays marked released and
 the page reopens on the Results view reading "No winners." rather than falling back to the picker.
+
+**Amended (issue #1106): `MAX_RANKED_WINNERS` itself moved.** This section's "1-to-5" name for the floor
+this amendment drops is historical: the ceiling `MAX_RANKED_WINNERS` guards against is 3, not 5, as of
+the point-system rebalance (this file's "Point-system rebalance (2026-08-04)" section). The CEILING-only
+refusal rule this amendment states is unaffected: it still refuses any `length > MAX_RANKED_WINNERS`,
+just against the new, lower ceiling.
 
 **The route, not the service, is where "absent" and "deliberately empty" are told apart.** A raw HTML
 form has no way to distinguish "the `winners` field was never in this POST" from "`winners` was posted
@@ -4595,6 +4609,23 @@ Two mechanical consequences of not being task-derived: (1) the row needed its ow
 **View: a new row, not a folded-in clause.** Pre-#1105, the milestone-badges row's sentence (`GET /how-points-work`, `src/routes/guest/pages.js`) ended "... Completionist for the clean sweep.", a clause with no point value of its own shown, which was honest then: the badge paid the same flat `AUTO_METRIC_BADGE_POINTS` as the three milestones, so the row's shared "1 point" tag covered it. At 3 points that shared tag would lie, so the badge needs its own row and tag. This issue gives Completionist its own "Sweep every task" row, matching how it is a structurally different badge (metric, not auto/threshold) that now pays a structurally different amount. The milestone sentence is trimmed to end after the last threshold name (`autoBadgeRows().map(...).join(', ') + '.'`, no more `.concat` of a clean-sweep clause), and the new row's name/points are passed as separate `cleanSweepName` (`scoring.cleanSweepBadgeName()`, pre-existing, unchanged) and `cleanSweepPoints` (the re-exported `CLEAN_SWEEP_BADGE_POINTS`) locals: the view interpolates both rather than hard-typing "Completionist" or "3", so a stag boot renders "Last Call" with the same 3 and no template branch.
 
 **What this issue does NOT touch:** the task-worth range (#1103), the memory-day cap (#1104), the Masters'-favor range and the couple's-heart point (#1106/#1107) each ship, if at all, with their own issue; this issue's view edits carry ONLY the clean-sweep row and the milestone-sentence trim, and every other rebalance row on `/how-points-work` reverts to its committed state pending its own issue.
+
+### Task-badge ranking pays a top 3, not a top 5 (#1106)
+
+**Decision:** `task-badges.js`'s `POINTS_BY_RANK` moves from `[5, 4, 3, 2, 1]` to `[5, 3, 2]`; `MAX_RANKED_WINNERS` derives from its length exactly as before, so the ceiling narrows from 5 to 3 automatically, no second literal to keep in sync. A host's ranked release now pays at most 3 winners, 5/3/2 by placement, instead of 5 winners at 5/4/3/2/1.
+
+**Why:** the same read that drove #1103's task-worth widening applies again here. A completed task should read as the biggest single reward, not one of five equally-weighted ranked slots: a top-5 payout diluted the Masters'-favor badge into something a full third of a task's submitters could win, with only a 1-point gap between 4th and 5th place. A top 3 with a 5/3/2 spread keeps 1st place clearly ahead (a 2-point gap to 2nd, same as 2nd-to-3rd) and makes the badge read as a sharper prize.
+
+**No backfill: historical ranks 4 and 5 are a permanent, accepted fact of the data (AC5).** A ranking released before this change under the old mapping is left exactly as it banked: its `guest_badges` rows keep whatever rank and points they were written with, including rank 4 or 5 where applicable. Re-ranking that same task re-derives under the new mapping (at most 3 winners, 5/3/2), but nothing rewrites a row nobody re-touches. Two structural consequences fall out of this, both deliberate:
+
+- `notifications.js`'s `RANK_ORDINAL` stays at five entries (`['1st', '2nd', '3rd', '4th', '5th']`) even though the ceiling is now 3. Shrinking it would degrade a preserved rank-4/5 row's recap line ("You placed 4th for ...") to the generic "You earned ..." fallback the moment `RANK_ORDINAL[ev.rank - 1]` came back `undefined`, discarding a real historical fact for no reason.
+- A guest who holds a preserved rank-4 or rank-5 award routes to the SAME `'won-place'` task-page state as a rank-2/3 winner (`src/routes/guest/tasks.js`'s `taskBadgeState` derivation only special-cases rank 1) and reads the same new "You won this badge, top 3" note. This is technically inaccurate for a guest who placed 4th or 5th under the old mapping, but accepted as a stated omission rather than built out: every row in the current database is disposable test data (the owner's standing rule, current through 2026-08-07), production launches on the new mapping with zero pre-existing rows, and no real guest can ever actually reach this combination.
+
+**View: the copy-lock strings change shape, not just number.** AC4 settles two exact strings for `task.ejs`'s `won-place`/`won-first` badge-hero notes: `You won this badge, top 3` and `You won this badge, 1st place`, replacing the prior pair, which joined the same two clauses with an em dash instead of a comma. The comma (not a re-used dash) is the owner's standing no-em-dash rule (global working agreement, 2026-08-02) deciding the punctuation, not a design restyle; `tests/task-badges.test.js`'s copy-lock assertions move to the same two exact strings.
+
+**`admin-badge-rank.ejs`'s `data-max-winners`/`data-points-by-rank` go back to being server-driven.** The owner-approved phase-1 preview hardcoded these two attributes as literal `"3"` / `"[5,3,2]"` strings (the same shape #661's original build used ahead of its own locals wiring); this issue restores `<%= maxWinners %>` / `<%= JSON.stringify(pointsByRank) %>`, reading `task-badges.MAX_RANKED_WINNERS`/`POINTS_BY_RANK` off the route the same way #661's PR review originally required. This is render-identical to the approved bytes, since the route now passes exactly `3`/`[5,3,2]` as those locals. `admin-badge-rank.js`'s own client-side fallback literals (`|| 5` and `[5, 4, 3, 2, 1]`) move to `|| 3` and `[5, 3, 2]` to match.
+
+**What this issue does NOT touch:** the task-worth range (#1103), the memory-day cap (#1104), the Completionist badge's point value (#1105), and the couple's-heart point (#1107) each ship, if at all, with their own issue; this issue's view edits on `/how-points-work` carry ONLY the "Earn the Masters' favor" row (tag `2–5 points`, "award the top three"), and every other rebalance row reverts to its committed state pending its own issue. Crowd favorites and the slideshow's own "top 5" section are a separate system (#625) and keep their existing top-5 shape untouched everywhere.
 
 ## Block a guest: enforcement in `attachGuest`, not per-route, and per-row not per-person (#1092)
 

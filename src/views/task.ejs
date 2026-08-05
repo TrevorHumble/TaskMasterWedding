@@ -18,8 +18,8 @@
   <% var badgeHeroNote = {
        locked: 'Best photo wins this badge',
        earned: 'Best photo wins this badge',
-       'won-first': 'You won this badge — 1st place',
-       'won-place': 'You won this badge — top 5',
+       'won-first': 'You won this badge, 1st place',
+       'won-place': 'You won this badge, top 3',
      }[taskBadgeState]; %>
   <a class="task-badge-hero task-badge-hero--<%= taskBadgeState %>" href="/badge/<%= taskBadge.code %>" aria-label="<%= taskBadge.name %> badge">
     <%- include('partials/badge-art', { badge: taskBadge, alt: '', imgClass: 'task-badge-hero-art', width: 72, height: 72 }) %>
