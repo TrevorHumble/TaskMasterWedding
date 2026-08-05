@@ -2607,7 +2607,7 @@ noise.
 
 **`/bug-report`: a 30-second same-guest, same-stored-body window.** The existing `socialRateLimiter` throttles
 abuse volume; it does nothing about one guest's own accidental double-tap landing as two rows with identical
-text seconds apart (the owner's own report reproduced exactly this). `POST /bug-report` now checks, before
+text seconds apart (the owner's own report reproduced exactly this). `POST /bug-report` checks, before
 the INSERT, for a `bug_reports` row from the same guest whose STORED body (the same trimmed + truncated-to-
 `BUG_REPORT_BODY_MAX` string the INSERT itself writes) matches and was created within the last 30 seconds
 (`created_at >= datetime('now', '-N seconds')` with the window bound as a parameter, compared directly against the column's own `datetime('now')`
@@ -2616,6 +2616,81 @@ response, so a spammed button reads as one filed report, not several. The window
 report cap: a distinct body, a different guest, or the same wording filed again minutes later all record
 normally — 30 seconds covers a double-tap or a refresh-resubmit without suppressing a deliberate repeat
 report.
+
+**Update (#1020):** this guard and the INSERT it gates now live in one shared place,
+`insertBugReportOnce` (`src/db/bug-reports.js`), not inside `POST /bug-report` itself. `POST /error-report`
+needed the identical guard, so the guard moved to where both routes could reach it instead of being copied a
+second time. The predicate also changed from `guest_id = ?` to `guest_id IS ?`: `POST /error-report` can be
+filed by a signed-out visitor (`guest_id` NULL), and SQLite's `=` is never true when either side is NULL, so
+a signed-out guest's identical repeat tap would have inserted a second row every time under the original
+predicate. `IS` treats NULL = NULL as a match, closing that gap for both routes at once.
+
+## One-tap error report from the error page, with an incident code (#1020)
+
+**Date:** 2026-08-04. **Status:** accepted.
+
+Serves Goal A: a guest who hits a server error can hand the hosts a real, actionable report in one tap
+instead of finding someone and describing it verbally, and the code riding along inside the report lets a
+host match it to the correlated `reqId` log line (`src/middleware/request-log.js`) without the guest reading
+anything aloud.
+
+**Mounted outside `requireGuest`, alongside `POST /client-error`.** The 500 handler that turns this button on
+can fire before a guest is ever known: an `attachGuest` DB failure, or any crash on `/join` before a guest
+session exists. A route gated by `guest.js`'s `router.use(requireGuest)` would redirect that guest to `/join`
+instead of accepting the report, so `POST /error-report` mounts directly in `src/app.js`, in the same
+ungated-adjacent slot as `client-error.js` (see that route's own mount comment and `docs/architecture.md`'s
+mount-order prose, now naming two routes of this class instead of one).
+
+**Files a generated body into `bug_reports`, rather than reusing `POST /bug-report`'s free-text form.** The
+guest never types anything. The button is the whole interaction, so there is no free-text body to carry.
+The route composes one server-side, from facts it already has (a fixed "app-filed" lead-in so a host can
+tell it apart from a hand-typed report, the validated incident code, and the failing path from `Referer`),
+and stores it through the same `insertBugReportOnce` owner `POST /bug-report` calls (see the #889 update
+above) rather than adding a second INSERT path or a second table. One admin queue, one lifecycle
+(open/tracked/closed), for both a guest's words and the app's own report.
+
+**The submitted code is untrusted and validated before it is trusted for anything.** The hidden `code` field
+the approved form carries is guest-editable, so the route only accepts a value matching `req.reqId`'s own
+shape (8 lowercase hex characters, `crypto.randomBytes(4).toString('hex')`, via `isReqId` in
+`src/middleware/request-log.js`, the shape's single owner).
+A missing or malformed code inserts no row and answers 400 with the same error page, carrying no code, no
+button, and no notice: the same degraded shape the 413/429/403 rejection sites already produce, rather than
+a new failure mode.
+
+**Why the confirmation re-renders the _submitted_ code, not the POST's own `req.reqId`.** Every request mints
+a fresh `req.reqId` at `request-log.js`'s middleware, including the `/error-report` POST itself, so the
+route's own request id is never the code that appeared on the failing page a moment earlier. The only way to
+recover that original code is to have it travel in the form body, which is why the hidden `code` input exists
+at all, and why the re-render passes that validated, submitted value back as `reqId` rather than `req.reqId`.
+
+**The button is suppressed, not disabled, when no CSRF token is available.** `csrfMiddleware` mounts partway
+down `src/app.js`, after cookie-parsing, the body parsers, and `attachGuest`, so a 500 thrown by any of those
+earlier stages renders the error page with `res.locals.csrfToken` unset. `partials/message-card.ejs` renders
+the action form only when a token exists (see its own doc comment); the alternative, rendering a button
+that is certain to 403 on tap, would turn one error into two. The `Error code:` line and the rest of the
+card still render in that degraded case, since the code can be read aloud even when the tap cannot work.
+
+**The 500-page copy lives in a neutral `src/error-copy.js`, owned by neither side.** An earlier version of
+this change had `src/routes/guest/error-report.js` define the shared body copy and had `src/app.js`'s
+global 500 handler import it off that route -- an ownership inversion, since `error-report.js` is an
+optional leaf feature route, and the app-wide 500 page is the one thing every crash anywhere in the app
+depends on rendering correctly. Deleting or renaming that one feature route would have silently broken
+the global handler's own copy. Every other shared response literal in this codebase is owned either by the
+module that produces the response (`rejectCsrf`'s copy in `src/middleware/csrf.js`, `RATE_LIMIT_MESSAGE` in
+`src/middleware/rate-limit.js`) or by a neutral constants module neither side is a feature of
+(`HEIC_RATE_LIMIT_MESSAGE` in `src/services/photos/constants.js`). `src/error-copy.js` follows the latter
+pattern: it exports `ERROR_PAGE_MESSAGE` (read by both `src/app.js`'s 500 handler and
+`error-report.js`'s own 200 confirmation re-render, which repeats the same copy rather than a distinct
+"thanks" message -- named for what it renders, the shared card's body text, not for the 500 site alone,
+since a 200 render is one of its two call sites) and `ERROR_REPORT_REJECTED_MESSAGE` (read only by
+`error-report.js`'s 400 rejection, for a request that was rejected, not a server failure -- see the next
+paragraph). This keeps `src/app.js` free of any require edge into a feature route for its own error copy.
+
+**The 400 rejection on `POST /error-report` carries its own status-accurate copy, not the 500 copy.** A
+malformed or missing `code` did not mean the server failed; reusing `ERROR_PAGE_MESSAGE` there told the
+guest "something went wrong on our end" when nothing had. Every other rejection site (413/429/403) already
+carries copy specific to what was actually rejected, so `error-report.js`'s 400 path now renders
+`ERROR_REPORT_REJECTED_MESSAGE` ("That report could not be sent. Please try again.") instead.
 
 **Deliberately not in scope.** `notification_events` rows already duplicated by PRE-#889 double-clicks are
 left as-is — stored events are permanent by design (`notifications.js`'s own doc comment) and every guest in
@@ -3573,8 +3648,9 @@ for the cross-area members. The seam table also lists a ninth file the router do
 `client-error.js` (issue #1021): it sits directly in `src/app.js` ahead of `guest.js`'s
 `requireGuest` gate so a signed-out visitor's crash still reaches it, so it is a member of the
 directory but not one of the seven area modules or the entry's own split. Its rate limiter,
-`clientErrorRateLimiter`, is a fifth export of `shared.js` -- see that file's own header comment for
-what the file actually is.
+`clientErrorRateLimiter`, was a fifth export of `shared.js`; issue #1020 added `errorReportRateLimiter`
+and `refererPath` alongside it, so `shared.js` now exports seven members total -- see that file's own
+header comment for what the file actually is.
 
 **The shared-limiter invariant.** `uploadRateLimiter` and `socialRateLimiter` (issue #283) are each one
 combined per-guest rate budget consumed by three different POST routes now living in three different

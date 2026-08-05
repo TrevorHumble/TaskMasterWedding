@@ -15,6 +15,7 @@ const initials = require('./utils/initials');
 const badgeIcons = require('./services/badge-icons');
 const { db, cleanupSelfLikes } = require('./db');
 const { requestLog, logRequestError } = require('./middleware/request-log');
+const { ERROR_PAGE_MESSAGE } = require('./error-copy');
 
 const app = express();
 
@@ -390,6 +391,15 @@ app.use('/', authRouter);
 const clientErrorRouter = require('./routes/guest/client-error'); // mounts at '/'
 app.use('/', clientErrorRouter);
 
+// error-report.js (issue #1020) mounts here for the identical reason as
+// clientErrorRouter directly above: a signed-out visitor's 500 (e.g. an
+// attachGuest DB failure before they are ever known) must still be able to
+// file the one-tap report, so this cannot sit behind guestRouter's
+// router.use(requireGuest). Two of exactly this class of route now live at
+// this mount point -- see docs/architecture.md's own note on this.
+const errorReportRouter = require('./routes/guest/error-report'); // mounts at '/'
+app.use('/', errorReportRouter);
+
 // admin.js MUST be before guest.js: guest.js applies requireGuest to every
 // path routed through it, which would otherwise intercept /admin and
 // redirect signed-out admins to /join.
@@ -438,8 +448,18 @@ app.use((err, req, res, next) => {
   // logRequestError owns the line's shape, the emit stream, and the
   // serialize-failure guard -- this handler does not know any of the three.
   logRequestError(req, err);
+  // reqId (issue #1020): this 500 site and POST /error-report's own
+  // confirmation re-render (src/routes/guest/error-report.js) are the only
+  // two of error.ejs's six call sites that pass it -- see that view's own
+  // doc comment for the full list and for why the other four (413/429/403,
+  // and error-report.js's 400 rejection) pass no reqId. message comes from
+  // src/error-copy.js, a neutral module neither this handler nor
+  // error-report.js is a feature of -- see that file's own header comment
+  // for why the copy could not live in either one without the other
+  // depending on it.
   res.status(500).render('error', {
-    message: 'Something went wrong on our end. Please try again.',
+    message: ERROR_PAGE_MESSAGE,
+    reqId: req.reqId,
   });
 });
 

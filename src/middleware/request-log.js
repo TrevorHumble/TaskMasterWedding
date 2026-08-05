@@ -22,6 +22,24 @@ const fs = require('fs');
 const crypto = require('crypto');
 const config = require('../../config');
 
+// The exact shape req.reqId is minted in below: 8 lowercase hex characters
+// (crypto.randomBytes(4).toString('hex')). Single owner of that shape --
+// anything that needs to validate a caller-supplied reqId-lookalike (e.g.
+// POST /error-report's hidden `code` field, src/routes/guest/error-report.js)
+// imports isReqId from here instead of restating the regex, so widening the
+// mint (e.g. randomBytes(4) to randomBytes(6)) can never silently desync from
+// a private copy elsewhere and start rejecting every real report.
+const REQ_ID_RE = /^[0-9a-f]{8}$/;
+
+/**
+ * True when `s` has the exact shape this module mints req.reqId in.
+ * @param {string} s
+ * @returns {boolean}
+ */
+function isReqId(s) {
+  return typeof s === 'string' && REQ_ID_RE.test(s);
+}
+
 // Prefixes this app itself serves as static files or exempts from logging.
 // The public-asset half (css/js/badges/fonts/robots.txt today) is derived
 // from the real directory at module load, not hand-mirrored, so a new
@@ -225,4 +243,4 @@ function logClientError(req, report) {
   });
 }
 
-module.exports = { requestLog, logRequestError, logClientError };
+module.exports = { requestLog, logRequestError, logClientError, isReqId };

@@ -25,12 +25,40 @@
                                                       req.originalUrl), so it MUST
                                                       stay on the escaped path
     links      - array of { href, text } shown as a list of card links.
-    hint       - optional small muted line under the links (plain text, escaped).
+    notice     - optional { text } shown as one success bar above the action,
+                 using the app-wide .flash/.flash-ok pair rather than a
+                 card-local success style. role="status" so a screen reader
+                 announces it without stealing focus.
+    action     - optional { href, text, fields } shown as the card's one
+                 primary button, above the plain card links. Rendered as a
+                 POST form (with the shared csrf-field) rather than a link,
+                 because the only caller is an action that changes server
+                 state; a GET link here would be pre-fetchable and
+                 un-CSRF-able. `fields` is an optional array of
+                 { name, value } rendered as hidden inputs, for the case
+                 where the POST needs a fact only THIS render knows (the
+                 failing request's id): a fresh POST mints its own request
+                 id, so the server cannot recover it on the other side.
+                 Values are escaped; the receiving route still validates
+                 them, because a hidden input is guest-editable.
+    hint       - optional small line under the links, either a plain string
+                 or { text, code, after } for an inline <code> segment (all
+                 pieces escaped, same rule as paragraphs).
 %>
 <%
   var _paragraphs = (typeof paragraphs !== 'undefined' && Array.isArray(paragraphs)) ? paragraphs : [];
   var _links = (typeof links !== 'undefined' && Array.isArray(links)) ? links : [];
   var _hint = (typeof hint !== 'undefined' && hint) ? hint : null;
+  // A POST needs a usable CSRF token to be worth offering. csrfMiddleware
+  // mounts partway down src/app.js, so a failure in earlier middleware
+  // renders this page with csrfToken unset, and a button certain to 403 on
+  // tap is worse than no button: it turns one error into two. The rest of
+  // the card (including the incident code, which can be read out loud)
+  // renders unchanged in that case.
+  var _hasCsrf = (typeof csrfToken !== 'undefined' && csrfToken);
+  var _action = (typeof action !== 'undefined' && action && action.href && _hasCsrf) ? action : null;
+  var _actionFields = (_action && Array.isArray(_action.fields)) ? _action.fields : [];
+  var _notice = (typeof notice !== 'undefined' && notice && notice.text) ? notice : null;
 %>
 <%- include('head', { title: (typeof title !== 'undefined' ? title : undefined) }) %>
   <div class="message-page">
@@ -44,11 +72,27 @@
           <p class="message-card-body"><%= p.text %> <code><%= p.code %></code><%= (typeof p.after !== 'undefined' && p.after) ? p.after : '' %></p>
         <% } %>
       <% }); %>
+      <% if (_notice) { %>
+        <p class="message-card-notice flash flash-ok" role="status"><%= _notice.text %></p>
+      <% } %>
+      <% if (_action) { %>
+        <form class="message-card-action" action="<%= _action.href %>" method="POST">
+          <%- include('csrf-field') %>
+          <% _actionFields.forEach(function (f) { %>
+            <input type="hidden" name="<%= f.name %>" value="<%= f.value %>" />
+          <% }); %>
+          <button type="submit" class="btn"><%= _action.text %></button>
+        </form>
+      <% } %>
       <% _links.forEach(function (link) { %>
         <p class="message-card-body"><a href="<%= link.href %>"><%= link.text %></a></p>
       <% }); %>
       <% if (_hint) { %>
-        <p class="message-card-hint"><%= _hint %></p>
+        <% if (typeof _hint === 'string') { %>
+          <p class="message-card-hint"><%= _hint %></p>
+        <% } else { %>
+          <p class="message-card-hint"><%= _hint.text %> <code><%= _hint.code %></code><%= (typeof _hint.after !== 'undefined' && _hint.after) ? _hint.after : '' %></p>
+        <% } %>
       <% } %>
     </div>
   </div>

@@ -6,11 +6,14 @@
 //
 // Area map (which module owns which routes/helpers):
 //   guest/shared.js        suppressedChallengeIds + reachableLiveTaskCount
-//                          (the one-box-ceiling helpers), plus all THREE
-//                          route-level rate limiters (uploadRateLimiter,
-//                          socialRateLimiter, clientErrorRateLimiter) --
+//                          (the one-box-ceiling helpers), refererPath (the
+//                          Referer-header parser shared by bug-report.js and
+//                          error-report.js), plus all FOUR route-level rate
+//                          limiters (uploadRateLimiter, socialRateLimiter,
+//                          clientErrorRateLimiter, errorReportRateLimiter) --
 //                          issue #991 AC3's single-instance rule, widened by
-//                          issue #1021. See that file's own header comment.
+//                          issue #1021 and issue #1020. See that file's own
+//                          header comment.
 //   guest/client-error.js  POST /client-error -- issue #1021. NOT mounted by
 //                          this router: it sits directly in src/app.js,
 //                          ahead of this router's requireGuest gate (see this
@@ -18,6 +21,11 @@
 //                          below, and that mount's own comment). Listed here
 //                          only so this map stays the one place every route
 //                          under src/routes/guest/ is findable.
+//   guest/error-report.js  POST /error-report -- issue #1020. Same case as
+//                          client-error.js directly above: NOT mounted by
+//                          this router, sits directly in src/app.js ahead of
+//                          this router's requireGuest gate, listed here for
+//                          the same findability reason.
 //   guest/home.js          GET /               (home / own-stats page)
 //   guest/tasks.js         GET /tasks
 //                          GET /tasks/:id
