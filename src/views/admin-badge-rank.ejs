@@ -18,12 +18,14 @@
        released    - has this badge ever been released (the settings marker,
                      task-badges.isTaskBadgeAwarded) — the initial state the
                      client opens in (read-only Awarded vs. live editor).
-       maxWinners  - task-badges.MAX_RANKED_WINNERS (5), passed through so
-                     the client's cap can never drift from the server's.
-       pointsByRank - task-badges.POINTS_BY_RANK ([5,4,3,2,1]), passed down
-                     the SAME way — the one server-owned mapping, serialized
-                     here rather than kept as a second, hand-synced literal
-                     in admin-badge-rank.js (issue #661 PR review, major).
+       maxWinners  - task-badges.MAX_RANKED_WINNERS (3, issue #1106), passed
+                     through so the client's cap can never drift from the
+                     server's.
+       pointsByRank - task-badges.POINTS_BY_RANK ([5,3,2], issue #1106),
+                     passed down the SAME way — the one server-owned mapping,
+                     serialized here rather than kept as a second,
+                     hand-synced literal in admin-badge-rank.js (issue #661
+                     PR review, major).
 
      All picking/dragging/ranking state lives in the browser
      (src/public/js/admin-badge-rank.js) until the host hits Release — there
@@ -70,7 +72,7 @@
   <div id="pickSection">
     <h2 class="rankpage-section-title" id="pickTitle">Choose winners</h2>
     <p class="rankpage-section-sub" id="pickSub">
-      Tap up to 5 photos, in the order they placed. Award as many or as few as
+      Tap up to 3 photos, in the order they placed. Award as many or as few as
       you like.
     </p>
     <div class="pick-grid" id="pickGrid"></div>
@@ -83,7 +85,7 @@
       <div class="rank-award-headtext">
         <h2 class="rank-award-title" id="rankCardTitle">Ranking</h2>
         <p class="rank-award-sub">
-          1st place wins the badge and 5 points, down to 1 point for 5th.
+          1st place wins the badge and 5 points, 2nd wins 3, 3rd wins 2.
         </p>
       </div>
       <span class="rank-award-status" id="awardedPill" hidden>

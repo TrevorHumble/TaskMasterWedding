@@ -40,11 +40,13 @@ Nine sources pay points. Each entry names the issue that builds it.
    in `src/services/scoring.js`, with a one-time backfill for any pre-#709 grant. The
    clean-sweep badge (Completionist) moved off that flat value to its own +3 in the
    point-system rebalance: `CLEAN_SWEEP_BADGE_POINTS` in `src/db.js` (#1105).
-8. **Task-badge award ranking.** For each task, the host picks and ranks 1 to 5 of that
-   task's best photos — the host's choice, never a forced five. Rank 1 pays 5, rank 2 pays
-   4, down to rank 5 paying 1; a release of fewer than 5 simply stops paying at whichever
-   rank the host stopped ranking. (#661's rewrite, shipped — `releaseRanking` in
-   `src/services/task-badges.js`.)
+8. **Task-badge award ranking.** For each task, the host picks and ranks 1 to 3 of that
+   task's best photos, the host's choice, never a forced three. Rank 1 pays 5, rank 2 pays
+   3, rank 3 pays 2; a release of fewer than 3 simply stops paying at whichever rank the
+   host stopped ranking. Narrowed from the original top-5/5-4-3-2-1 shape by the
+   point-system rebalance (#1106); a ranking banked before that change under the old
+   mapping is not backfilled and keeps its original rank/points. (#661's rewrite, shipped,
+   rebalanced by #1106, both in `releaseRanking`, `src/services/task-badges.js`.)
 9. **Crowd favorites.** Likes are votes. Visible photos (task photos AND memories — memories
    compete) are deduped to ONE photo per guest first — their single best (highest like_count,
    then lowest submission_id) — then ranked by like count using STANDARD-COMPETITION ranking —
@@ -94,10 +96,11 @@ dies.
   The three milestone badges each pay +1 while held; Completionist (the clean sweep) pays
   +3 (point-system rebalance, #1105, see point source 7 above).
 - **Task badges.** Every task has exactly one badge, required at task creation, picked
-  from the bundled icon set (#682 + #410). Completing the task does not earn the badge —
+  from the bundled icon set (#682 + #410). Completing the task does not earn the badge:
   the card copy reads "Best photo wins [badge]," prize framing, not participation framing.
-  The badge goes to the host-ranked 1 to 5 best photos for that task (host's choice, never
-  a forced five); every ranked winner wears it.
+  The badge goes to the host-ranked 1 to 3 best photos for that task (host's choice, never
+  a forced three, narrowed from the original 1 to 5 by #1106); every ranked winner wears
+  it.
 - **Crowd favorite.** The top-5 placing photos — at most one per guest, their own best liked
   photo (#896) — wear a render-time crown mark (shipped #788): `partials/crowd-favorite-mark.ejs`,
   driven by `crowdFavorites()` (`src/services/scoring.js`) — no `guest_badges` row is written
@@ -156,8 +159,8 @@ table's header applies to these two rows only once #683 lands; until then, do no
 or alter them on the strength of this table alone.
 
 The rank-and-award screen that #661's rewrite keeps still exists after the placeholder
-five die — it now picks winners (1 to 5, host's choice) for each task's real badge, not
-for the dead placeholders.
+five die — it now picks winners (1 to 3, host's choice, narrowed from 1 to 5 by #1106)
+for each task's real badge, not for the dead placeholders.
 
 ---
 
@@ -235,7 +238,7 @@ flowchart LR
   Guest -- "tap heart = one vote;<br/>own photos refused" --> L
   Host -- "create/edit task:<br/>worth, mode, badge<br/>(the printed price tag)" --> T
   Host -- "set event days,<br/>fire flash, pick lucky" --> ST
-  Host -- "rank a task's 5 winners:<br/>5..1 points + rank + photo<br/>(judgment - not recomputable)" --> GB
+  Host -- "rank a task's 3 winners:<br/>5..2 points + rank + photo<br/>(judgment - not recomputable)" --> GB
   Host -- "rank confirmed:<br/>task marked awarded" --> ST
   Host -- "take down / restore<br/>(flag only; file kept for export)" --> S
 

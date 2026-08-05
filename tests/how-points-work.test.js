@@ -92,7 +92,7 @@ describe('AC2: each row shows the correct reward tags', () => {
     expect(res.status).toBe(200);
 
     const mastersFavor = tagsBlockFor(res.text, 'Earn the Masters&rsquo; favor');
-    expect(mastersFavor).toContain('1&ndash;5 points');
+    expect(mastersFavor).toContain('2&ndash;5 points');
     expect(mastersFavor).toContain('Badge');
 
     const snapTasks = tagsBlockFor(res.text, 'Snap the tasks');

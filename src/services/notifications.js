@@ -100,12 +100,19 @@ const FETCH_LIMIT = PAGE_SIZE + 1;
 // escaping-by-construction (issue #644 review), so a new copy branch can
 // never forget to call a hand-rolled escaper the way the pre-review version
 // of this module required.
-// Ordinal copy for a ranked task-badge win (issue #661), 1-indexed. Task
-// ranking pays at most MAX_RANKED_WINNERS (task-badges.js) placements, so
-// this array only ever needs to cover 1..5 — a rank outside that range
-// cannot reach KIND_VIEW.badge_granted's parts() below (releaseRanking is
-// the only writer of a non-NULL guest_badges.rank, and it refuses a release
-// longer than 5).
+// Ordinal copy for a ranked task-badge win (issue #661), 1-indexed. Kept at
+// FIVE entries even though issue #1106 narrowed MAX_RANKED_WINNERS
+// (task-badges.js) to 3: a banked award row released under the pre-#1106
+// mapping can still hold rank 4 or 5 (no backfill, #1106 AC5), and this
+// array is read LIVE off ev.rank every time that row's recap line renders
+// (KIND_VIEW.badge_granted's own parts() below). Shrinking this table to
+// match the new ceiling would silently degrade a preserved rank-4/5 row's
+// "You placed Nth for <badge>" line to the generic "You earned <badge>"
+// fallback the moment RANK_ORDINAL[ev.rank - 1] came back undefined.
+// Discarding real information about a real historical placement for no
+// reason. A rank this array can never actually see (6+) still cannot reach
+// here: releaseRanking is the only writer of a non-NULL guest_badges.rank,
+// and it refuses any release longer than MAX_RANKED_WINNERS.
 const RANK_ORDINAL = ['1st', '2nd', '3rd', '4th', '5th'];
 
 // The two shared `takenDown` outcomes (issue #866) every KIND_VIEW entry

@@ -33,7 +33,7 @@
   var app = document.getElementById('rank-app');
   if (!app) return;
 
-  var MAX = parseInt(app.getAttribute('data-max-winners'), 10) || 5;
+  var MAX = parseInt(app.getAttribute('data-max-winners'), 10) || 3;
 
   /**
    * Escape a GUEST-CONTROLLED string (a display name — the only freeform,
@@ -72,18 +72,18 @@
     }
   }
 
-  // Points paid by placement, 1st..5th — read from the server's OWN
-  // src/services/task-badges.js POINTS_BY_RANK (issue #661 PR review: a
-  // hand-synced client literal is a second, driftable owner of this
-  // mapping). This copy still decides nothing on its own: the POST below
-  // carries only an ORDER of submission ids, and the server re-derives
-  // points from position on write regardless of what this array holds — but
-  // it is now the SAME array, serialized down, not a second one kept in
-  // sync by hand. Falls back to the one true default only if the attribute
-  // is somehow missing/unparseable, so a broken attribute degrades to the
-  // correct real-world value rather than an arbitrary guess.
+  // Points paid by placement, 1st..3rd (issue #1106) — read from the
+  // server's OWN src/services/task-badges.js POINTS_BY_RANK (issue #661 PR
+  // review: a hand-synced client literal is a second, driftable owner of
+  // this mapping). This copy still decides nothing on its own: the POST
+  // below carries only an ORDER of submission ids, and the server
+  // re-derives points from position on write regardless of what this array
+  // holds — but it is now the SAME array, serialized down, not a second one
+  // kept in sync by hand. Falls back to the one true default only if the
+  // attribute is somehow missing/unparseable, so a broken attribute degrades
+  // to the correct real-world value rather than an arbitrary guess.
   var POINTS = parseJsonAttr('data-points-by-rank');
-  if (!POINTS.length) POINTS = [5, 4, 3, 2, 1];
+  if (!POINTS.length) POINTS = [5, 3, 2];
 
   var PHOTOS = parseJsonAttr('data-photos'); // [{ id, thumb_path, photo_path, guest_id, guest_name }]
   var WINNERS = parseJsonAttr('data-winners'); // [{ rank, points, submission_id, guest_id, guest_name, thumb_path }]

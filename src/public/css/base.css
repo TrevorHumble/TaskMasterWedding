@@ -717,8 +717,10 @@ p {
     inset 0 0 0 4px var(--green-300);
 }
 /* Wins are the proper color, nothing more: 1st place is the gold medallion
-   (ring + glyph), a top-5 win is the standard green one. Gold never inks
-   text (the #650/#878 rule) — only the ring and glyph here. */
+   (ring + glyph), a top-3 win (issue #1106; a preserved pre-#1106 win may
+   still be ranked 4th/5th and renders the same way) is the standard green
+   one. Gold never inks text (the #650/#878 rule) — only the ring and glyph
+   here. */
 .task-badge-hero--won-first .badge-medallion {
   border-color: var(--place-1);
   /* The inner hairline goes gold too — a green line inside a gold ring reads
