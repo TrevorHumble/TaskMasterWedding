@@ -129,8 +129,8 @@ function crowdFavorites() {
 /**
  * Each guest's total crowd-favorite points, folded from ONE crowdFavorites()
  * call into a Map — the all-guests generalization getPoints/leaderboard both
- * need, built the same way memoryDayCountsByGuest generalizes
- * memoryDayCount for the same two callers (issue #656's pattern). Since issue
+ * need, built the same way memoryPointsByGuest generalizes
+ * memoryPoints for the same two callers (issue #656's pattern). Since issue
  * #896, crowdFavorites() already guarantees at most one placing entry per
  * guest_id, so this is a plain per-guest sum over an input that can add at
  * most one term per guest — the Map's value is always exactly that guest's

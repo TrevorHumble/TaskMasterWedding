@@ -531,15 +531,15 @@ Expected: The same reel appears, but it does NOT auto-advance — you must tap t
 
 - [ ] Pass/fail
 
-### D14. Sharing a memory batch, and its once-per-day bonus
+### D14. Sharing a memory batch, and its two-per-day bonus
 
 Steps: As a guest, go to `/tasks` and tap the quiet "Share a memory" button under the To do / Done chips. On the form, attach several photos at once (up to 10) and an optional caption, then submit.
 
-Expected: A "Shared! They're in the gallery." confirmation appears and every photo in the batch shows up on `/gallery`. Your points on `/` went up by 1 for the day's first memory, plus each photo's own admin bonus if any (a memory earns no automatic per-photo base the way a task photo does). Go back to `/tasks`.
+Expected: A "Shared! They're in the gallery." confirmation appears and every photo in the batch shows up on `/gallery`. Your points on `/` went up by 2 for the day's first two memories, plus each photo's own admin bonus if any (a memory earns no automatic per-photo base the way a task photo does; if the batch is a single photo, points go up by 1, not 2). Go back to `/tasks`.
 
-Expected: The "Share a memory" button under the chips still reads exactly "Share a memory," with no points text, and the muted hint line under it ("Share a photo at any time, no task required") is present and unchanged either way. None of it changes based on whether today's +1 has already been claimed. Share a second memory the same day.
+Expected: The "Share a memory" button under the chips still reads exactly "Share a memory," with no points text, and the muted hint line under it ("Share a photo at any time, no task required") is present and unchanged either way. None of it changes based on whether today's cap has already been reached. Share a third memory the same day.
 
-Expected: It uploads and appears in the gallery same as before, but no further points are banked for it — only the first memory of each event-local day pays the +1.
+Expected: It uploads and appears in the gallery same as before, but no further points are banked for it — only each event-local day's first two memories pay the +1 apiece.
 
 - [ ] Pass/fail
 

@@ -1,4 +1,4 @@
-/* Chevron affordance on every row: the whole row is one link. Explicitly placed
+﻿/* Chevron affordance on every row: the whole row is one link. Explicitly placed
    in the grid's own chevron cell (see .task-link): on a full row auto-placement
    happens to land it in the same cell, but a row missing a price tag would
    auto-flow the chevron into the empty points cell — explicit placement keeps
@@ -927,6 +927,18 @@ textarea {
 }
 .badge-item-locked .badge-name {
   color: var(--color-text-muted);
+}
+
+/* The Share a memory page's bonus payoff (issue #1117, consumed by the
+   <p class="memory-bonus-line"> in src/views/memory-new.ejs): one quiet
+   green line pulled tight under the page title. Deliberately not an
+   extension of .memory-payoff (src/public/css/base.css); the owner approved
+   this as its own green-ink, negative-margin treatment for this one
+   placement, and the two consumers do not share a surface. */
+.memory-bonus-line {
+  font-size: var(--fs-small);
+  color: var(--green-700);
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
 }
 
 /* small inline badge row */
