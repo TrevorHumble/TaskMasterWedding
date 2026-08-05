@@ -51,6 +51,11 @@
     <% } %>
   </nav>
 
+  <%# Issue #1041: the delegated backdrop press-target predicate that
+      photo-owner-menu.js's caption-dialog close branch consults at click
+      time (guarded — falls back to today's behavior if this is ever
+      missing). %>
+  <script src="/js/dialog-dismiss.js" defer></script>
   <script src="/js/photo-owner-menu.js" defer></script>
 
 <%- include('partials/footer') %>
