@@ -341,6 +341,19 @@ const config = {
   // reports during that same surge are not the thing this limit drops.
   CLIENT_ERROR_RATE_MAX: parseInt(process.env.CLIENT_ERROR_RATE_MAX, 10) || 100,
 
+  // ERROR_REPORT_RATE_MAX: per-key (guest, or IP when signed out) cap on
+  // POST /error-report (issue #1020), its OWN limiter instance: never
+  // RATE_LIMIT_SOCIAL_MAX's or CLIENT_ERROR_RATE_MAX's budget, so a guest
+  // stuck looping on a broken error page (or a repeated crash re-tapping
+  // "Send error report") can never burn the budget POST /bug-report (the
+  // human fallback channel) depends on -- the same budget-isolation reasoning
+  // CLIENT_ERROR_RATE_MAX's own comment gives, applied to this second,
+  // separate ungated-adjacent route. Default 100 per RATE_LIMIT_WINDOW_MS,
+  // the same figure as CLIENT_ERROR_RATE_MAX for the same reason: one tap per
+  // real 500 is the expected shape, not a per-guest-action budget, so this is
+  // generous relative to RATE_LIMIT_SOCIAL_MAX while still bounding a script.
+  ERROR_REPORT_RATE_MAX: parseInt(process.env.ERROR_REPORT_RATE_MAX, 10) || 100,
+
   // Leaderboard display — the maximum number of badge icons rendered on a
   // single leaderboard row. Beyond this the row shows the first N icons plus a
   // "+K" overflow chip, so a guest with a large collection never overflows the

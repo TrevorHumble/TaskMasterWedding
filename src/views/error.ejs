@@ -1,7 +1,41 @@
 <%# src/views/error.ejs %>
+<%#
+  The shared error page. Rendered from six call sites: the 500 global handler
+  (src/app.js), the 413 body-limit handler (src/app.js), the 429 rate-limit
+  rejection (src/middleware/rate-limit.js), the 403 CSRF rejection
+  (src/middleware/csrf.js), and POST /error-report's own two renders --
+  its 400 malformed-code rejection and its 200 confirmation
+  (src/routes/guest/error-report.js).
+
+  Only the 500 site and /error-report's 200 confirmation pass `reqId` (issue
+  #1020). That local is what turns on BOTH the incident code and the "send
+  error report" button, deliberately as one switch: the code is the report's
+  whole value to the host, so a button that filed a report carrying no code
+  would be a report they cannot act on. The other four sites (413/429/403,
+  and /error-report's own 400 rejection) are not this guest's server error to
+  report -- they pass no reqId and so render the plain card exactly as
+  before, which is why every read of a #1020 local below is `typeof`-guarded
+  (same shape as isStag on the title line).
+
+  `reportSent` (issue #1020) is the second #1020 local, passed only by
+  /error-report's 200 confirmation. It is the switch between the "send error
+  report" button (reportSent falsy) and the `role="status"` success notice
+  (reportSent true) on a page that already has a reqId -- a page with no
+  reqId shows neither, regardless of reportSent.
+%>
+<%
+  var _hosts = (typeof isStag !== 'undefined' && isStag) ? 'Stag Masters' : 'Wedding Masters';
+  var _reqId = (typeof reqId !== 'undefined' && reqId) ? reqId : null;
+  var _sent = (typeof reportSent !== 'undefined' && reportSent) ? true : false;
+%>
 <%- include('partials/message-card', {
   title: 'Something went wrong · ' + ((typeof isStag !== 'undefined' && isStag) ? 'Axel' : 'Lilly & Axel'),
   heading: 'Something Went Wrong',
   paragraphs: [message],
+  notice: (_reqId && _sent) ? { text: 'Report sent. The ' + _hosts + ' have the details.' } : undefined,
+  action: (_reqId && !_sent)
+    ? { href: '/error-report', text: 'Send error report', fields: [{ name: 'code', value: _reqId }] }
+    : undefined,
   links: [{ href: '/', text: 'Back to the start' }],
+  hint: _reqId ? { text: 'Error code:', code: _reqId } : undefined,
 }) %>
