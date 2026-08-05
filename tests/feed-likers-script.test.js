@@ -19,8 +19,14 @@
 //
 // REQUIRE ORDER: config / db / app are required only AFTER loadApp() sets
 // DATA_DIR / DB_PATH. Do not hoist requires above the loadApp() call.
+//
+// Issue #1041 adds a second describe block below, same technique, driving
+// feed.js's own comments-dialog backdrop-close branch through the
+// drag-dismiss AC1/AC2 sequences against src/public/js/dialog-dismiss.js's
+// delegated predicate.
 'use strict';
 
+const path = require('path');
 const request = require('supertest');
 const { JSDOM } = require('jsdom');
 const { loadApp, signInGuest } = require('./helpers/testApp');
@@ -183,3 +189,113 @@ it(
     }
   }
 );
+
+// ---------------------------------------------------------------------------
+// Issue #1041 AC1/AC2: the comments dialog's own backdrop-close branch,
+// driven against the real dialog-dismiss.js + feed.js loaded from real
+// GET /feed markup, same technique as the AC5 test above.
+// ---------------------------------------------------------------------------
+describe('issue #1041: feed.js comments dialog drag-dismiss (AC1, AC2)', () => {
+  const DIALOG_DISMISS_JS_PATH = path.join(
+    __dirname,
+    '..',
+    'src',
+    'public',
+    'js',
+    'dialog-dismiss.js'
+  );
+  const FEED_JS_PATH = path.join(__dirname, '..', 'src', 'public', 'js', 'feed.js');
+
+  // Each test calls loadFixture() once against the SAME db (this file's
+  // shared beforeAll app/db), so every call needs its own unique token and
+  // photo paths -- a fixed literal would collide on guests.token's UNIQUE
+  // constraint the second time a test in this describe block runs.
+  let fixtureCounter = 0;
+
+  async function loadFixture() {
+    fixtureCounter += 1;
+    const author = await signedInGuest(
+      'script-1041-author-' + fixtureCounter,
+      'Script 1041 Author ' + fixtureCounter
+    );
+    const submissionId = seedSubmission(author.guestId, {
+      photoPath: 'script-1041-' + fixtureCounter + '.jpg',
+      thumbPath: 'script-1041-' + fixtureCounter + 't.jpg',
+    });
+
+    const feedRes = await author.agent.get('/feed');
+    expect(feedRes.status).toBe(200);
+
+    const dom = new JSDOM(feedRes.text, { url: 'http://localhost/feed' });
+    dom.window.HTMLDialogElement.prototype.showModal = function () {
+      this.open = true;
+    };
+    dom.window.HTMLDialogElement.prototype.close = function () {
+      this.open = false;
+    };
+
+    const keys = ['window', 'document', 'navigator'];
+    const saved = {};
+    keys.forEach((key) => {
+      saved[key] = Object.getOwnPropertyDescriptor(global, key);
+      Object.defineProperty(global, key, {
+        value: dom.window[key],
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    delete require.cache[require.resolve(DIALOG_DISMISS_JS_PATH)];
+    require(DIALOG_DISMISS_JS_PATH);
+    delete require.cache[require.resolve(FEED_JS_PATH)];
+    require(FEED_JS_PATH);
+
+    function restore() {
+      keys.forEach((key) => {
+        if (saved[key]) {
+          Object.defineProperty(global, key, saved[key]);
+        } else {
+          delete global[key];
+        }
+      });
+    }
+
+    const doc = dom.window.document;
+    const opener = doc.querySelector('[data-open-comments="' + submissionId + '"]');
+    opener.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    const dialogEl = doc.getElementById('comments-dialog-' + submissionId);
+    const textarea = dialogEl.querySelector('textarea[name="body"]');
+
+    return { dom, dialogEl, textarea, restore };
+  }
+
+  test('AC1: a press inside the composer, released on the retargeted dialog element, leaves the dialog open with the comment intact', async () => {
+    const { dom, dialogEl, textarea, restore } = await loadFixture();
+    try {
+      expect(dialogEl.open).toBe(true);
+      textarea.value = 'half-typed comment';
+
+      textarea.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })); // press started on a descendant
+      dialogEl.dispatchEvent(new dom.window.Event('click', { bubbles: true })); // click retargeted to the dialog element
+
+      expect(dialogEl.open).toBe(true);
+      expect(textarea.value).toBe('half-typed comment');
+    } finally {
+      restore();
+    }
+  });
+
+  test('AC2: a genuine backdrop press-and-release still closes the comments dialog', async () => {
+    const { dom, dialogEl, restore } = await loadFixture();
+    try {
+      expect(dialogEl.open).toBe(true);
+
+      dialogEl.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })); // press landed on the dialog itself
+      dialogEl.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+      expect(dialogEl.open).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+});

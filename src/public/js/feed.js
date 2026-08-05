@@ -536,11 +536,19 @@
     }
     // Backdrop click: the dialog element itself is the click target only
     // when the click lands outside its children — i.e. on the ::backdrop.
+    // Issue #1041: that alone isn't enough — a drag-select started inside
+    // the composer and released past the dialog's edge retargets the click
+    // to the dialog the same way a genuine backdrop press does. The guarded
+    // read of window.DialogDismiss's delegated predicate (src/public/js/
+    // dialog-dismiss.js) additionally requires the PRESS to have landed on
+    // the dialog too; if the module never loaded, this falls back to
+    // today's click-target-only check rather than losing dismissal.
     var target = event.target;
     if (
       target.classList &&
       target.classList.contains('comments-dialog') &&
-      typeof target.close === 'function'
+      typeof target.close === 'function' &&
+      (!window.DialogDismiss || window.DialogDismiss.pressAllowsDelegatedClose(event))
     ) {
       target.close();
     }
