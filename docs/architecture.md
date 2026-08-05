@@ -67,7 +67,7 @@ erDiagram
     submissions ||--o{ likes : "liked by"
     guests ||--o{ comments : "comments"
     submissions ||--o{ comments : "commented on"
-    guests ||--o{ bug_reports : "files"
+    guests ||--o{ bug_reports : "files (guest_id nullable, a signed-out reporter, #1102)"
     submissions ||--o{ admin_favorites : "favorited as"
     guests ||--o{ notification_events : "notified"
     submissions ||--o{ notification_events : "about (nullable)"

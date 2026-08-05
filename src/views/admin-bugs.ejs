@@ -16,10 +16,32 @@
     var openRows = reports.filter(function (r) { return r.status === 'open'; });
     var handledRows = reports.filter(function (r) { return r.status !== 'open'; });
 
+    // One owner for "is there a guest row behind this report at all".
+    // != null, not truthiness: an id of 0 is an id, not a signed-out report.
+    function hasGuestId(r) { return r.guest_id != null; }
+
+    // Single owner of "who filed this report" (issue #1102). Three-way: the
+    // guest's name, else Guest #<id> when the row still points at a guest we
+    // cannot name, else "Not signed in" for a report filed with guest_id
+    // NULL: the one-tap error report (#1020) can be sent by someone who
+    // never joined. Without the third branch the old
+    // `r.guest_name || ('Guest #' + r.guest_id)` expression rendered the
+    // literal string "Guest #null". Every render site below goes through
+    // this, so the four of them can never drift apart on the wording.
+    function reporterName(r) {
+      if (r.guest_name) {
+        return r.guest_name;
+      }
+      if (hasGuestId(r)) {
+        return 'Guest #' + r.guest_id;
+      }
+      return 'Not signed in';
+    }
+
     function githubNewIssueHref(r) {
       var title = 'Guest bug report: ' + String(r.body || '').slice(0, 60);
       var bodyLines = [
-        'Reported by **' + (r.guest_name || ('Guest #' + r.guest_id)) + '** on ' + (r.page || 'unknown page'),
+        'Reported by **' + reporterName(r) + '** on ' + (r.page || 'unknown page'),
         'At: ' + r.created_at,
         '',
         String(r.body || ''),
@@ -73,7 +95,7 @@
     <% openRows.forEach(function (r) { %>
       <div class="bug-admin-row">
         <p class="comment-meta">
-          <strong><a href="/admin/guests"><%= r.guest_name || ('Guest #' + r.guest_id) %></a></strong>
+          <strong><% if (hasGuestId(r)) { %><a href="/admin/guests"><%= reporterName(r) %></a><% } else { %><%= reporterName(r) %><% } %></strong>
           &middot; <%= r.page || 'unknown page' %>
           &middot; <%= r.created_at %>
         </p>
@@ -102,7 +124,7 @@
         <% if (r.status === 'tracked') { %>
           <div class="bug-admin-row">
             <p class="comment-meta">
-              <strong><%= r.guest_name || ('Guest #' + r.guest_id) %></strong>
+              <strong><%= reporterName(r) %></strong>
               &middot; <%= r.page || 'unknown page' %>
               <span class="pill-chip bug-tracked-tag">On GitHub</span>
             </p>
@@ -116,7 +138,7 @@
           </div>
         <% } else { %>
           <p class="muted bug-closed">
-            <strong><%= r.guest_name || ('Guest #' + r.guest_id) %></strong>
+            <strong><%= reporterName(r) %></strong>
             &middot; <%= r.page || 'unknown page' %>
             &middot; <%= r.body %>
           </p>
