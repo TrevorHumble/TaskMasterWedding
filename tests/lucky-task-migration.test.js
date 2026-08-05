@@ -191,7 +191,7 @@ describe('AC8: lucky migration on the post-#761 shape (flash columns present, no
     expect(() =>
       db
         .prepare(`INSERT INTO tasks (title, worth, special_mode) VALUES (?, ?, 'lucky')`)
-        .run('Should Be Refused', 1)
+        .run('Should Be Refused', 3)
     ).toThrow(/CHECK constraint failed|constraint/i);
   });
 
@@ -199,7 +199,9 @@ describe('AC8: lucky migration on the post-#761 shape (flash columns present, no
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(liveTaskId);
     expect(row.title).toBe('Pre-Lucky Challenge Task');
     expect(row.sort_order).toBe(4);
-    expect(row.worth).toBe(2);
+    // Seeded worth 2 under the pre-#1103 CHECK, rescaled to 4 by
+    // ensureTaskWorthRange (issue #1103) in the same boot chain.
+    expect(row.worth).toBe(4);
     expect(row.special_mode).toBe('oneday');
     expect(row.special_date).toBe('2026-08-08');
     expect(row.special_bonus).toBe(3);
@@ -239,7 +241,7 @@ describe('AC8: lucky migration on the post-#761 shape (flash columns present, no
   it('a lucky task can be armed on the migrated database and round-trips its values', () => {
     const info = db
       .prepare(`INSERT INTO tasks (title, worth, lucky_date, lucky_bonus) VALUES (?, ?, ?, ?)`)
-      .run('New Lucky Task', 1, '2026-08-08', 2);
+      .run('New Lucky Task', 3, '2026-08-08', 2);
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(info.lastInsertRowid);
     expect(row.lucky_date).toBe('2026-08-08');
     expect(row.lucky_bonus).toBe(2);
@@ -249,7 +251,7 @@ describe('AC8: lucky migration on the post-#761 shape (flash columns present, no
     expect(() =>
       db
         .prepare(`INSERT INTO tasks (title, worth, lucky_bonus) VALUES (?, ?, ?)`)
-        .run('Half-set, out-of-range lucky', 1, 99)
+        .run('Half-set, out-of-range lucky', 3, 99)
     ).not.toThrow();
   });
 

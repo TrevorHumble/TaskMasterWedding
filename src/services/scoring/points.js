@@ -20,7 +20,7 @@ const { parseSqliteDatetime } = require('../relative-time');
  * this so the base+bonus combination lives only here, never re-typed as a
  * second arithmetic rule at any call site.
  *
- * A TASK photo earns its task's worth (1-3, src/services/tasks.js's
+ * A TASK photo earns its task's worth (3-5, src/services/tasks.js's
  * MIN_WORTH..MAX_WORTH) plus its admin bonus (photoBonus) plus its BANKED
  * one-day-only challenge bonus (bonusAmount, submissions.bonus_amount, issue
  * #753) — the same three terms getPoints()/leaderboard() sum in aggregate
@@ -37,7 +37,7 @@ const { parseSqliteDatetime } = require('../relative-time');
  * too, since nothing ever banks a one-day-only bonus on one. `worth` and
  * `bonusAmount` both default to 0 (issues #727, #756): a one-arg call yields
  * just `photoBonus`, never NaN, and a memory caller passes worth=0 explicitly
- * for the same reason a task caller passes its task's real worth (>= 1).
+ * for the same reason a task caller passes its task's real worth (>= 3).
  *
  * Deliberate exception (issue #625): a crowd-favorite photo's rank points are
  * NEVER folded in here. This function's number is what a photo earned by
@@ -50,7 +50,7 @@ const { parseSqliteDatetime } = require('../relative-time');
  * crowdPointsByGuest() (see getPoints/leaderboard below) — never here.
  *
  * @param {number} photoBonus - the photo's submissions.photo_bonus value
- * @param {number} [worth=0] - the task's worth (1-3), or 0 for a memory
+ * @param {number} [worth=0] - the task's worth (3-5), or 0 for a memory
  * @param {number} [bonusAmount=0] - the photo's BANKED one-day-only bonus
  *   (submissions.bonus_amount, issue #753); 0 for an ordinary submission and
  *   for one banked on an off-day
@@ -318,7 +318,7 @@ function getCompletedCount(guestId) {
  *     loses its points on the very next read, with no separate bookkeeping
  *     (AC4).
  * bonus_points is stored clamped at >= 0, photo_bonus is a non-negative
- * admin-set absolute value, worth is clamped 1-3 by the tasks table's own
+ * admin-set absolute value, worth is clamped 3-5 by the tasks table's own
  * CHECK constraint, and award points are coerced non-negative at write time
  * (task-badges.awardTaskBadge) or fixed at a known-non-negative constant
  * (AUTO_METRIC_BADGE_POINTS), so total points are always >= 0.

@@ -214,7 +214,9 @@ describe('AC1: flash migration on the post-#753 shape (special_date/special_bonu
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(liveTaskId);
     expect(row.title).toBe('Post-753 Challenge Task');
     expect(row.sort_order).toBe(4);
-    expect(row.worth).toBe(2);
+    // Seeded worth 2 under the pre-#1103 CHECK, rescaled to 4 by
+    // ensureTaskWorthRange (issue #1103) in the same boot chain.
+    expect(row.worth).toBe(4);
     expect(row.special_mode).toBe('oneday');
     expect(row.special_date).toBe('2026-08-08');
     expect(row.special_bonus).toBe(3);
@@ -254,7 +256,7 @@ describe('AC1: flash migration on the post-#753 shape (special_date/special_bonu
         `INSERT INTO tasks (title, worth, flash_start_at, flash_minutes, flash_bonus)
          VALUES (?, ?, ?, ?, ?)`
       )
-      .run('New Flash Task', 1, '2026-08-08T18:00:00.000Z', 15, 2);
+      .run('New Flash Task', 3, '2026-08-08T18:00:00.000Z', 15, 2);
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(info.lastInsertRowid);
     expect(row.flash_start_at).toBe('2026-08-08T18:00:00.000Z');
     expect(row.flash_minutes).toBe(15);
@@ -270,7 +272,7 @@ describe('AC1: flash migration on the post-#753 shape (special_date/special_bonu
     expect(() =>
       db
         .prepare(`INSERT INTO tasks (title, worth, flash_bonus) VALUES (?, ?, ?)`)
-        .run('Half-set, out-of-range flash', 1, 99)
+        .run('Half-set, out-of-range flash', 3, 99)
     ).not.toThrow();
   });
 
@@ -403,7 +405,9 @@ describe('AC1: flash migration on the pre-#753 shape (narrow special_mode CHECK,
     expect(row.title).toBe('Pre-753 Live Task');
     expect(row.description).toBe('has a real description');
     expect(row.sort_order).toBe(7);
-    expect(row.worth).toBe(2);
+    // Seeded worth 2 under the pre-#1103 CHECK, rescaled to 4 by
+    // ensureTaskWorthRange (issue #1103) in the same boot chain.
+    expect(row.worth).toBe(4);
     expect(row.special_mode).toBe('none');
     expect(row.special_date).toBeNull();
     expect(row.special_bonus).toBeNull();
@@ -438,7 +442,7 @@ describe('AC1: flash migration on the pre-#753 shape (narrow special_mode CHECK,
         `INSERT INTO tasks (title, worth, flash_start_at, flash_minutes, flash_bonus)
          VALUES (?, ?, ?, ?, ?)`
       )
-      .run('New Flash Task On Rebuilt DB', 1, '2026-08-09T12:00:00.000Z', 30, 1);
+      .run('New Flash Task On Rebuilt DB', 3, '2026-08-09T12:00:00.000Z', 30, 1);
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(info.lastInsertRowid);
     expect(row.flash_start_at).toBe('2026-08-09T12:00:00.000Z');
     expect(row.flash_minutes).toBe(30);

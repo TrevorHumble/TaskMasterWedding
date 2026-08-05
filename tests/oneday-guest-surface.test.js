@@ -104,7 +104,7 @@ function insertGuest({ avatarSet = true } = {}) {
 
 function insertTask({
   title,
-  worth = 1,
+  worth = 3,
   specialDate = null,
   specialBonus = null,
   sortOrder = 1,
@@ -271,7 +271,7 @@ describe('issue #754 review fix: the one-box ceiling ignores a regex-invalid spe
     db.prepare(
       `INSERT INTO tasks (title, worth, special_mode, special_date, special_bonus, sort_order)
        VALUES (?, ?, 'oneday', ?, ?, ?)`
-    ).run('Malformed Date Task', 1, '2026-08-1', 1, 1);
+    ).run('Malformed Date Task', 3, '2026-08-1', 1, 1);
     insertTask({
       title: 'Real Sealed Challenge',
       specialDate: TOMORROW,
@@ -385,14 +385,14 @@ describe('AC3: data-unlock-at resolves to dayOpensAt() in the EVENT-configured t
 // AC4: live on its day; ordinary once the day has passed.
 // ---------------------------------------------------------------------------
 describe('AC4: a today-dated challenge renders the gold flag + struck price and outranks a sealed challenge; a past-dated one is ordinary', () => {
-  test('worth 2 / bonus 3 today: gold flag, struck-through +2, total +5, sorts above a sealed challenge', async () => {
+  test('worth 4 / bonus 3 today: gold flag, no struck-through base (owner ruling), total +7, sorts above a sealed challenge', async () => {
     resetTables();
     const guest = insertGuest();
     suppressAnnouncementsForGuest(db, guest.id);
     insertTask({ title: 'Sealed Tomorrow', specialDate: TOMORROW, specialBonus: 1, sortOrder: 1 });
     insertTask({
       title: 'Today Challenge',
-      worth: 2,
+      worth: 4,
       specialDate: FIXED_TODAY,
       specialBonus: 3,
       sortOrder: 2,
@@ -412,7 +412,7 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
     // No struck-through base beside it (owner ruling 2026-07-29, issue #926):
     // the gold pill above the title is the sole "worth more now" signal.
     expect(row).not.toContain('task-points-was');
-    expect(row).toContain('+5 pts'); // worth + bonus total
+    expect(row).toContain('+7 pts'); // worth + bonus total
 
     // Sorts above the sealed (locked) row.
     const lockedIdx = res.text.indexOf('task-row task-todo task-locked');
@@ -423,10 +423,10 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
   test('issue #926 AC2: a challenge whose day has passed keeps the missed-bonus shape -- struck bonus over the still-earnable base, no flag, no priority position', async () => {
     resetTables();
     const guest = insertGuest({ avatarSet: false }); // starter row present, to prove no priority placement
-    const ordinaryId = insertTask({ title: 'Zzz Ordinary Task', worth: 1, sortOrder: 999 });
+    const ordinaryId = insertTask({ title: 'Zzz Ordinary Task', worth: 3, sortOrder: 999 });
     insertTask({
       title: 'Passed Challenge',
-      worth: 2,
+      worth: 4,
       specialDate: YESTERDAY,
       specialBonus: 3,
       sortOrder: 1,
@@ -449,7 +449,7 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
     expect(row).toContain('task-bonus-missed');
     expect(row).toContain('task-points-lost');
     expect(row).toContain('>+3 bonus<');
-    expect(row).toContain('+2 pts'); // base worth only, un-struck
+    expect(row).toContain('+4 pts'); // base worth only, un-struck
 
     // Takes no priority position: it renders in host sort_order among the
     // ordinary tasks, i.e. AFTER the lower-sort_order ordinary task even
@@ -479,7 +479,7 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
           `INSERT INTO tasks (title, worth, special_mode, special_date, special_bonus, sort_order)
            VALUES (?, ?, 'oneday', ?, NULL, 1)`
         )
-        .run('Legacy Passed No-Bonus Challenge', 2, YESTERDAY).lastInsertRowid;
+        .run('Legacy Passed No-Bonus Challenge', 3, YESTERDAY).lastInsertRowid;
     } finally {
       db.pragma('ignore_check_constraints = OFF');
     }
@@ -497,7 +497,7 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
     expect(row).not.toContain('task-bonus-missed');
     expect(row).not.toContain('task-points-lost');
     expect(row).not.toContain('task-today-flag');
-    expect(row).toContain('+2 pt'); // base worth only
+    expect(row).toContain('+3 pt'); // base worth only
     void taskId;
   });
 
@@ -516,7 +516,7 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
           `INSERT INTO tasks (title, worth, special_mode, special_date, special_bonus, sort_order)
            VALUES (?, ?, 'oneday', ?, NULL, 1)`
         )
-        .run('Legacy No-Bonus Challenge', 2, FIXED_TODAY).lastInsertRowid;
+        .run('Legacy No-Bonus Challenge', 3, FIXED_TODAY).lastInsertRowid;
     } finally {
       db.pragma('ignore_check_constraints = OFF');
     }
@@ -532,7 +532,7 @@ describe('AC4: a today-dated challenge renders the gold flag + struck price and 
     const rowStart = res.text.lastIndexOf('<li class="task-row', idx);
     const row = res.text.slice(rowStart, res.text.indexOf('</li>', rowStart));
     expect(row).not.toContain('task-today-flag');
-    expect(row).toContain('+2 pt'); // base worth only
+    expect(row).toContain('+3 pt'); // base worth only
     void taskId;
   });
 });

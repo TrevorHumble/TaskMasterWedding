@@ -57,7 +57,7 @@ function insertTask(overrides) {
   const cols = Object.assign(
     {
       title: `Announce Task ${seq}`,
-      worth: 1,
+      worth: 3,
       special_mode: 'none',
       special_date: null,
       special_bonus: null,

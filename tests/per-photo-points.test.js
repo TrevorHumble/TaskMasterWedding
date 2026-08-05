@@ -1,6 +1,6 @@
 // tests/per-photo-points.test.js
 // Covers issue #89 acceptance criteria:
-//   AC2 — a visible submission's feed points = 1 + photo_bonus
+//   AC2 — a visible submission's feed points = task worth (default 3) + photo_bonus
 //   AC3 — RETIRED (issue #684): the admin write path (POST /admin/photos/:id
 //         /points) is gone; see its note further down and
 //         tests/admin-moderation-684.test.js AC7
@@ -120,7 +120,7 @@ it('AC1: submissions.photo_bonus exists as INTEGER NOT NULL DEFAULT 0, migration
 // ---------------------------------------------------------------------------
 // AC2: feed shows a photo's points = 1 + its bonus.
 // ---------------------------------------------------------------------------
-it('AC2: a visible submission with photo_bonus=2 shows feed points 3', async () => {
+it('AC2: a visible submission with photo_bonus=2 shows feed points 5', async () => {
   const author = await signedInGuest('ac2pts-author', 'AC2 Points Author');
   const submissionId = seedSubmission(author.guestId, {
     photoPath: 'ac2pts.jpg',
@@ -130,7 +130,7 @@ it('AC2: a visible submission with photo_bonus=2 shows feed points 3', async () 
 
   const feedRes = await author.agent.get('/feed');
   expect(feedRes.status).toBe(200);
-  expect(pointsInFeedBody(feedRes.text, submissionId)).toBe(3);
+  expect(pointsInFeedBody(feedRes.text, submissionId)).toBe(5);
 });
 
 // ---------------------------------------------------------------------------
@@ -146,7 +146,7 @@ it('AC2: a visible submission with photo_bonus=2 shows feed points 3', async () 
 // ---------------------------------------------------------------------------
 // AC4: per-photo points count on the leaderboard, and affect ordering.
 // ---------------------------------------------------------------------------
-it('AC4: guest B (photo_bonus=5) totals 6 and outranks guest A (photo_bonus=0, total 1)', async () => {
+it('AC4: guest B (photo_bonus=5) totals 8 and outranks guest A (photo_bonus=0, total 3)', async () => {
   const guestA = await signedInGuest('ac4-guest-a', 'AC4 Guest A');
   const guestB = await signedInGuest('ac4-guest-b', 'AC4 Guest B');
 
@@ -155,14 +155,14 @@ it('AC4: guest B (photo_bonus=5) totals 6 and outranks guest A (photo_bonus=0, t
 
   const pointsA = scoring.getPoints(guestA.guestId);
   const pointsB = scoring.getPoints(guestB.guestId);
-  expect(pointsA).toBe(1);
-  expect(pointsB).toBe(6);
+  expect(pointsA).toBe(3);
+  expect(pointsB).toBe(8);
 
   const rows = scoring.leaderboard();
   const rowA = rows.find((r) => r.id === guestA.guestId);
   const rowB = rows.find((r) => r.id === guestB.guestId);
-  expect(rowA.points).toBe(1);
-  expect(rowB.points).toBe(6);
+  expect(rowA.points).toBe(3);
+  expect(rowB.points).toBe(8);
 
   const indexA = rows.findIndex((r) => r.id === guestA.guestId);
   const indexB = rows.findIndex((r) => r.id === guestB.guestId);
@@ -185,21 +185,21 @@ it('AC4: guest B (photo_bonus=5) totals 6 and outranks guest A (photo_bonus=0, t
 // ---------------------------------------------------------------------------
 // AC5: profile total reflects per-photo points.
 // ---------------------------------------------------------------------------
-it('AC5: profile /u/<B id> shows 6 for a guest with one visible photo_bonus=5 submission', async () => {
+it('AC5: profile /u/<B id> shows 8 for a guest with one visible photo_bonus=5 submission', async () => {
   const guestB = await signedInGuest('ac5-guest-b', 'AC5 Guest B');
   seedSubmission(guestB.guestId, { photoPath: 'ac5b.jpg', thumbPath: 'ac5bt.jpg', photoBonus: 5 });
 
-  expect(scoring.getPoints(guestB.guestId)).toBe(6);
+  expect(scoring.getPoints(guestB.guestId)).toBe(8);
 
   // /u/:guestId also sits behind guest.js's blanket requireGuest — view it
   // through a signed-in agent, same convention as the AC4 leaderboard check.
   const res = await guestB.agent.get('/u/' + guestB.guestId);
   expect(res.status).toBe(200);
-  // Bind the 6 to the profile points element itself (public-profile.ejs
+  // Bind the 8 to the profile points element itself (public-profile.ejs
   // renders score.points inside a <strong> in the .profile-points header),
-  // not a stray 6 elsewhere on the page — so this assertion is inversion-
-  // sensitive: a wrong total (e.g. 1) would fail it.
-  expect(res.text).toMatch(/class="profile-points">[\s\S]*?<strong>6<\/strong>/);
+  // not a stray 8 elsewhere on the page — so this assertion is inversion-
+  // sensitive: a wrong total (e.g. 3) would fail it.
+  expect(res.text).toMatch(/class="profile-points">[\s\S]*?<strong>8<\/strong>/);
 });
 
 // ---------------------------------------------------------------------------

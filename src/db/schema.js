@@ -29,7 +29,7 @@ function applySchema(db) {
     title          TEXT    NOT NULL,
     description    TEXT    NOT NULL DEFAULT '',
     sort_order     INTEGER NOT NULL DEFAULT 0,
-    worth          INTEGER NOT NULL DEFAULT 1 CHECK (worth BETWEEN 1 AND 3),
+    worth          INTEGER NOT NULL DEFAULT 3 CHECK (worth BETWEEN 3 AND 5),
     special_mode   TEXT    NOT NULL DEFAULT 'none' CHECK (special_mode IN ('none','hidden','oneday')),
     -- One-day-only challenge fields (issue #753). special_date (YYYY-MM-DD,
     -- NULL = ordinary task) is the AUTHORITATIVE "this task is a challenge"

@@ -1,5 +1,6 @@
 // tests/task-worth-engine.test.js
-// Issue #727 — task `worth` (1-3) and `special_mode` (none/hidden) become real
+// Issue #727 — task `worth` (3-5 as of #1103's rebalance; originally 1-3) and
+// `special_mode` (none/hidden) become real
 // stored facts, with ONE active-task owner (src/services/tasks.js) every
 // reader consults. Covers:
 //   AC1 — worth pays through both read paths: scoring.getPoints(guestId) and
@@ -63,7 +64,7 @@ function insertGuest(name) {
   return { id, token };
 }
 
-function insertTask(title, worth = 1) {
+function insertTask(title, worth = 3) {
   return db.prepare('INSERT INTO tasks (title, worth) VALUES (?, ?)').run(title, worth)
     .lastInsertRowid;
 }
@@ -86,27 +87,27 @@ function hideEveryTask() {
 }
 
 describe('AC1: worth pays through getPoints and leaderboard(), and a takedown/restore moves it', () => {
-  it('a worth-3 task (with photo_bonus) + a worth-2 task score 3+2+bonus on both paths; takedown/restore moves the worth-3 amount', () => {
+  it('a worth-5 task (with photo_bonus) + a worth-4 task score 5+4+bonus on both paths; takedown/restore moves the worth-5 amount', () => {
     const { id: guestId } = insertGuest('AC1 Worth Guest');
-    const worth3Task = insertTask('AC1 Worth-3 Task', 3);
-    const worth2Task = insertTask('AC1 Worth-2 Task', 2);
-    const worth3SubId = insertSubmission(guestId, worth3Task, { photoBonus: 4 });
-    insertSubmission(guestId, worth2Task);
+    const worth5Task = insertTask('AC1 Worth-5 Task', 5);
+    const worth4Task = insertTask('AC1 Worth-4 Task', 4);
+    const worth5SubId = insertSubmission(guestId, worth5Task, { photoBonus: 4 });
+    insertSubmission(guestId, worth4Task);
 
-    const fullTotal = 3 + 2 + 4; // worth3 + worth2 + worth3's photo_bonus
+    const fullTotal = 5 + 4 + 4; // worth5 + worth4 + worth5's photo_bonus
 
     expect(scoring.getPoints(guestId)).toBe(fullTotal);
     const leaderboardRow = () => scoring.leaderboard().find((r) => r.id === guestId);
     expect(leaderboardRow().points).toBe(fullTotal);
 
-    // Takedown the worth-3 photo: its worth (3) AND its bonus (4) leave both
-    // getPoints and the leaderboard row, leaving only the worth-2 task's 2.
-    db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(worth3SubId);
-    expect(scoring.getPoints(guestId)).toBe(2);
-    expect(leaderboardRow().points).toBe(2);
+    // Takedown the worth-5 photo: its worth (5) AND its bonus (4) leave both
+    // getPoints and the leaderboard row, leaving only the worth-4 task's 4.
+    db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(worth5SubId);
+    expect(scoring.getPoints(guestId)).toBe(4);
+    expect(leaderboardRow().points).toBe(4);
 
     // Restore: both terms return, back to the full total.
-    db.prepare('UPDATE submissions SET taken_down = 0 WHERE id = ?').run(worth3SubId);
+    db.prepare('UPDATE submissions SET taken_down = 0 WHERE id = ?').run(worth5SubId);
     expect(scoring.getPoints(guestId)).toBe(fullTotal);
     expect(leaderboardRow().points).toBe(fullTotal);
   });
@@ -176,15 +177,15 @@ function worthLabelForTask(html, taskTitle) {
 }
 
 describe("AC5: GET /tasks renders each to-do card's worth", () => {
-  it('a worth-3 task renders "+3 pts"; a worth-1 task renders "+1 pt" (singular, byte-identical to the pre-#727 label)', async () => {
+  it('a worth-5 task renders "+5 pts"; a worth-3 task renders "+3 pts" (worth is always plural now — 3-5, issue #1103 — the old worth-1 singular case is unreachable)', async () => {
     const guest = insertGuest('AC5 Worth Guest');
     const agent = signInGuest(app, guest.token);
+    insertTask('AC5 Worth-5 Task', 5);
     insertTask('AC5 Worth-3 Task', 3);
-    insertTask('AC5 Worth-1 Task', 1);
 
     const res = await agent.get('/tasks');
     expect(res.status).toBe(200);
+    expect(worthLabelForTask(res.text, 'AC5 Worth-5 Task')).toBe('+5 pts');
     expect(worthLabelForTask(res.text, 'AC5 Worth-3 Task')).toBe('+3 pts');
-    expect(worthLabelForTask(res.text, 'AC5 Worth-1 Task')).toBe('+1 pt');
   });
 });

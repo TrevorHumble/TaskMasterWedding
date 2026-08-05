@@ -65,7 +65,7 @@ const { crowdPointsByGuest } = require('./crowd-favorites');
  * (taken_down = 0 AND task_id IS NOT NULL), with no liveness filter, so
  * leaderboard points always match a guest's own "X complete" home-page count.
  * bonus_points is clamped >= 0, photo_bonus is a non-negative admin-set
- * value, worth is clamped 1-3 by the tasks table's own CHECK constraint, and
+ * value, worth is clamped 3-5 by the tasks table's own CHECK constraint, and
  * award points are coerced non-negative at write time
  * (task-badges.awardTaskBadge), so points >= 0.
  *

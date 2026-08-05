@@ -91,7 +91,7 @@ function insertGuest() {
 // task detail page), so naming a fixture task "... Lucky ..." would make
 // AC2's own page-text assertions fail for a naming reason, not a secrecy
 // leak.
-function insertTask({ title, worth = 1, luckyDate = null, luckyBonus = null } = {}) {
+function insertTask({ title, worth = 3, luckyDate = null, luckyBonus = null } = {}) {
   seq += 1;
   return db
     .prepare(`INSERT INTO tasks (title, worth, lucky_date, lucky_bonus) VALUES (?, ?, ?, ?)`)
@@ -177,10 +177,10 @@ describe('AC1: lucky submit banks the host amount, and the success card reflects
     // plain lucky task, so with only ONE task in the whole database the
     // guest's single completion would vacuously complete 100% of live tasks
     // and earn COMPLETIONIST's own +1, breaking this test's point arithmetic.
-    insertTask({ title: 'AC1 Decoy Ordinary Task', worth: 1 });
+    insertTask({ title: 'AC1 Decoy Ordinary Task', worth: 3 });
     const taskId = insertTask({
       title: 'AC1 Prize Task',
-      worth: 2,
+      worth: 4,
       luckyDate: FIXED_TODAY,
       luckyBonus: 3,
     });
@@ -198,13 +198,13 @@ describe('AC1: lucky submit banks the host amount, and the success card reflects
 
     const page = await agent.get(res.headers.location);
     expect(page.text).toContain('You found the lucky task!');
-    expect(page.text).toContain('2 + <strong>3 bonus</strong>');
-    expect(page.text).toContain("You're at 5!");
+    expect(page.text).toContain('4 + <strong>3 bonus</strong>');
+    expect(page.text).toContain("You're at 7!");
     expect(page.text).not.toContain('Task complete!');
   });
 
   it('a submission to a non-lucky task renders the ordinary green card, no lucky wording anywhere', async () => {
-    const taskId = insertTask({ title: 'AC1 Ordinary Task', worth: 1 });
+    const taskId = insertTask({ title: 'AC1 Ordinary Task', worth: 3 });
     const guest = insertGuest();
 
     const agent = signInGuest(app, guest.token);
@@ -225,7 +225,7 @@ describe('AC1: lucky submit banks the host amount, and the success card reflects
 // ---------------------------------------------------------------------------
 describe('AC2: nothing about a lucky task is guest-visible before its first win', () => {
   it('GET /tasks carries no "lucky" marker for a guest who has not completed it', async () => {
-    insertTask({ title: 'AC2 Prize Task', worth: 1, luckyDate: FIXED_TODAY, luckyBonus: 2 });
+    insertTask({ title: 'AC2 Prize Task', worth: 3, luckyDate: FIXED_TODAY, luckyBonus: 2 });
     const guest = insertGuest();
     const agent = signInGuest(app, guest.token);
 
@@ -237,7 +237,7 @@ describe('AC2: nothing about a lucky task is guest-visible before its first win'
   it('GET /tasks/:id carries no "lucky" marker for a guest who has not completed it', async () => {
     const taskId = insertTask({
       title: 'AC2 Prize Detail Task',
-      worth: 1,
+      worth: 3,
       luckyDate: FIXED_TODAY,
       luckyBonus: 2,
     });
@@ -266,7 +266,7 @@ describe('issue #926 AC3: a passed lucky day renders as a completely ordinary ro
   it('GET /tasks carries neither task-bonus-missed nor task-points-lost for a task whose lucky_date is in the past', async () => {
     insertTask({
       title: 'issue 926 AC3 Passed Bonus-Day Task',
-      worth: 1,
+      worth: 3,
       luckyDate: DAY1,
       luckyBonus: 2,
     });
@@ -291,7 +291,7 @@ describe('issue #926 AC3: a passed lucky day renders as a completely ordinary ro
 // ---------------------------------------------------------------------------
 describe('AC3: a takedown-then-replace on a lucky day never banks the lucky bonus', () => {
   it('a guest whose photo a HOST took down before the lucky day, then re-uploads it on the lucky day, banks nothing (status: replaced_hidden)', async () => {
-    const taskId = insertTask({ title: 'AC3 Task', worth: 1 });
+    const taskId = insertTask({ title: 'AC3 Task', worth: 3 });
     const guest = insertGuest();
 
     // First submission BEFORE the task becomes lucky (an ordinary completion).
@@ -346,7 +346,7 @@ describe('AC3: a takedown-then-replace on a lucky day never banks the lucky bonu
   // still refuses the bonus, and the row itself comes back visible rather
   // than staying hidden) — status is 'replaced', not 'replaced_hidden'.
   it('a guest who deletes their OWN already-submitted photo and re-uploads on the lucky day still banks nothing (status: replaced)', async () => {
-    const taskId = insertTask({ title: 'AC3 Guest-Attributed Task', worth: 1 });
+    const taskId = insertTask({ title: 'AC3 Guest-Attributed Task', worth: 3 });
     const guest = insertGuest();
 
     const first = writeOriginal(`ac3-guest-first-${crypto.randomUUID()}.jpg`);
@@ -389,7 +389,7 @@ describe('AC3: a takedown-then-replace on a lucky day never banks the lucky bonu
   it('a REPLACED (not created) submission never renders the lucky success card, even on a task that is presently lucky', async () => {
     const taskId = insertTask({
       title: 'AC3 Card Task',
-      worth: 1,
+      worth: 3,
       luckyDate: FIXED_TODAY,
       luckyBonus: 2,
     });

@@ -347,8 +347,8 @@ describe('POST /tasks/:id/submit — status to response mapping (issue #106)', (
     expect(page.text).toContain('Task complete!');
     // Issue #611: the earned figure and the "point"/"points" word are two
     // separate elements now, not one "+1 point" run of text.
-    expect(page.text).toContain('<span class="success-earned-num">+1</span>');
-    expect(page.text).toContain('<span class="success-earned-label">point</span>');
+    expect(page.text).toContain('<span class="success-earned-num">+3</span>');
+    expect(page.text).toContain('<span class="success-earned-label">points</span>');
     expect(page.text).not.toContain('flash-ok');
   });
 

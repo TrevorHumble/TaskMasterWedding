@@ -89,7 +89,7 @@ describe('AC2: release pays 5/4/3/2/1 by rank and both getPoints/leaderboard ref
     expect(result).toBeTruthy();
     expect(result.winners).toBe(1);
 
-    expect(scoring.getPoints(guestId)).toBe(1 + 5); // 1 completed-task base + the 5-pt award
+    expect(scoring.getPoints(guestId)).toBe(3 + 5); // 3-pt completed-task base + the 5-pt award
     const row = db
       .prepare('SELECT * FROM guest_badges WHERE guest_id = ? AND badge_id = ?')
       .get(guestId, result.badge.id);
@@ -99,7 +99,7 @@ describe('AC2: release pays 5/4/3/2/1 by rank and both getPoints/leaderboard ref
     expect(row.awarded_by).toBe('admin');
 
     const lbRow = scoring.leaderboard().find((r) => r.id === guestId);
-    expect(lbRow.points).toBe(6);
+    expect(lbRow.points).toBe(8);
   });
 
   it('three distinct winners (K=3) pay 5/4/3 in one transaction', () => {
@@ -125,10 +125,10 @@ describe('AC2: release pays 5/4/3/2/1 by rank and both getPoints/leaderboard ref
       { guest_id: g3, points: 3, rank: 3, submission_id: s3 },
     ]);
 
-    // Each guest completed exactly this one task (1 base point) + their award.
-    expect(scoring.getPoints(g1)).toBe(1 + 5);
-    expect(scoring.getPoints(g2)).toBe(1 + 4);
-    expect(scoring.getPoints(g3)).toBe(1 + 3);
+    // Each guest completed exactly this one task (3 base points) + their award.
+    expect(scoring.getPoints(g1)).toBe(3 + 5);
+    expect(scoring.getPoints(g2)).toBe(3 + 4);
+    expect(scoring.getPoints(g3)).toBe(3 + 3);
   });
 
   it('a full 5-winner release pays 5/4/3/2/1 (only existing ranks paid, per POINTS_BY_RANK)', () => {
@@ -228,7 +228,7 @@ describe('Issue #892 AC5/AC6: empty release clears the whole ranked set; a short
     expect(
       db.prepare('SELECT COUNT(*) AS n FROM guest_badges WHERE badge_id = ?').get(first.badge.id).n
     ).toBe(0);
-    expect(scoring.getPoints(guestId)).toBe(1); // award gone, base completion point remains
+    expect(scoring.getPoints(guestId)).toBe(3); // award gone, base completion point remains
   });
 
   it('route: winners="" (present, trimmed-empty) clears the set, marks awarded, and flashes "No winners released."', async () => {
@@ -300,7 +300,7 @@ describe("AC4: a ranked winner's photo takedown/restore moves their points; the 
     const sub = makeSubmission(guestId, taskId);
 
     const result = taskBadges.releaseRanking(taskId, [sub]);
-    expect(scoring.getPoints(guestId)).toBe(6); // 1 base + 5 award
+    expect(scoring.getPoints(guestId)).toBe(8); // 3 base + 5 award
 
     db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(sub);
     expect(scoring.getPoints(guestId)).toBe(0); // base AND award both drop
@@ -313,7 +313,7 @@ describe("AC4: a ranked winner's photo takedown/restore moves their points; the 
     expect(rowWhileDown.rank).toBe(1);
 
     db.prepare('UPDATE submissions SET taken_down = 0 WHERE id = ?').run(sub);
-    expect(scoring.getPoints(guestId)).toBe(6);
+    expect(scoring.getPoints(guestId)).toBe(8);
   });
 });
 
@@ -430,8 +430,8 @@ describe('AC6: reopen read-only (Awarded), re-rank replaces the whole set atomic
       .prepare('SELECT guest_id, rank, points FROM guest_badges WHERE badge_id = ?')
       .all(first.badge.id);
     expect(remaining).toEqual([{ guest_id: guestC, rank: 1, points: 5 }]);
-    expect(scoring.getPoints(guestA)).toBe(1); // just their completed-task base, award gone
-    expect(scoring.getPoints(guestB)).toBe(1);
+    expect(scoring.getPoints(guestA)).toBe(3); // just their completed-task base, award gone
+    expect(scoring.getPoints(guestB)).toBe(3);
   });
 
   it('GET /admin/tasks/:id/rank renders released=Awarded after release, with the current ranking', async () => {
@@ -475,8 +475,8 @@ describe('AC6: reopen read-only (Awarded), re-rank replaces the whole set atomic
     expect(secondRes.status).toBe(303);
     expect(decodeURIComponent(secondRes.headers.location)).toMatch(/1 winner\./);
 
-    expect(scoring.getPoints(guestA)).toBe(1); // award gone after the replace
-    expect(scoring.getPoints(guestB)).toBe(6); // 1 base + 5 award
+    expect(scoring.getPoints(guestA)).toBe(3); // award gone after the replace
+    expect(scoring.getPoints(guestB)).toBe(8); // 3 base + 5 award
   });
 
   it('GET/POST 404 for an unknown task id', async () => {

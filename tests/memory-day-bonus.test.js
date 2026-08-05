@@ -52,7 +52,7 @@ function insertGuest(name) {
   return { guestId, token };
 }
 
-function insertTask(title, worth = 1) {
+function insertTask(title, worth = 3) {
   return db.prepare('INSERT INTO tasks (title, worth) VALUES (?, ?)').run(title, worth)
     .lastInsertRowid;
 }
@@ -118,14 +118,14 @@ describe('AC1: first memory of the day pays, once', () => {
 
   it('a guest whose only visible submission that day is task-linked earns no memory-day point', () => {
     const { guestId } = insertGuest('AC1 Task-Only Guest');
-    const taskId = insertTask('AC1 Task', 2);
+    const taskId = insertTask('AC1 Task', 4);
     const pointsBefore = scoring.getPoints(guestId);
 
     insertSubmission({ guestId, taskId });
 
-    // +2 from the task's own worth, +0 from the memory-day term (no memory
+    // +4 from the task's own worth, +0 from the memory-day term (no memory
     // exists at all, task-linked or otherwise).
-    expect(scoring.getPoints(guestId)).toBe(pointsBefore + 2);
+    expect(scoring.getPoints(guestId)).toBe(pointsBefore + 4);
   });
 });
 
@@ -268,10 +268,10 @@ describe('AC5: standings stay ordered by the total they display', () => {
   it('guest A trails guest B before the memory-day term and leads after it; A appears above B', () => {
     const { guestId: guestAId } = insertGuest('AC5 Guest A');
     const { guestId: guestBId } = insertGuest('AC5 Guest B');
-    const taskA = insertTask('AC5 Task A', 2);
-    const taskB = insertTask('AC5 Task B', 3);
+    const taskA = insertTask('AC5 Task A', 3);
+    const taskB = insertTask('AC5 Task B', 4);
 
-    // Before the memory-day term: A has 2 points (task worth), B has 3 —
+    // Before the memory-day term: A has 3 points (task worth), B has 4 —
     // B leads.
     insertSubmission({ guestId: guestAId, taskId: taskA });
     insertSubmission({ guestId: guestBId, taskId: taskB });
@@ -279,20 +279,20 @@ describe('AC5: standings stay ordered by the total they display', () => {
     let rows = scoring.leaderboard();
     let rowA = rows.find((r) => r.id === guestAId);
     let rowB = rows.find((r) => r.id === guestBId);
-    expect(rowA.points).toBe(2);
-    expect(rowB.points).toBe(3);
+    expect(rowA.points).toBe(3);
+    expect(rowB.points).toBe(4);
     expect(rows.indexOf(rowB)).toBeLessThan(rows.indexOf(rowA));
 
     // A shares two memories on two distinct event-local days (+2), pushing A
-    // to 4 — now A leads B's 3.
+    // to 5 — now A leads B's 4.
     insertSubmission({ guestId: guestAId, createdAt: '2026-08-07 18:00:00' });
     insertSubmission({ guestId: guestAId, createdAt: '2026-08-08 18:00:00' });
 
     rows = scoring.leaderboard();
     rowA = rows.find((r) => r.id === guestAId);
     rowB = rows.find((r) => r.id === guestBId);
-    expect(rowA.points).toBe(4);
-    expect(rowB.points).toBe(3);
+    expect(rowA.points).toBe(5);
+    expect(rowB.points).toBe(4);
     // The returned row ORDER must match the returned points values: A above B.
     expect(rows.indexOf(rowA)).toBeLessThan(rows.indexOf(rowB));
   });

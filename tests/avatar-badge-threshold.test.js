@@ -168,8 +168,9 @@ describe('AC2: deleting the photo revokes an already-held threshold badge', () =
     expect(heldBadgeCodes(guestId).has('BLOOM')).toBe(true);
 
     const pointsBefore = scoring.getPoints(guestId);
-    // 4 real tasks (worth 1 each by default) + the badge point + the starter
-    // point. The exact base does not matter to this test: only the DROP does.
+    // 4 real tasks (worth 3 each by default, issue #1103) + the badge point +
+    // the starter point. The exact base does not matter to this test: only
+    // the DROP does.
 
     const agent = signInGuest(app, 'ac2-guest');
     const res = await agent.post('/me/avatar/delete').type('form').send({});

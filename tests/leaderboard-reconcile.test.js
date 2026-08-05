@@ -83,21 +83,21 @@ async function signedInBoard(token) {
 
 describe('leaderboard reconciliation (#149): per-photo points (#89) + tiebreaker (#78)', () => {
   // -------------------------------------------------------------------------
-  // AC1 + AC3: A and B both total 5 (a tie created by the per-photo bonus
+  // AC1 + AC3: A and B both total 15 (a tie created by the per-photo bonus
   // term, not by raw completed count), A's latest submission earlier than
   // B's -> both labelled plain rank 1 (dense ranking, issue #626), A's row before B's.
   // -------------------------------------------------------------------------
-  test('AC1: A (2 subs, photo_bonus 1+2) and B (5 subs, bonus 0) both total 5', async () => {
+  test('AC1: A (2 subs, photo_bonus 4+5) and B (5 subs, bonus 0) both total 15', async () => {
     resetField();
 
     const guestA = makeGuest('Reconcile Alpha', 0);
     const guestB = makeGuest('Reconcile Bravo', 0);
 
-    // A: two visible submissions, photo_bonus 1 and 2 -> 2 base + 3 bonus = 5.
-    seedSubmission(guestA, { photoBonus: 1, minute: 0 });
-    seedSubmission(guestA, { photoBonus: 2, minute: 1 });
+    // A: two visible submissions, photo_bonus 4 and 5 -> 6 base + 9 bonus = 15.
+    seedSubmission(guestA, { photoBonus: 4, minute: 0 });
+    seedSubmission(guestA, { photoBonus: 5, minute: 1 });
 
-    // B: five visible submissions, photo_bonus 0 each -> 5 base + 0 = 5.
+    // B: five visible submissions, photo_bonus 0 each -> 15 base + 0 = 15.
     for (let i = 0; i < 5; i++) {
       seedSubmission(guestB, { photoBonus: 0, minute: 2 + i });
     }
@@ -108,12 +108,12 @@ describe('leaderboard reconciliation (#149): per-photo points (#89) + tiebreaker
     const rowB = rows.find((r) => r.id === guestB);
 
     // If the per-photo SUM(photo_bonus) term were dropped, A's total would be
-    // 2 (base only), not 5 — this assertion catches that regression directly.
-    expect(rowA.points).toBe(5);
-    expect(rowB.points).toBe(5);
+    // 6 (base only), not 15 — this assertion catches that regression directly.
+    expect(rowA.points).toBe(15);
+    expect(rowB.points).toBe(15);
   });
 
-  test('AC2: guest C (1 sub, photo_bonus 4, guests.bonus_points 3) totals 8', async () => {
+  test('AC2: guest C (1 sub, photo_bonus 4, guests.bonus_points 3) totals 10', async () => {
     resetField();
     const guestC = makeGuest('Reconcile Charlie', 3);
     seedSubmission(guestC, { photoBonus: 4, minute: 0 });
@@ -122,13 +122,13 @@ describe('leaderboard reconciliation (#149): per-photo points (#89) + tiebreaker
     const rows = scoring.leaderboard();
     const rowC = rows.find((r) => r.id === guestC);
 
-    // 1 base + 4 photo-bonus + 3 guest-bonus = 8. Dropping either bonus term,
-    // or double-counting one, would land on a different number (e.g. 5 if
-    // guests.bonus_points were dropped, or 12 if photo_bonus were doubled).
-    expect(rowC.points).toBe(8);
+    // 3 base + 4 photo-bonus + 3 guest-bonus = 10. Dropping either bonus
+    // term, or double-counting one, would land on a different number (e.g. 7
+    // if guests.bonus_points were dropped, or 14 if photo_bonus were doubled).
+    expect(rowC.points).toBe(10);
   });
 
-  test('AC3 (rendered): tied A/B (both 5) render identical plain rank-1 labels and A-before-B row order', async () => {
+  test('AC3 (rendered): tied A/B (both 15) render identical plain rank-1 labels and A-before-B row order', async () => {
     resetField();
 
     // Names deliberately chosen so "Zed" > "Yara" alphabetically — i.e. the
@@ -147,12 +147,12 @@ describe('leaderboard reconciliation (#149): per-photo points (#89) + tiebreaker
       .prepare(`INSERT INTO guests (token, name, bonus_points) VALUES (?, ?, 0)`)
       .run(tokenB, 'Reconcile Yara').lastInsertRowid;
 
-    // A: two visible submissions, photo_bonus 1 and 2 -> 2 base + 3 bonus = 5.
+    // A: two visible submissions, photo_bonus 4 and 5 -> 6 base + 9 bonus = 15.
     // Latest submission at minute 1, earlier than B's latest (minute 6).
-    seedSubmission(guestA, { photoBonus: 1, minute: 0 });
-    seedSubmission(guestA, { photoBonus: 2, minute: 1 });
+    seedSubmission(guestA, { photoBonus: 4, minute: 0 });
+    seedSubmission(guestA, { photoBonus: 5, minute: 1 });
 
-    // B: five visible submissions, photo_bonus 0 -> 5 base = 5.
+    // B: five visible submissions, photo_bonus 0 -> 15 base = 15.
     // Latest submission at minute 6, later than A's.
     for (let i = 0; i < 5; i++) {
       seedSubmission(guestB, { photoBonus: 0, minute: 2 + i });
@@ -160,8 +160,8 @@ describe('leaderboard reconciliation (#149): per-photo points (#89) + tiebreaker
 
     const scoring = require('../src/services/scoring');
     const rows = scoring.leaderboard();
-    expect(rows.find((r) => r.id === guestA).points).toBe(5);
-    expect(rows.find((r) => r.id === guestB).points).toBe(5);
+    expect(rows.find((r) => r.id === guestA).points).toBe(15);
+    expect(rows.find((r) => r.id === guestB).points).toBe(15);
 
     const res = await signedInBoard(tokenA);
 

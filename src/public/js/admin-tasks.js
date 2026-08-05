@@ -166,10 +166,12 @@
     editDialog.querySelector('#task-edit-title-input').value = g('title');
     editDialog.querySelector('#task-edit-desc-input').value = g('description');
 
-    var worth = g('worth') || '1';
+    var worth = g('worth') || '3';
     // Scoped by `name`, not by class (issue #755 review note): the day and
-    // bonus chips both reuse class="worth-chip", and the bonus chips carry
-    // the same 1/2/3 values the worth chips do — a bare first-match query
+    // bonus chips both reuse class="worth-chip". The value sets still
+    // overlap at 3: bonus chips run 1/2/3, worth chips run 3/4/5 (issue
+    // #1103), and a class-scoped first-match query doesn't filter by value
+    // at all, so scoping by name stays required. A bare first-match query
     // here would silently grab a bonus chip if the accordion ever preceded
     // the Worth fieldset in document order.
     var worthRadio = editDialog.querySelector('input[name="worth"][value="' + worth + '"]');
@@ -580,8 +582,8 @@
     var d = createDialog.querySelector('#task-create-desc-input');
     if (t) t.value = '';
     if (d) d.value = '';
-    var w1 = createDialog.querySelector('input[name="worth"][value="1"]');
-    if (w1) w1.checked = true;
+    var defaultWorthRadio = createDialog.querySelector('input[name="worth"][value="3"]');
+    if (defaultWorthRadio) defaultWorthRadio.checked = true;
     var none = createDialog.querySelector('.special-option input[value="none"]');
     if (none) none.checked = true;
     // The approved One day only default (issue #755 criterion 2): first
