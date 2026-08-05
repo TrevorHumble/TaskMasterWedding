@@ -223,16 +223,29 @@ function attachGuest(req, res, next) {
   // value to `false`, so we guard against anything that is not a real string.
   const token = req.signedCookies && req.signedCookies.gsid;
   if (typeof token === 'string' && token.length > 0) {
-    guest = db.prepare('SELECT * FROM guests WHERE token = ?').get(token) || null;
-    // Rolling refresh (issue #242, AC2): a valid guest re-issues the SAME
-    // signed value with a fresh maxAge on every authenticated request, so the
-    // 400-day clock restarts on every visit instead of counting down from
-    // sign-in. Same cookie options as sign-in (cookieOpts above) so no
-    // attribute can drift between the two writers. Only ever the gsid cookie
-    // -- this never touches the admin cookie (AC3; requireAdmin/isAdminRequest
-    // below are the only readers of that one, and neither is invoked here).
-    if (guest) {
-      res.cookie('gsid', token, cookieOpts(config.GUEST_COOKIE_MAX_AGE_MS));
+    const row = db.prepare('SELECT * FROM guests WHERE token = ?').get(token) || null;
+    // Issue #1092, AC1: a host-blocked guest's row still resolves by token
+    // (the row itself is untouched, since blocking is not a takedown), but this
+    // request must be treated as signed-out, and the credential the browser
+    // is presenting must be taken away rather than refreshed. Same
+    // clearCookie shape POST /logout uses (src/routes/auth.js) and the same
+    // path the cookie was written with (cookieOpts above). A mismatched
+    // path would silently fail to delete anything, leaving req.guest === null
+    // for this response but the cookie alive for the next one.
+    if (row && row.blocked) {
+      res.clearCookie('gsid', { path: '/' });
+    } else {
+      guest = row;
+      // Rolling refresh (issue #242, AC2): a valid guest re-issues the SAME
+      // signed value with a fresh maxAge on every authenticated request, so the
+      // 400-day clock restarts on every visit instead of counting down from
+      // sign-in. Same cookie options as sign-in (cookieOpts above) so no
+      // attribute can drift between the two writers. Only ever the gsid cookie
+      // -- this never touches the admin cookie (AC3; requireAdmin/isAdminRequest
+      // below are the only readers of that one, and neither is invoked here).
+      if (guest) {
+        res.cookie('gsid', token, cookieOpts(config.GUEST_COOKIE_MAX_AGE_MS));
+      }
     }
   }
   req.guest = guest;
