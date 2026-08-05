@@ -1,8 +1,9 @@
 // src/services/scoring/leaderboard.js
 // Public leaderboard (issue #969): every guest ordered by total points, with
 // badge codes attached. Requires ./points (the starter-point constant and
-// the all-guests memory-day fold) and ./crowd-favorites (the all-guests
-// crowd-favorite fold) — the same two derived terms getPoints folds in for a
+// the all-guests memory-day fold), ./crowd-favorites (the all-guests
+// crowd-favorite fold), and ./couple-hearts (the all-guests couple-heart
+// fold, issue #1107): the same three derived terms getPoints folds in for a
 // single guest.
 'use strict';
 
@@ -10,6 +11,7 @@ const { db, getEventConfig } = require('../../db');
 const { VISIBLE_WHERE } = require('../feed');
 const { STARTER_PHOTO_POINT, memoryPointsByGuest } = require('./points');
 const { crowdPointsByGuest } = require('./crowd-favorites');
+const { couplePointsByGuest } = require('./couple-hearts');
 
 // ---------------------------------------------------------------------------
 // Leaderboard
@@ -61,6 +63,11 @@ const { crowdPointsByGuest } = require('./crowd-favorites');
  * itself issues exactly ONE query regardless of guest count (AC8) — a single
  * crowdFavorites() call ranks every liked photo in the whole event once, then
  * this loop is a plain per-guest Map lookup.
+ * + the DERIVED couple-heart term (issue #1107): the SAME couplePointsByGuest()
+ * rule getPoints reads, folded in AFTER the main SQL query runs, same shape
+ * and same reason as the crowd-favorite term just above. couplePointsByGuest()
+ * itself issues exactly ONE query regardless of guest count, already grouped
+ * by photo owner, so this loop is a plain per-guest Map lookup too.
  *
  * The completed-count here uses the SAME canonical rule as getCompletedCount
  * (section 1a, Decision A; amended by #247): visible TASK submissions only
@@ -159,6 +166,15 @@ function leaderboard() {
   const crowdPointsByGuestMap = crowdPointsByGuest();
   for (const row of rows) {
     row.points += crowdPointsByGuestMap.get(row.id) || 0;
+  }
+
+  // Fold in the couple-heart term (issue #1107): ONE couplePointsByGuest()
+  // call (which itself makes exactly ONE query, already grouped by photo
+  // owner), folded in JS the same way and for the same reason as the
+  // crowd-favorite term just above.
+  const couplePointsByGuestMap = couplePointsByGuest();
+  for (const row of rows) {
+    row.points += couplePointsByGuestMap.get(row.id) || 0;
   }
 
   // SORT — the SINGLE, NAMED owner of standings order (issue #656). The SQL
