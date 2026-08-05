@@ -428,6 +428,20 @@ router.post('/login', loginRateLimiter, (req, res) => {
     guest.pin === submittedPin;
 
   if (pinOk) {
+    // Issue #1092: a host-blocked guest's correct credentials are refused.
+    // Placement is the trap: this must sit BEFORE guestLockoutState.delete(key)
+    // below, or a blocked guest clears their own per-contact throttle on every
+    // retry. Why it also sits after the pinOk check, and why it does not call
+    // recordGuestLoginFailure, is in DESIGN.md § "Block a guest".
+    if (guest.blocked) {
+      res.status(401).render('login', {
+        title: LOGIN_TITLE,
+        contact: rawContact,
+        error: 'This account has been blocked. Please find one of the hosts.',
+      });
+      return;
+    }
+
     guestLockoutState.delete(key);
     res.cookie('gsid', guest.token, cookieOpts(config.GUEST_COOKIE_MAX_AGE_MS));
     // Issue #564: the "shown once, right after joining OR the rare re-entry

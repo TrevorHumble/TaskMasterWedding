@@ -201,10 +201,33 @@ function ensureIsCoupleColumn(db) {
   }
 }
 
+// --- Guarded migration: guests.blocked (issue #1092) ---
+/**
+ * Add guests.blocked if it is not already present.
+ *
+ * blocked = 1 is a host-set moderation flag (set by #1093's admin control):
+ * attachGuest (src/middleware/session.js) refuses to attach a blocked
+ * guest's session, and POST /login (src/routes/auth.js) refuses a blocked
+ * guest's otherwise-correct credentials. Exactly ensureIsCoupleColumn's shape
+ * above, itself a copy of ensurePinnedColumn's: the guests CREATE TABLE
+ * deliberately omits the column, PRAGMA table_info detects absence, and the
+ * ALTER TABLE runs at most once, so both a fresh DB and an existing
+ * pre-#1092 app.db gain the column on first boot, and every later boot is a
+ * no-op. Exported so tests bind to this real guard rather than an inline
+ * copy of it.
+ */
+function ensureBlockedColumn(db) {
+  const cols = db.prepare(`PRAGMA table_info(guests)`).all();
+  if (!cols.some((col) => col.name === 'blocked')) {
+    db.exec(`ALTER TABLE guests ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
 module.exports = {
   ensurePinnedColumn,
   ensureGuestIdentityColumns,
   ensureAvatarPointAwardedRetired,
   ensureRecapCheckedAtColumn,
   ensureIsCoupleColumn,
+  ensureBlockedColumn,
 };
