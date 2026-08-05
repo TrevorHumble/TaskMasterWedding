@@ -16,7 +16,7 @@ single-owner_ while doing it.
 
 ## How guests earn points
 
-Nine sources pay points. Each entry names the issue that builds it.
+Ten sources pay points. Each entry names the issue that builds it.
 
 1. **Task completion pays the task's worth.** 3, 4, or 5 points, host-chosen at task
    creation, printed on the card. (#682, which absorbed #645; rescaled by #1103.)
@@ -60,12 +60,18 @@ Nine sources pay points. Each entry names the issue that builds it.
    possible. (#625's rewrite, settled 2026-07-23; per-guest dedupe reverses #625 AC3's old
    "no-cap sweep" rule, #896, settled 2026-07-27 — see #625's ranking-rule and
    memory-eligibility decision comments; #651 feeds duel-generated likes into the same count.)
+10. **Couple's heart.** A like from a couple-flagged guest (`guests.is_couple`) pays its owner 1
+    point, uncapped across likes and photos, fully derived, an un-like removes the point on the
+    very next read, no stored bookkeeping. Reverses #647's original settlement, which paid
+    nothing; the owner reversed that on 2026-08-04 in the point-system rebalance session. The mark
+    itself (the gold heart, the named recap row) is unrelated to this point value and shipped
+    separately, #647. (#1107.)
 
 ### Nothing else pays
 
-Every point a guest sees must have a readable reason drawn from the nine sources above.
+Every point a guest sees must have a readable reason drawn from the ten sources above.
 Freeform bonus points — awarded to a guest directly, or awarded to a photo outside the
-nine sources — are the target: the per-photo route is already removed (#684, closed);
+ten sources, are the target: the per-photo route is already removed (#684, closed);
 guest-level awards are a planned removal, #683 open and undecided by the owner as of
 2026-07-24 (the admin form is currently live — see "What is dead" below). Values already
 awarded before any removal keep counting; only the write path for new freeform awards
@@ -181,8 +187,10 @@ for each task's real badge, not for the dead placeholders.
   Per-photo points route removal: #684 (closed)
 - Reward delivery: #644 (recap) + #611 (success screen slots for bonus receipts)
 - Display surfaces: #489/#490 (medals, #490's TOPSHOT half is dead), #1057 (next-badge nudge), #646 (host checklist), #363 (badge art), #469 (prizes)
-- #647 (Couple's Heart): the couple's gold heart is a like marker and pays nothing —
-  unrelated to the gold badge rule above. Do not conflate the two golds.
+- #647 (Couple's Heart): the couple's gold heart is a like marker, unrelated to the gold badge
+  rule above: do not conflate the two golds. It paid nothing at ship time; #1107 reversed that
+  in the point-system rebalance to 1 point per couple like, uncapped, fully derived (point source
+  10 above).
 - #368 (memory task card): its point mechanic is superseded by #656; only the pinned card
   placement idea remains live.
 - #666 (host role): "hosts can award badges" means picking and ranking task-badge winners

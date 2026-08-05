@@ -2,15 +2,18 @@
 // Per-guest point totals and their terms (issue #969): base photo/task
 // points, the memory-day bonus, the profile-photo starter, badge award
 // points, and admin bonus-point adjustment. Requires ./crowd-favorites for
-// the crowd-favorite term getPoints folds in — the only cross-internal
-// scoring dependency this file has; nothing here is required back by
-// crowd-favorites.js or badge-engine.js, so there is no cycle.
+// the crowd-favorite term and ./couple-hearts for the couple-heart term
+// (issue #1107) getPoints folds in: the only cross-internal scoring
+// dependencies this file has; nothing here is required back by
+// crowd-favorites.js, couple-hearts.js, or badge-engine.js, so there is no
+// cycle.
 'use strict';
 
 const { db, getEventConfig } = require('../../db');
 const { VISIBLE_WHERE } = require('../feed');
 const crowdFavoritesModule = require('./crowd-favorites');
 const { crowdPointsByGuest } = crowdFavoritesModule;
+const { couplePointsByGuest } = require('./couple-hearts');
 const eventDays = require('../event-days');
 const { parseSqliteDatetime } = require('../relative-time');
 
@@ -40,15 +43,20 @@ const { parseSqliteDatetime } = require('../relative-time');
  * just `photoBonus`, never NaN, and a memory caller passes worth=0 explicitly
  * for the same reason a task caller passes its task's real worth (>= 3).
  *
- * Deliberate exception (issue #625): a crowd-favorite photo's rank points are
- * NEVER folded in here. This function's number is what a photo earned by
- * being SUBMITTED — a stable, banked-feeling value a feed card can print
- * without explanation. A crowd rank is volatile by design (a later like or
- * takedown can move it on the very next read), so folding it into this
- * per-photo figure would make a card's number flicker for reasons the card
- * cannot explain. What a crowd-favorite photo earns is stated separately: by
- * #788's crown marker on the photo itself, and in the owner's grand total via
- * crowdPointsByGuest() (see getPoints/leaderboard below) — never here.
+ * Deliberate exception (issue #625, extended to the couple's heart by issue
+ * #1107): a crowd-favorite photo's rank points, and a photo's couple-like
+ * points, are NEVER folded in here. This function's number is what a photo
+ * earned by being SUBMITTED — a stable, banked-feeling value a feed card can
+ * print without explanation. Both a crowd rank and a couple-like count are
+ * volatile by design (a later like, un-like, or takedown can move either on
+ * the very next read), so folding either into this per-photo figure would
+ * make a card's number flicker for reasons the card cannot explain. What a
+ * crowd-favorite photo earns is stated separately: by #788's crown marker on
+ * the photo itself, and in the owner's grand total via crowdPointsByGuest()
+ * (see getPoints/leaderboard below). A couple-liked photo's point is stated
+ * separately too: by #647's gold heart mark on the photo itself, and in the
+ * owner's grand total via couplePointsByGuest() (see getPoints/leaderboard
+ * below), never here.
  *
  * @param {number} photoBonus - the photo's submissions.photo_bonus value
  * @param {number} [worth=0] - the task's worth (3-5), or 0 for a memory
@@ -380,6 +388,14 @@ function getCompletedCount(guestId) {
  *     of the placing set (or is overtaken by that guest's OWN better photo)
  *     loses its points on the very next read, with no separate bookkeeping
  *     (AC4).
+ *   + the DERIVED couple-heart term (issue #1107; reverses #647's original
+ *     "pays nothing" settlement): couplePointsByGuest()'s total for this
+ *     guest: 1 point per like from a couple-flagged guest (guests.is_couple)
+ *     on any of the guest's currently visible photos, uncapped across likes
+ *     and photos. Read fresh on every call, like the crowd-favorite term
+ *     above, an un-like removes its point on the very next read, and a
+ *     takedown/restore moves the whole set of a photo's couple-like points
+ *     with it, with no separate bookkeeping.
  * bonus_points is stored clamped at >= 0, photo_bonus is a non-negative
  * admin-set absolute value, worth is clamped 3-5 by the tasks table's own
  * CHECK constraint, and award points are coerced non-negative at write time
@@ -401,6 +417,7 @@ function getPoints(guestId) {
   const timezone = getEventConfig().timezone;
   const memoryDayPoints = memoryPoints(guestId, timezone);
   const crowdPoints = crowdPointsByGuest().get(guestId) || 0;
+  const couplePoints = couplePointsByGuest().get(guestId) || 0;
   return (
     worthSum +
     photoBonus +
@@ -409,7 +426,8 @@ function getPoints(guestId) {
     starterPoints +
     awardPoints +
     memoryDayPoints +
-    crowdPoints
+    crowdPoints +
+    couplePoints
   );
 }
 

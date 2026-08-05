@@ -4487,7 +4487,14 @@ A like from a couple-flagged guest (`guests.is_couple`, a plain admin checkbox n
 renders a gold heart on the photo (feed card, gallery tiles on all three views, `/u/:guestId`, and
 the likers dialog) and names them in the bell ("Lilly loved your photo") instead of folding into
 the ordinary "N people liked your photo" batch. No extra points, no extra vote weight — a
-couple-like counts as exactly one like, same as anyone's.
+couple-like counts as exactly one like toward crowd-favorite standing, same as anyone's.
+
+**Amended (issue #1107, 2026-08-04): the "no extra points" line above is historical.** The owner
+reversed it in the point-system rebalance session: a couple-like now pays its owner 1 point,
+uncapped across likes and photos, fully derived, an un-like removes the point on the very next
+read. `src/services/scoring/couple-hearts.js`'s `couplePointsByGuest()` is the single owner of this
+term, folded into `getPoints`/`leaderboard()` the same way `crowdPointsByGuest()` is. Full record:
+this file's "Point-system rebalance (2026-08-04)" section.
 
 **Why a separate recap source (`coupleLikeRows`) rather than teaching `likeBatchRows` a
 couple-flag branch.** The two rows are structurally different, not just cosmetically different:
@@ -4626,6 +4633,48 @@ Two mechanical consequences of not being task-derived: (1) the row needed its ow
 **`admin-badge-rank.ejs`'s `data-max-winners`/`data-points-by-rank` go back to being server-driven.** The owner-approved phase-1 preview hardcoded these two attributes as literal `"3"` / `"[5,3,2]"` strings (the same shape #661's original build used ahead of its own locals wiring); this issue restores `<%= maxWinners %>` / `<%= JSON.stringify(pointsByRank) %>`, reading `task-badges.MAX_RANKED_WINNERS`/`POINTS_BY_RANK` off the route the same way #661's PR review originally required. This is render-identical to the approved bytes, since the route now passes exactly `3`/`[5,3,2]` as those locals. `admin-badge-rank.js`'s own client-side fallback literals (`|| 5` and `[5, 4, 3, 2, 1]`) move to `|| 3` and `[5, 3, 2]` to match.
 
 **What this issue does NOT touch:** the task-worth range (#1103), the memory-day cap (#1104), the Completionist badge's point value (#1105), and the couple's-heart point (#1107) each ship, if at all, with their own issue; this issue's view edits on `/how-points-work` carry ONLY the "Earn the Masters' favor" row (tag `2–5 points`, "award the top three"), and every other rebalance row reverts to its committed state pending its own issue. Crowd favorites and the slideshow's own "top 5" section are a separate system (#625) and keep their existing top-5 shape untouched everywhere.
+
+### Couple's heart pays 1 point per like, uncapped, fully derived (#1107)
+
+**Decision:** a like from a couple-flagged guest (`guests.is_couple`) pays its owner 1 point,
+uncapped across likes and photos, fully derived, an un-like removes the point on the very next
+read, no stored bookkeeping. `src/services/scoring/couple-hearts.js`, modeled directly on
+`crowd-favorites.js`'s derived-term shape, exposes `couplePointsByGuest(): Map<guestId, points>`
+from one prepared statement: `likes` joined to `submissions` (composing `feed.js`'s
+`VISIBLE_WHERE` unchanged, `s`-aliased) and to `guests` on `is_couple = 1`, grouped by the photo
+owner (`s.guest_id`). `getPoints` (`src/services/scoring/points.js`) and `leaderboard()`
+(`src/services/scoring/leaderboard.js`) each fold this term in beside the crowd-favorite term, the
+same shape and for the same reason. No self-like exclusion is needed here: a guest can never like
+their own photo at the route level (issue #712), so the query never needs to special-case the
+photo owner being a couple member liking their own submission.
+
+**The flag is retroactive by design.** `couplePointsByGuest()` reads `guests.is_couple` fresh on
+every call, with no snapshot taken at like time, so un-checking "the couple" on a guest immediately
+strips every point their past likes already banked, on the very next read; re-checking it restores
+them, again on the very next read. This is the same rule every other derived term in this file
+follows (a takedown/restore, a like/un-like), just triggered by an admin flag instead of a guest
+action. `tests/couple-heart-points.test.js` covers both directions of the toggle.
+
+**Why 1 point, uncapped, and not folded into the per-photo figure:** this is a straight reversal of
+#647's original settlement (the 2026-07-19 stickiness consult, `docs/stickiness-consult-2026-07-19.md`,
+N4, which paid nothing). The owner reversed it on 2026-08-04 in this rebalance session, reading
+"pays nothing" as a missed opportunity to make the couple's own taste visibly steer the game.
+Uncapped (no per-photo or per-liker ceiling) matches the owner's approved phase-1 copy on
+`/how-points-work`: "When Lilly or Axel love your photo, the gold heart is worth a point. No
+limit." `photoPoints` (`src/services/scoring/points.js`) never folds this term in, for the same
+standing reason crowd-favorite rank points are excluded from it: the term is volatile by design (a
+later like or un-like can move it on the very next read), so folding it into the stable per-photo
+figure would make a feed card's number flicker for reasons the card cannot explain. What a
+couple-liked photo earns is stated separately: by #647's gold heart mark on the photo itself, and
+in the owner's grand total via `couplePointsByGuest()`.
+
+**What this issue does NOT touch:** the task-worth range (#1103), the memory-day cap (#1104), the
+Completionist badge's point value (#1105), and the task-badge ranking ceiling (#1106) each ship, if
+at all, with their own issue; this issue's view edit on `/how-points-work` carries ONLY the "Win
+the couple's heart" row, and every other rebalance row reverts to its committed state pending its
+own issue. The neighboring `src/views/admin-guests.ejs` couple-checkbox hint ("likes show gold")
+is untouched: rewording it would be new admin-facing copy that has not been through the phase-1
+loop.
 
 ## Block a guest: enforcement in `attachGuest`, not per-route, and per-row not per-person (#1092)
 

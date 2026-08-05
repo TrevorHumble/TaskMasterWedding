@@ -3,6 +3,7 @@
 // Scoring engine and badge logic entry (issue #969 split). Internals live
 // under src/services/scoring/: points.js (per-guest point totals),
 // crowd-favorites.js (the derived crowd-favorite placing set),
+// couple-hearts.js (the derived couple-heart point term, issue #1107),
 // badge-engine.js (auto/metric/transferable grant-revoke + admin hand-award),
 // leaderboard.js (the public standings), and guest-badges.js (a guest's held
 // badges, celebration-priority ranking, and the badge detail page). This
@@ -23,6 +24,7 @@
 
 const points = require('./scoring/points');
 const crowdFavorites = require('./scoring/crowd-favorites');
+const coupleHearts = require('./scoring/couple-hearts');
 const badgeEngine = require('./scoring/badge-engine');
 const leaderboardModule = require('./scoring/leaderboard');
 const guestBadges = require('./scoring/guest-badges');
@@ -43,6 +45,7 @@ module.exports = {
   crowdFavorites: crowdFavorites.crowdFavorites,
   crowdPointsByGuest: crowdFavorites.crowdPointsByGuest,
   recordCrowdFavoriteChanges: crowdFavorites.recordCrowdFavoriteChanges,
+  couplePointsByGuest: coupleHearts.couplePointsByGuest,
   getGuestBadges: guestBadges.getGuestBadges,
   compareBadgeMoment: guestBadges.compareBadgeMoment,
   rankBadgeCandidates: guestBadges.rankBadgeCandidates,

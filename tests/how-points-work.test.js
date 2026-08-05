@@ -1,13 +1,13 @@
 // tests/how-points-work.test.js
 // Covers issue #818 acceptance criteria — the "How to earn points" page:
 //   AC1 — GET /how-points-work as a signed-in guest is 200, contains the
-//         page title and all five row titles ("Masters'" renders with a
+//         page title and all seven row titles ("Masters'" renders with a
 //         &rsquo; entity, so this asserts the substring up to the apostrophe,
 //         not a literal straight quote).
 //   AC2 — each row's reward tags render: a points tag with its range, and a
-//         "Badge" tag only on the three badge rows (Masters' favor, Win the
-//         crowd, Collect milestone badges) — not on Snap the tasks or Share
-//         a memory.
+//         "Badge" tag only on the four badge rows (Masters' favor, Win the
+//         crowd, Collect milestone badges, Sweep every task): not on Snap the
+//         tasks, Share a memory, or Win the couple's heart (issue #1107).
 //   AC3 — a signed-out visitor is redirected (302) to /join, same gate as
 //         /how-to-play.
 //   AC4 — /how-to-play links to the real route (not the retired
@@ -60,7 +60,7 @@ function tagsBlockFor(text, title) {
   return match ? match[1] : null;
 }
 
-describe('AC1: the page renders with the title and all six row titles', () => {
+describe('AC1: the page renders with the title and all seven row titles', () => {
   test('GET /how-points-work is 200 and contains the title and every row title', async () => {
     resetTables();
     insertGuest('ac1-token');
@@ -76,6 +76,8 @@ describe('AC1: the page renders with the title and all six row titles', () => {
     expect(res.text).toContain('Snap the tasks');
     expect(res.text).toContain('Win the crowd');
     expect(res.text).toContain('Share a memory');
+    // Issue #1107: the couple's heart now has its own separate row.
+    expect(res.text).toContain('Win the couple&rsquo;s heart');
     expect(res.text).toContain('Collect milestone badges');
     // Issue #1105: the clean sweep now has its own separate row.
     expect(res.text).toContain('Sweep every task');
@@ -83,7 +85,7 @@ describe('AC1: the page renders with the title and all six row titles', () => {
 });
 
 describe('AC2: each row shows the correct reward tags', () => {
-  test('the six reward-tag combinations render on their own rows', async () => {
+  test('the seven reward-tag combinations render on their own rows', async () => {
     resetTables();
     insertGuest('ac2-token');
 
@@ -109,6 +111,11 @@ describe('AC2: each row shows the correct reward tags', () => {
     // Desc lock (issue #1104): the row's own description states the
     // two-per-day rule in words, not just the "1 point each" tag above.
     expect(res.text).toContain('Your first two memories each day earn a point apiece.');
+
+    // Issue #1107: the couple's heart row's own tag, 1 point each, no Badge.
+    const coupleHeart = tagsBlockFor(res.text, 'Win the couple&rsquo;s heart');
+    expect(coupleHeart).toContain('1 point each');
+    expect(coupleHeart).not.toContain('Badge');
 
     const milestoneBadges = tagsBlockFor(res.text, 'Collect milestone badges');
     expect(milestoneBadges).toContain('1 point');
