@@ -286,32 +286,36 @@ function removeTaskAward(taskId, submissionId) {
 }
 
 // ---------------------------------------------------------------------------
-// Ranked release (issue #661) — the host ranks a task's 1-5 best photos and
-// releases the badge + 5/4/3/2/1 points in one confirm. This supersedes the
-// single-photo awardTaskBadge above as the route-facing write path (that
-// module doc comment's "currently zero route callers" note is what this
-// issue fills in) — awardTaskBadge/removeTaskAward are left untouched for
-// their own existing callers/tests; releaseRanking below is the SEPARATE,
-// whole-set-atomic write path GET/POST /admin/tasks/:id/rank uses.
+// Ranked release (issue #661, rebalanced to a top 3 by #1106) — the host
+// ranks a task's 1-3 best photos and releases the badge + 5/3/2 points in
+// one confirm. This supersedes the single-photo awardTaskBadge above as the
+// route-facing write path (that module doc comment's "currently zero route
+// callers" note is what this issue fills in) — awardTaskBadge/removeTaskAward
+// are left untouched for their own existing callers/tests; releaseRanking
+// below is the SEPARATE, whole-set-atomic write path GET/POST
+// /admin/tasks/:id/rank uses.
 // ---------------------------------------------------------------------------
 
-// Points paid by placement, 1st..5th. The SINGLE server-side owner of the
-// rank -> points mapping — src/routes/admin.js's GET /admin/tasks/:id/rank
-// and releaseRanking below both read this array, never a re-typed literal.
+// Points paid by placement, 1st..3rd (issue #1106: a sharper top-3 payout
+// with a bigger gap to first, narrowed down from the original 1st..5th). The
+// SINGLE server-side owner of the rank -> points mapping —
+// src/routes/admin/task-rank.js's GET /admin/tasks/:id/rank and
+// releaseRanking below both read this array, never a re-typed literal.
 // src/public/js/admin-badge-rank.js (a static asset with no access to a
-// server require) keeps its OWN literal copy of these five numbers for
-// INSTANT client-side display only (the live medal/points recompute while
-// the host drags, before any POST) — that copy can never be the one that
-// decides what gets written; a stale/hacked client value changes nothing,
-// because the POST body only ever carries an ORDER of submission ids and
-// this array (not the client) turns position into points. If this mapping
-// ever changes, the client copy must be updated to match by hand — see that
-// file's own comment for the cross-reference back to here.
-const POINTS_BY_RANK = [5, 4, 3, 2, 1];
+// server require) keeps its OWN literal copy of these numbers for INSTANT
+// client-side display only (the live medal/points recompute while the host
+// drags, before any POST) — that copy can never be the one that decides what
+// gets written; a stale/hacked client value changes nothing, because the
+// POST body only ever carries an ORDER of submission ids and this array (not
+// the client) turns position into points. If this mapping ever changes, the
+// client copy must be updated to match by hand — see that file's own comment
+// for the cross-reference back to here.
+const POINTS_BY_RANK = [5, 3, 2];
 
-// The most winners a single release may carry (issue #661: "1 to 5", the
-// host's choice, never a forced five) — derived from POINTS_BY_RANK's own
-// length rather than a second literal `5`, so the two can never disagree.
+// The most winners a single release may carry (issue #1106: "1 to 3", the
+// host's choice, never a forced three, narrowed from #661's original "1 to
+// 5") — derived from POINTS_BY_RANK's own length rather than a second
+// literal `3`, so the two can never disagree.
 const MAX_RANKED_WINNERS = POINTS_BY_RANK.length;
 
 // The settings-table marker read by this page's read-only (Awarded) state
@@ -495,12 +499,15 @@ function isFirstPlaceRank(rank) {
 
 /**
  * Badge `badgeId` — held by guest `guestId`, or not? Returns the
- * award row's `rank` (an integer 1-5, or `null` for a possession-only award
- * with no placement) when a `guest_badges` row exists for this
- * (guest, badge) pair, and `undefined` when no such row exists at all —
- * keeping "no award" (undefined) distinguishable from "award, no rank"
- * (null), which src/routes/guest.js's task-badge-state mapping (issue #611
- * AC3) depends on to tell "never won" apart from "won, ranked 2nd-5th".
+ * award row's `rank` (an integer 1-3 for a release under the current
+ * mapping, though a release banked under the pre-#1106 mapping may still
+ * hold 4 or 5, since #1106 AC5 does not backfill, or `null` for a
+ * possession-only award with no placement) when a `guest_badges` row exists
+ * for this (guest, badge) pair, and `undefined` when no such row exists at
+ * all, keeping "no award" (undefined) distinguishable from "award, no
+ * rank" (null), which src/routes/guest/tasks.js's task-badge-state mapping
+ * (issue #611 AC3) depends on to tell "never won" apart from "won, ranked
+ * 2nd-3rd".
  *
  * Possession-based on purpose, not resubmission: releaseRanking's own
  * contract (see that function's doc comment) keeps a guest's award row even
@@ -669,8 +676,9 @@ function foldRankedPlacements(resolved) {
  * (AC2).
  *
  * @param {number} taskId
- * @param {Array<number>} submissionIds - ordered 1st..Kth, 0 <= length <= 5
- *   (issue #892: 0 is a deliberate clear-all, not a refusal)
+ * @param {Array<number>} submissionIds - ordered 1st..Kth, 0 <= length <= 3
+ *   (issue #892: 0 is a deliberate clear-all, not a refusal; issue #1106
+ *   narrowed the ceiling from 5 to 3)
  * @returns {{badge: object, winners: number}|null} the released badge and
  *   how many distinct guests it now pays, or null if the release was refused
  */

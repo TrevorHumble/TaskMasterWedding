@@ -1,15 +1,17 @@
 // src/services/scoring/leaderboard.js
 // Public leaderboard (issue #969): every guest ordered by total points, with
 // badge codes attached. Requires ./points (the starter-point constant and
-// the all-guests memory-day fold) and ./crowd-favorites (the all-guests
-// crowd-favorite fold) — the same two derived terms getPoints folds in for a
+// the all-guests memory-day fold), ./crowd-favorites (the all-guests
+// crowd-favorite fold), and ./couple-hearts (the all-guests couple-heart
+// fold, issue #1107): the same three derived terms getPoints folds in for a
 // single guest.
 'use strict';
 
 const { db, getEventConfig } = require('../../db');
 const { VISIBLE_WHERE } = require('../feed');
-const { STARTER_PHOTO_POINT, memoryDayCountsByGuest } = require('./points');
+const { STARTER_PHOTO_POINT, memoryPointsByGuest } = require('./points');
 const { crowdPointsByGuest } = require('./crowd-favorites');
+const { couplePointsByGuest } = require('./couple-hearts');
 
 // ---------------------------------------------------------------------------
 // Leaderboard
@@ -33,24 +35,26 @@ const { crowdPointsByGuest } = require('./crowd-favorites');
  * starterTaskContribution's `!!avatar_path` rule that getPoints reads
  * in-process; the two can't drift because both consume the same
  * STARTER_PHOTO_POINT constant, one via SQL interpolation, one via JS.
- * + the DERIVED memory-day term (issue #656): the SAME memoryDayCount rule
- * getPoints reads, but folded in AFTER the main SQL query runs rather than
- * inside it — SQLite has no IANA timezone support, so the event-local day
- * conversion cannot happen in SQL at all (see memoryDayCountsByGuest, above,
- * built from ONE all-guests query, never a per-guest query inside this
- * function's loop). Because this term lands in JS after the SQL query
- * returns, the SQL query itself carries NO ORDER BY (a SQL-decided order
- * would already be stale by the time this term is added, and would only be
- * discarded) — the JS comparator below the query, applied once the term is
- * folded in, is the single, named owner of standings order; see its own
- * comment for the full key sequence and the NULL-last rule (AC5).
+ * + the DERIVED memory-day term (issue #656; capped by issue #1104): the SAME
+ * memoryPoints rule getPoints reads, but folded in AFTER the main SQL query
+ * runs rather than inside it — SQLite has no IANA timezone support, so the
+ * event-local day conversion cannot happen in SQL at all (see
+ * memoryPointsByGuest in ./points, built from ONE all-guests query, never a
+ * per-guest query inside this function's loop). Because this term lands in JS
+ * after the SQL query returns, the SQL query itself carries NO ORDER BY (a
+ * SQL-decided order would already be stale by the time this term is added,
+ * and would only be discarded) — the JS comparator below the query, applied
+ * once the term is folded in, is the single, named owner of standings order;
+ * see its own comment for the full key sequence and the NULL-last rule (AC5).
  * + badge AWARD points (SUM of guest_badges.points), counted only while the
  * award's earning photo is visible where one exists (AC6) — see the
  * awardPoints subquery note below. This covers a task-badge judgment amount
- * (issue #483), AUTO_METRIC_BADGE_POINTS for each auto/metric badge the
+ * (issue #483), AUTO_METRIC_BADGE_POINTS for each auto (milestone) badge the
  * guest currently holds (issue #709 — derived on read, no separate scoring
- * term), and 0 for a transferable/admin-special grant. Each row carries the
- * guest's earned badge codes (auto + special).
+ * term), CLEAN_SWEEP_BADGE_POINTS for the COMPLETIONIST metric badge (issue
+ * #1105 split this out of the flat auto/metric value), and 0 for a
+ * transferable/admin-special grant. Each row carries the guest's earned
+ * badge codes (auto + special).
  * + the DERIVED crowd-favorite term (issue #625): the SAME crowdPointsByGuest()
  * rule getPoints reads, folded in AFTER the main SQL query runs — exactly
  * like the memory-day term below, and for the identical reason (standard-
@@ -59,6 +63,11 @@ const { crowdPointsByGuest } = require('./crowd-favorites');
  * itself issues exactly ONE query regardless of guest count (AC8) — a single
  * crowdFavorites() call ranks every liked photo in the whole event once, then
  * this loop is a plain per-guest Map lookup.
+ * + the DERIVED couple-heart term (issue #1107): the SAME couplePointsByGuest()
+ * rule getPoints reads, folded in AFTER the main SQL query runs, same shape
+ * and same reason as the crowd-favorite term just above. couplePointsByGuest()
+ * itself issues exactly ONE query regardless of guest count, already grouped
+ * by photo owner, so this loop is a plain per-guest Map lookup too.
  *
  * The completed-count here uses the SAME canonical rule as getCompletedCount
  * (section 1a, Decision A; amended by #247): visible TASK submissions only
@@ -139,13 +148,14 @@ function leaderboard() {
     )
     .all();
 
-  // Fold in the memory-day term (issue #656) — computed in JS from ONE
-  // all-guests query (memoryDayCountsByGuest), not per-row here, so this
-  // stays a single extra query regardless of guest count.
+  // Fold in the memory-day term (issue #656; capped by issue #1104) —
+  // computed in JS from ONE all-guests query (memoryPointsByGuest), not
+  // per-row here, so this stays a single extra query regardless of guest
+  // count.
   const timezone = getEventConfig().timezone;
-  const memoryDaysByGuest = memoryDayCountsByGuest(timezone);
+  const memoryPointsByGuestMap = memoryPointsByGuest(timezone);
   for (const row of rows) {
-    row.points += memoryDaysByGuest.get(row.id) || 0;
+    row.points += memoryPointsByGuestMap.get(row.id) || 0;
   }
 
   // Fold in the crowd-favorite term (issue #625) — ONE crowdPointsByGuest()
@@ -156,6 +166,15 @@ function leaderboard() {
   const crowdPointsByGuestMap = crowdPointsByGuest();
   for (const row of rows) {
     row.points += crowdPointsByGuestMap.get(row.id) || 0;
+  }
+
+  // Fold in the couple-heart term (issue #1107): ONE couplePointsByGuest()
+  // call (which itself makes exactly ONE query, already grouped by photo
+  // owner), folded in JS the same way and for the same reason as the
+  // crowd-favorite term just above.
+  const couplePointsByGuestMap = couplePointsByGuest();
+  for (const row of rows) {
+    row.points += couplePointsByGuestMap.get(row.id) || 0;
   }
 
   // SORT — the SINGLE, NAMED owner of standings order (issue #656). The SQL

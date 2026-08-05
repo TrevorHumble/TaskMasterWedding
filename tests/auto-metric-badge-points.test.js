@@ -1,8 +1,10 @@
 // tests/auto-metric-badge-points.test.js
 // Issue #709: auto (BLOOM/BOUQUET/GARDEN) and metric (COMPLETIONIST) badges
-// pay +1 point for as long as a guest holds them, derived on read through
+// pay points for as long as a guest holds them, derived on read through
 // the existing award-points sum (stmtAwardPointsSum + the leaderboard
-// subquery, src/services/scoring.js) — no new scoring term. Covers ACs 1-4.
+// subquery, src/services/scoring.js) — no new scoring term. Since issue
+// #1105 the values split: milestones pay AUTO_METRIC_BADGE_POINTS (1),
+// COMPLETIONIST pays CLEAN_SWEEP_BADGE_POINTS (3). Covers ACs 1-4.
 // Follows the loadApp()/makeGuest/makeTask/submit conventions of
 // tests/badge-engine.test.js, but lives in its own file (per the issue's
 // implementation plan) because badge-engine.test.js's last describe blocks
@@ -163,8 +165,136 @@ describe('AC3: transferable and admin-special grants still carry points = 0', ()
   });
 });
 
+describe('issue #1105: COMPLETIONIST pays CLEAN_SWEEP_BADGE_POINTS (3), not the flat AUTO_METRIC_BADGE_POINTS (1)', () => {
+  it('a guest covering every active task gains COMPLETIONIST at points = 3, and both getPoints/leaderboard include it', () => {
+    const { CLEAN_SWEEP_BADGE_POINTS } = require('../src/db');
+    expect(CLEAN_SWEEP_BADGE_POINTS).toBe(3);
+
+    // COMPLETIONIST's rule is "covers every active task" GLOBALLY, so hide
+    // whatever active tasks earlier describe blocks in this file left behind
+    // (AC1/AC2 each create their own active tasks and never hide them) before
+    // this guest's single new task becomes the whole active-task universe.
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
+
+    const guest = makeGuest('cs1105-sweep-guest', 'Sweep Guest');
+    const task = makeTask('CS1105 Only Task');
+    submit(guest, task);
+
+    // Before recompute: 1 worth-3 task = 3 points, no badge yet.
+    expect(scoring.getPoints(guest)).toBe(3);
+
+    scoring.recomputeBadges(guest);
+
+    expect(heldCodes(guest)).toContain('COMPLETIONIST');
+    // 3 (worth) + 3 (COMPLETIONIST's CLEAN_SWEEP_BADGE_POINTS) = 6.
+    expect(scoring.getPoints(guest)).toBe(6);
+    expect(leaderboardPointsFor(guest)).toBe(6);
+
+    const row = db
+      .prepare(
+        `SELECT gb.points FROM guest_badges gb JOIN badges b ON b.id = gb.badge_id
+          WHERE gb.guest_id = ? AND b.code = 'COMPLETIONIST'`
+      )
+      .get(guest);
+    expect(row.points).toBe(3);
+  });
+
+  it('BLOOM (a milestone/auto badge) still carries AUTO_METRIC_BADGE_POINTS (1) alongside a COMPLETIONIST grant', () => {
+    const { AUTO_METRIC_BADGE_POINTS } = require('../src/db');
+    expect(AUTO_METRIC_BADGE_POINTS).toBe(1);
+
+    // Same "close the active-task universe" guard as the test above.
+    db.prepare("UPDATE tasks SET special_mode = 'hidden'").run();
+
+    const guest = makeGuest('cs1105-milestone-guest', 'Milestone Guest');
+    for (let i = 0; i < 5; i += 1) {
+      const task = makeTask(`CS1105 Milestone Task ${i}`);
+      submit(guest, task);
+    }
+    scoring.recomputeBadges(guest);
+
+    expect(heldCodes(guest)).toContain('BLOOM');
+    expect(heldCodes(guest)).toContain('COMPLETIONIST');
+
+    const bloomRow = db
+      .prepare(
+        `SELECT gb.points FROM guest_badges gb JOIN badges b ON b.id = gb.badge_id
+          WHERE gb.guest_id = ? AND b.code = 'BLOOM'`
+      )
+      .get(guest);
+    const completionistRow = db
+      .prepare(
+        `SELECT gb.points FROM guest_badges gb JOIN badges b ON b.id = gb.badge_id
+          WHERE gb.guest_id = ? AND b.code = 'COMPLETIONIST'`
+      )
+      .get(guest);
+    expect(bloomRow.points).toBe(1);
+    expect(completionistRow.points).toBe(3);
+  });
+});
+
+describe('issue #1105: the split backfill catches up a COMPLETIONIST row at either old-era sentinel (0 or 1), leaves a milestone row alone', () => {
+  it('backfills a pre-#709 COMPLETIONIST row (points = 0) to 3, and a pre-#1105 COMPLETIONIST row (points = 1, the old flat value) to 3, without touching a milestone row already at 1', () => {
+    const { ensureAutoMetricBadgePointsBackfilled } = require('../src/db');
+
+    const completionist = db.prepare(`SELECT id FROM badges WHERE code = 'COMPLETIONIST'`).get();
+    const bloom = db.prepare(`SELECT id FROM badges WHERE code = 'BLOOM'`).get();
+
+    // Simulate a pre-#709 held COMPLETIONIST row: granted the old way, points
+    // still at the very first old-default sentinel, 0.
+    const guestZero = makeGuest('cs1105-backfill-zero-guest', 'Backfill Zero Guest');
+    db.prepare(
+      `INSERT INTO guest_badges (guest_id, badge_id, awarded_by, points) VALUES (?, ?, 'system', 0)`
+    ).run(guestZero, completionist.id);
+
+    // Simulate a pre-#1105 held COMPLETIONIST row: granted under the old flat
+    // AUTO_METRIC_BADGE_POINTS rule, points already at 1 (the second old-era
+    // sentinel this backfill must also catch up to 3).
+    const guestOne = makeGuest('cs1105-backfill-one-guest', 'Backfill One Guest');
+    db.prepare(
+      `INSERT INTO guest_badges (guest_id, badge_id, awarded_by, points) VALUES (?, ?, 'system', 1)`
+    ).run(guestOne, completionist.id);
+
+    // A milestone (auto) row already correctly at 1: must NOT be moved to 3
+    // by the COMPLETIONIST-only second UPDATE, and the first UPDATE's
+    // `points = 0` guard means an already-correct row like this one is a
+    // no-op for it too.
+    const guestMilestone = makeGuest('cs1105-backfill-milestone-guest', 'Backfill Milestone Guest');
+    db.prepare(
+      `INSERT INTO guest_badges (guest_id, badge_id, awarded_by, points) VALUES (?, ?, 'system', 1)`
+    ).run(guestMilestone, bloom.id);
+
+    const changed = ensureAutoMetricBadgePointsBackfilled();
+
+    const zeroRow = db
+      .prepare(`SELECT points FROM guest_badges WHERE guest_id = ? AND badge_id = ?`)
+      .get(guestZero, completionist.id);
+    const oneRow = db
+      .prepare(`SELECT points FROM guest_badges WHERE guest_id = ? AND badge_id = ?`)
+      .get(guestOne, completionist.id);
+    const milestoneRow = db
+      .prepare(`SELECT points FROM guest_badges WHERE guest_id = ? AND badge_id = ?`)
+      .get(guestMilestone, bloom.id);
+
+    expect(zeroRow.points).toBe(3);
+    expect(oneRow.points).toBe(3);
+    expect(milestoneRow.points).toBe(1);
+    // Exactly the two simulated COMPLETIONIST rows above were advanced;
+    // the milestone row was already correct and neither UPDATE touches it.
+    expect(changed).toBe(2);
+
+    // Idempotent: a second run touches nothing further for these rows.
+    const secondRun = ensureAutoMetricBadgePointsBackfilled();
+    const zeroRowAfter = db
+      .prepare(`SELECT points FROM guest_badges WHERE guest_id = ? AND badge_id = ?`)
+      .get(guestZero, completionist.id);
+    expect(zeroRowAfter.points).toBe(3);
+    expect(secondRun).toBe(0);
+  });
+});
+
 describe('AC4: the db.js backfill fixes a pre-#709 database and nothing else', () => {
-  it('backfills exactly a held auto/metric row still at points = 0, leaving a transferable/special row untouched', () => {
+  it('backfills exactly a held milestone (auto) row still at points = 0, leaving a transferable/special row untouched', () => {
     const { ensureAutoMetricBadgePointsBackfilled } = require('../src/db');
 
     const guest = makeGuest('ac4-backfill-guest', 'AC4 Backfill Guest');
@@ -197,9 +327,10 @@ describe('AC4: the db.js backfill fixes a pre-#709 database and nothing else', (
     expect(bloomRow.points).toBe(1);
     expect(specialRow.points).toBe(0);
     // Exactly the one simulated pre-#709 row above was at points = 0 for an
-    // auto/metric badge at this point in the suite (every other grant in
-    // this file went through the fixed code path, which already writes
-    // points = 1/0 correctly at grant time) — so this call updates exactly 1 row.
+    // auto badge at this point in the suite (every other grant in this file
+    // went through the fixed code path, which already writes the split
+    // values, 1 for a milestone, 3 for COMPLETIONIST, 0 for the rest,
+    // correctly at grant time) — so this call updates exactly 1 row.
     expect(changed).toBe(1);
 
     // Idempotent: a second run touches nothing further for this guest's rows.

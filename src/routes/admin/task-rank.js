@@ -11,10 +11,11 @@ const router = express.Router();
 // ---------------------------------------------------------------------------
 // GET/POST /admin/tasks/:id/rank  — rank & award (issue #661).
 //
-// The host picks task T's 1-5 best photos, drags them into placing order,
-// and releases T's own badge + 5/4/3/2/1 points in one confirm. Superseds the
-// five-code give-a-badge photo-winner picker (photo-badges.js, deleted) —
-// this is the ONLY place a task's photos win a badge now.
+// The host picks task T's 1-3 best photos (issue #1106, narrowed down from
+// 1-5), drags them into placing order, and releases T's own badge + 5/3/2
+// points in one confirm. Superseds the five-code give-a-badge photo-winner
+// picker (photo-badges.js, deleted) — this is the ONLY place a task's photos
+// win a badge now.
 //
 // GET renders the page: T's title/description/badge, every one of T's
 // CURRENTLY VISIBLE photos (pick-grid candidates in the editor, a browsable
@@ -32,8 +33,9 @@ const router = express.Router();
 // dragged DOM order — there is no separate persistence endpoint per drop
 // (see admin-badge-rank.js), only this one confirm. task-badges.releaseRanking
 // does the real validation (every id must be a currently-visible submission
-// of THIS task, 0-5 entries, no duplicates — issue #892 widened the floor
-// from 1 to 0: an empty, PRESENT `winners` field is a deliberate clear-all)
+// of THIS task, 0-3 entries (issue #1106 narrowed the ceiling from 5), no
+// duplicates — issue #892 widened the floor from 1 to 0: an empty, PRESENT
+// `winners` field is a deliberate clear-all)
 // and the atomic whole-set write; this route parses the posted string,
 // distinguishes a deliberate clear from a stale/tampered post (issue #892
 // AC6), and redirects with the outcome.

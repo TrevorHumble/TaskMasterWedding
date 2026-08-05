@@ -10,8 +10,8 @@
 // one-directional (points.js never requires this file back), so no cycle.
 'use strict';
 
-const { db, AUTO_METRIC_BADGE_POINTS } = require('../../db');
-const { METRIC_BADGES, TRANSFERABLE_BADGES } = require('../badges');
+const { db, AUTO_METRIC_BADGE_POINTS, CLEAN_SWEEP_BADGE_POINTS } = require('../../db');
+const { METRIC_BADGES, TRANSFERABLE_BADGES, missingActiveTaskCount } = require('../badges');
 const { TASK_BADGE_CODE_PREFIX } = require('../task-badges');
 // The recap's single write path (issue #644 plan step 2/3) — notifications.js
 // requires '../db', './feed', and './relative-time' (relative-time.js
@@ -39,7 +39,7 @@ const { autoBadgeDescription } = require('../badge-copy');
 // on every call — cheap (a handful of rows, no index needed) and the only
 // way a just-saved admin edit is visible to the very next recompute in the
 // same request (setAutoBadgeThresholds's own per-guest loop below).
-// recomputeThresholdBadges and nextThresholdBadge both iterate its return
+// recomputeThresholdBadges and upcomingAutoBadges both iterate its return
 // value rather than a fixed-length literal, so a stag boot (no GARDEN row,
 // scripts/badge-catalog.js) simply gets two entries instead of three — no
 // separate variant branch needed.
@@ -139,7 +139,9 @@ const stmtGuestBadge = db.prepare('SELECT * FROM guest_badges WHERE guest_id = ?
 //
 // `points` (issue #709) is the ONE place a grant decides whether holding
 // this badge is worth anything: the two recomputeBadges branches below pass
-// AUTO_METRIC_BADGE_POINTS for an auto/metric grant, while
+// AUTO_METRIC_BADGE_POINTS for an auto (milestone) grant and
+// CLEAN_SWEEP_BADGE_POINTS for the metric COMPLETIONIST grant (issue #1105
+// split the two apart: the clean sweep pays more), while
 // recomputeTransferableBadges and awardSpecialBadge pass 0 — a transferable
 // or admin-special badge stays a display-only award. Whatever is written
 // here is exactly what stmtAwardPointsSum/leaderboard later sum on read; no
@@ -248,10 +250,11 @@ const stmtGuestAvatarPath = db.prepare('SELECT avatar_path FROM guests WHERE id 
  * the profile-photo starter task's own contribution, read through
  * starterTaskContribution (src/services/scoring/points.js), the single owner
  * of the avatar_path rule. Exported so a caller elsewhere on screen (the
- * next-badge nudge) counts the exact same way recomputeThresholdBadges below
- * grants against, so the two numbers can never disagree: that agreement is
- * the whole reason this function exists rather than staying a local
- * expression inside recomputeThresholdBadges.
+ * guest-home upcoming-badges list, upcomingAutoBadges below) counts the exact
+ * same way recomputeThresholdBadges below grants against, so the two numbers
+ * can never disagree: that agreement is the whole reason this function
+ * exists rather than staying a local expression inside
+ * recomputeThresholdBadges.
  * @param {number} guestId
  * @returns {number}
  */
@@ -263,55 +266,85 @@ function thresholdCompletedCount(guestId) {
 }
 
 /**
- * The next unearned threshold badge this guest could still reach, or null
- * when every threshold is already held, or when the smallest unearned
- * threshold exceeds `reachableTaskCount` (issue #1057). The single owner of
- * the next-badge nudge derivation: reads thresholdCompletedCount (issue
- * #1060) rather than the bare getCompletedCount, so the remaining count this
- * returns and the count recomputeThresholdBadges grants on are always the
- * same scale (AC7) and can never disagree.
+ * Every unearned, reachable auto badge this guest could still chase, ordered
+ * ascending by threshold, plus an unearned Completionist row last (issue
+ * #1108, supersedes #1057's single-row nextThresholdBadge, that function is
+ * removed, GET / was its only real consumer, see AC7). Guest home's
+ * upcoming-badges list renders one compact row per entry this returns; a
+ * badge the guest already holds contributes no row here (it shows in My
+ * Badges instead), and the whole list is empty once every badge is held or
+ * unreachable.
  *
- * autoBadgeThresholds() already returns its rows ordered ascending by
- * threshold, so the first entry with `threshold > completed` is the smallest
- * reachable-or-not next threshold. Reachability is then a single comparison
- * against `reachableTaskCount`, the caller's own denominator (GET / passes
- * `totalTasks`, the same figure the progress caption prints). This
- * function never recomputes that count itself, so the two can never use a
- * different set.
+ * Milestone rows come from autoBadgeThresholds() (live admin-set thresholds,
+ * already ordered ascending by threshold), filtered to codes the guest does
+ * not yet hold AND whose threshold is within reach: `threshold <=
+ * reachableTaskCount`, the exact reachability gate #1057's nudge applied to
+ * its single next badge, carried forward here to EVERY row rather than just
+ * the first: an event whose highest milestone outruns its live task count can
+ * never promise a badge the guest cannot actually reach. Each row's
+ * `remaining` is `max(0, threshold - thresholdCompletedCount(guestId))`
+ * (issue #1060's completed-plus-starter count, the same one
+ * recomputeThresholdBadges grants against, so this list and a grant can never
+ * disagree) and `points` is the flat AUTO_METRIC_BADGE_POINTS every milestone
+ * badge pays.
  *
- * name/art_path are read via the exported badgeByCode(code) wrapper above,
- * never a second `SELECT … FROM badges` beside the private stmtBadgeByCode
- * it already owns. A missing catalog row (the stag variant deliberately has
- * no GARDEN entry, scripts/badge-catalog.js) can no longer even reach this
- * `if (!badge)` branch in practice, since autoBadgeThresholds() itself only
- * ever returns codes for rows that currently exist — the guard stays as a
- * defensive no-op against the row being deleted between the two reads
- * (autoBadgeThresholds() above, then this badgeByCode(next.code) call), the
- * same residual reason recomputeThresholdBadges' own `if (!badge)` guard
- * below stays in place.
+ * The Completionist row (badgeByCode(CLEAN_SWEEP_CODE)) is appended last,
+ * only if unearned AND its own remaining count is nonzero: `remaining` is
+ * badges.missingActiveTaskCount(guestId) (issue #1108 plan step 1), the SAME
+ * set isCompletionist's own grant check counts, so the counter reads 0
+ * exactly when the badge grants. A remaining of 0 while the badge is still
+ * unheld is a vacuous edge case (see the skip inline below), never rendered.
+ * `points` is CLEAN_SWEEP_BADGE_POINTS (#1105).
  *
  * @param {number} guestId
  * @param {number} reachableTaskCount - the same denominator the progress
  *   caption prints (active reachable tasks plus the profile-photo starter).
- * @returns {{code: string, name: string, art_path: string, threshold: number, remaining: number}|null}
+ * @returns {Array<{code: string, name: string, art_path: string, remaining: number, points: number}>}
  */
-function nextThresholdBadge(guestId, reachableTaskCount) {
+function upcomingAutoBadges(guestId, reachableTaskCount) {
   const completed = thresholdCompletedCount(guestId);
-  const next = autoBadgeThresholds().find(({ threshold }) => threshold > completed);
-  if (!next || next.threshold > reachableTaskCount) {
-    return null;
+  const rows = [];
+
+  for (const { code, threshold } of autoBadgeThresholds()) {
+    if (threshold > reachableTaskCount) {
+      continue;
+    }
+    const full = badgeByCode(code);
+    if (!full || stmtGuestBadge.get(guestId, full.id)) {
+      // Defensive no-op, see recomputeThresholdBadges' matching skip below
+      // for the rationale (a row named here can vanish from `badges` between
+      // this read and the lookup just above).
+      continue;
+    }
+    rows.push({
+      code: full.code,
+      name: full.name,
+      art_path: full.art_path,
+      remaining: Math.max(0, threshold - completed),
+      points: AUTO_METRIC_BADGE_POINTS,
+    });
   }
-  const badge = badgeByCode(next.code);
-  if (!badge) {
-    return null;
+
+  const cleanSweep = badgeByCode(CLEAN_SWEEP_CODE);
+  if (cleanSweep && !stmtGuestBadge.get(guestId, cleanSweep.id)) {
+    const remaining = missingActiveTaskCount(guestId);
+    // remaining can be 0 while the badge is still unheld: zero live
+    // non-challenge tasks makes missingActiveTaskCount vacuously 0, and a
+    // guest created after the event's mass-grant moment holds nothing yet
+    // either. Either way a "0 tasks to Completionist" row would be a lie
+    // (the badge is not held), so the row is skipped rather than rendered.
+    if (remaining > 0) {
+      rows.push({
+        code: cleanSweep.code,
+        name: cleanSweep.name,
+        art_path: cleanSweep.art_path,
+        remaining: remaining,
+        points: CLEAN_SWEEP_BADGE_POINTS,
+      });
+    }
   }
-  return {
-    code: badge.code,
-    name: badge.name,
-    art_path: badge.art_path,
-    threshold: next.threshold,
-    remaining: next.threshold - completed,
-  };
+
+  return rows;
 }
 
 /**
@@ -345,9 +378,9 @@ const recomputeThresholdBadges = db.transaction((guestId, revokeKind = 'badge_re
   for (const { code, threshold } of autoBadgeThresholds()) {
     const badge = stmtBadgeByCode.get(code);
     if (!badge) {
-      // Defensive no-op, same spirit as nextThresholdBadge's own `if
-      // (!badge)` guard above: guards against the row this code names being
-      // deleted between the autoBadgeThresholds() read just above and this
+      // Defensive no-op, same spirit as upcomingAutoBadges' own missing-row
+      // skip above: guards against the row this code names being deleted
+      // between the autoBadgeThresholds() read just above and this
       // stmtBadgeByCode read, not an expected steady state — skip rather
       // than crash.
       continue;
@@ -409,6 +442,14 @@ const recomputeThresholdBadges = db.transaction((guestId, revokeKind = 'badge_re
 const recomputeBadges = db.transaction((guestId) => {
   recomputeThresholdBadges(guestId);
 
+  // METRIC_BADGES (src/services/badges.js) registers exactly one code today,
+  // COMPLETIONIST, the clean-sweep badge, so CLEAN_SWEEP_BADGE_POINTS below
+  // is written unconditionally for every grant this loop makes, not looked
+  // up per-code. If a second metric badge is ever registered, this loop must
+  // switch to a per-code points lookup (mirroring how auto badges could vary
+  // by threshold) rather than assuming every metric grant is the clean
+  // sweep: a second flat constant here would silently mis-pay whichever
+  // metric badge isn't COMPLETIONIST.
   for (const code of Object.keys(METRIC_BADGES)) {
     const badge = stmtBadgeByCode.get(code);
     if (!badge) {
@@ -420,12 +461,14 @@ const recomputeBadges = db.transaction((guestId) => {
     const has = stmtGuestBadge.get(guestId, badge.id);
 
     if (qualifies) {
-      // Same AUTO_METRIC_BADGE_POINTS grant as the auto branch above — a
-      // metric badge (e.g. COMPLETIONIST) is worth +1 for as long as the
-      // guest holds it (issue #709).
+      // CLEAN_SWEEP_BADGE_POINTS (issue #1105), not AUTO_METRIC_BADGE_POINTS:
+      // the clean sweep pays 3 for as long as the guest holds it, a bigger
+      // reward than a milestone badge (BLOOM/BOUQUET/GARDEN, still worth 1
+      // via the auto branch above), since finishing every live task is the
+      // highest-effort badge in the game.
       if (!has) {
         // Flag 0 — see the auto-badge branch above for why this is always 0 here.
-        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS, 0);
+        stmtGrantBadge.run(guestId, badge.id, 'system', CLEAN_SWEEP_BADGE_POINTS, 0);
         notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
       }
     } else if (has && has.awarded_by === 'system') {
@@ -720,7 +763,7 @@ module.exports = {
   badgeByCode,
   cleanSweepBadgeName,
   thresholdCompletedCount,
-  nextThresholdBadge,
+  upcomingAutoBadges,
   recomputeThresholdBadges,
   recomputeBadges,
   recomputeTransferableBadges,

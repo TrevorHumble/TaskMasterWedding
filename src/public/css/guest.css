@@ -864,13 +864,10 @@ textarea {
 .badge-item:first-child {
   padding-top: 0;
 }
-.badge-item a,
-.badge-locked-row {
+.badge-item a {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-}
-.badge-item a {
   text-align: left;
   text-decoration: none;
   color: inherit;
@@ -906,26 +903,69 @@ textarea {
   line-height: var(--lh-snug);
 }
 
-/* Next-badge nudge (issue #1057, graduates #653): the one badge the guest has
-   not earned yet, pinned above the earned ones as a locked row. It reuses
-   .badge-item / .badge-art / .badge-text / .badge-name / .badge-desc
-   unchanged so it sits on exactly the same grid as an earned row, and
-   differs only by being drained of colour: desaturated, faded art and muted
-   title, so the earned badges stay the loudest thing in the list. The row
-   is not a link, there is nothing earned to open yet. The flex layout
-   itself lives on the shared `.badge-item a, .badge-locked-row` selector
-   group above, not re-declared here. */
+/* The Share a memory page's bonus payoff (issue #1117, consumed by the
+   <p class="memory-bonus-line"> in src/views/memory-new.ejs): one quiet
+   green line pulled tight under the page title. Deliberately not an
+   extension of .memory-payoff (src/public/css/base.css); the owner approved
+   this as its own green-ink, negative-margin treatment for this one
+   placement, and the two consumers do not share a surface. */
+.memory-bonus-line {
+  font-size: var(--fs-small);
+  color: var(--green-700);
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+}
+
+/* Upcoming badges (issue #1108, graduates the #1057 next-badge nudge from a
+   single locked row to a full list): unearned, reachable auto badges as
+   compact rows above My Badges, ascending threshold order, Completionist
+   last. Small icon left, one muted line of text across. Earned badges leave
+   this list for the My Badges list below. */
+.upcoming-badges-section {
+  margin-bottom: var(--space-6);
+}
+.upcoming-badges {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.upcoming-badge-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
 /* .badge-art covers a composed-SVG badge's plain <img>; .badge-medallion
-   covers a bundled-icon badge's ring+glyph span (partials/badge-art.ejs),
-   both shapes must desaturate the same way, or a bundled-icon locked row
-   (e.g. the stag variant's milestone badges) would render at full colour
-   and read as earned. */
-.badge-item-locked .badge-art,
-.badge-item-locked .badge-medallion {
+   covers a bundled-icon badge's ring+glyph span (partials/badge-art.ejs):
+   both shapes must desaturate and size the same way, or a bundled-icon row
+   (e.g. the stag variant's own milestone badges) would render oversized and
+   at full colour, reading as earned. The medallion branch is sized by
+   ancestor CSS, not width/height attributes (partials/badge-art.ejs's own
+   comment), so it needs its own rule rather than inheriting the <img>
+   branch's width/height. */
+.upcoming-badge-row .badge-art,
+.upcoming-badge-row .badge-medallion {
+  width: 28px;
+  height: 28px;
   filter: grayscale(1);
   opacity: 0.4;
 }
-.badge-item-locked .badge-name {
+/* Thinned ring to match the smaller size, the same convention
+   .task-badge-lead's own medallion override above already sets when it
+   moves the medallion off its 48px base (border-width and box-shadow
+   insets, not just width/height), otherwise the base 2px border plus
+   2px/3px inset rings sized for a 48px medallion would read too heavy on a
+   28px one. */
+.upcoming-badge-row .badge-medallion {
+  border-width: 1px;
+  box-shadow:
+    inset 0 0 0 1px var(--white),
+    inset 0 0 0 2px var(--green-300);
+}
+.upcoming-badge-label {
+  font-size: var(--fs-small);
+  line-height: 1.25;
   color: var(--color-text-muted);
 }
 

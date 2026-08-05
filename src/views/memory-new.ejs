@@ -4,6 +4,10 @@
 
   <p class="back-link"><a href="/gallery">&#8592; Gallery</a></p>
   <h1 class="page-title">Share a memory</h1>
+  <%# Payoff line (issues #1104/#1117): the day's memory bonus as one quiet
+      green line under the title, owner-approved 2026-08-04; styled by
+      .memory-bonus-line in src/public/css/guest.css. %>
+  <p class="memory-bonus-line">+1 point for the first 2 memories of each day</p>
 
   <%# Partial-batch result card (issue #931): the guest lands back here after
       SOME but not all of a batch's photos saved. Transcribed from the
@@ -47,9 +51,8 @@
   <% } %>
 
   <p class="muted">
-    Got photos from tonight that don't match a task? Add them straight to the
-    shared gallery. Your first memory each day is +1 point, but share as many
-    as you'd like.
+    Got photos that don't match a task? Add as many as you'd like straight to
+    the shared gallery.
   </p>
 
   <% if (typeof error !== 'undefined' && error) { %>

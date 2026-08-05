@@ -717,8 +717,10 @@ p {
     inset 0 0 0 4px var(--green-300);
 }
 /* Wins are the proper color, nothing more: 1st place is the gold medallion
-   (ring + glyph), a top-5 win is the standard green one. Gold never inks
-   text (the #650/#878 rule) — only the ring and glyph here. */
+   (ring + glyph), a top-3 win (issue #1106; a preserved pre-#1106 win may
+   still be ranked 4th/5th and renders the same way) is the standard green
+   one. Gold never inks text (the #650/#878 rule) — only the ring and glyph
+   here. */
 .task-badge-hero--won-first .badge-medallion {
   border-color: var(--place-1);
   /* The inner hairline goes gold too — a green line inside a gold ring reads
@@ -802,9 +804,12 @@ p {
    One rule for every CTA that includes the partial, so the line reads the
    same at each — today that is the finished-all-tasks card on /tasks alone
    (src/views/tasks.ejs); issue #611 removed the task detail page's two
-   prompts, and /how-to-play and /memories/new deliberately fold the same
-   promise into their own prose instead of including the partial (see its own
-   header comment). Muted, small treatment; no separate note style. */
+   prompts, and /how-to-play deliberately folds the same promise into its own
+   prose instead of including the partial (see the partial's own header
+   comment). /memories/new no longer folds it into prose either: it now
+   carries its own standalone .memory-bonus-line (issue #1117, in
+   src/public/css/guest.css). Muted, small treatment; no separate note
+   style. */
 .memory-payoff {
   margin: var(--space-2) 0 var(--space-1);
   font-size: var(--fs-small);

@@ -14,6 +14,14 @@
 //         Delete form (method=post, action /p/<id>/delete), no replace
 //         control, and a per-submission caption-dialog-<submission_id> id
 //
+// Issue #1041 AC3 adds the caption dialog's own drag-dismiss coverage,
+// driven against the real src/public/js/photo-owner-menu.js loaded from
+// real GET /feed markup (the pattern tests/feed-likers-script.test.js
+// establishes): a press inside the caption textarea, released on the
+// retargeted dialog element, must leave the dialog open with the caption
+// text intact (AC1's sequence applied to this dialog); a genuine backdrop
+// press-and-release still closes it (AC2), unaffected.
+//
 // Fixture/seeding mirrors tests/feed-comment-delete.test.js.
 //
 // REQUIRE ORDER: config / db / app are required only AFTER loadApp() sets
@@ -307,4 +315,125 @@ it('AC7: the partial renders exactly Edit-caption + Delete, no replace control, 
   const dialog = doc.getElementById('caption-dialog-' + submissionId);
   expect(dialog).not.toBeNull();
   expect(dialog.querySelector('form[action="/p/' + submissionId + '/caption"]')).not.toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// Issue #1041 AC3 — the caption dialog's own drag-dismiss coverage, driven
+// against the real photo-owner-menu.js loaded from real GET /feed markup.
+// ---------------------------------------------------------------------------
+describe('issue #1041: photo-owner-menu.js caption dialog drag-dismiss (AC3, AC2)', () => {
+  const DIALOG_DISMISS_JS_PATH = path.join(
+    __dirname,
+    '..',
+    'src',
+    'public',
+    'js',
+    'dialog-dismiss.js'
+  );
+  const PHOTO_OWNER_MENU_JS_PATH = path.join(
+    __dirname,
+    '..',
+    'src',
+    'public',
+    'js',
+    'photo-owner-menu.js'
+  );
+
+  /**
+   * Seed a submission owned by a fresh signed-in guest, fetch the real
+   * GET /feed markup, load it into jsdom, stub the <dialog> API (jsdom ships
+   * neither showModal nor close), and require the real dialog-dismiss.js and
+   * photo-owner-menu.js fresh against it — same technique
+   * tests/feed-likers-script.test.js uses for feed.js.
+   */
+  // Each test calls loadFixture() once against the SAME db (this file's
+  // shared beforeAll app/db), so every call needs its own unique token and
+  // photo paths -- a fixed literal would collide on guests.token's UNIQUE
+  // constraint the second time a test in this describe block runs.
+  let fixtureCounter = 0;
+
+  async function loadFixture() {
+    fixtureCounter += 1;
+    const author = await signedInGuest('own-1041-author-' + fixtureCounter, '1041 Author');
+    const submissionId = seedSubmission(author.guestId, {
+      photoPath: 'own-1041-' + fixtureCounter + '.jpg',
+      thumbPath: 'own-1041-' + fixtureCounter + 't.jpg',
+      caption: 'old caption',
+    });
+
+    const feedRes = await author.agent.get('/feed');
+    expect(feedRes.status).toBe(200);
+
+    const dom = new JSDOM(feedRes.text, { url: 'http://localhost/feed' });
+    dom.window.HTMLDialogElement.prototype.showModal = function () {
+      this.open = true;
+    };
+    dom.window.HTMLDialogElement.prototype.close = function () {
+      this.open = false;
+    };
+
+    const keys = ['window', 'document', 'navigator'];
+    const saved = {};
+    keys.forEach((key) => {
+      saved[key] = Object.getOwnPropertyDescriptor(global, key);
+      Object.defineProperty(global, key, {
+        value: dom.window[key],
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    delete require.cache[require.resolve(DIALOG_DISMISS_JS_PATH)];
+    require(DIALOG_DISMISS_JS_PATH);
+    delete require.cache[require.resolve(PHOTO_OWNER_MENU_JS_PATH)];
+    require(PHOTO_OWNER_MENU_JS_PATH);
+
+    function restore() {
+      keys.forEach((key) => {
+        if (saved[key]) {
+          Object.defineProperty(global, key, saved[key]);
+        } else {
+          delete global[key];
+        }
+      });
+    }
+
+    const doc = dom.window.document;
+    const openTrigger = doc.querySelector('[data-edit-caption="' + submissionId + '"]');
+    openTrigger.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+    const dialogEl = doc.getElementById('caption-dialog-' + submissionId);
+    const textarea = dialogEl.querySelector('textarea[name="caption"]');
+
+    return { doc, dom, dialogEl, textarea, restore };
+  }
+
+  test('AC3: a press inside the caption textarea, released on the retargeted dialog element, leaves the dialog open with the caption intact', async () => {
+    const { dom, dialogEl, textarea, restore } = await loadFixture();
+    try {
+      expect(dialogEl.open).toBe(true);
+      textarea.value = 'half-typed caption';
+
+      textarea.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })); // press started on a descendant
+      dialogEl.dispatchEvent(new dom.window.Event('click', { bubbles: true })); // click retargeted to the dialog element
+
+      expect(dialogEl.open).toBe(true);
+      expect(textarea.value).toBe('half-typed caption');
+    } finally {
+      restore();
+    }
+  });
+
+  test('AC2: a genuine backdrop press-and-release still closes the caption dialog', async () => {
+    const { dom, dialogEl, restore } = await loadFixture();
+    try {
+      expect(dialogEl.open).toBe(true);
+
+      dialogEl.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })); // press landed on the dialog itself
+      dialogEl.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
+      expect(dialogEl.open).toBe(false);
+    } finally {
+      restore();
+    }
+  });
 });

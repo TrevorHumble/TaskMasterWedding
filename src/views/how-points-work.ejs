@@ -10,10 +10,10 @@
     <li class="points-row">
       <span class="points-title">Earn the Masters&rsquo; favor</span>
       <div class="points-tags">
-        <span class="points-tag points-tag-points">1&ndash;5 points</span>
+        <span class="points-tag points-tag-points">2&ndash;5 points</span>
         <span class="points-tag points-tag-badge">Badge</span>
       </div>
-      <p class="points-desc"><%= _isStag ? 'The Stag Masters award the top five: great shots, funny moments, and images that give us those warm, fuzzy feelings.' : 'The Wedding Masters award the top five: great shots, funny moments, and images that give us those warm, fuzzy feelings.' %></p>
+      <p class="points-desc"><%= _isStag ? 'The Stag Masters award the top three: great shots, funny moments, and images that give us those warm, fuzzy feelings.' : 'The Wedding Masters award the top three: great shots, funny moments, and images that give us those warm, fuzzy feelings.' %></p>
     </li>
 
     <li class="points-row">
@@ -36,9 +36,17 @@
     <li class="points-row">
       <span class="points-title">Share a memory</span>
       <div class="points-tags">
-        <span class="points-tag points-tag-points">1 point</span>
+        <span class="points-tag points-tag-points">1 point each</span>
       </div>
-      <p class="points-desc">Your first memory earns a point. Share as many as you like.</p>
+      <p class="points-desc">Your first two memories each day earn a point apiece. Share as many as you like.</p>
+    </li>
+
+    <li class="points-row">
+      <span class="points-title">Win the couple&rsquo;s heart</span>
+      <div class="points-tags">
+        <span class="points-tag points-tag-points">1 point each</span>
+      </div>
+      <p class="points-desc">When <%= _isStag ? 'the guest of honor loves' : 'Lilly or Axel love' %> your photo, the gold heart is worth a point. No limit.</p>
     </li>
 
     <li class="points-row">
@@ -48,6 +56,15 @@
         <span class="points-tag points-tag-badge">Badge</span>
       </div>
       <p class="points-desc"><%= milestoneSentence %></p>
+    </li>
+
+    <li class="points-row">
+      <span class="points-title">Sweep every task</span>
+      <div class="points-tags">
+        <span class="points-tag points-tag-points"><%= cleanSweepPoints %> points</span>
+        <span class="points-tag points-tag-badge">Badge</span>
+      </div>
+      <p class="points-desc">Finish the whole task list and the <%= cleanSweepName %> badge is yours, with <%= cleanSweepPoints %> points while you hold it.</p>
     </li>
   </ul>
 

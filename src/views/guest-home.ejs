@@ -49,28 +49,33 @@
     </button>
   </section>
 
+  <%# Upcoming badges (issue #1108, supersedes #1057's single next-badge
+      locked row): one compact row per unearned, reachable auto badge
+      (scoring.upcomingAutoBadges, ascending threshold order, Completionist
+      last), small icon left, one muted line of text across. An earned badge
+      leaves this list and appears in My Badges below instead. The section
+      renders nothing at all once every badge is held or unreachable. %>
+  <% if (upcomingBadges.length > 0) { %>
+  <section class="upcoming-badges-section" aria-label="Badges you can still earn">
+    <ul class="upcoming-badges">
+      <% upcomingBadges.forEach(function (u) { %>
+        <li class="upcoming-badge-row">
+          <%- include('partials/badge-art', { badge: u, alt: '', width: 28, height: 28 }) %>
+          <span class="upcoming-badge-label"><%= u.remaining %> task<%= u.remaining === 1 ? '' : 's' %> to <%= u.name %> <span class="profile-meta-sep" aria-hidden="true">·</span> <%= u.points %> point<%= u.points === 1 ? '' : 's' %></span>
+        </li>
+      <% }); %>
+    </ul>
+  </section>
+  <% } %>
+
   <section class="badges-section">
     <h2 class="section-title">My Badges</h2>
-    <%# Next-badge nudge (issue #1057, graduates #653): nextBadge is
-        scoring.nextThresholdBadge's real derivation (the single owner), not
-        a phase-1 fake: null when every threshold is held or the next one
-        is out of reach for this guest, otherwise the badge row to render
-        locked, above every earned row. %>
-    <% if (badges.length === 0 && !nextBadge) { %>
+    <%# Earned badges, milestones included, all live here; the list above
+        shows only UNEARNED, reachable ones. %>
+    <% if (badges.length === 0) { %>
       <p class="muted">No badges yet, complete tasks to earn your first.</p>
     <% } else { %>
       <ul class="badge-grid">
-        <% if (nextBadge) { %>
-          <li class="badge-item badge-item-locked">
-            <div class="badge-locked-row">
-              <%- include('partials/badge-art', { badge: nextBadge, alt: '', width: 48, height: 48 }) %>
-              <span class="badge-text">
-                <span class="badge-name"><%= nextBadge.remaining %> task<%= nextBadge.remaining === 1 ? '' : 's' %> to <%= nextBadge.name %></span>
-                <span class="badge-desc">Complete <%= nextBadge.threshold %> tasks to earn it.</span>
-              </span>
-            </div>
-          </li>
-        <% } %>
         <% badges.forEach(function (b) { %>
           <li class="badge-item">
             <a href="/badge/<%= b.code %>">

@@ -6,7 +6,8 @@
 // rebuild, guest_badges.celebrated_at, guest_badges.rank, the badge-catalog
 // boot-heal, the two catalog-row retirements, the dropped badge_winners
 // table, and the auto/metric points backfill (plus the
-// AUTO_METRIC_BADGE_POINTS constant it and scoring.js both read). Each
+// AUTO_METRIC_BADGE_POINTS and CLEAN_SWEEP_BADGE_POINTS constants it and
+// scoring.js both read). Each
 // function takes the open `db` handle as its first parameter (never a
 // module-load capture of its own — see src/db/connection.js's own comment on
 // why) and is invoked, in this exact source order, from the entry's
@@ -130,11 +131,13 @@ function ensureBadgeTaskIdColumn(db) {
  * exactly those defaults, with no separate backfill UPDATE needed (AC7).
  * stmtGrantBadge never sets note/submission_id (those stay NULL for every
  * grant it writes; only task-badges.awardTaskBadge sets them). It DOES set
- * points as of issue #709 — AUTO_METRIC_BADGE_POINTS for an auto/metric
- * grant, 0 for a transferable/admin-special grant — which is exactly why a
- * SEPARATE one-time backfill (ensureAutoMetricBadgePointsBackfilled, below)
- * exists: to catch up a row a PRE-#709 database already granted under the
- * old points = 0 default, which this ADD COLUMN's default cannot reach.
+ * points as of issue #709 — AUTO_METRIC_BADGE_POINTS for an auto grant
+ * (CLEAN_SWEEP_BADGE_POINTS for the metric COMPLETIONIST grant since issue
+ * #1105 split it out of that flat value), 0 for a transferable/admin-special
+ * grant — which is exactly why a SEPARATE one-time backfill
+ * (ensureAutoMetricBadgePointsBackfilled, below) exists: to catch up a row a
+ * PRE-#709 database already granted under the old points = 0 default, which
+ * this ADD COLUMN's default cannot reach.
  *
  * submission_id's FK is ON DELETE CASCADE (issue #713) — a fresh DB gets
  * this action directly here, so ensureGuestBadgeSubmissionCascade() below
@@ -470,11 +473,14 @@ function ensureBadgeWinnersTableDropped(db) {
   db.exec(`DROP TABLE IF EXISTS badge_winners`);
 }
 
-// --- Points value + guarded one-time backfill: auto/metric badges (issue #709) ---
+// --- Points values + guarded one-time backfill: auto/metric badges (issues #709, #1105) ---
 
 /**
- * The single owner of "how many points a held auto/metric badge is worth"
- * (issue #709 — a badge is a point event, not just wall art). BOTH this
+ * The single owner of "how many points a held MILESTONE (type 'auto') badge
+ * is worth" (issue #709 — a badge is a point event, not just wall art).
+ * Until issue #1105 this constant also covered the metric badge
+ * (COMPLETIONIST); that value now lives in CLEAN_SWEEP_BADGE_POINTS below,
+ * so a second metric badge must NOT be paid from here. BOTH this
  * file's backfill immediately below AND src/services/scoring/badge-engine.js's
  * recomputeBadges grant call sites need this number, and badge-engine.js
  * already imports `db` from the entry (src/db.js), which cannot import
@@ -491,51 +497,105 @@ function ensureBadgeWinnersTableDropped(db) {
 const AUTO_METRIC_BADGE_POINTS = 1;
 
 /**
- * Set guest_badges.points = AUTO_METRIC_BADGE_POINTS for every currently-held
- * row whose badge is type IN ('auto','metric') and still carries the
- * pre-#709 default of 0 — BLOOM/BOUQUET/GARDEN (auto) and COMPLETIONIST
- * (metric) now pay a point for as long as a guest holds them, through the
- * existing award-points sum (stmtAwardPointsSum / the leaderboard subquery,
+ * The single owner of "how many points the Completionist/clean-sweep badge
+ * (COMPLETIONIST) is worth while held" (issue #1105, point-system
+ * rebalance). Split out of AUTO_METRIC_BADGE_POINTS above so the clean sweep
+ * (finishing every live task) reads as a bigger reward than a milestone
+ * badge (BLOOM/BOUQUET/GARDEN, still AUTO_METRIC_BADGE_POINTS): those three
+ * stay flat at 1, COMPLETIONIST alone moves to 3. Same reasoning as
+ * AUTO_METRIC_BADGE_POINTS's own doc comment for why this lives here rather
+ * than in scoring/badge-engine.js: badge-engine.js's recomputeBadges grant
+ * call site and this file's own backfill immediately below both need this
+ * number, and badge-engine.js already imports `db` from the entry
+ * (src/db.js), which cannot import scoring back without re-entering the
+ * db -> scoring -> db require cycle. scoring/badge-engine.js imports this
+ * constant rather than re-declaring it, and nowhere else writes a bare `3`
+ * for this purpose.
+ */
+const CLEAN_SWEEP_BADGE_POINTS = 3;
+
+/**
+ * Two guarded UPDATEs that catch up held badge rows written under an older
+ * points rule: currently-held type 'auto' (milestone) rows still at the
+ * pre-#709 default of 0 advance to AUTO_METRIC_BADGE_POINTS, and
+ * currently-held COMPLETIONIST rows still at an old-era value (0 or 1)
+ * advance to CLEAN_SWEEP_BADGE_POINTS. Both pay through the existing
+ * award-points sum (stmtAwardPointsSum / the leaderboard subquery,
  * src/services/scoring/points.js) with no new scoring term. Going forward,
  * badge-engine.js's recomputeBadges grant call sites write
- * AUTO_METRIC_BADGE_POINTS on a NEW auto/metric grant directly; this
- * backfill exists only to catch up a row a pre-#709 database already
- * granted under the old points = 0 default.
+ * AUTO_METRIC_BADGE_POINTS on a NEW auto grant directly (COMPLETIONIST now
+ * writes CLEAN_SWEEP_BADGE_POINTS instead, issue #1105: see this
+ * function's own COMPLETIONIST branch below); this backfill exists only to
+ * catch up a row a pre-#709 database already granted under the old points =
+ * 0 default.
  *
- * The filter joins badges.type IN ('auto','metric') — NOT awarded_by =
- * 'system'. A transferable grant (recomputeTransferableBadges) is also
- * awarded_by = 'system', so filtering on awarded_by alone would mis-pay it;
- * joining on the badge's own type is what correctly excludes it (and
- * excludes an admin-special/custom grant too) regardless of whether
- * issue #711's transferable-badge retirement has landed on this database.
+ * The filter joins badges.type = 'auto', NOT awarded_by = 'system'. A
+ * transferable grant (recomputeTransferableBadges) is also awarded_by =
+ * 'system', so filtering on awarded_by alone would mis-pay it; joining on
+ * the badge's own type is what correctly excludes it (and excludes an
+ * admin-special/custom grant too) regardless of whether issue #711's
+ * transferable-badge retirement has landed on this database. Metric badges
+ * (COMPLETIONIST) are excluded from THIS update: issue #1105 split them
+ * into their own CLEAN_SWEEP_BADGE_POINTS backfill below, since the two no
+ * longer share a paid value.
  *
- * The WHERE also requires the row's CURRENT points = 0 — this is a
+ * The WHERE also requires the row's CURRENT points = 0. This is a
  * different concept from AUTO_METRIC_BADGE_POINTS above (it's the "still at
  * the old default" sentinel, not the paid value), so it stays a literal: a
  * re-run (or a row some other future writer already set a non-zero value on)
- * is never clobbered back — this only advances a row still sitting at the
+ * is never clobbered back: this only advances a row still sitting at the
  * old default.
+ *
+ * Issue #1105 split this backfill in two: the UPDATE below now excludes
+ * COMPLETIONIST (type = 'auto' only, flat AUTO_METRIC_BADGE_POINTS), and a
+ * second UPDATE follows it that carries COMPLETIONIST's own row up to
+ * CLEAN_SWEEP_BADGE_POINTS. That second UPDATE's WHERE is `points IN (0,
+ * 1)`, not just 0: 0 is the pre-#709 old-default sentinel (same meaning as
+ * above), and 1 is the pre-#1105 paid value every COMPLETIONIST row already
+ * held under the old flat AUTO_METRIC_BADGE_POINTS rule. Both are old-era
+ * sentinels this backfill catches up, never the paid value (3) itself, so a
+ * re-run (or a row already sitting at 3) is never clobbered back.
  *
  * Runs AFTER ensureGuestBadgeAwardColumns() above (the points column must
  * exist before this UPDATE can reference it) and after the badge-catalog
  * migrations including ensureRetiredBadgesRemoved() immediately above (so
  * `badges.type` reflects the settled catalog this backfill joins against,
  * not a mid-migration shape). Naturally idempotent: once every held
- * auto/metric row already carries the paid value, a later boot's UPDATE
- * matches zero rows. Exported so tests bind to this real guard rather than
- * an inline copy.
+ * auto/metric row already carries its own paid value, a later boot's
+ * UPDATEs match zero rows. Exported so tests bind to this real guard rather
+ * than an inline copy.
  *
- * @returns {number} the number of guest_badges rows updated.
+ * @returns {number} the number of guest_badges rows updated (both UPDATEs combined).
  */
 function ensureAutoMetricBadgePointsBackfilled(db) {
-  return db
+  const autoChanges = db
     .prepare(
       `UPDATE guest_badges
           SET points = ?
         WHERE points = 0
-          AND badge_id IN (SELECT id FROM badges WHERE type IN ('auto', 'metric'))`
+          AND badge_id IN (SELECT id FROM badges WHERE type = 'auto')`
     )
     .run(AUTO_METRIC_BADGE_POINTS).changes;
+
+  // 'COMPLETIONIST' here is the same badge identity badge-engine.js owns as
+  // CLEAN_SWEEP_CODE; this file cannot import it (the db -> scoring -> db
+  // require cycle documented on AUTO_METRIC_BADGE_POINTS above), so a rename
+  // there must update this literal too. Joining on code alone (no type or
+  // awarded_by guard) is sufficient because badges.code is UNIQUE
+  // (schema.js) and ADMIN_AWARDABLE_TYPES is special/custom only, so no
+  // hand-awarded display-only row can carry this code; if admin awarding
+  // ever widens to metric badges, this WHERE needs the type guard the first
+  // UPDATE's comment argues for.
+  const cleanSweepChanges = db
+    .prepare(
+      `UPDATE guest_badges
+          SET points = ?
+        WHERE points IN (0, 1)
+          AND badge_id IN (SELECT id FROM badges WHERE code = 'COMPLETIONIST')`
+    )
+    .run(CLEAN_SWEEP_BADGE_POINTS).changes;
+
+  return autoChanges + cleanSweepChanges;
 }
 
 module.exports = {
@@ -550,5 +610,6 @@ module.exports = {
   ensureSpecialBadgeCollisionsRemoved,
   ensureBadgeWinnersTableDropped,
   AUTO_METRIC_BADGE_POINTS,
+  CLEAN_SWEEP_BADGE_POINTS,
   ensureAutoMetricBadgePointsBackfilled,
 };

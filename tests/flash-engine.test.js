@@ -603,7 +603,8 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
       // A second, never-completed task (deliberate, not incidental): with
       // only ONE task in the whole database, completing it also makes this
       // guest hold COMPLETIONIST (100% of live tasks), which adds its own
-      // +1 to getPoints() and would make the assertion below order-dependent
+      // +3 (issue #1105: the clean sweep, not the flat auto/metric +1) to
+      // getPoints() and would make the assertion below order-dependent
       // on how many other tasks earlier tests in this file happened to
       // insert. Inserting a second task this guest never touches keeps the
       // getPoints() assertion below deterministic regardless of run order or

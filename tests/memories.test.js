@@ -49,6 +49,7 @@ let tasksSvc;
 let uploadSemaphore;
 let submissionsSvc;
 let validJpeg;
+let MEMORY_DAILY_PAYING_CAP;
 
 beforeAll(async () => {
   validJpeg = await sharp({
@@ -67,6 +68,10 @@ beforeAll(async () => {
   badges = require('../src/services/badges');
   rateLimit = require('../src/services/rate-limit');
   tasksSvc = require('../src/services/tasks');
+  // Not exported by the scoring facade (src/services/scoring.js) — read
+  // straight from its owning module so this test's capped-expectation value
+  // is derived from the same constant points.js enforces, never re-typed.
+  MEMORY_DAILY_PAYING_CAP = require('../src/services/scoring/points').MEMORY_DAILY_PAYING_CAP;
   // Issue #931 AC1: submitMemoryBatch's own failed-filename return value is
   // exercised directly at the service level below, not just through the
   // HTTP route, so the assertion is on the real returned VALUE rather than
@@ -224,14 +229,16 @@ describe('AC1: batch of 3 valid JPEGs with a caption', () => {
       expect(fs.existsSync(photos.absOriginalPath(row.photo_path))).toBe(true);
     }
 
-    // Behavioral: points before + 1 == points after — memories still earn no
-    // PER-PHOTO base point (issue #247), but issue #656 added a memory-DAY
-    // bonus: +1 for the guest's FIRST visible memory each event-local day.
-    // All three photos in this batch share one event-local day, so the
-    // total moves by exactly +1, not +3 — proving the bonus is per-day, not
-    // per-photo.
+    // Behavioral: points before + MEMORY_DAILY_PAYING_CAP == points after —
+    // memories still earn no PER-PHOTO base point (issue #247), but issue
+    // #656 added a memory-DAY bonus, capped at MEMORY_DAILY_PAYING_CAP (2,
+    // issue #1104): +1 apiece for the guest's first two visible memories
+    // each event-local day. All three photos in this batch share one
+    // event-local day, so the total moves by exactly +MEMORY_DAILY_PAYING_CAP
+    // (the third photo pays nothing), not +3 — proving the bonus is per-day
+    // and capped, not per-photo.
     const pointsAfter = scoring.getPoints(guestId);
-    expect(pointsAfter).toBe(pointsBefore + 1);
+    expect(pointsAfter).toBe(pointsBefore + MEMORY_DAILY_PAYING_CAP);
 
     // The success flash renders on the redirect target. EJS's <%= %> escapes
     // the apostrophe to &#39; (header.ejs renders _flash.msg escaped), so this
@@ -551,7 +558,7 @@ describe('AC10: memory admin bonus counts; the automatic per-photo base point do
     // 5 (admin photo_bonus) + 1 (issue #656 memory-day bonus, this guest's
     // first visible memory today) — the automatic PER-PHOTO base still does
     // not count (that's what "not 7" would mean if a task-worth-like base
-    // leaked in), only the once-per-day term does.
+    // leaked in), only the capped memory-day term does.
     expect(scoring.getPoints(guestId)).toBe(6);
 
     const rows = scoring.leaderboard();

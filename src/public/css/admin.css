@@ -563,10 +563,11 @@
    /admin/tasks/:id/rank, not embedded in the per-task gallery
    (#748) — the 2026-07-23 owner call superseded the earlier
    embedded-panel plan; see src/views/admin-badge-rank.ejs. The
-   host picks and ranks that task's 1-5 best photos and releases
-   the task badge + 5..1 points in one confirm. 1st place is
-   rendered gold (the gold rule). Built from the shared card +
-   .btn components; no new one-off primitives.
+   host picks and ranks that task's 1-3 best photos (issue #1106,
+   narrowed down from 1-5) and releases the task badge + 5/3/2
+   points in one confirm. 1st place is rendered gold (the gold
+   rule). Built from the shared card + .btn components; no new
+   one-off primitives.
 
    The give-a-badge photo-winner picker this page replaces (its
    dialog CSS — .admin-badge-dialog/-body/-picker/-choices/-ribbon
@@ -794,7 +795,7 @@
 .rank-winner:last-child {
   border-bottom: none;
 }
-/* Circular rank medal: muted ring for 2nd–5th, filled gold for 1st. */
+/* Circular rank medal: muted ring for 2nd-3rd, filled gold for 1st. */
 .rank-medal {
   grid-area: medal;
   width: 26px;

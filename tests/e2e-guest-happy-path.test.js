@@ -99,8 +99,9 @@ describe('AC1: guest happy path (sign up -> submit -> see points)', () => {
     const taskId = insertTask(title);
     // A second active task this guest never submits to — without it, this
     // guest's one submission would cover EVERY active task in this file's
-    // fresh temp DB and qualify for COMPLETIONIST (issue #709: +1 while
-    // held), inflating the "1 point" total this test asserts below. Keeping
+    // fresh temp DB and qualify for COMPLETIONIST (issue #1105: the clean
+    // sweep pays +3, not the flat auto/metric +1 issue #709 gave it),
+    // inflating the "1 point" total this test asserts below. Keeping
     // an uncompleted active task around is what makes "1 completed task ==
     // 1 point" unambiguous, matching how AC2/AC3 below already have several
     // other active tasks in play.
@@ -172,16 +173,17 @@ describe('AC2: BLOOM badge appears only after the 5th distinct completed task', 
     const afterFour = await agent.get('/');
     expect(afterFour.status).toBe(200);
     // BLOOM is not yet EARNED, but its art legitimately appears on the page
-    // anyway: the next-badge nudge (issue #1057) renders bloom.svg as the
-    // locked row pinned above the (still-empty) earned list, because the
-    // reachable set here is 8 (the 7 active tasks live at this point, 2
-    // seeded by AC1 above plus these 5, plus the starter task), comfortably
-    // above BLOOM's threshold of 5. A bare substring check on bloom.svg
-    // would therefore be a false negative now, so the negative is scoped to
-    // the EARNED row instead: only an earned badge wraps its art in
-    // <li class="badge-item"><a href="/badge/:code">, the locked row has
-    // neither that exact class (it carries badge-item-locked too) nor an
-    // anchor, so this pattern can only ever match a real grant.
+    // anyway: the upcoming-badges list (issue #1108, supersedes #1057's
+    // single next-badge locked row) renders bloom.svg as an unearned row
+    // above My Badges, because the reachable set here is 8 (the 7 active
+    // tasks live at this point, 2 seeded by AC1 above plus these 5, plus the
+    // starter task), comfortably above BLOOM's threshold of 5. A bare
+    // substring check on bloom.svg would therefore be a false negative now,
+    // so the negative is scoped to the EARNED row instead: only an earned
+    // badge wraps its art in <li class="badge-item"><a href="/badge/:code">,
+    // an unearned upcoming row carries neither that exact class (it's
+    // <li class="upcoming-badge-row">) nor an anchor, so this pattern can
+    // only ever match a real grant.
     expect(afterFour.text).not.toContain('alt="First Bloom badge"');
     expect(afterFour.text).not.toMatch(
       /<li class="badge-item">\s*<a href="\/badge\/BLOOM">[\s\S]*?\/badges\/bloom\.svg/

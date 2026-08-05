@@ -12,8 +12,10 @@
 //         solo "Lilly liked this"), and data-couple-count matches.
 //   AC4 — likers dialog marks the couple's row; an empty-name couple guest
 //         falls back to "Guest" on both the dialog row and the tally.
-//   AC5 — no score effect: points/like-count/rank match the ordinary-liker
-//         case exactly.
+//   AC5: scores +1 (issue #1107 reversal): the like count matches the
+//         ordinary-liker case exactly, but a couple-like pays its owner 1
+//         point more than an ordinary like does, with crowd-favorite
+//         standing unaffected either way.
 //   AC6 — the bell row: kind 'love', the solid-heart glyph (not
 //         KIND_GLYPH.gold's outline heart), thumb null (recap-icon branch,
 //         not recap-thumb).
@@ -280,9 +282,9 @@ describe('AC4: likers dialog', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC5: no score effect.
+// AC5: scores +1 (issue #1107 reversal).
 // ---------------------------------------------------------------------------
-it("AC5: a couple-like increments the like count by exactly 1 and matches an ordinary like's points/rank", async () => {
+it('AC5: a couple-like increments the like count by exactly 1 and pays 1 point more than an ordinary like', async () => {
   const author = await makeGuest({ name: 'AC5 Author' });
   const ordinaryAuthor = await makeGuest({ name: 'AC5 Ordinary Author' });
   const couple = await makeGuest({ isCouple: true, name: 'AC5 Couple' });
@@ -301,9 +303,12 @@ it("AC5: a couple-like increments the like count by exactly 1 and matches an ord
     .get(coupleLikedSubmission).n;
   expect(afterCount - beforeCount).toBe(1);
 
-  // Same points for the two authors — a couple-like pays identically to an
-  // ordinary like (crowd-favorite math is unweighted like-count based).
-  expect(scoring.getPoints(author.guestId)).toBe(scoring.getPoints(ordinaryAuthor.guestId));
+  // The couple-liked author scores exactly 1 point more than the
+  // ordinary-liked author (issue #1107): a couple-like pays its owner 1
+  // point, uncapped, on top of everything an ordinary like already pays
+  // (nothing directly, crowd-favorite math is unweighted like-count based,
+  // asserted separately below).
+  expect(scoring.getPoints(author.guestId)).toBe(scoring.getPoints(ordinaryAuthor.guestId) + 1);
 
   // Same crowd-favorite standing too — crowdPointsByGuest (not the raw
   // crowdFavorites() array, which only returns the top-5 placing set and

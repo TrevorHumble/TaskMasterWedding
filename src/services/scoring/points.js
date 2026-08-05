@@ -2,15 +2,18 @@
 // Per-guest point totals and their terms (issue #969): base photo/task
 // points, the memory-day bonus, the profile-photo starter, badge award
 // points, and admin bonus-point adjustment. Requires ./crowd-favorites for
-// the crowd-favorite term getPoints folds in — the only cross-internal
-// scoring dependency this file has; nothing here is required back by
-// crowd-favorites.js or badge-engine.js, so there is no cycle.
+// the crowd-favorite term and ./couple-hearts for the couple-heart term
+// (issue #1107) getPoints folds in: the only cross-internal scoring
+// dependencies this file has; nothing here is required back by
+// crowd-favorites.js, couple-hearts.js, or badge-engine.js, so there is no
+// cycle.
 'use strict';
 
 const { db, getEventConfig } = require('../../db');
 const { VISIBLE_WHERE } = require('../feed');
 const crowdFavoritesModule = require('./crowd-favorites');
 const { crowdPointsByGuest } = crowdFavoritesModule;
+const { couplePointsByGuest } = require('./couple-hearts');
 const eventDays = require('../event-days');
 const { parseSqliteDatetime } = require('../relative-time');
 
@@ -27,27 +30,33 @@ const { parseSqliteDatetime } = require('../relative-time');
  * (issue #756 closed the gap between this function and that aggregate rule).
  * A MEMORY (issue #247, task_id IS NULL) earns NO automatic per-photo base —
  * only its admin bonus — matching the aggregate rule, which excludes a
- * memory's base while still counting its photo_bonus. Since issue #656 the
- * aggregate rule ALSO includes a memory-DAY term (+1 for the guest's first
- * visible memory each event-local day, derived in getPoints/leaderboard, not
- * here) — this per-photo function has no notion of "day" or "first", so it
- * still returns 0 for an un-bonused memory; the day bonus is a separate,
- * once-per-day addition the aggregate makes on top of whatever this function
- * returns for each individual photo. bonusAmount is always 0 for a memory
+ * memory's base while still counting its photo_bonus. Since issue #656
+ * (capped at two per day by issue #1104) the aggregate rule ALSO includes a
+ * memory-DAY term (+1 apiece for the guest's first MEMORY_DAILY_PAYING_CAP
+ * visible memories each event-local day, derived in getPoints/leaderboard,
+ * not here) — this per-photo function has no notion of "day" or the cap, so
+ * it still returns 0 for an un-bonused memory; the day term is a separate
+ * addition the aggregate makes on top of whatever this function returns for
+ * each individual photo. bonusAmount is always 0 for a memory
  * too, since nothing ever banks a one-day-only bonus on one. `worth` and
  * `bonusAmount` both default to 0 (issues #727, #756): a one-arg call yields
  * just `photoBonus`, never NaN, and a memory caller passes worth=0 explicitly
  * for the same reason a task caller passes its task's real worth (>= 3).
  *
- * Deliberate exception (issue #625): a crowd-favorite photo's rank points are
- * NEVER folded in here. This function's number is what a photo earned by
- * being SUBMITTED — a stable, banked-feeling value a feed card can print
- * without explanation. A crowd rank is volatile by design (a later like or
- * takedown can move it on the very next read), so folding it into this
- * per-photo figure would make a card's number flicker for reasons the card
- * cannot explain. What a crowd-favorite photo earns is stated separately: by
- * #788's crown marker on the photo itself, and in the owner's grand total via
- * crowdPointsByGuest() (see getPoints/leaderboard below) — never here.
+ * Deliberate exception (issue #625, extended to the couple's heart by issue
+ * #1107): a crowd-favorite photo's rank points, and a photo's couple-like
+ * points, are NEVER folded in here. This function's number is what a photo
+ * earned by being SUBMITTED — a stable, banked-feeling value a feed card can
+ * print without explanation. Both a crowd rank and a couple-like count are
+ * volatile by design (a later like, un-like, or takedown can move either on
+ * the very next read), so folding either into this per-photo figure would
+ * make a card's number flicker for reasons the card cannot explain. What a
+ * crowd-favorite photo earns is stated separately: by #788's crown marker on
+ * the photo itself, and in the owner's grand total via crowdPointsByGuest()
+ * (see getPoints/leaderboard below). A couple-liked photo's point is stated
+ * separately too: by #647's gold heart mark on the photo itself, and in the
+ * owner's grand total via couplePointsByGuest() (see getPoints/leaderboard
+ * below), never here.
  *
  * @param {number} photoBonus - the photo's submissions.photo_bonus value
  * @param {number} [worth=0] - the task's worth (3-5), or 0 for a memory
@@ -143,8 +152,8 @@ const stmtBonusAmountSum = db.prepare(
 // Every visible MEMORY's created_at for one guest (issue #656): task_id IS
 // NULL AND taken_down = 0, the same "visible memory" set the memory-day bonus
 // is derived from. Read as raw strings — the JS conversion to an event-local
-// calendar day happens in memoryDayCount below, via parseSqliteDatetime +
-// eventDays.eventLocalDateString, never in SQL (SQLite has no IANA timezone
+// calendar day happens in memoryCountsByDayFor below, via parseSqliteDatetime
+// + eventDays.eventLocalDateString, never in SQL (SQLite has no IANA timezone
 // support, so a fixed-offset `datetime()` shift would be wrong across a DST
 // transition).
 const stmtGuestMemoryCreatedAts = db.prepare(
@@ -160,86 +169,146 @@ const stmtAllVisibleMemoryCreatedAts = db.prepare(
 );
 
 /**
- * The DISTINCT event-local days on which `guestId` has at least one visible
- * memory (issue #656), as a `Set` of `YYYY-MM-DD` strings — the memory-day
- * bonus term, worth +1 per day it counts. This is the single owner of "what
- * counts as a visible memory, and which event-local day it lands on": every
- * caller that needs the day COUNT (memoryDayCount, below) or the day
- * MEMBERSHIP test (a route deciding whether TODAY specifically has already
- * been claimed) reads this one function rather than re-deriving the
- * `task_id IS NULL AND taken_down = 0` predicate or the parseSqliteDatetime
- * -> eventLocalDateString fold a second time (see GET /tasks in
- * src/routes/guest.js, which calls `.has(todayIso)` on the returned Set
- * instead of running its own query).
+ * Every event-local day on which `guestId` has at least one visible memory
+ * (issue #656; day math amended by issue #1104), mapped to that day's
+ * visible-memory COUNT — the ONE place the `task_id IS NULL AND taken_down =
+ * 0` read (stmtGuestMemoryCreatedAts) plus the parseSqliteDatetime ->
+ * eventDays.eventLocalDateString fold runs for a single guest. memoryDaysFor
+ * (day IDENTITY, below) and memoryPoints (day POINTS, below) are both thin
+ * views over this Map's keys/values, so a UTC/fixed-offset day-math
+ * regression can only ever originate here, never separately in either of
+ * them.
  * Derived, not banked: a memory row's `created_at` never changes
  * (submissions.js never replaces a memory row), so this is safe to
  * recompute on every read, and a takedown/restore of a day's only memory
- * automatically drops/re-adds that day's point with no separate bookkeeping.
+ * automatically drops/re-adds that day from the Map with no separate
+ * bookkeeping.
  * Day boundary is the EVENT-local date in `timezone` (via
  * eventDays.eventLocalDateString), never server UTC.
+ * @param {number} guestId
+ * @param {string} timezone - an IANA zone name (db.getEventConfig().timezone).
+ * @returns {Map<string, number>} event-local YYYY-MM-DD day string -> that
+ *   day's visible-memory count
+ */
+function memoryCountsByDayFor(guestId, timezone) {
+  const rows = stmtGuestMemoryCreatedAts.all(guestId);
+  const countsByDay = new Map();
+  for (const row of rows) {
+    const instant = parseSqliteDatetime(row.created_at);
+    if (!instant) continue;
+    const dayIso = eventDays.eventLocalDateString(timezone, instant);
+    countsByDay.set(dayIso, (countsByDay.get(dayIso) || 0) + 1);
+  }
+  return countsByDay;
+}
+
+/**
+ * The DISTINCT event-local days on which `guestId` has at least one visible
+ * memory (issue #656), as a `Set` of `YYYY-MM-DD` strings — day IDENTITY, not
+ * the memory-day bonus's point value (memoryPoints, below, sums a per-day cap
+ * over this same day grouping, but a day's presence in this Set never implies
+ * any particular point count). A thin view over memoryCountsByDayFor's keys,
+ * which owns "what counts as a visible memory, and which event-local day it
+ * lands on" for the single-guest path (memoryPointsByGuest, below, holds the
+ * all-guests copy of that fold over its own one query).
+ * There is no in-app consumer of this function today. GET /tasks used to read
+ * it for a today-claimed check, but that row was retired by issue #1002 —
+ * the price tag it drove is gone, replaced by a plain "Share a memory" button
+ * with no claimed state to track. It stays exported and covered because it is
+ * the day-IDENTITY guard the day-boundary tests
+ * (tests/memory-day-bonus.test.js AC4) assert against directly, so a
+ * UTC/fixed-offset day-math regression cannot hide behind the 2-cap in
+ * memoryPoints' summed total — it fails here even if it happened to cancel
+ * out there.
  * @param {number} guestId
  * @param {string} timezone - an IANA zone name (db.getEventConfig().timezone).
  * @returns {Set<string>} event-local YYYY-MM-DD day strings
  */
 function memoryDaysFor(guestId, timezone) {
-  const rows = stmtGuestMemoryCreatedAts.all(guestId);
-  const days = new Set();
-  for (const row of rows) {
-    const instant = parseSqliteDatetime(row.created_at);
-    if (!instant) continue;
-    days.add(eventDays.eventLocalDateString(timezone, instant));
+  return new Set(memoryCountsByDayFor(guestId, timezone).keys());
+}
+
+// The memory-day bonus pays at most this many memories per event-local day
+// (issue #1104 — rescaled from the original one-memory-per-day bonus, issue
+// #656). Owned here, never re-typed as a bare literal at any call site or in
+// a test's expected value: cappedDayPoints (below) is this constant's only
+// in-app consumer — memoryPoints and memoryPointsByGuest both apply the cap
+// through that one helper rather than reading MEMORY_DAILY_PAYING_CAP
+// directly — and tests/memories.test.js, tests/memory-day-bonus.test.js, and
+// tests/crowd-favorites.test.js import the constant itself so their capped-
+// expectation values are derived from it, never re-typed as a bare 2.
+const MEMORY_DAILY_PAYING_CAP = 2;
+
+/**
+ * The capped-sum formula itself: sum, over a day -> visible-memory-count Map
+ * (memoryCountsByDayFor's return for one guest, or one guest's slice of
+ * memoryPointsByGuest's per-guest fold), of
+ * min(MEMORY_DAILY_PAYING_CAP, that day's count). Owned once so memoryPoints
+ * (single guest) and memoryPointsByGuest (all guests) can never compute the
+ * cap two different ways.
+ * @param {Map<string, number>} countsByDay
+ * @returns {number}
+ */
+function cappedDayPoints(countsByDay) {
+  let points = 0;
+  for (const count of countsByDay.values()) {
+    points += Math.min(MEMORY_DAILY_PAYING_CAP, count);
   }
-  return days;
+  return points;
 }
 
 /**
- * The count of DISTINCT event-local days on which `guestId` has at least one
- * visible memory (issue #656) — a thin wrapper over memoryDaysFor for callers
- * that only need the count (getPoints, below), not the day set itself.
+ * A guest's memory-day POINTS (issue #656; capped per day by issue #1104):
+ * cappedDayPoints applied to memoryCountsByDayFor's per-day counts for this
+ * one guest.
  * @param {number} guestId
  * @param {string} timezone - an IANA zone name (db.getEventConfig().timezone).
  * @returns {number}
  */
-function memoryDayCount(guestId, timezone) {
-  return memoryDaysFor(guestId, timezone).size;
+function memoryPoints(guestId, timezone) {
+  return cappedDayPoints(memoryCountsByDayFor(guestId, timezone));
 }
 
 /**
- * The all-guests generalization memoryDayCount needs for leaderboard(): every
- * guest's memory-day count, computed from ONE query (stmtAllVisibleMemoryCreatedAts)
- * rather than one query per guest, folded into a Map so leaderboard's per-row
- * loop is a plain lookup.
+ * The all-guests generalization memoryPoints needs for leaderboard(): every
+ * guest's memory-day points, computed from ONE query
+ * (stmtAllVisibleMemoryCreatedAts) rather than one query per guest, folded
+ * into a Map so leaderboard's per-row loop is a plain lookup. Each guest's
+ * total is cappedDayPoints applied to that guest's own countsByDay slice —
+ * the same formula memoryPoints applies to a single guest.
  * @param {string} timezone
- * @returns {Map<number, number>} guestId -> distinct event-local memory-day count
+ * @returns {Map<number, number>} guestId -> capped memory-day points
  */
-function memoryDayCountsByGuest(timezone) {
-  const daysByGuest = new Map();
+function memoryPointsByGuest(timezone) {
+  const countsByGuestDay = new Map();
   for (const row of stmtAllVisibleMemoryCreatedAts.all()) {
     const instant = parseSqliteDatetime(row.created_at);
     if (!instant) continue;
     const dayIso = eventDays.eventLocalDateString(timezone, instant);
-    let days = daysByGuest.get(row.guest_id);
-    if (!days) {
-      days = new Set();
-      daysByGuest.set(row.guest_id, days);
+    let countsByDay = countsByGuestDay.get(row.guest_id);
+    if (!countsByDay) {
+      countsByDay = new Map();
+      countsByGuestDay.set(row.guest_id, countsByDay);
     }
-    days.add(dayIso);
+    countsByDay.set(dayIso, (countsByDay.get(dayIso) || 0) + 1);
   }
-  const counts = new Map();
-  for (const [guestId, days] of daysByGuest) {
-    counts.set(guestId, days.size);
+  const points = new Map();
+  for (const [guestId, countsByDay] of countsByGuestDay) {
+    points.set(guestId, cappedDayPoints(countsByDay));
   }
-  return counts;
+  return points;
 }
 
 // Sum a guest's badge AWARD points (guest_badges.points) over awards whose
 // earning photo is currently VISIBLE. Every row written by stmtGrantBadge
 // (system/admin grants: auto, metric, transferable, special) carries
 // submission_id IS NULL, so the LEFT JOIN's ON clause passes those rows
-// through unconditionally regardless of points — an auto/metric grant
-// contributes AUTO_METRIC_BADGE_POINTS (issue #709, while held) and a
-// transferable/special grant contributes 0, but either way there is no
-// submission to gate on. A task-badge award's row (written by
+// through unconditionally regardless of points — an auto grant contributes
+// AUTO_METRIC_BADGE_POINTS (issue #709, while held), the metric COMPLETIONIST
+// grant contributes CLEAN_SWEEP_BADGE_POINTS instead (issue #1105 split it
+// out of the flat auto/metric value), and a transferable/special grant
+// contributes 0, but either way there is no submission to gate on. A
+// task-badge award's row (written by
 // task-badges.awardTaskBadge, issue #483; never by stmtGrantBadge) DOES
 // carry a submission_id and is counted ONLY while that submission is
 // taken_down = 0 — the same visibility guard stmtPhotoBonusSum applies to
@@ -293,21 +362,23 @@ function getCompletedCount(guestId) {
  *     one-time banked award): +STARTER_PHOTO_POINT while guests.avatar_path
  *     is set, 0 while it is not — read through starterTaskContribution, the
  *     single owner of the `!!avatar_path` rule, so this never re-derives it.
- *   + the DERIVED memory-day term (issue #656): +1 for each DISTINCT
- *     event-local day on which the guest has >= 1 visible memory
- *     (memoryDayCount, above) — capped at one point per day by construction
- *     (a Set of day strings, not a count of memories), NOT banked (a
- *     memory's created_at is stable — submissions.js never replaces a memory
- *     row — so this is safe to recompute on every read; a takedown/restore
- *     of a day's only memory moves this term automatically, no separate
- *     bookkeeping).
+ *   + the DERIVED memory-day term (issue #656; capped by issue #1104): for
+ *     each event-local day on which the guest has >= 1 visible memory, +1 per
+ *     memory up to MEMORY_DAILY_PAYING_CAP that day (memoryPoints, above) —
+ *     NOT banked (a memory's created_at is stable — submissions.js never
+ *     replaces a memory row — so this is safe to recompute on every read; a
+ *     takedown/restore of any of a day's memories moves this term
+ *     automatically, no separate bookkeeping).
  *   + badge AWARD points (SUM of guest_badges.points), counted only while
  *     the award's earning photo is visible where one exists (AC6). This
- *     term now covers three shapes: a task-badge judgment amount (issue
- *     #483), AUTO_METRIC_BADGE_POINTS for each auto/metric badge the guest
- *     currently holds (issue #709 — the point derives on read from holding
- *     the badge row, and leaves automatically when recomputeBadges revokes
- *     it), and 0 for a transferable/admin-special grant.
+ *     term now covers four shapes: a task-badge judgment amount (issue
+ *     #483), AUTO_METRIC_BADGE_POINTS for each auto (milestone) badge the
+ *     guest currently holds (issue #709), CLEAN_SWEEP_BADGE_POINTS for the
+ *     COMPLETIONIST metric badge (issue #1105 split this out of the flat
+ *     auto/metric value, since the clean sweep pays more than a milestone
+ *     badge), and 0 for a transferable/admin-special grant. The point
+ *     derives on read from holding the badge row, and leaves automatically
+ *     when recomputeBadges revokes it.
  *   + the DERIVED crowd-favorite term (issue #625, per-guest dedupe #896):
  *     crowdPointsByGuest()'s total for this guest's single BEST liked photo
  *     currently in the placing set (standard-competition rank 1-5 among all
@@ -317,11 +388,20 @@ function getCompletedCount(guestId) {
  *     of the placing set (or is overtaken by that guest's OWN better photo)
  *     loses its points on the very next read, with no separate bookkeeping
  *     (AC4).
+ *   + the DERIVED couple-heart term (issue #1107; reverses #647's original
+ *     "pays nothing" settlement): couplePointsByGuest()'s total for this
+ *     guest: 1 point per like from a couple-flagged guest (guests.is_couple)
+ *     on any of the guest's currently visible photos, uncapped across likes
+ *     and photos. Read fresh on every call, like the crowd-favorite term
+ *     above, an un-like removes its point on the very next read, and a
+ *     takedown/restore moves the whole set of a photo's couple-like points
+ *     with it, with no separate bookkeeping.
  * bonus_points is stored clamped at >= 0, photo_bonus is a non-negative
  * admin-set absolute value, worth is clamped 3-5 by the tasks table's own
  * CHECK constraint, and award points are coerced non-negative at write time
  * (task-badges.awardTaskBadge) or fixed at a known-non-negative constant
- * (AUTO_METRIC_BADGE_POINTS), so total points are always >= 0.
+ * (AUTO_METRIC_BADGE_POINTS or CLEAN_SWEEP_BADGE_POINTS), so total points
+ * are always >= 0.
  * @param {number} guestId
  * @returns {number}
  */
@@ -335,8 +415,9 @@ function getPoints(guestId) {
   const starterPoints = starter.done ? starter.points : 0;
   const awardPoints = stmtAwardPointsSum.get(guestId).ap;
   const timezone = getEventConfig().timezone;
-  const memoryDays = memoryDayCount(guestId, timezone);
+  const memoryDayPoints = memoryPoints(guestId, timezone);
   const crowdPoints = crowdPointsByGuest().get(guestId) || 0;
+  const couplePoints = couplePointsByGuest().get(guestId) || 0;
   return (
     worthSum +
     photoBonus +
@@ -344,8 +425,9 @@ function getPoints(guestId) {
     bonus +
     starterPoints +
     awardPoints +
-    memoryDays +
-    crowdPoints
+    memoryDayPoints +
+    crowdPoints +
+    couplePoints
   );
 }
 
@@ -417,9 +499,10 @@ module.exports = {
   photoPoints,
   getCompletedCount,
   getPoints,
-  memoryDayCount,
   memoryDaysFor,
-  memoryDayCountsByGuest,
+  memoryPoints,
+  memoryPointsByGuest,
+  MEMORY_DAILY_PAYING_CAP,
   addBonusPoints,
   STARTER_PHOTO_POINT,
   starterTaskContribution,

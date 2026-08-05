@@ -768,7 +768,7 @@ describe('issue #611: GET /tasks/:id renders the real per-guest badge state', ()
     expect(badgeHeroNote(res.text)).toBe('Best photo wins this badge');
   });
 
-  it('won-place, "You won this badge — top 5" — a ranked award at rank 3', async () => {
+  it('won-place, "You won this badge, top 3" — a ranked award at rank 3', async () => {
     const taskId = makeTask('#611 won-place ranked task');
     const guest = heroGuest('611 Won Place Ranked Guest');
     const sub = makeSubmission(guest.guestId, taskId);
@@ -782,10 +782,10 @@ describe('issue #611: GET /tasks/:id renders the real per-guest badge state', ()
     const res = await guest.agent.get(`/tasks/${taskId}`);
     expect(res.status).toBe(200);
     expect(badgeHeroClass(res.text)).toBe('task-badge-hero--won-place');
-    expect(badgeHeroNote(res.text)).toBe('You won this badge — top 5');
+    expect(badgeHeroNote(res.text)).toBe('You won this badge, top 3');
   });
 
-  it('won-place — a possession-only award (rank NULL) reads the same as a ranked top-5 win', async () => {
+  it('won-place — a possession-only award (rank NULL) reads the same as a ranked top-3 win', async () => {
     const taskId = makeTask('#611 won-place null-rank task');
     const guest = heroGuest('611 Won Place Null Guest');
     const sub = makeSubmission(guest.guestId, taskId);
@@ -794,10 +794,10 @@ describe('issue #611: GET /tasks/:id renders the real per-guest badge state', ()
     const res = await guest.agent.get(`/tasks/${taskId}`);
     expect(res.status).toBe(200);
     expect(badgeHeroClass(res.text)).toBe('task-badge-hero--won-place');
-    expect(badgeHeroNote(res.text)).toBe('You won this badge — top 5');
+    expect(badgeHeroNote(res.text)).toBe('You won this badge, top 3');
   });
 
-  it('won-first, "You won this badge — 1st place" — a bundled-icon badge additionally renders the gold medallion', async () => {
+  it('won-first, "You won this badge, 1st place" — a bundled-icon badge additionally renders the gold medallion', async () => {
     const taskId = makeTask('#611 won-first icon task');
     taskBadges.setTaskBadge(taskId, { artPath: '/badges/icons/favorite.svg' });
     const guest = heroGuest('611 Won First Icon Guest');
@@ -807,7 +807,7 @@ describe('issue #611: GET /tasks/:id renders the real per-guest badge state', ()
     const res = await guest.agent.get(`/tasks/${taskId}`);
     expect(res.status).toBe(200);
     expect(badgeHeroClass(res.text)).toBe('task-badge-hero--won-first');
-    expect(badgeHeroNote(res.text)).toBe('You won this badge — 1st place');
+    expect(badgeHeroNote(res.text)).toBe('You won this badge, 1st place');
     // The gold rule is conditional on art kind (AC3): a bundled icon renders
     // through the medallion component, which base.css's
     // .task-badge-hero--won-first .badge-medallion rule recolors gold.
@@ -825,7 +825,7 @@ describe('issue #611: GET /tasks/:id renders the real per-guest badge state', ()
     const res = await guest.agent.get(`/tasks/${taskId}`);
     expect(res.status).toBe(200);
     expect(badgeHeroClass(res.text)).toBe('task-badge-hero--won-first');
-    expect(badgeHeroNote(res.text)).toBe('You won this badge — 1st place');
+    expect(badgeHeroNote(res.text)).toBe('You won this badge, 1st place');
     expect(res.text).not.toContain('badge-medallion');
     expect(res.text).toMatch(
       /<img class="task-badge-hero-art"[^>]*src="\/badges\/default-ribbon\.svg"/

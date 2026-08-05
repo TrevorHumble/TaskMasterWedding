@@ -457,6 +457,13 @@
     </nav>
   <% } %>
 
+  <%# Issue #1041: the delegated backdrop press-target predicate that
+      feed.js's comments/likes-dialog close branch consults at click time
+      (guarded — feed.js falls back to today's behavior if this is ever
+      missing). Order relative to feed.js is not load-bearing: feed.js
+      never reads window.DialogDismiss at load time, only inside its click
+      handler, by which point this defer script has long finished. %>
+  <script src="/js/dialog-dismiss.js" defer></script>
   <script src="/js/photo-owner-menu.js" defer></script>
   <script src="/js/lightbox.js" defer></script>
   <% if (newerHref || olderHref) { %>

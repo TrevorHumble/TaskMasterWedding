@@ -3,6 +3,7 @@
 // Scoring engine and badge logic entry (issue #969 split). Internals live
 // under src/services/scoring/: points.js (per-guest point totals),
 // crowd-favorites.js (the derived crowd-favorite placing set),
+// couple-hearts.js (the derived couple-heart point term, issue #1107),
 // badge-engine.js (auto/metric/transferable grant-revoke + admin hand-award),
 // leaderboard.js (the public standings), and guest-badges.js (a guest's held
 // badges, celebration-priority ranking, and the badge detail page). This
@@ -23,6 +24,7 @@
 
 const points = require('./scoring/points');
 const crowdFavorites = require('./scoring/crowd-favorites');
+const coupleHearts = require('./scoring/couple-hearts');
 const badgeEngine = require('./scoring/badge-engine');
 const leaderboardModule = require('./scoring/leaderboard');
 const guestBadges = require('./scoring/guest-badges');
@@ -37,18 +39,19 @@ module.exports = {
   photoPoints: points.photoPoints,
   getCompletedCount: points.getCompletedCount,
   getPoints: points.getPoints,
-  memoryDayCount: points.memoryDayCount,
+  memoryPoints: points.memoryPoints,
   memoryDaysFor: points.memoryDaysFor,
   CROWD_FAVORITE_POINTS: crowdFavorites.CROWD_FAVORITE_POINTS,
   crowdFavorites: crowdFavorites.crowdFavorites,
   crowdPointsByGuest: crowdFavorites.crowdPointsByGuest,
   recordCrowdFavoriteChanges: crowdFavorites.recordCrowdFavoriteChanges,
+  couplePointsByGuest: coupleHearts.couplePointsByGuest,
   getGuestBadges: guestBadges.getGuestBadges,
   compareBadgeMoment: guestBadges.compareBadgeMoment,
   rankBadgeCandidates: guestBadges.rankBadgeCandidates,
   badgeWithHolders: guestBadges.badgeWithHolders,
   thresholdCompletedCount: badgeEngine.thresholdCompletedCount,
-  nextThresholdBadge: badgeEngine.nextThresholdBadge,
+  upcomingAutoBadges: badgeEngine.upcomingAutoBadges,
   recomputeThresholdBadges: badgeEngine.recomputeThresholdBadges,
   recomputeBadges: badgeEngine.recomputeBadges,
   recomputeTransferableBadges: badgeEngine.recomputeTransferableBadges,

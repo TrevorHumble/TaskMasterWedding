@@ -4,18 +4,28 @@
 // sheet, and scoring.js itself can never disagree.
 //
 // Fixture: one guest with one VISIBLE submission (taken_down = 0, photo_bonus
-// = 3), one TAKEN-DOWN submission (taken_down = 1, photo_bonus = 9), and
-// guests.bonus_points = 4.
-// Canonical rule (scoring.js, three-term formula, issue #89; worth-aware
-// since issue #727, rescaled 3-5/default 3 by issue #1103):
+// = 3, liked once by a couple-flagged guest, issue #1107), one TAKEN-DOWN
+// submission (taken_down = 1, photo_bonus = 9), and guests.bonus_points = 4.
+// Canonical rule (scoring.js, issue #89; worth-aware since issue #727,
+// rescaled 3-5/default 3 by issue #1103; couple-heart term added by #1107):
 //   completed = COUNT(visible submissions) = 1.
-//   points    = SUM(visible task worth) + SUM(visible photo_bonus) + guests.bonus_points
-//             = 3 (taskA's default worth) + 3 + 4 = 10.
-// The taken-down submission's photo_bonus (9) is excluded, so it never adds to
+//   points    = SUM(visible task worth) + SUM(visible photo_bonus)
+//             + guests.bonus_points + couplePointsByGuest() + crowdPointsByGuest()
+//             = 3 (taskA's default worth) + 3 + 4 + 1 (one couple like) + 5
+//             = 16.
+// The crowd-favorite term (issue #625) is not a separate fixture choice: in
+// this file's otherwise-empty test database, the one like that pays the
+// couple-heart term is ALSO the only like anywhere, so that same photo is
+// the sole crowd favorite too (rank 1, 5 points): every like is a crowd vote
+// regardless of who casts it, so this fixture cannot exercise couple-heart
+// points without incidentally exercising crowd-favorite points as well. The
+// taken-down submission's photo_bonus (9) is excluded, so it never adds to
 // the total. If the completed-count rule were inverted (counting ALL or only
 // taken-down submissions), completed would read 2 or 0; if the photo_bonus
-// term were dropped from scoring.js, points would read 7 instead of 10 —
-// either way an assertion below would fail.
+// term were dropped from scoring.js, points would read 13 instead of 16; if
+// the couple-heart term were dropped, points would read 15; if the
+// crowd-favorite term were dropped, points would read 11: any of these
+// would fail an assertion below.
 'use strict';
 
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
@@ -28,7 +38,9 @@ let buildSummaryBuffer;
 let guestId;
 
 const EXPECTED_COMPLETED = 1;
-const EXPECTED_POINTS = 10; // worth(3) + visible photo_bonus(3) + guests.bonus_points(4)
+// worth(3) + visible photo_bonus(3) + guests.bonus_points(4) + couple like(1)
+// + crowd-favorite (5, this guest's only liked photo is the sole placer)
+const EXPECTED_POINTS = 16;
 
 beforeAll(async () => {
   const loaded = loadApp();
@@ -51,10 +63,12 @@ beforeAll(async () => {
     .run('authority-guest', 'Authority Guest', 4).lastInsertRowid;
 
   // Visible submission — counts, and its photo_bonus (3) is included.
-  db.prepare(
-    `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down, photo_bonus)
+  const visibleSubmissionId = db
+    .prepare(
+      `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down, photo_bonus)
      VALUES (?, ?, ?, ?, 0, 3)`
-  ).run(guestId, taskA, 'visible.jpg', 'visible-thumb.jpg');
+    )
+    .run(guestId, taskA, 'visible.jpg', 'visible-thumb.jpg').lastInsertRowid;
 
   // Taken-down submission — must NOT count: neither its base point nor its
   // photo_bonus (9) contributes to the total.
@@ -62,6 +76,16 @@ beforeAll(async () => {
     `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down, photo_bonus)
      VALUES (?, ?, ?, ?, 1, 9)`
   ).run(guestId, taskB, 'hidden.jpg', 'hidden-thumb.jpg');
+
+  // One couple-flagged guest liking the visible submission: the couple-heart
+  // term (issue #1107) this file's term-sum coverage now extends to.
+  const coupleGuestId = db
+    .prepare('INSERT INTO guests (token, name, is_couple) VALUES (?, ?, ?)')
+    .run('authority-couple', 'Authority Couple', 1).lastInsertRowid;
+  db.prepare('INSERT INTO likes (submission_id, guest_id) VALUES (?, ?)').run(
+    visibleSubmissionId,
+    coupleGuestId
+  );
 
   adminAgent = await makeAdminAgent(loaded.app);
 });
@@ -71,7 +95,7 @@ describe('scoring single authority — issue #104', () => {
     expect(scoring.getCompletedCount(guestId)).toBe(EXPECTED_COMPLETED);
   });
 
-  it('AC: scoring.getPoints = SUM(visible task worth) + visible photo_bonus + guests.bonus_points', () => {
+  it('AC: scoring.getPoints sums every term: worth, photo_bonus, bonus_points, couple-heart, crowd-favorite', () => {
     expect(scoring.getPoints(guestId)).toBe(EXPECTED_POINTS);
   });
 

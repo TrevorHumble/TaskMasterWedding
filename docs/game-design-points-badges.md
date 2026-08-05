@@ -16,7 +16,7 @@ single-owner_ while doing it.
 
 ## How guests earn points
 
-Nine sources pay points. Each entry names the issue that builds it.
+Ten sources pay points. Each entry names the issue that builds it.
 
 1. **Task completion pays the task's worth.** 3, 4, or 5 points, host-chosen at task
    creation, printed on the card. (#682, which absorbed #645; rescaled by #1103.)
@@ -28,20 +28,25 @@ Nine sources pay points. Each entry names the issue that builds it.
 4. **Lucky task bonus.** The lucky task pays a secret extra host-chosen 1/2/3, revealed
    only on the success screen. (#650 — amends that issue's body, which originally
    specified a fixed +2.)
-5. **First memory of the day.** The first memory (a task-free photo) a guest posts each
-   event-local day pays +1. (#656.)
+5. **First two memories of the day.** Each of the first two memories (task-free photos) a
+   guest posts per event-local day pays +1 apiece; a third or later memory that same day
+   pays nothing. (#656, capped at two per day by #1104.)
 6. **Profile photo.** A guest's profile photo pays +1 for as long as it is set — remove it
    and the point leaves, upload one again and it returns. Derived, not a one-time banked
    award. (Shipped, #409; amended to derived by #716.)
-7. **Automatic badges pay while held.** Every automatic badge pays +1 point for as long as
-   the guest holds it. Shipped (#709, PR #746) — `AUTO_METRIC_BADGE_POINTS` in
-   `src/db.js`, consumed by `recomputeBadges`'s grant calls in
-   `src/services/scoring.js`, with a one-time backfill for any pre-#709 grant.
-8. **Task-badge award ranking.** For each task, the host picks and ranks 1 to 5 of that
-   task's best photos — the host's choice, never a forced five. Rank 1 pays 5, rank 2 pays
-   4, down to rank 5 paying 1; a release of fewer than 5 simply stops paying at whichever
-   rank the host stopped ranking. (#661's rewrite, shipped — `releaseRanking` in
-   `src/services/task-badges.js`.)
+7. **Automatic and metric badges pay while held.** Every milestone badge (BLOOM/BOUQUET/GARDEN) pays
+   +1 point for as long as the guest holds it. Shipped (#709, PR #746) —
+   `AUTO_METRIC_BADGE_POINTS` in `src/db.js`, consumed by `recomputeBadges`'s grant calls
+   in `src/services/scoring.js`, with a one-time backfill for any pre-#709 grant. The
+   clean-sweep badge (Completionist) moved off that flat value to its own +3 in the
+   point-system rebalance: `CLEAN_SWEEP_BADGE_POINTS` in `src/db.js` (#1105).
+8. **Task-badge award ranking.** For each task, the host picks and ranks 1 to 3 of that
+   task's best photos, the host's choice, never a forced three. Rank 1 pays 5, rank 2 pays
+   3, rank 3 pays 2; a release of fewer than 3 simply stops paying at whichever rank the
+   host stopped ranking. Narrowed from the original top-5/5-4-3-2-1 shape by the
+   point-system rebalance (#1106); a ranking banked before that change under the old
+   mapping is not backfilled and keeps its original rank/points. (#661's rewrite, shipped,
+   rebalanced by #1106, both in `releaseRanking`, `src/services/task-badges.js`.)
 9. **Crowd favorites.** Likes are votes. Visible photos (task photos AND memories — memories
    compete) are deduped to ONE photo per guest first — their single best (highest like_count,
    then lowest submission_id) — then ranked by like count using STANDARD-COMPETITION ranking —
@@ -55,12 +60,18 @@ Nine sources pay points. Each entry names the issue that builds it.
    possible. (#625's rewrite, settled 2026-07-23; per-guest dedupe reverses #625 AC3's old
    "no-cap sweep" rule, #896, settled 2026-07-27 — see #625's ranking-rule and
    memory-eligibility decision comments; #651 feeds duel-generated likes into the same count.)
+10. **Couple's heart.** A like from a couple-flagged guest (`guests.is_couple`) pays its owner 1
+    point, uncapped across likes and photos, fully derived, an un-like removes the point on the
+    very next read, no stored bookkeeping. Reverses #647's original settlement, which paid
+    nothing; the owner reversed that on 2026-08-04 in the point-system rebalance session. The mark
+    itself (the gold heart, the named recap row) is unrelated to this point value and shipped
+    separately, #647. (#1107.)
 
 ### Nothing else pays
 
-Every point a guest sees must have a readable reason drawn from the nine sources above.
+Every point a guest sees must have a readable reason drawn from the ten sources above.
 Freeform bonus points — awarded to a guest directly, or awarded to a photo outside the
-nine sources — are the target: the per-photo route is already removed (#684, closed);
+ten sources, are the target: the per-photo route is already removed (#684, closed);
 guest-level awards are a planned removal, #683 open and undecided by the owner as of
 2026-07-24 (the admin form is currently live — see "What is dead" below). Values already
 awarded before any removal keep counting; only the write path for new freeform awards
@@ -88,12 +99,20 @@ dies.
   also counts the profile-photo starter task: a guest with a photo and one fewer real
   submission than the threshold still holds that badge, the photo supplying the last
   completion (`scoring.thresholdCompletedCount`, the single owner of that count).
-  Each pays +1 while held (point source 7 above).
+  The three milestone badges each pay +1 while held; Completionist (the clean sweep) pays
+  +3 (point-system rebalance, #1105, see point source 7 above).
+  **Surfacing the thresholds (#1108, supersedes #1057's single next-badge nudge):** guest home
+  shows a compact row above My Badges for every unearned, reachable auto badge, ascending
+  threshold order, Completionist last, each stating its live remaining count and point value
+  (`scoring.upcomingAutoBadges`); a badge the guest holds drops out of this list and appears in
+  My Badges instead. The same reachability gate #1057 introduced (a threshold past the guest's
+  reachable task count renders no row) now applies to every row, not just one.
 - **Task badges.** Every task has exactly one badge, required at task creation, picked
-  from the bundled icon set (#682 + #410). Completing the task does not earn the badge —
+  from the bundled icon set (#682 + #410). Completing the task does not earn the badge:
   the card copy reads "Best photo wins [badge]," prize framing, not participation framing.
-  The badge goes to the host-ranked 1 to 5 best photos for that task (host's choice, never
-  a forced five); every ranked winner wears it.
+  The badge goes to the host-ranked 1 to 3 best photos for that task (host's choice, never
+  a forced three, narrowed from the original 1 to 5 by #1106); every ranked winner wears
+  it.
 - **Crowd favorite.** The top-5 placing photos — at most one per guest, their own best liked
   photo (#896) — wear a render-time crown mark (shipped #788): `partials/crowd-favorite-mark.ejs`,
   driven by `crowdFavorites()` (`src/services/scoring.js`) — no `guest_badges` row is written
@@ -152,15 +171,15 @@ table's header applies to these two rows only once #683 lands; until then, do no
 or alter them on the strength of this table alone.
 
 The rank-and-award screen that #661's rewrite keeps still exists after the placeholder
-five die — it now picks winners (1 to 5, host's choice) for each task's real badge, not
-for the dead placeholders.
+five die — it now picks winners (1 to 3, host's choice, narrowed from 1 to 5 by #1106)
+for each task's real badge, not for the dead placeholders.
 
 ---
 
 ## Rule → issue map
 
 - Task worth 3/4/5 (rescaled #1103): #682 · Daily bonus: #624 · Flash: #649 · Lucky: #650
-- Memory +1/day: #656 · Auto-badge +1: shipped, #709 (PR #746) · Gold rule (single-champion
+- Memory +1/day, capped at 2/day: #656, #1104 · Auto-badge +1: shipped, #709 (PR #746) · Gold rule (single-champion
   render, two sibling marks): shipped, #788 (crowd crown) + #811 (task-badge medal); a
   gold-sorts-first display rule beyond those two marks remains unbuilt
 - Task-badge ranking + points + one-badge-system consolidation: #661 (shipped). #662 (the
@@ -173,9 +192,12 @@ for the dead placeholders.
   badge dropdown, custom-badge form, and guest-level bonus points are currently live) ·
   Per-photo points route removal: #684 (closed)
 - Reward delivery: #644 (recap) + #611 (success screen slots for bonus receipts)
-- Display surfaces: #489/#490 (medals, #490's TOPSHOT half is dead), #1057 (next-badge nudge), #646 (host checklist), #363 (badge art), #469 (prizes)
-- #647 (Couple's Heart): the couple's gold heart is a like marker and pays nothing —
-  unrelated to the gold badge rule above. Do not conflate the two golds.
+- Display surfaces: #489/#490 (medals, #490's TOPSHOT half is dead), #1057 (next-badge nudge,
+  superseded by #1108's upcoming-badge rows), #646 (host checklist), #363 (badge art), #469 (prizes)
+- #647 (Couple's Heart): the couple's gold heart is a like marker, unrelated to the gold badge
+  rule above: do not conflate the two golds. It paid nothing at ship time; #1107 reversed that
+  in the point-system rebalance to 1 point per couple like, uncapped, fully derived (point source
+  10 above).
 - #368 (memory task card): its point mechanic is superseded by #656; only the pinned card
   placement idea remains live.
 - #666 (host role): "hosts can award badges" means picking and ranking task-badge winners
@@ -231,7 +253,7 @@ flowchart LR
   Guest -- "tap heart = one vote;<br/>own photos refused" --> L
   Host -- "create/edit task:<br/>worth, mode, badge<br/>(the printed price tag)" --> T
   Host -- "set event days,<br/>fire flash, pick lucky" --> ST
-  Host -- "rank a task's 5 winners:<br/>5..1 points + rank + photo<br/>(judgment - not recomputable)" --> GB
+  Host -- "rank a task's 3 winners:<br/>5..2 points + rank + photo<br/>(judgment - not recomputable)" --> GB
   Host -- "rank confirmed:<br/>task marked awarded" --> ST
   Host -- "take down / restore<br/>(flag only; file kept for export)" --> S
 
@@ -240,7 +262,7 @@ flowchart LR
   T -- "task add / hide / delete" --> R
   Host -- "delete or block a guest" --> R
 
-  R -- "grant/revoke the stored<br/>auto badges (Bloom 5, Bouquet 10,<br/>Garden 15, Completionist),<br/>each holding +1 point" --> GB
+  R -- "grant/revoke the stored<br/>auto badges (Bloom 5, Bouquet 10,<br/>Garden 15, each +1) and the<br/>metric badge (Completionist, +3)" --> GB
 ```
 
 Why the door exists: auto badges are the ONE thing still stored that a mutation can
@@ -367,7 +389,7 @@ flowchart LR
     A2["submit gate"] --> A0
     A3["Completionist set"] --> A0
     A4["lucky + flash pickers"] --> A0
-    A5["next-badge nudge"] --> A0
+    A5["upcoming-badge rows (#1108)"] --> A0
   end
 
   subgraph W3["Wall 3: one banked-bonus shape"]

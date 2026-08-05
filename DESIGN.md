@@ -271,6 +271,8 @@ This issue is the **foundation** slice only: the schema, the resolver, the admin
 
 **Amended (issue #706): the award model above is superseded by ranked award, owner-settled 2026-07-19/20, further amended 2026-07-23.** This section's `awardTaskBadge(taskId, submissionId, { points, note })` awards one task's badge to one photo — it is left in place for its own existing callers/tests, but is no longer the route-facing write path. **Corrected 2026-07-23 (owner, superseding the "five-photo" framing immediately above): the host ranks 1 to 5 of a task's best photos, their choice, not a forced five** — rank 1 pays 5 points and wears the badge gold, rank 2 pays 4, down to whichever rank is last paying 1; a single-winner release is valid (one badge, 5 points). `task-badges.releaseRanking(taskId, submissionIds)` is the new, SEPARATE write path (see "Rank & award" ADR below) consolidating onto the badge substrate this section already established (`badges` + `guest_badges`, points and submission carried on the award row) rather than the disconnected `badge_winners` picker table — which #661 deletes outright, along with its sole reader/writer `photo-badges.js`, rather than repointing it (see that ADR for why). Full model: `docs/game-design-points-badges.md` — that doc still describes a forced-five/worksheet-survives shape as of this writing and has not yet been reconciled with this correction; flagged for a follow-up doc-sync pass, not fixed in this change (out of #661's own `Touches`).
 
+**Amended (issue #1106): the "1 to 5" ranked ceiling above is historical.** As of the point-system rebalance, a release pays a top **3** (5/3/2), not a top 5: the full rescale record lives in this file's "Point-system rebalance (2026-08-04)" section. A release banked under this older 1-to-5/5-4-3-2-1 mapping is not backfilled and keeps reading exactly as it did (AC5 of #1106), so the "5 points, rank 1 gold, down to whichever rank is last paying 1" framing above stays accurate for pre-#1106 data, even though it no longer describes what a NEW release pays.
+
 ### Two UNIQUE constraints enforce the core rules in the schema
 
 - `submissions UNIQUE(guest_id, task_id)` — one submission per guest per **task**, so a task cannot be completed twice for double points. This defines the duplicate error out of existence at the database layer rather than checking for it in application code. **Amended (issue #247):** `task_id` may be `NULL` for a "memory" (a submission not tied to any task). SQLite treats every `NULL` as distinct from every other value under a `UNIQUE` constraint, so this same constraint lets a guest hold any number of `(guest_id, NULL)` memory rows alongside their at-most-one-row-per-real-task submissions — no separate constraint or table was needed.
@@ -1291,6 +1293,20 @@ two-line rule body, not in the design vocabulary. If a third centered-caption-un
 appears, that is the point to promote these declarations into one shared class rather than adding a
 third copy.
 
+**Amended 2026-08-04 (issue #1104, point-system rebalance).** The daily cap rises from one paying memory
+to `MEMORY_DAILY_PAYING_CAP = 2` (`src/services/scoring/points.js`): a guest's first two visible memories
+each event-local day now each pay +1, a third or later memory that same day pays nothing. The day-identity
+function this ADR describes, `memoryDaysFor`, is unchanged — it still returns the `Set` of days on which a
+guest has at least one visible memory, and remains the single owner of day MEMBERSHIP. What changed is the
+point-value function built on top of it: `memoryDayCount`/`memoryDayCountsByGuest` (presence-only, one
+point per day regardless of that day's memory count) are retired in favor of `memoryPoints`/
+`memoryPointsByGuest`, which both apply the capped-sum formula (`min(MEMORY_DAILY_PAYING_CAP, that day's
+visible-memory count)`, summed per day) through one shared private helper, `cappedDayPoints`, so the two
+can never compute the cap two different ways.
+Both `getPoints()` and `leaderboard()` still read this pair the same way — one per-guest call, one
+all-guests fold — so the single-query guarantee this ADR establishes for the memory-day term is untouched.
+Full rationale for the rebalance as a whole: this file's "Point-system rebalance (2026-08-04)" section.
+
 ## Flash guest marker: shared shape, separate hue, no floor, no neutral fallback (#762)
 
 **Date:** 2026-07-21. **Status:** accepted, owner-approved live on a seeded preview.
@@ -1929,6 +1945,12 @@ task-card reorder (`src/public/js/admin-tasks.js`: pointer events, `setPointerCa
 lifts and follows via `transform`, displaced rows glide via a First-Last-Invert-Play transform), and
 releases the badge + 5/4/3/2/1 points in one confirm.
 
+**Amended (issue #1106): the ceiling and payout above are historical.** The point-system rebalance
+narrows this to a top 3 (5/3/2): see this file's "Point-system rebalance (2026-08-04)" section, sub-
+heading "Task-badge ranking pays a top 3, not a top 5 (#1106)", for the full record. This paragraph's
+"1-to-5"/"5/4/3/2/1" framing still describes the release this ADR shipped at the time; it is not the
+current ceiling or mapping.
+
 **New component, not a new architectural pattern.** This is a genuinely new page + route + client script,
 which is why the architecture lens gates this change per the review dispatch table — but it reuses every
 existing seam it can: `task-badges.resolveTaskBadge`/`toTaskBadgeView` for the badge row, the
@@ -1989,7 +2011,7 @@ shape as every other column this table has grown) — NULL for every award path 
 convention a caller could forget to honor. `task-badges.releaseRanking(taskId, submissionIds)` is the new,
 whole-set-atomic write path (`awardTaskBadge`/`removeTaskAward`, #483's original single-photo award/remove
 pair, are untouched — kept for their own existing callers/tests, superseded only as the route-facing path):
-validates 1-5 entries (amended by #892, see below — 0 is now a deliberate clear-all, not a refusal), no
+validates 1-3 entries (narrowed from the original 1-5 ceiling by #1106, see below; amended by #892, see below, so 0 is now a deliberate clear-all, not a refusal), no
 duplicates, and every id a CURRENTLY VISIBLE submission of THIS task (refusing
 the WHOLE release otherwise, never silently dropping one bad entry — a partial write would shift every
 following rank/points value out from under the host's on-screen order without telling them); folds
@@ -2158,8 +2180,9 @@ expressed as a per-guest SQL expression without fanning out the query (ranking i
 computation, not a per-row one). `crowdPointsByGuest()` runs `crowdFavorites()` exactly ONCE — a single
 query ranks every liked photo in the whole event — and folds the result into a `Map`; `leaderboard()`
 consumes that Map in its existing post-query JS pass (AC8: the leaderboard's crowd term costs exactly one
-extra SQL statement, never one per guest row, exactly the guarantee #656's `memoryDayCountsByGuest` already
-established for the memory-day term and this issue reuses the pattern for).
+extra SQL statement, never one per guest row, exactly the guarantee #656's `memoryPointsByGuest` (renamed
+from `memoryDayCountsByGuest` by #1104's daily cap) already established for the memory-day term and this
+issue reuses the pattern for).
 
 **Why the crowd bonus is NOT folded into `scoring.photoPoints()`.** That function's number is what a photo
 earned by being SUBMITTED — a stable, banked-feeling value a feed card prints without explanation. A crowd
@@ -2966,6 +2989,12 @@ nothing to iterate, so it writes zero rows and emits zero events — no guest is
 the existing (undocumented until now) behavior of a shrinking re-release that drops a winner with no
 replacement. `markTaskBadgeAwarded` still runs unconditionally, so the badge stays marked released and
 the page reopens on the Results view reading "No winners." rather than falling back to the picker.
+
+**Amended (issue #1106): `MAX_RANKED_WINNERS` itself moved.** This section's "1-to-5" name for the floor
+this amendment drops is historical: the ceiling `MAX_RANKED_WINNERS` guards against is 3, not 5, as of
+the point-system rebalance (this file's "Point-system rebalance (2026-08-04)" section). The CEILING-only
+refusal rule this amendment states is unaffected: it still refuses any `length > MAX_RANKED_WINNERS`,
+just against the new, lower ceiling.
 
 **The route, not the service, is where "absent" and "deliberately empty" are told apart.** A raw HTML
 form has no way to distinguish "the `winners` field was never in this POST" from "`winners` was posted
@@ -3899,6 +3928,12 @@ covers.
 
 **Why `src/public/js/lightbox.js` and `recap.js`'s badge-celebration backdrop close were left alone.** Both use the same superficial shape (`event.target === el`) but neither holds user input a mis-drag could discard — `lightbox.js` is a photo viewer, and the celebration dialog's own close path deliberately interacts with `badge-moment.js`'s queue fast-forward. Folding either into the shared module would be a behavior change with no defect behind it, not a fix. The inline moderation-thread dialog handler in `src/views/admin-photos.ejs` was excluded for the identical reason (hidden fields and submit buttons only, nothing to lose). The guest-facing surface has the same defect class — `src/public/js/feed.js`'s comments dialog and `src/public/js/photo-owner-menu.js`'s caption dialog — but each serves many dialog instances per page through one delegated listener rather than one dialog element a caller can hand to `backdrop()` directly; that's issue #1041, which depends on this module rather than extending it here.
 
+**#1041: a second, delegated API on the same module, for the guest surface.** `backdrop(dialogEl)` above assumes a caller can hand it a specific, already-in-the-DOM `<dialog>` element once, at page load — true for all four admin dialogs, but not for `src/public/js/feed.js`'s comments dialog: `src/views/feed.ejs` renders one `comments-dialog-<id>` per submission already on the page, and `src/public/js/feed-scroll.js` appends and prepends whole new `.feed-item` cards (each with its own comments/likes dialog) during infinite scroll, well after any load-time registration would have run. A per-element registration done once at load would silently stop protecting every dialog a guest scrolls to. So `dialog-dismiss.js` gained a second export, `pressAllowsDelegatedClose(clickEvent)`, backed by ONE document-level `pointerdown` listener the module registers at its own load (not per dialog) — it records the most recent primary-pointer press's raw target, and the predicate answers whether that recorded target is the same element as the click event's own target. That is the identical press/click-agreement rule `backdrop()` enforces, just without a boolean scoped to one dialog element: because a click's immediately preceding press is what the predicate is asked about, there is no per-dialog `close`-event reset to wire up the way `backdrop()` needs one — the recorded target answers a question about the CURRENT click, not a multi-event-cycle flag that could go stale across the same dialog's opens and closes.
+
+**Why the module never closes anything itself, in the delegated variant either.** `feed.js`'s comments-dialog backdrop-close branch and `photo-owner-menu.js`'s caption-dialog backdrop-close branch keep their own close calls, now additionally gated on `!window.DialogDismiss || window.DialogDismiss.pressAllowsDelegatedClose(event)`: module present, the press-target rule applies; module absent (a missing or reordered `<script>` tag), the branch falls back to today's click-target-only check rather than losing dismissal outright. Two things force this shape, not a delegated `dialog-dismiss.js`-owned `document.addEventListener('click', ...)` that closes on its own: first, the same fail-safe reasoning `backdrop()` already establishes for AC7-shaped script-load failures. Second, and specific to this issue: `src/views/admin-photos.ejs:558-565` hand-writes the identical click-target-only backdrop check for its own admin comments dialog, which carries `class="comments-dialog admin-comments-dialog"`, the same shell class the guest dialogs use, and that page loads no `dialog-dismiss.js` tag. A module that closed on its own, keyed on the shared `comments-dialog` class, would double-fire against that admin dialog the moment the class match alone was enough; keeping the close call in each CONSUMER's own branch, gated by a predicate the consumer opts into, means a page that never loads the script (admin-photos.ejs today) is structurally unreachable by this rule, not merely unaffected by convention.
+
+**Load order: non-defer `feed.js` before defer `dialog-dismiss.js`, safely.** `feed.js` loads as a non-defer end-of-body script via `footer.ejs`'s `pageScript` mechanism (`src/routes/community.js:819`, `pageScript: 'feed.js'`), so it parses and its top-level code runs before any `defer` script on the page, including the new `<script src="/js/dialog-dismiss.js" defer>` tag added to `src/views/feed.ejs` and `src/views/photo.ejs`. This is safe only because of a design choice already fixed above: neither consumer reads `window.DialogDismiss` at load time, only inside a click handler, called once a real click has already happened. Every defer script finishes before the browser can dispatch a user-initiated click, so by the time a guest's first click fires, `dialog-dismiss.js` has already registered its document-level `pointerdown` listener and exported its predicate, regardless of the two scripts' relative position in the document. Document order between the two is therefore deliberately not load-bearing and not asserted by `tests/dialog-dismiss.test.js`'s AC6 wiring check (presence only). The #879 wiring test above does assert order, but for a different reason than script-loading order alone: `slideshow-launch.js`, `admin-tasks.js`, and `badge-picker.js` are ALSO `defer` scripts, but each calls `window.DialogDismiss.backdrop(...)` at its own top-level load time (`slideshow-launch.js:25`, `admin-tasks.js:810-812`, `badge-picker.js:217`), and defer scripts run in document order, so `dialog-dismiss.js`'s tag has to precede theirs for that call to find a defined `window.DialogDismiss`. Neither guest-surface consumer reads the module at load time at all, only inside a click handler, so there is nothing for order to protect here.
+
 ## `guestPhotosPage`: a second paged reader beside `recentPage`, not a generalization of it (#1004)
 
 **Date:** 2026-08-02. **Status:** shipped.
@@ -4310,7 +4345,17 @@ badge in practice) is unchanged.
 
 ## The next-badge nudge returned as a reachability-gated locked row (#1057)
 
-**Date:** 2026-08-02. **Status:** shipped.
+**Date:** 2026-08-02. **Status:** superseded by #1108.
+
+**Superseded (issue #1108, point-system rebalance).** The single locked row this section describes,
+`nextThresholdBadge`, `badge-item-locked`, one badge pinned atop My Badges, is gone: `nextThresholdBadge`
+is removed outright (GET / was its only real consumer) rather than left exported dead, and guest home now
+renders a compact list of every unearned badge above My Badges instead of just the next one, via
+`upcomingAutoBadges`. The one piece of this section that survives unchanged in spirit is the
+reachability gate itself: a milestone badge whose threshold exceeds the guest's reachable task count
+still renders no row, it just now applies to every row in the list rather than gating a single one. Full
+record: this file's "Point-system rebalance (2026-08-04)" section, sub-heading "Upcoming-badge rows
+replace the single next-badge nudge (#1108)".
 
 Issue #88 pulled an earlier "next badge" framing off guest home because it could promise a badge
 nobody at the event could actually earn: whenever the highest threshold exceeded the active task
@@ -4452,7 +4497,14 @@ A like from a couple-flagged guest (`guests.is_couple`, a plain admin checkbox n
 renders a gold heart on the photo (feed card, gallery tiles on all three views, `/u/:guestId`, and
 the likers dialog) and names them in the bell ("Lilly loved your photo") instead of folding into
 the ordinary "N people liked your photo" batch. No extra points, no extra vote weight — a
-couple-like counts as exactly one like, same as anyone's.
+couple-like counts as exactly one like toward crowd-favorite standing, same as anyone's.
+
+**Amended (issue #1107, 2026-08-04): the "no extra points" line above is historical.** The owner
+reversed it in the point-system rebalance session: a couple-like now pays its owner 1 point,
+uncapped across likes and photos, fully derived, an un-like removes the point on the very next
+read. `src/services/scoring/couple-hearts.js`'s `couplePointsByGuest()` is the single owner of this
+term, folded into `getPoints`/`leaderboard()` the same way `crowdPointsByGuest()` is. Full record:
+this file's "Point-system rebalance (2026-08-04)" section.
 
 **Why a separate recap source (`coupleLikeRows`) rather than teaching `likeBatchRows` a
 couple-flag branch.** The two rows are structurally different, not just cosmetically different:
@@ -4556,6 +4608,151 @@ Two mechanical consequences of not being task-derived: (1) the row needed its ow
 **Why 3-5 and not some other floor:** the owner's approved phase-1 copy (`/how-points-work`, `/how-to-play`) states the task range beside the other point sources on the same page: Masters' favor (1-5), crowd favorite (1-5), a memory (1 each). 3-5 is what makes "snap the tasks" read as clearly ahead of "share a memory" or "vote for your favorites" without recoloring the top-line badge rewards (Masters', crowd favorite), which are out of this issue's scope and ship, if at all, with their own sibling issues (#1104-#1107).
 
 **What this issue does NOT touch:** the daily-challenge/flash/lucky bonus ranges (`FLASH_MIN_BONUS`/`FLASH_MAX_BONUS`/`LUCKY_MIN_BONUS`/`LUCKY_MAX_BONUS`, all still 1-3) are a different, deliberately smaller range layered on top of a task's base worth: this issue's Touches list never reaches `special_bonus`/`flash_bonus`/`lucky_bonus`. Nor does it touch the Masters'-favor range, the memory-per-day cap, the couple's-heart point, or the Completionist badge's point value: each of those is visible in the phase-1 approved screens this issue transcribes from, but AC6 draws the line explicitly: this issue's view edits carry ONLY the task-worth lines, and every other rebalance row reverts to its committed state pending its own issue.
+
+### Memory-day bonus capped at two per day (#1104)
+
+**Decision:** the memory-day term (#656) pays up to `MEMORY_DAILY_PAYING_CAP = 2` visible memories per event-local day instead of one — a guest's first two memories each day earn +1 apiece, a third or later that same day earns nothing. `memoryDaysFor` (day identity, a `Set`) is untouched; `memoryDayCount`/`memoryDayCountsByGuest` (presence-only point value) are retired and replaced by `memoryPoints`/`memoryPointsByGuest`, which sum the per-day cap. Full mechanics and the single-query guarantee: this file's "Memory-day bonus" ADR (#656), amended above.
+
+**Why 2 and not left at 1 or raised further:** the owner's approved phase-1 copy (`/how-points-work`, `/how-to-play`) states the new rule directly — "Your first two memories each day earn a point apiece" / "Your first two each day are +1 point apiece" — matching #1103's aim of keeping every point source legible against the widened task range (3-5) without letting an unlimited memory stream out-earn deliberate task effort.
+
+**What this issue does NOT touch:** the task-worth range (#1103), the Masters'-favor range, the couple's-heart point, and the Completionist badge's point value each ship, if at all, with their own sibling issue (#1103/#1105-#1107); this issue's view edits carry ONLY the memory lines on `/how-points-work` and `/how-to-play`, plus `src/views/memory-new.ejs` and `src/views/partials/memory-payoff.ejs` in their own voice, and every other rebalance row reverts to its committed state pending its own issue.
+
+### Completionist (clean sweep) badge pays 3 points, split off the flat auto/metric value (#1105)
+
+**Decision:** `CLEAN_SWEEP_BADGE_POINTS = 3` (`src/db/migrations-badges.js`, beside `AUTO_METRIC_BADGE_POINTS`, re-exported through `src/db.js` the same way) is the single owner of what the COMPLETIONIST badge pays while held. `recomputeBadges`'s metric-badge grant call site (`src/services/scoring/badge-engine.js`) writes this constant instead of `AUTO_METRIC_BADGE_POINTS`; the auto/threshold-badge grant site (`recomputeThresholdBadges`, BLOOM/BOUQUET/GARDEN) is untouched and still writes the flat `AUTO_METRIC_BADGE_POINTS = 1`. The one-time backfill (`ensureAutoMetricBadgePointsBackfilled`) splits the same way: an `auto`-type UPDATE unchanged in shape but narrowed off `metric`, plus a second UPDATE scoped to `code = 'COMPLETIONIST'` with `WHERE points IN (0, 1)`. Both 0 (the pre-#709 old-default sentinel) and 1 (the pre-#1105 paid value every COMPLETIONIST row already held under the old flat rule) are old-era sentinels this backfill catches up to 3, never the paid value itself, so a re-run is a no-op. Both UPDATEs run on every boot, idempotent.
+
+**Why COMPLETIONIST specifically, and why 3:** `METRIC_BADGES` (`src/services/badges.js`) registers exactly one code today, COMPLETIONIST, so this issue's grant-site change only ever affects that one badge; `recomputeBadges`'s metric loop carries a comment flagging that a second metric badge, if ever registered, needs a per-code points lookup rather than a second flat constant. 3 (not 2 or 4) is the owner's phase-1-approved figure for the clean-sweep row on `/how-points-work` (record hash `c154d1fd547c57974856d93e1681e2b7e5c99ebef14abebe0d38cb37434deb3e`): finishing every live task is the highest-effort badge in the game (no threshold badge requires 100% completion), so it pays more than a milestone badge's flat +1.
+
+**View: a new row, not a folded-in clause.** Pre-#1105, the milestone-badges row's sentence (`GET /how-points-work`, `src/routes/guest/pages.js`) ended "... Completionist for the clean sweep.", a clause with no point value of its own shown, which was honest then: the badge paid the same flat `AUTO_METRIC_BADGE_POINTS` as the three milestones, so the row's shared "1 point" tag covered it. At 3 points that shared tag would lie, so the badge needs its own row and tag. This issue gives Completionist its own "Sweep every task" row, matching how it is a structurally different badge (metric, not auto/threshold) that now pays a structurally different amount. The milestone sentence is trimmed to end after the last threshold name (`autoBadgeRows().map(...).join(', ') + '.'`, no more `.concat` of a clean-sweep clause), and the new row's name/points are passed as separate `cleanSweepName` (`scoring.cleanSweepBadgeName()`, pre-existing, unchanged) and `cleanSweepPoints` (the re-exported `CLEAN_SWEEP_BADGE_POINTS`) locals: the view interpolates both rather than hard-typing "Completionist" or "3", so a stag boot renders "Last Call" with the same 3 and no template branch.
+
+**What this issue does NOT touch:** the task-worth range (#1103), the memory-day cap (#1104), the Masters'-favor range and the couple's-heart point (#1106/#1107) each ship, if at all, with their own issue; this issue's view edits carry ONLY the clean-sweep row and the milestone-sentence trim, and every other rebalance row on `/how-points-work` reverts to its committed state pending its own issue.
+
+### Task-badge ranking pays a top 3, not a top 5 (#1106)
+
+**Decision:** `task-badges.js`'s `POINTS_BY_RANK` moves from `[5, 4, 3, 2, 1]` to `[5, 3, 2]`; `MAX_RANKED_WINNERS` derives from its length exactly as before, so the ceiling narrows from 5 to 3 automatically, no second literal to keep in sync. A host's ranked release now pays at most 3 winners, 5/3/2 by placement, instead of 5 winners at 5/4/3/2/1.
+
+**Why:** the same read that drove #1103's task-worth widening applies again here. A completed task should read as the biggest single reward, not one of five equally-weighted ranked slots: a top-5 payout diluted the Masters'-favor badge into something a full third of a task's submitters could win, with only a 1-point gap between 4th and 5th place. A top 3 with a 5/3/2 spread keeps 1st place clearly ahead (a 2-point gap to 2nd, same as 2nd-to-3rd) and makes the badge read as a sharper prize.
+
+**No backfill: historical ranks 4 and 5 are a permanent, accepted fact of the data (AC5).** A ranking released before this change under the old mapping is left exactly as it banked: its `guest_badges` rows keep whatever rank and points they were written with, including rank 4 or 5 where applicable. Re-ranking that same task re-derives under the new mapping (at most 3 winners, 5/3/2), but nothing rewrites a row nobody re-touches. Two structural consequences fall out of this, both deliberate:
+
+- `notifications.js`'s `RANK_ORDINAL` stays at five entries (`['1st', '2nd', '3rd', '4th', '5th']`) even though the ceiling is now 3. Shrinking it would degrade a preserved rank-4/5 row's recap line ("You placed 4th for ...") to the generic "You earned ..." fallback the moment `RANK_ORDINAL[ev.rank - 1]` came back `undefined`, discarding a real historical fact for no reason.
+- A guest who holds a preserved rank-4 or rank-5 award routes to the SAME `'won-place'` task-page state as a rank-2/3 winner (`src/routes/guest/tasks.js`'s `taskBadgeState` derivation only special-cases rank 1) and reads the same new "You won this badge, top 3" note. This is technically inaccurate for a guest who placed 4th or 5th under the old mapping, but accepted as a stated omission rather than built out: every row in the current database is disposable test data (the owner's standing rule, current through 2026-08-07), production launches on the new mapping with zero pre-existing rows, and no real guest can ever actually reach this combination.
+
+**View: the copy-lock strings change shape, not just number.** AC4 settles two exact strings for `task.ejs`'s `won-place`/`won-first` badge-hero notes: `You won this badge, top 3` and `You won this badge, 1st place`, replacing the prior pair, which joined the same two clauses with an em dash instead of a comma. The comma (not a re-used dash) is the owner's standing no-em-dash rule (global working agreement, 2026-08-02) deciding the punctuation, not a design restyle; `tests/task-badges.test.js`'s copy-lock assertions move to the same two exact strings.
+
+**`admin-badge-rank.ejs`'s `data-max-winners`/`data-points-by-rank` go back to being server-driven.** The owner-approved phase-1 preview hardcoded these two attributes as literal `"3"` / `"[5,3,2]"` strings (the same shape #661's original build used ahead of its own locals wiring); this issue restores `<%= maxWinners %>` / `<%= JSON.stringify(pointsByRank) %>`, reading `task-badges.MAX_RANKED_WINNERS`/`POINTS_BY_RANK` off the route the same way #661's PR review originally required. This is render-identical to the approved bytes, since the route now passes exactly `3`/`[5,3,2]` as those locals. `admin-badge-rank.js`'s own client-side fallback literals (`|| 5` and `[5, 4, 3, 2, 1]`) move to `|| 3` and `[5, 3, 2]` to match.
+
+**What this issue does NOT touch:** the task-worth range (#1103), the memory-day cap (#1104), the Completionist badge's point value (#1105), and the couple's-heart point (#1107) each ship, if at all, with their own issue; this issue's view edits on `/how-points-work` carry ONLY the "Earn the Masters' favor" row (tag `2–5 points`, "award the top three"), and every other rebalance row reverts to its committed state pending its own issue. Crowd favorites and the slideshow's own "top 5" section are a separate system (#625) and keep their existing top-5 shape untouched everywhere.
+
+### Couple's heart pays 1 point per like, uncapped, fully derived (#1107)
+
+**Decision:** a like from a couple-flagged guest (`guests.is_couple`) pays its owner 1 point,
+uncapped across likes and photos, fully derived, an un-like removes the point on the very next
+read, no stored bookkeeping. `src/services/scoring/couple-hearts.js`, modeled directly on
+`crowd-favorites.js`'s derived-term shape, exposes `couplePointsByGuest(): Map<guestId, points>`
+from one prepared statement: `likes` joined to `submissions` (composing `feed.js`'s
+`VISIBLE_WHERE` unchanged, `s`-aliased) and to `guests` on `is_couple = 1`, grouped by the photo
+owner (`s.guest_id`). `getPoints` (`src/services/scoring/points.js`) and `leaderboard()`
+(`src/services/scoring/leaderboard.js`) each fold this term in beside the crowd-favorite term, the
+same shape and for the same reason. No self-like exclusion is needed here: a guest can never like
+their own photo at the route level (issue #712), so the query never needs to special-case the
+photo owner being a couple member liking their own submission.
+
+**The flag is retroactive by design.** `couplePointsByGuest()` reads `guests.is_couple` fresh on
+every call, with no snapshot taken at like time, so un-checking "the couple" on a guest immediately
+strips every point their past likes already banked, on the very next read; re-checking it restores
+them, again on the very next read. This is the same rule every other derived term in this file
+follows (a takedown/restore, a like/un-like), just triggered by an admin flag instead of a guest
+action. `tests/couple-heart-points.test.js` covers both directions of the toggle.
+
+**Why 1 point, uncapped, and not folded into the per-photo figure:** this is a straight reversal of
+#647's original settlement (the 2026-07-19 stickiness consult, `docs/stickiness-consult-2026-07-19.md`,
+N4, which paid nothing). The owner reversed it on 2026-08-04 in this rebalance session, reading
+"pays nothing" as a missed opportunity to make the couple's own taste visibly steer the game.
+Uncapped (no per-photo or per-liker ceiling) matches the owner's approved phase-1 copy on
+`/how-points-work`: "When Lilly or Axel love your photo, the gold heart is worth a point. No
+limit." `photoPoints` (`src/services/scoring/points.js`) never folds this term in, for the same
+standing reason crowd-favorite rank points are excluded from it: the term is volatile by design (a
+later like or un-like can move it on the very next read), so folding it into the stable per-photo
+figure would make a feed card's number flicker for reasons the card cannot explain. What a
+couple-liked photo earns is stated separately: by #647's gold heart mark on the photo itself, and
+in the owner's grand total via `couplePointsByGuest()`.
+
+**What this issue does NOT touch:** the task-worth range (#1103), the memory-day cap (#1104), the
+Completionist badge's point value (#1105), and the task-badge ranking ceiling (#1106) each ship, if
+at all, with their own issue; this issue's view edit on `/how-points-work` carries ONLY the "Win
+the couple's heart" row, and every other rebalance row reverts to its committed state pending its
+own issue. The neighboring `src/views/admin-guests.ejs` couple-checkbox hint ("likes show gold")
+is untouched: rewording it would be new admin-facing copy that has not been through the phase-1
+loop.
+
+### Upcoming-badge rows replace the single next-badge nudge (#1108)
+
+**Date:** 2026-08-04. **Status:** shipped.
+
+**Decision.** Guest home's My Badges section used to carry #1057's single locked row: one
+unearned threshold badge, pinned above the earned list. This issue widens that to a compact list,
+`scoring.upcomingAutoBadges(guestId, reachableTaskCount)`
+(`src/services/scoring/badge-engine.js`), rendered above My Badges rather than inside it: every
+unearned badge the guest could still chase, not just the next one, so a guest is never left
+wondering what BLOOM leads to once it is out of reach. `nextThresholdBadge` and its facade export
+are removed outright rather than left dead: GET / (`src/routes/guest/home.js`) was its only real
+consumer (`src/services/scoring.js`'s own export was just a facade), and the coverage that drove
+it carries forward into `tests/upcoming-badge-rows.test.js` (its old file,
+`tests/next-badge-nudge.test.js`, was deleted in review consolidation: the reachability,
+singular-pluralization, and exact-boundary cases all live in the new file now).
+
+**Unearned-only.** A row exists only for a badge the guest does not yet hold; a `stmtGuestBadge`
+lookup filters both the milestone loop and the Completionist check. A badge the guest earns
+mid-session drops out of this list on the very next render and appears in My Badges instead: the
+two lists partition the catalog by held/unheld, never overlap, and the transfer needs no explicit
+"move" step, it falls out of both sides reading the same `guest_badges` table.
+
+**Reachability-gated, per row.** #1057's own reachability rule, a milestone badge whose threshold
+exceeds `reachableTaskCount` (the same denominator the progress caption prints) renders nothing so
+the list can never promise a badge the guest cannot actually reach at this event, carries forward
+unchanged, but now applies independently to every milestone row rather than gating a single one:
+at an event whose highest threshold outruns its live task count, that one row simply never
+appears while the reachable ones below it still do. The Completionist row is NOT reachability
+gated the same way (AC1/AC2's text scopes that gate to the milestone badges): it is appended
+whenever unearned, since "reachable" for Completionist is just "every live non-challenge task has
+a submission," a fact its own counter (below) already states directly.
+
+**Catalog-driven, not a fixed-length literal.** Milestone rows come from `autoBadgeThresholds()`,
+the same live, admin-editable threshold source `nextThresholdBadge` read (issue #1094): a stag boot
+(no `GARDEN` catalog row, `scripts/badge-catalog.js`) simply yields two milestone rows instead of
+three, because the catalog query itself never returns a `GARDEN` row to iterate over, not a
+separate variant branch.
+
+**The Completionist counter is the grant check, not a second formula.** `remaining` on the
+Completionist row is `badges.missingActiveTaskCount(guestId)` (`src/services/badges.js`), a new
+export factored out of `isCompletionist` in this same issue: `isCompletionist` is now expressed as
+`missingActiveTaskCount(guestId) === 0` rather than a parallel query, so the counter this row
+shows and the count the grant check counts down to zero can never disagree by construction.
+Challenge tasks stay permanently excluded from both (D2/#624, `tasks.challengeTaskWhere`), carried
+along for free since `missingActiveTaskCount` is `isCompletionist`'s own query, unchanged.
+
+**Points read from the split constants (#1105), never re-typed.** A milestone row's `points` is
+`AUTO_METRIC_BADGE_POINTS`; the Completionist row's is `CLEAN_SWEEP_BADGE_POINTS`, both imported
+from `src/db.js` into `badge-engine.js` and threaded through to the view as plain row fields, so
+`src/views/guest-home.ejs` interpolates a number it never hard-codes, and a future point-value
+change to either constant needs no matching edit here.
+
+**View: the approved v2 shape, real data replacing the phase-1 demonstration values.** The owner
+approved the row markup live on the preview 2026-08-04; the approval was re-persisted over the
+final transcribed bytes at merge time (record hash
+`43935d74ed46ea9a55f40a45bc475e1eda8bc21053ab6cc3cd8f5bf46fca24af`): a 28px badge icon, desaturated,
+one muted line, "N task/tasks to [name] · P point/points," reusing the existing
+`profile-meta-sep` dot rather than inventing a second separator glyph. `src/views/guest-home.ejs`
+carried two phase-1 fakes demonstrating that shape (a hardcoded two-row array, and a `fakeEarned`
+prepend inside My Badges simulating the transfer-on-earn state); this issue removes both and wires
+the section to `upcomingBadges`, skipping it entirely when the list is empty. `src/public/css/
+guest.css`'s `.upcoming-badge-row .badge-medallion` rule is new: the pre-existing rule only sized
+the composed-SVG `.badge-art` shape at 28px, so a bundled-icon badge (the stag variant's own
+milestone art) would have rendered at the base component's 48px, oversized and at full colour,
+reading as earned. The now-orphaned `.badge-item-locked` rule and the `.badge-locked-row` selector
+(the old locked row's own styling) are deleted along with the row they styled; a repo-wide grep
+confirmed neither had any other consumer.
 
 ## Block a guest: enforcement in `attachGuest`, not per-route, and per-row not per-person (#1092)
 

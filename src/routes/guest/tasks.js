@@ -487,7 +487,8 @@ router.get('/tasks/:id', function (req, res) {
   // The task-badge hero's state (issue #611 AC3), resolved HERE rather than
   // in the view so task.ejs branches on nothing: taskBadges.guestBadgeRank
   // reads this guest's own award row for this task's badge (undefined = no
-  // row, null or 1-5 = a row with that rank). Rank 1 is gold ("won-first");
+  // row, null or 1-3 = a row with that rank; a preserved pre-#1106 award may
+  // still carry rank 4 or 5). Rank 1 is gold ("won-first");
   // any other rank, including a possession-only NULL, is an ordinary win
   // ("won-place"); no row at all falls back to the pre-#611 earned/locked
   // split (`submission ? 'earned' : 'locked'`, decided here rather than in
@@ -503,14 +504,17 @@ router.get('/tasks/:id', function (req, res) {
     // column), not this route's to re-test — see isFirstPlaceRank's comment.
     taskBadgeState = 'won-first';
   } else {
-    // Every other award row — ranks 2-5, and a possession-only row whose rank
-    // is NULL — is an ordinary win (issue #611 AC3). The NULL case is
-    // unreachable today: awardTaskBadge, the only writer that leaves rank
-    // unset, has no route callers, so no guest can currently be shown the
-    // "top 5" line without a real placement behind it. Parked on #588 rather
-    // than pre-solved here, since resolving it means deciding what a
-    // placement-less award should say — a question that only becomes real if
-    // that write path is ever wired up.
+    // Every other award row — ranks 2-3 under the current mapping (a
+    // preserved pre-#1106 award may still carry rank 4 or 5, #1106 AC5's
+    // accepted omission routes that same row here too, reading the same
+    // "top 3" note), and a possession-only row whose rank is NULL — is an
+    // ordinary win (issue #611 AC3). The NULL case is unreachable today:
+    // awardTaskBadge, the only writer that leaves rank unset, has no route
+    // callers, so no guest can currently be shown the "top 3" line without a
+    // real placement behind it. Parked on #588 rather than pre-solved here,
+    // since resolving it means deciding what a placement-less award should
+    // say — a question that only becomes real if that write path is ever
+    // wired up.
     taskBadgeState = 'won-place';
   }
 

@@ -6,27 +6,28 @@ rules; an implementation that violates one is a defect to flag at review, not a 
 choice. Committed to the repo by #706; the game rules themselves live in the canonical
 rules comment posted on every adjacent issue and in `docs/game-design-points-badges.md`.
 
-The problem these prevent: the economy is growing from two point sources to nine, across
+The problem these prevent: the economy is growing from two point sources to ten, across
 two parallel read paths and a dozen surfaces. Without single owners, every new rule is a
 copy-paste into N places and the next audit finds N-1 of them drifted.
 
 ## 1. One points recipe
 
-Every point rule today is written twice — once in `getPoints` (src/services/scoring.js)
+Every point rule today is written twice, once in `getPoints` (src/services/scoring/points.js)
 and once in the `leaderboard()` SQL. Two copies held together by comments. Adding six
 rules doubles into twelve drift chances.
 
 **Rule (prescribed, not the shipped shape):** point terms are defined once, in one
 registry in `src/services/scoring.js` (the same shape `src/services/badges.js` uses for
 badge registries), and BOTH read paths compose the same term list. A new rule (worth,
-banked bonus, memory day, auto-badge +1, crowd favorite, ranked awards) is one registry
-entry, never a second hand-written copy. If the per-guest and all-guests shapes genuinely
-need different SQL, both shapes live side by side in the term's single entry — never in
-two far-apart functions.
+banked bonus, memory day, milestone-badge +1, clean-sweep +3 (#1105), crowd favorite,
+ranked awards, couple's heart (#1107)) is one registry entry, never a second hand-written
+copy. If the per-guest and all-guests shapes genuinely need different SQL, both shapes
+live side by side in the term's single entry — never in two far-apart functions.
 
-**What actually shipped:** no such registry exists. `getPoints()` (one guest) sums eight
-JS terms read from separate prepared statements; `leaderboard()` (all guests) computes the
-same eight terms as one large interpolated SQL expression. These are two independently
+**What actually shipped:** no such registry exists. `getPoints()` (one guest) sums nine
+JS terms read from separate prepared statements; `leaderboard()` (all guests) computes six
+of those nine terms as one large interpolated SQL expression and folds the remaining three
+(memory-day, crowd-favorite, couple's heart) in JS after the query. These are two independently
 written, hand-kept-in-sync implementations — each term's doc comment in both functions
 cross-references the other by name specifically because there is no single registry
 enforcing agreement. This rule's own goal (stop a new rule from becoming a second
