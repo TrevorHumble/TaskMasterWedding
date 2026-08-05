@@ -87,7 +87,7 @@ function insertGuest({ bonusPoints = 0 } = {}) {
   return { id, token };
 }
 
-function insertTask({ title, worth = 1, specialDate = null, specialBonus = null } = {}) {
+function insertTask({ title, worth = 3, specialDate = null, specialBonus = null } = {}) {
   seq += 1;
   const mode = specialDate ? 'oneday' : 'none';
   return db
@@ -119,11 +119,11 @@ describe('scoring.photoPoints sums worth + photoBonus + bonusAmount', () => {
 // AC1: the success card.
 // ---------------------------------------------------------------------------
 describe('AC1: the success card reports the banked amount, and the grand total stays the real total', () => {
-  it('a worth-2/bonus-3 task submitted ON its date reads "+5 points" and the guest\'s real running total', async () => {
+  it('a worth-4/bonus-3 task submitted ON its date reads "+7 points" and the guest\'s real running total', async () => {
     // 17 starting points from bonus_points alone (no other submissions), so
-    // the grand-total half of the line proves the earned figure (5) was not
-    // written into the wrong key — a guest at 17 who earns 5 must read 22,
-    // never 5 (issue #756 AC1's central warning).
+    // the grand-total half of the line proves the earned figure (7) was not
+    // written into the wrong key — a guest at 17 who earns 7 must read 24,
+    // never 7 (issue #756 AC1's central warning).
     const guest = insertGuest({ bonusPoints: 17 });
     // An ordinary (non-challenge) decoy task the guest never completes.
     // scoring.js's COMPLETIONIST metric excludes challenge tasks
@@ -132,10 +132,10 @@ describe('AC1: the success card reports the banked amount, and the grand total s
     // guest would earn COMPLETIONIST's +1 on this very submission, pushing
     // the grand total to 23 and breaking this test's own arithmetic. This
     // decoy keeps the set non-vacuous and unmet.
-    insertTask({ title: 'Onday Decoy Ordinary Task', worth: 1 });
+    insertTask({ title: 'Onday Decoy Ordinary Task', worth: 3 });
     const taskId = insertTask({
       title: 'Onday Success Card Task',
-      worth: 2,
+      worth: 4,
       specialDate: FIXED_TODAY,
       specialBonus: 3,
     });
@@ -151,18 +151,18 @@ describe('AC1: the success card reports the banked amount, and the grand total s
     // Issue #611: the earned figure and its "points" word are two separate
     // elements now (the display-face number, then the smaller word beside
     // it), and the running total moved to its own quiet "N total" line.
-    expect(page.text).toContain('<span class="success-earned-num">+5</span>');
-    expect(page.text).not.toContain('<span class="success-earned-num">+2</span>');
-    expect(page.text).toContain('<p class="success-total"><strong>22</strong> total</p>');
+    expect(page.text).toContain('<span class="success-earned-num">+7</span>');
+    expect(page.text).not.toContain('<span class="success-earned-num">+4</span>');
+    expect(page.text).toContain('<p class="success-total"><strong>24</strong> total</p>');
   });
 
-  it('the SAME task submitted AFTER its date reads "+2 points", never "+5" (worth + special_bonus unconditionally)', async () => {
+  it('the SAME task submitted AFTER its date reads "+4 points", never "+7" (worth + special_bonus unconditionally)', async () => {
     const guest = insertGuest();
     // Same vacuous-COMPLETIONIST guard as the test above.
-    insertTask({ title: 'Offday Decoy Ordinary Task', worth: 1 });
+    insertTask({ title: 'Offday Decoy Ordinary Task', worth: 3 });
     const taskId = insertTask({
       title: 'Offday Success Card Task',
-      worth: 2,
+      worth: 4,
       specialDate: YESTERDAY, // already passed: unsealed (reachable), but not "on day"
       specialBonus: 3,
     });
@@ -175,9 +175,9 @@ describe('AC1: the success card reports the banked amount, and the grand total s
 
     const page = await agent.get(res.headers.location);
     expect(page.text).toContain('Task complete!');
-    expect(page.text).toContain('<span class="success-earned-num">+2</span>');
-    expect(page.text).not.toContain('<span class="success-earned-num">+5</span>');
-    expect(page.text).toContain('<p class="success-total"><strong>2</strong> total</p>');
+    expect(page.text).toContain('<span class="success-earned-num">+4</span>');
+    expect(page.text).not.toContain('<span class="success-earned-num">+7</span>');
+    expect(page.text).toContain('<p class="success-total"><strong>4</strong> total</p>');
   });
 });
 
@@ -185,9 +185,9 @@ describe('AC1: the success card reports the banked amount, and the grand total s
 // AC2: the feed.
 // ---------------------------------------------------------------------------
 describe('AC2: the feed reports the same figure the leaderboard credits', () => {
-  it('an on-day worth-2/bonus_amount-3 submission shows feed points 5', async () => {
+  it('an on-day worth-4/bonus_amount-3 submission shows feed points 7', async () => {
     const guest = insertGuest();
-    const taskId = insertTask({ title: 'Feed Parity Task', worth: 2 });
+    const taskId = insertTask({ title: 'Feed Parity Task', worth: 4 });
     const submissionId = db
       .prepare(
         `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down, bonus_amount)
@@ -195,9 +195,9 @@ describe('AC2: the feed reports the same figure the leaderboard credits', () => 
       )
       .run(guest.id, taskId, 'feed-parity.jpg', 'feed-parity-thumb.jpg', 3).lastInsertRowid;
 
-    // The single-authority total for this photo (worth 2 + bonus_amount 3) is
+    // The single-authority total for this photo (worth 4 + bonus_amount 3) is
     // the figure the feed must match.
-    expect(scoring.getPoints(guest.id)).toBe(5);
+    expect(scoring.getPoints(guest.id)).toBe(7);
 
     const agent = signInGuest(app, guest.token);
     const res = await agent.get('/feed');
@@ -213,7 +213,7 @@ describe('AC2: the feed reports the same figure the leaderboard credits', () => 
     const chunk = res.text.slice(start, nextArticle === -1 ? res.text.length : nextArticle);
     const match = chunk.match(/<span class="points-count">(\d+)/);
     expect(match).not.toBeNull();
-    expect(Number(match[1])).toBe(5);
+    expect(Number(match[1])).toBe(7);
   });
 });
 
@@ -221,7 +221,7 @@ describe('AC2: the feed reports the same figure the leaderboard credits', () => 
 // AC3: the slideshow ranks a task group by the real (bonus-inclusive) points.
 // ---------------------------------------------------------------------------
 describe("AC3: the slideshow ranks a task group by a photo's real (bonus-inclusive) points", () => {
-  it('a worth-2/bonus_amount-3 (5 pts) photo outranks a worth-2/photo_bonus-2 (4 pts) photo in the same task, despite fewer likes', () => {
+  it('a worth-4/bonus_amount-3 (7 pts) photo outranks a worth-4/photo_bonus-2 (6 pts) photo in the same task, despite fewer likes', () => {
     function makeGuest(name) {
       seq += 1;
       return db
@@ -264,11 +264,11 @@ describe("AC3: the slideshow ranks a task group by a photo's real (bonus-inclusi
       addLikes(fillerId, 5);
     }
 
-    const taskId = insertTask({ title: 'Slideshow Parity Task', worth: 2 });
+    const taskId = insertTask({ title: 'Slideshow Parity Task', worth: 4 });
     const onDayGuestId = makeGuest('Onday Photo Guest');
     const decoyGuestId = makeGuest('Decoy Photo Guest');
 
-    // The true photo: worth 2 + banked bonus_amount 3 = 5 points, 0 likes.
+    // The true photo: worth 4 + banked bonus_amount 3 = 7 points, 0 likes.
     makeSubmission({
       guestId: onDayGuestId,
       taskId,
@@ -276,11 +276,11 @@ describe("AC3: the slideshow ranks a task group by a photo's real (bonus-inclusi
       bonusAmount: 3,
     });
 
-    // The decoy: worth 2 + admin photo_bonus 2 = 4 points, but MORE likes
+    // The decoy: worth 4 + admin photo_bonus 2 = 6 points, but MORE likes
     // (3). If bonus_amount were silently dropped to 0 (a forgotten SELECT
     // defaults photoPoints's third argument to 0 via its own default
     // parameter — never throws, never NaNs), the true photo's points would
-    // read 2, losing to the decoy's 4. If ranking regressed to likes-first,
+    // read 4, losing to the decoy's 6. If ranking regressed to likes-first,
     // the decoy would also wrongly win. Either defect flips this outcome.
     const decoySubmissionId = makeSubmission({
       guestId: decoyGuestId,
@@ -304,7 +304,7 @@ describe("AC3: the slideshow ranks a task group by a photo's real (bonus-inclusi
     expect(sectionPhotos.length).toBe(2);
     expect(sectionPhotos.every((item) => item.type === 'photo')).toBe(true);
 
-    // Winner-last (countdown to the winner, issue #468): the true 5-point
+    // Winner-last (countdown to the winner, issue #468): the true 7-point
     // photo must be the winner, regardless of the decoy's higher like count.
     const winner = sectionPhotos[sectionPhotos.length - 1];
     expect(winner.winner).toBe(true);

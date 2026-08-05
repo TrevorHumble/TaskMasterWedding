@@ -1,18 +1,20 @@
 // src/db/migrations-tasks.js
 // Guarded schema migrations for `tasks` only (issue #969 PR review fix,
-// domain regroup): worth/special_mode, special_date/special_bonus + widened
-// CHECK, the flash trio, the lucky pair, and live_since. Each function takes
-// the open `db` handle as its first parameter (never a module-load capture
-// of its own — see src/db/connection.js's own comment on why) and is
-// invoked, in this exact source order, from the entry's (src/db.js)
-// load-bearing boot sequence.
+// domain regroup): worth (3-5, default 3), special_mode, special_date/
+// special_bonus + widened CHECK, the flash trio, the lucky pair, live_since,
+// and the worth-range rescale. Each function takes the open `db` handle as
+// its first parameter (never a module-load capture of its own — see
+// src/db/connection.js's own comment on why) and is invoked, in this exact
+// source order, from the entry's (src/db.js) load-bearing boot sequence.
 'use strict';
 
 // --- Guarded migration: tasks.worth / tasks.special_mode (issue #727) ---
 /**
  * Rebuild `tasks` from the old is_active-only shape to the new shape carrying
- * `worth` (1-3, default 1) and `special_mode` ('none'/'hidden', default
- * 'none'), dropping `is_active` entirely.
+ * `worth` (3-5, default 3 as of #1103 — this rebuild itself still writes the
+ * historical 1 below, since ensureTaskWorthRange() further down rescales it)
+ * and `special_mode` ('none'/'hidden', default 'none'), dropping `is_active`
+ * entirely.
  *
  * is_active (0/1) cannot encode the one_day/lucky/flash states the
  * special_mode enum must extend to (#624/#649/#650), so it is dead vocabulary
@@ -201,10 +203,16 @@ function ensureTaskSpecialDayColumns(db) {
  * `tasks` on a pre-#753 database, which by definition has no flash columns
  * yet -- running this guard after it means the rebuild (if any) finishes
  * first and these ALTERs land on the settled table. `tasks` is rebuilt in
- * exactly two places in this file (ensureTaskWorthAndMode, above that, and
- * ensureTaskSpecialDayColumns immediately above this comment), both earlier
- * than this call site, so no later migration in this file can drop these
- * columns once added.
+ * three places in this file: ensureTaskWorthAndMode and
+ * ensureTaskSpecialDayColumns immediately above this comment, both earlier
+ * than this call site, plus ensureTaskWorthRange (issue #1103), which runs
+ * after every ALTER-based tasks guard in src/db.js's boot order, including
+ * this one. The resulting rule: a future tasks column takes exactly one of
+ * two homes, never both: either its guard is registered after the
+ * ensureTaskWorthRange call in src/db.js (the usual choice), or the column
+ * is added to ensureTaskWorthRange's tasks_new CREATE TABLE plus both sides
+ * of its INSERT/SELECT list. Doing both would make the SELECT reference a
+ * column a legacy database does not have yet and throw at boot.
  *
  * A fresh database and a migrated one end up with the three flash columns in
  * different physical positions: the CREATE TABLE above places them before
@@ -261,9 +269,16 @@ function ensureTaskFlashColumns(db) {
  *
  * MUST run immediately after ensureTaskFlashColumns() above (mirroring that
  * function's own call-order note relative to ensureTaskSpecialDayColumns()):
- * `tasks` is rebuilt in exactly two places in this file, both earlier than
- * this call site, so no later migration in this file can drop these columns
- * once added.
+ * `tasks` is rebuilt in three places in this file, ensureTaskWorthAndMode and
+ * ensureTaskSpecialDayColumns, both earlier than this call site, plus
+ * ensureTaskWorthRange (issue #1103), which runs after every ALTER-based
+ * tasks guard in src/db.js's boot order, including this one. The resulting
+ * rule: a future tasks column takes exactly one of two homes, never both:
+ * either its guard is registered after the ensureTaskWorthRange call in
+ * src/db.js (the usual choice), or the column is added to
+ * ensureTaskWorthRange's tasks_new CREATE TABLE plus both sides of its
+ * INSERT/SELECT list. Doing both would make the SELECT reference a column a
+ * legacy database does not have yet and throw at boot.
  *
  * Exported so tests bind to this real guard rather than an inline copy.
  */
@@ -295,10 +310,18 @@ function ensureTaskLuckyColumns(db) {
  * the read-time rule (src/services/notifications.js) is `live_since >
  * checkpoint`, and `NULL > x` is never true, in SQL or in JS.
  *
- * MUST run after ensureTaskSpecialDayColumns()/ensureTaskWorthAndMode() (the
- * two places `tasks` is rebuilt in this file), for the same reason
- * ensureTaskFlashColumns() documents above: a rebuild, if any, finishes
- * first, so this ALTER always lands on the settled table.
+ * MUST run after ensureTaskSpecialDayColumns()/ensureTaskWorthAndMode(), two
+ * of the three places `tasks` is rebuilt in this file (the third is
+ * ensureTaskWorthRange, issue #1103, which runs after every ALTER-based
+ * tasks guard in src/db.js's boot order, including this one), for the same
+ * reason ensureTaskFlashColumns() documents above: a rebuild, if any,
+ * finishes first, so this ALTER always lands on the settled table. The
+ * resulting rule: a future tasks column takes exactly one of two homes,
+ * never both: either its guard is registered after the ensureTaskWorthRange
+ * call in src/db.js (the usual choice), or the column is added to
+ * ensureTaskWorthRange's tasks_new CREATE TABLE plus both sides of its
+ * INSERT/SELECT list. Doing both would make the SELECT reference a column a
+ * legacy database does not have yet and throw at boot.
  *
  * Exported so tests bind to this real guard rather than an inline copy.
  */
@@ -309,10 +332,112 @@ function ensureTaskLiveSinceColumn(db) {
   }
 }
 
+// --- Guarded migration: tasks.worth range 3-5 (issue #1103) ---
+/**
+ * Rebuild `tasks` to widen the `worth` CHECK from `BETWEEN 1 AND 3` to
+ * `BETWEEN 3 AND 5` and remap every existing worth: 1 -> 3, 2 -> 4, 3 -> 5.
+ *
+ * Detection mirrors ensureTaskSpecialDayColumns() above rather than
+ * ensureTaskWorthAndMode()'s column-presence check: `worth` already exists
+ * on every database this function will ever see (it is added by
+ * ensureTaskWorthAndMode(), which always runs first), so presence alone
+ * cannot distinguish an old CHECK from a widened one. Instead this reads the
+ * stored CREATE TABLE text out of sqlite_master and rebuilds only when it
+ * still names the old range — a fresh DB's CREATE TABLE IF NOT EXISTS above
+ * already carries the widened CHECK, so this is a no-op there, and a no-op
+ * on every later boot of an already-migrated DB (idempotent: a second boot
+ * finds `worth BETWEEN 3 AND 5` in sqlite_master.sql and returns early
+ * without touching the table or its data again — a row already remapped to
+ * 3/4/5 is never remapped a second time).
+ *
+ * SQLite cannot alter a CHECK constraint in place, so on an old-range table
+ * we rebuild it — same recipe as ensureTaskSpecialDayColumns() above, with
+ * one difference: the copy is by EXPLICIT column list naming every current
+ * `tasks` column, never `SELECT *` or a positional copy, because by the time
+ * this migration runs a database that reached this shape via the ALTER TABLE
+ * guards above (ensureTaskFlashColumns/ensureTaskLuckyColumns/
+ * ensureTaskLiveSinceColumn) holds flash_start_at/flash_minutes/flash_bonus/
+ * lucky_date/lucky_bonus/live_since in DIFFERENT physical positions than a
+ * fresh database's CREATE TABLE order (those guards each append after
+ * created_at; see ensureTaskFlashColumns's own doc comment) — `SELECT *`
+ * would copy the right VALUES into the wrong NAMED columns the moment the
+ * physical order diverges from tasks_new's declared order. Naming every
+ * column on both sides of the INSERT makes the copy immune to that
+ * divergence. `worth` is the only column whose VALUE is transformed in
+ * transit (`worth + 2`, which maps 1/2/3 to 3/4/5 exactly); every other
+ * column, flash/lucky/live_since included, is copied unchanged.
+ *
+ * Same two rebuild hazards ensureTaskWorthAndMode/ensureTaskSpecialDayColumns
+ * above already solve, copied verbatim: (a) submissions.task_id and
+ * badges.task_id both REFERENCE tasks(id) ON DELETE CASCADE, so foreign_keys
+ * is turned off for the duration of the rebuild and restored immediately
+ * after. (b) This runs last of this file's tasks migrations, after
+ * ensureTaskLiveSinceColumn(), which is itself required to run after every
+ * earlier rebuild/column-add in this file, so every column this function's
+ * explicit list names is guaranteed to already exist on the table it reads
+ * from. A column added by an earlier guard must be added to both sides of
+ * this migration's INSERT list.
+ *
+ * Exported so tests bind to this real guard rather than an inline copy.
+ */
+function ensureTaskWorthRange(db) {
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`)
+    .get();
+  if (!row || row.sql.includes('worth BETWEEN 3 AND 5')) {
+    // No tasks table yet, or already widened — nothing to do.
+    return;
+  }
+
+  db.pragma('foreign_keys = OFF');
+  try {
+    const migrate = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE tasks_new (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          title          TEXT    NOT NULL,
+          description    TEXT    NOT NULL DEFAULT '',
+          sort_order     INTEGER NOT NULL DEFAULT 0,
+          worth          INTEGER NOT NULL DEFAULT 3 CHECK (worth BETWEEN 3 AND 5),
+          special_mode   TEXT    NOT NULL DEFAULT 'none' CHECK (special_mode IN ('none','hidden','oneday')),
+          special_date   TEXT,
+          special_bonus  INTEGER CHECK (special_bonus IS NULL OR special_bonus BETWEEN 1 AND 3),
+          flash_start_at TEXT,
+          flash_minutes  INTEGER,
+          flash_bonus    INTEGER,
+          lucky_date     TEXT,
+          lucky_bonus    INTEGER,
+          live_since     TEXT,
+          created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+          CONSTRAINT chk_special_pairing CHECK ((special_date IS NULL) = (special_bonus IS NULL))
+        );
+
+        INSERT INTO tasks_new (
+          id, title, description, sort_order, worth, special_mode,
+          special_date, special_bonus, flash_start_at, flash_minutes,
+          flash_bonus, lucky_date, lucky_bonus, live_since, created_at
+        )
+          SELECT
+            id, title, description, sort_order, worth + 2, special_mode,
+            special_date, special_bonus, flash_start_at, flash_minutes,
+            flash_bonus, lucky_date, lucky_bonus, live_since, created_at
+            FROM tasks;
+
+        DROP TABLE tasks;
+        ALTER TABLE tasks_new RENAME TO tasks;
+      `);
+    });
+    migrate();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
 module.exports = {
   ensureTaskWorthAndMode,
   ensureTaskSpecialDayColumns,
   ensureTaskFlashColumns,
   ensureTaskLuckyColumns,
   ensureTaskLiveSinceColumn,
+  ensureTaskWorthRange,
 };

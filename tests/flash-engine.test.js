@@ -64,7 +64,7 @@ function insertGuest() {
 }
 
 function insertTask({
-  worth = 1,
+  worth = 3,
   specialDate = null,
   specialBonus = null,
   mode = null,
@@ -533,7 +533,7 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
   it('AC4: an in-window submit banks worth + flash bonus with reason "flash"; an out-of-window submit does not', async () => {
     const startAt = '2026-08-07T12:00:00.000Z';
     const startMs = Date.parse(startAt);
-    const taskId = insertTask({ worth: 2, flashStartAt: startAt, flashMinutes: 10, flashBonus: 3 });
+    const taskId = insertTask({ worth: 4, flashStartAt: startAt, flashMinutes: 10, flashBonus: 3 });
 
     const inWindowGuest = insertGuest();
     const inWindowFile = writeOriginal(`flash-inwindow-${crypto.randomUUID()}.jpg`);
@@ -545,7 +545,7 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
       nowMs: startMs + 5 * 60000,
     });
     expect(inWindow.status).toBe('created');
-    expect(scoring.getPoints(inWindowGuest)).toBe(5); // worth 2 + flash bonus 3
+    expect(scoring.getPoints(inWindowGuest)).toBe(7); // worth 4 + flash bonus 3
     const inWindowRow = getSubmission(inWindowGuest, taskId);
     expect(inWindowRow.bonus_amount).toBe(3);
     expect(inWindowRow.bonus_reason).toBe('flash');
@@ -560,7 +560,7 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
       nowMs: startMs + 10 * 60000, // exactly the end instant -- expired, half-open window
     });
     expect(outOfWindow.status).toBe('created');
-    expect(scoring.getPoints(outOfWindowGuest)).toBe(2); // worth only
+    expect(scoring.getPoints(outOfWindowGuest)).toBe(4); // worth only
     const outOfWindowRow = getSubmission(outOfWindowGuest, taskId);
     expect(outOfWindowRow.bonus_amount).toBe(0);
     expect(outOfWindowRow.bonus_reason).toBeNull();
@@ -570,7 +570,7 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
     const startAt = '2026-08-07T12:00:00.000Z';
     const startMs = Date.parse(startAt);
     const taskId = insertTask({
-      worth: 1,
+      worth: 3,
       specialDate: FIXED_TODAY,
       specialBonus: 2,
       flashStartAt: startAt,
@@ -588,7 +588,7 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
     });
 
     expect(result.status).toBe('created');
-    expect(scoring.getPoints(guestId)).toBe(3); // worth 1 + oneday bonus 2 -- NOT +3 flash on top
+    expect(scoring.getPoints(guestId)).toBe(5); // worth 3 + oneday bonus 2 -- NOT +3 flash on top
     const row = getSubmission(guestId, taskId);
     expect(row.bonus_amount).toBe(2);
     expect(row.bonus_reason).toBe('oneday');
@@ -608,11 +608,11 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
       // insert. Inserting a second task this guest never touches keeps the
       // getPoints() assertion below deterministic regardless of run order or
       // test filtering.
-      insertTask({ worth: 1 });
+      insertTask({ worth: 3 });
 
       // Ordinary task, no special/flash yet -- a guest submits normally,
       // creating the "existing" row the seal gate's fall-through needs.
-      const taskId = insertTask({ worth: 1 });
+      const taskId = insertTask({ worth: 3 });
       const guestId = insertGuest();
       const firstFile = writeOriginal(`flash-divergent-first-${crypto.randomUUID()}.jpg`);
       const created = await submissions.submitPhoto({
@@ -659,7 +659,7 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
       const row = getSubmission(guestId, taskId);
       expect(row.bonus_amount).toBe(0);
       expect(row.bonus_reason).toBeNull();
-      expect(scoring.getPoints(guestId)).toBe(1); // worth only -- no bonus of any kind
+      expect(scoring.getPoints(guestId)).toBe(3); // worth only -- no bonus of any kind
     }
   );
 
@@ -667,7 +667,7 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
     const startAt = '2026-08-07T12:00:00.000Z';
     const startMs = Date.parse(startAt);
     const endMs = startMs + 10 * 60000;
-    const taskId = insertTask({ worth: 2, flashStartAt: startAt, flashMinutes: 10, flashBonus: 3 });
+    const taskId = insertTask({ worth: 4, flashStartAt: startAt, flashMinutes: 10, flashBonus: 3 });
     const guestId = insertGuest();
 
     const first = writeOriginal(`flash-replace-first-${crypto.randomUUID()}.jpg`);
@@ -679,7 +679,7 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
       nowMs: startMs + 2 * 60000,
     });
     expect(created.status).toBe('created');
-    expect(scoring.getPoints(guestId)).toBe(5);
+    expect(scoring.getPoints(guestId)).toBe(7);
 
     const second = writeOriginal(`flash-replace-second-${crypto.randomUUID()}.jpg`);
     const replaced = await submissions.submitPhoto({
@@ -690,7 +690,7 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
       nowMs: endMs + 60000, // well after the window closed
     });
     expect(replaced.status).toBe('replaced');
-    expect(scoring.getPoints(guestId)).toBe(5); // unchanged
+    expect(scoring.getPoints(guestId)).toBe(7); // unchanged
 
     const row = getSubmission(guestId, taskId);
     expect(row.bonus_amount).toBe(3);
@@ -701,7 +701,7 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
   it('AC5: takedown removes BOTH worth and the flash bonus from getPoints() and the leaderboard row; restore returns both, with no new scoring code', async () => {
     const startAt = '2026-08-07T12:00:00.000Z';
     const startMs = Date.parse(startAt);
-    const taskId = insertTask({ worth: 2, flashStartAt: startAt, flashMinutes: 10, flashBonus: 3 });
+    const taskId = insertTask({ worth: 4, flashStartAt: startAt, flashMinutes: 10, flashBonus: 3 });
     const guestId = insertGuest();
     const file = writeOriginal(`flash-takedown-${crypto.randomUUID()}.jpg`);
 
@@ -712,9 +712,9 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
       caption: '',
       nowMs: startMs + 1000,
     });
-    expect(scoring.getPoints(guestId)).toBe(5);
+    expect(scoring.getPoints(guestId)).toBe(7);
     const leaderboardRow = () => scoring.leaderboard().find((r) => r.id === guestId);
-    expect(leaderboardRow().points).toBe(5);
+    expect(leaderboardRow().points).toBe(7);
 
     const subId = getSubmission(guestId, taskId).id;
     photos.hideSubmission(subId);
@@ -722,8 +722,8 @@ describe('criteria 4-5: submitPhoto banks the in-window flash bonus, no new scor
     expect(leaderboardRow().points).toBe(0);
 
     photos.restoreSubmission(subId);
-    expect(scoring.getPoints(guestId)).toBe(5);
-    expect(leaderboardRow().points).toBe(5);
+    expect(scoring.getPoints(guestId)).toBe(7);
+    expect(leaderboardRow().points).toBe(7);
   });
 });
 
@@ -746,7 +746,7 @@ describe('criterion 7: a scheduled flash needs no trigger, and nowMs is a seam n
   it('before the start instant: no bonus. After it, with no admin action, no task edit, and no process run in between: bonus banks', async () => {
     const startAt = '2026-08-07T15:00:00.000Z';
     const startMs = Date.parse(startAt);
-    const taskId = insertTask({ worth: 1, flashStartAt: startAt, flashMinutes: 20, flashBonus: 2 });
+    const taskId = insertTask({ worth: 3, flashStartAt: startAt, flashMinutes: 20, flashBonus: 2 });
 
     const beforeGuest = insertGuest();
     const beforeFile = writeOriginal(`flash-before-start-${crypto.randomUUID()}.jpg`);
@@ -758,7 +758,7 @@ describe('criterion 7: a scheduled flash needs no trigger, and nowMs is a seam n
       nowMs: startMs - 1,
     });
     expect(beforeResult.status).toBe('created');
-    expect(scoring.getPoints(beforeGuest)).toBe(1);
+    expect(scoring.getPoints(beforeGuest)).toBe(3);
     expect(getSubmission(beforeGuest, taskId).bonus_amount).toBe(0);
     expect(getSubmission(beforeGuest, taskId).bonus_reason).toBeNull();
 
@@ -775,7 +775,7 @@ describe('criterion 7: a scheduled flash needs no trigger, and nowMs is a seam n
       nowMs: startMs,
     });
     expect(afterResult.status).toBe('created');
-    expect(scoring.getPoints(afterGuest)).toBe(3); // worth 1 + flash bonus 2
+    expect(scoring.getPoints(afterGuest)).toBe(5); // worth 3 + flash bonus 2
     expect(getSubmission(afterGuest, taskId).bonus_amount).toBe(2);
     expect(getSubmission(afterGuest, taskId).bonus_reason).toBe('flash');
   });
@@ -792,7 +792,7 @@ describe('criterion 7: a scheduled flash needs no trigger, and nowMs is a seam n
     // centered on "now" is deterministic -- no flake -- and this task DOES
     // have flash armed, so a broken default clock makes this test fail.
     const startAt = new Date(Date.now() - 60_000).toISOString(); // 1 min ago
-    const taskId = insertTask({ worth: 1, flashStartAt: startAt, flashMinutes: 10, flashBonus: 2 });
+    const taskId = insertTask({ worth: 3, flashStartAt: startAt, flashMinutes: 10, flashBonus: 2 });
     const guestId = insertGuest();
     const file = writeOriginal(`flash-no-clock-arg-${crypto.randomUUID()}.jpg`);
 
@@ -804,7 +804,7 @@ describe('criterion 7: a scheduled flash needs no trigger, and nowMs is a seam n
     const row = getSubmission(guestId, taskId);
     expect(row.bonus_amount).toBe(2);
     expect(row.bonus_reason).toBe('flash');
-    expect(scoring.getPoints(guestId)).toBe(3); // worth 1 + flash bonus 2
+    expect(scoring.getPoints(guestId)).toBe(5); // worth 3 + flash bonus 2
   });
 
   it('nowMs: 0 is honored as a real clock, never replaced by the default (issue #761 review fix)', async () => {
@@ -815,7 +815,7 @@ describe('criterion 7: a scheduled flash needs no trigger, and nowMs is a seam n
     // would read 'scheduled' (or 'expired'), never 'active', and no bonus
     // would bank.
     const taskId = insertTask({
-      worth: 1,
+      worth: 3,
       flashStartAt: '1970-01-01T00:00:00.000Z',
       flashMinutes: 10,
       flashBonus: 2,
@@ -829,11 +829,11 @@ describe('criterion 7: a scheduled flash needs no trigger, and nowMs is a seam n
     const row = getSubmission(guestId, taskId);
     expect(row.bonus_amount).toBe(2);
     expect(row.bonus_reason).toBe('flash');
-    expect(scoring.getPoints(guestId)).toBe(3); // worth 1 + flash bonus 2
+    expect(scoring.getPoints(guestId)).toBe(5); // worth 3 + flash bonus 2
   });
 
   it('nowMs: NaN rejects (issue #761 review fix) -- a caller-computed garbage clock must throw, never silently substitute the real clock', async () => {
-    const taskId = insertTask({ worth: 1 });
+    const taskId = insertTask({ worth: 3 });
     const guestId = insertGuest();
     const file = writeOriginal(`flash-nan-clock-${crypto.randomUUID()}.jpg`);
 
@@ -874,7 +874,7 @@ describe('plan step 3: the insert branch never writes a reason beside a zero amo
           `INSERT INTO tasks (title, worth, special_mode, special_date, special_bonus)
            VALUES (?, ?, 'oneday', ?, NULL)`
         )
-        .run('Legacy half-set challenge (insert branch)', 2, FIXED_TODAY).lastInsertRowid;
+        .run('Legacy half-set challenge (insert branch)', 3, FIXED_TODAY).lastInsertRowid;
     } finally {
       db.pragma('ignore_check_constraints = OFF');
     }
@@ -887,6 +887,6 @@ describe('plan step 3: the insert branch never writes a reason beside a zero amo
     const row = getSubmission(guestId, taskId);
     expect(row.bonus_amount).toBe(0);
     expect(row.bonus_reason).toBeNull();
-    expect(scoring.getPoints(guestId)).toBe(2); // worth only
+    expect(scoring.getPoints(guestId)).toBe(3); // worth only
   });
 });

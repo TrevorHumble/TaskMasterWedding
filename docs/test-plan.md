@@ -261,7 +261,7 @@ The couple and planners can steer tasks, set prizes and points, and moderate con
 
 ### C1. Create, edit, delete a task
 
-Steps: In the admin window, go to `/admin/tasks` and open "New task." Step 1 of the create wizard: fill in a title, an optional description, and pick a Worth (1/2/3 pts), then tap Next. Step 2: leave Special as "None," then tap Next. Step 3: tap "Choose badge" and pick any badge from the picker.
+Steps: In the admin window, go to `/admin/tasks` and open "New task." Step 1 of the create wizard: fill in a title, an optional description, and pick a Worth (3/4/5 pts), then tap Next. Step 2: leave Special as "None," then tap Next. Step 3: tap "Choose badge" and pick any badge from the picker.
 
 Expected: Once a badge is chosen, the "Create task" button (previously disabled) becomes tappable — a task cannot be created without picking a badge. Tap it.
 

@@ -187,8 +187,10 @@
             (issue #762 criterion 6) — leaving the raised total on screen
             beside an ended pill would go on advertising a bonus the guest
             can no longer earn. %>
+        <%# "pts" stays plural unconditionally: worth's floor is 3 (#1103),
+            so this data-base-label never needs a singular "pt" form. %>
         <span class="task-points task-points-raised"
-              data-base-label="+<%= t.worth %> pt<%= t.worth === 1 ? '' : 's' %>">
+              data-base-label="+<%= t.worth %> pts">
           +<%= t.worth + t.flashBonus %> pts
         </span>
       <% } else if (t.bonusMissed) { %>
@@ -201,10 +203,10 @@
             tag did — only greyed and crossed out. %>
         <span class="task-points task-points-raised">
           <span class="task-points-lost">+<%= t.bonusMissedAmount %> bonus</span>
-          +<%= t.worth %> pt<%= t.worth === 1 ? '' : 's' %>
+          +<%= t.worth %> pts
         </span>
       <% } else { %>
-        <span class="task-points">+<%= t.worth %> pt<%= t.worth === 1 ? '' : 's' %></span>
+        <span class="task-points">+<%= t.worth %> pts</span>
       <% } %>
       <%# The earn-pitch is the row's own bottom line, spanning the FULL width
           beneath the badge, body, and price alike (.task-link is a grid — see

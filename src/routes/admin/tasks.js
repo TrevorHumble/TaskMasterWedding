@@ -210,7 +210,7 @@ router.get('/tasks', (req, res) => {
 // puts it at position 1 so a mid-event task can be featured without a
 // click-reload reorder marathon.
 //
-// Body: title (required), description (optional), worth (1-3, falls back to
+// Body: title (required), description (optional), worth (3-5, falls back to
 // tasks.DEFAULT_WORTH if missing/out of range — tasks.normalizeWorth), and
 // special_mode ('none'/'hidden'/'oneday', falls back to tasks.MODE_NONE for
 // anything else — tasks.normalizeMode; the SAME write-side owner POST
@@ -422,7 +422,7 @@ router.post('/tasks', (req, res) => {
 // POST /admin/tasks/:id/edit  — the single edit-popup save (issue #682):
 // title, description, worth, badge, and special_mode together in one submit.
 //
-// Body: title (required), description (optional), worth (1-3 — falls back to
+// Body: title (required), description (optional), worth (3-5 — falls back to
 // the task's CURRENT worth if missing/out of range via tasks.normalizeWorth,
 // so a direct partial POST — e.g. the pre-#682 title/description-only tests —
 // leaves it untouched), special_mode ('none'/'hidden'/'oneday' — same "keep

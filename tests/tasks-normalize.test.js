@@ -54,20 +54,21 @@ describe('normalizeMode', () => {
 
 describe('normalizeWorth', () => {
   it('an in-range integer (as a number OR a numeric string, matching a real POST body) passes through', () => {
-    expect(tasks.normalizeWorth(1, tasks.DEFAULT_WORTH)).toBe(1);
-    expect(tasks.normalizeWorth(2, tasks.DEFAULT_WORTH)).toBe(2);
     expect(tasks.normalizeWorth(3, tasks.DEFAULT_WORTH)).toBe(3);
-    expect(tasks.normalizeWorth('2', tasks.DEFAULT_WORTH)).toBe(2);
+    expect(tasks.normalizeWorth(4, tasks.DEFAULT_WORTH)).toBe(4);
+    expect(tasks.normalizeWorth(5, tasks.DEFAULT_WORTH)).toBe(5);
+    expect(tasks.normalizeWorth('4', tasks.DEFAULT_WORTH)).toBe(4);
   });
 
   it('out-of-range, non-numeric, or missing values fall back to the CALLER-SUPPLIED fallback', () => {
     expect(tasks.normalizeWorth(0, tasks.DEFAULT_WORTH)).toBe(tasks.DEFAULT_WORTH);
-    expect(tasks.normalizeWorth(4, tasks.DEFAULT_WORTH)).toBe(tasks.DEFAULT_WORTH);
+    expect(tasks.normalizeWorth(2, tasks.DEFAULT_WORTH)).toBe(tasks.DEFAULT_WORTH);
+    expect(tasks.normalizeWorth(6, tasks.DEFAULT_WORTH)).toBe(tasks.DEFAULT_WORTH);
     expect(tasks.normalizeWorth(99, tasks.DEFAULT_WORTH)).toBe(tasks.DEFAULT_WORTH);
     expect(tasks.normalizeWorth('not-a-number', tasks.DEFAULT_WORTH)).toBe(tasks.DEFAULT_WORTH);
     expect(tasks.normalizeWorth(undefined, tasks.DEFAULT_WORTH)).toBe(tasks.DEFAULT_WORTH);
     // edit's "keep current" case: fallback is the task's CURRENT worth, not
     // always DEFAULT_WORTH.
-    expect(tasks.normalizeWorth('bogus', 3)).toBe(3);
+    expect(tasks.normalizeWorth('bogus', 5)).toBe(5);
   });
 });

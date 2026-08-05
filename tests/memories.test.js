@@ -342,9 +342,9 @@ describe('feed per-photo points exclude a memory base point', () => {
     expect(feedPointsFor(res.text, plainMemory.submissionId)).toBe(0);
     expect(feedPointsFor(res.text, bonusMemory.submissionId)).toBe(5);
     // Task photo keeps the base: an un-bonused task photo (insertTask's
-    // default worth, issue #727) is worth tasksSvc.DEFAULT_WORTH (1). This is
-    // the inversion guard — if the memory branch were applied to task
-    // photos, this would read 0.
+    // default worth, issue #727, rescaled to 3-5 by #1103) is worth
+    // tasksSvc.DEFAULT_WORTH (3). This is the inversion guard — if the
+    // memory branch were applied to task photos, this would read 0.
     expect(feedPointsFor(res.text, taskPhoto.submissionId)).toBe(tasksSvc.DEFAULT_WORTH);
   });
 });

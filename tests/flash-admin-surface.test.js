@@ -79,7 +79,7 @@ function insertTask(overrides) {
   const cols = Object.assign(
     {
       title: `Flash Admin Task ${seq}`,
-      worth: 1,
+      worth: 3,
       special_mode: 'none',
       special_date: null,
       special_bonus: null,
@@ -146,7 +146,7 @@ describe('AC1: arm now, on either path', () => {
       .type('form')
       .send({
         title: 'AC1 Create Now',
-        worth: 2,
+        worth: 4,
         special_mode: 'flash',
         flash_bonus: 3,
         flash_minutes: 30,
@@ -172,7 +172,7 @@ describe('AC1: arm now, on either path', () => {
     // MODES comment) — a raw 'flash' create falls back to MODE_NONE.
     expect(task.special_mode).toBe('none');
 
-    // A guest submitting right now banks worth (2) + flash bonus (3) = 5.
+    // A guest submitting right now banks worth (4) + flash bonus (3) = 7.
     const guestId = insertGuest();
     const result = await submissions.submitPhoto({
       guestId,
@@ -182,7 +182,7 @@ describe('AC1: arm now, on either path', () => {
       nowMs: Date.now(),
     });
     expect(result.status).toBe('created');
-    expect(scoring.getPoints(guestId)).toBe(5);
+    expect(scoring.getPoints(guestId)).toBe(7);
     const sub = getSubmission(guestId, task.id);
     expect(sub.bonus_reason).toBe('flash');
     expect(sub.bonus_amount).toBe(3);
@@ -311,7 +311,7 @@ describe('AC3: cancel, in both states', () => {
   test('cancelling an ACTIVE window closes it immediately: a subsequent submit banks nothing, and the already-banked bonus survives in getPoints() and leaderboard()', async () => {
     const id = insertTask({
       title: 'AC3 Cancel Active',
-      worth: 1,
+      worth: 3,
       flash_start_at: new Date(Date.now() - 60000).toISOString(), // started 1 min ago
       flash_minutes: 60,
       flash_bonus: 3,
@@ -327,7 +327,7 @@ describe('AC3: cancel, in both states', () => {
       nowMs: Date.now(),
     });
     expect(banked.status).toBe('created');
-    expect(scoring.getPoints(bankedGuest)).toBe(4); // worth 1 + flash bonus 3
+    expect(scoring.getPoints(bankedGuest)).toBe(6); // worth 3 + flash bonus 3
 
     // Cancel via the edit route.
     await adminAgent.post(`/admin/tasks/${id}/edit`).type('form').send({
@@ -341,10 +341,10 @@ describe('AC3: cancel, in both states', () => {
     expect(task.flash_minutes).toBeNull();
 
     // Already-banked bonus is untouched.
-    expect(scoring.getPoints(bankedGuest)).toBe(4);
+    expect(scoring.getPoints(bankedGuest)).toBe(6);
     const board = scoring.leaderboard();
     const row = board.find((r) => r.id === bankedGuest);
-    expect(row.points).toBe(4);
+    expect(row.points).toBe(6);
 
     // A submit AFTER cancel (different guest) banks nothing extra.
     const afterGuest = insertGuest();
@@ -356,7 +356,7 @@ describe('AC3: cancel, in both states', () => {
       nowMs: Date.now(),
     });
     expect(after.status).toBe('created');
-    expect(scoring.getPoints(afterGuest)).toBe(1); // worth only, no bonus
+    expect(scoring.getPoints(afterGuest)).toBe(3); // worth only, no bonus
   });
 
   test('cancel short-circuits every other flash field — an empty/invalid duration and a blank Pick-a-time still cancel cleanly', async () => {

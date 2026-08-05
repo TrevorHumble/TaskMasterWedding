@@ -46,7 +46,7 @@ What the owner asked for, in his own words, captured from discovery. This is the
 - **Individual play.** No teams.
 - **A task is marked done when the guest uploads a photo for it** — the upload auto-counts. No separate approval step to complete a task.
 - **Scoring + leaderboard:** points come from a fixed set of readable sources — task
-  worth (1/2/3, host-chosen), timed bonuses, memory/profile-photo firsts, held badges,
+  worth (3/4/5, host-chosen), timed bonuses, memory/profile-photo firsts, held badges,
   and host-ranked task-badge and crowd-favorite awards — never from open-ended admin
   judgment. The leaderboard ranks guests. This replaced the original "1 point per task
   plus admin-judgment bonus points" direction; see

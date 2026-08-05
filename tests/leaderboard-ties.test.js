@@ -2,8 +2,8 @@
 // Covers issue #626 (pedestal redesign), superseding this file's earlier
 // standard-competition ("T3"/"1224") coverage of issue #78/#249/#361:
 //   AC1 — dense ("1223") ranking: rank increments only when points change, so
-//         a tie never leaves the rank below it empty (points [24,20x8,18x2]
-//         -> dense ranks 1, 2x8, 3x2 — never skipping to 10)
+//         a tie never leaves the rank below it empty (submission counts
+//         [24,20x8,18x2] -> dense ranks 1, 2x8, 3x2 — never skipping to 10)
 //   AC2 — the standings show the PLAIN dense number, never a "T" prefix
 //   AC3 — a 3rd-place tier is present whenever 3+ distinct point values exist
 //   AC4 — a tier over 9 tied guests shows exactly 9 avatars + a "+N" chip; a
@@ -30,10 +30,13 @@ beforeAll(() => {
 
 // ---------------------------------------------------------------------------
 // Seeding helpers. Each visible submission's task carries the tasks table's
-// default worth (1, issue #727), so a guest's point total is (their visible
-// submission count) + bonus_points. We give each guest a single dedicated
-// task and clone it into N submissions to hit an exact point value while
-// keeping distinct created_at timestamps.
+// default worth (3 since issue #1103), so a guest's point total is
+// 3 * (their visible submission count) + bonus_points. These tests only ever
+// compare RELATIVE ordering/ties between guests, never an absolute point
+// total, so the 3x multiplier changes every guest's real score uniformly and
+// every dense-rank/tie assertion below still holds. Each guest gets a
+// dedicated task per submission: see the UNIQUE(guest_id, task_id) note in
+// makeGuest below.
 // ---------------------------------------------------------------------------
 
 // Wipe the tables these tests populate so each test starts from an empty field.
@@ -60,10 +63,11 @@ async function signedInBoard(token) {
 }
 
 /**
- * Create a guest with exactly `points` points, built from `points` visible
- * submissions. Returns the guest id.
+ * Create a guest with exactly `3 * submissionCount` real points (default
+ * worth 3 per submission since issue #1103), built from `submissionCount`
+ * visible submissions. Returns the guest id.
  */
-function makeGuest(name, points) {
+function makeGuest(name, submissionCount) {
   const token = `tie-token-${seq++}`;
   const guestId = db
     .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
@@ -75,7 +79,7 @@ function makeGuest(name, points) {
      VALUES (?, ?, ?, ?, 0, ?)`
   );
   const base = Date.parse('2026-08-07T18:00:00Z');
-  for (let i = 0; i < points; i++) {
+  for (let i = 0; i < submissionCount; i++) {
     // A fresh task per submission avoids the UNIQUE(guest_id, task_id) collision.
     const taskId = db
       .prepare(`INSERT INTO tasks (title) VALUES (?)`)
@@ -145,7 +149,7 @@ function rankLabels(html) {
 // ---------------------------------------------------------------------------
 
 describe('leaderboard dense ranking (#626)', () => {
-  test('AC1/AC2: points [24,20x8,18x2] -> dense ranks 1, 2x8 (no skip to 10), 3x2 — plain labels, no "T"', async () => {
+  test('AC1/AC2: submission counts [24,20x8,18x2] -> dense ranks 1, 2x8 (no skip to 10), 3x2 — plain labels, no "T"', async () => {
     resetField();
     makeGuest('Solo Top', 24);
     for (let i = 0; i < 8; i++) makeGuest(`Mid ${i}`, 20);
@@ -176,7 +180,7 @@ describe('leaderboard dense ranking (#626)', () => {
     expect((rank3.match(/class="podium-cluster-avatar"/g) || []).length).toBe(2);
   });
 
-  test('AC3: [5,4,3,3,3,3,1] (4 distinct values) -> dense ranks 1,2,3,3,3,3,4 — 3rd never empty, never skips to 7', async () => {
+  test('AC3: submission counts [5,4,3,3,3,3,1] (4 distinct values) -> dense ranks 1,2,3,3,3,3,4 — 3rd never empty, never skips to 7', async () => {
     resetField();
     makeGuest('Alpha', 5);
     makeGuest('Bravo', 4);

@@ -7,15 +7,15 @@
 // = 3), one TAKEN-DOWN submission (taken_down = 1, photo_bonus = 9), and
 // guests.bonus_points = 4.
 // Canonical rule (scoring.js, three-term formula, issue #89; worth-aware
-// since issue #727):
+// since issue #727, rescaled 3-5/default 3 by issue #1103):
 //   completed = COUNT(visible submissions) = 1.
 //   points    = SUM(visible task worth) + SUM(visible photo_bonus) + guests.bonus_points
-//             = 1 (taskA's default worth) + 3 + 4 = 8.
+//             = 3 (taskA's default worth) + 3 + 4 = 10.
 // The taken-down submission's photo_bonus (9) is excluded, so it never adds to
 // the total. If the completed-count rule were inverted (counting ALL or only
 // taken-down submissions), completed would read 2 or 0; if the photo_bonus
-// term were dropped from scoring.js, points would read 5 instead of 8 — either
-// way an assertion below would fail.
+// term were dropped from scoring.js, points would read 7 instead of 10 —
+// either way an assertion below would fail.
 'use strict';
 
 const { loadApp, makeAdminAgent } = require('./helpers/testApp');
@@ -28,7 +28,7 @@ let buildSummaryBuffer;
 let guestId;
 
 const EXPECTED_COMPLETED = 1;
-const EXPECTED_POINTS = 8; // worth(1) + visible photo_bonus(3) + guests.bonus_points(4)
+const EXPECTED_POINTS = 10; // worth(3) + visible photo_bonus(3) + guests.bonus_points(4)
 
 beforeAll(async () => {
   const loaded = loadApp();

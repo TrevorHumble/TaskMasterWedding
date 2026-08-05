@@ -40,7 +40,7 @@ function insertTask(overrides) {
   const cols = Object.assign(
     {
       title: 'Oneday Test Task',
-      worth: 1,
+      worth: 3,
       special_mode: 'none',
       special_date: null,
       special_bonus: null,
@@ -584,7 +584,7 @@ describe('AC4: everything that leaves the pair alone still succeeds on a dated t
   test('a worth change succeeds', async () => {
     const id = insertTask({
       title: 'AC4 Succeed Worth',
-      worth: 1,
+      worth: 4,
       special_mode: 'oneday',
       special_date: DAY1,
       special_bonus: 1,
@@ -814,14 +814,14 @@ describe('AC3b markup: the edit dialog hidden special_date input', () => {
 // template edit that broke the sibling rule this issue introduces.
 // ---------------------------------------------------------------------------
 describe('AC1 (#922): the worth-chip/special-option selection highlight is a sibling rule against real markup', () => {
-  test("within a .worth-chips group that ships one radio checked (the create dialog's Worth field, 1 pt), input:checked + .worth-chip-face matches exactly that chip's face", async () => {
+  test("within a .worth-chips group that ships one radio checked (the create dialog's Worth field, 3 pts), input:checked + .worth-chip-face matches exactly that chip's face", async () => {
     const res = await adminAgent.get('/admin/tasks');
     const doc = new JSDOM(res.text).window.document;
     const createDialog = doc.getElementById('task-create-dialog');
     const worthGroup = createDialog.querySelector('.worth-chips');
     const checkedRadio = worthGroup.querySelector('input:checked');
     expect(checkedRadio).not.toBeNull();
-    expect(checkedRadio.value).toBe('1');
+    expect(checkedRadio.value).toBe('3');
 
     const matches = worthGroup.querySelectorAll('input:checked + .worth-chip-face');
     expect(matches.length).toBe(1);
@@ -847,7 +847,7 @@ describe('AC1 (#922): the worth-chip/special-option selection highlight is a sib
     const doc = new JSDOM(res.text).window.document;
     const editDialog = doc.getElementById('task-edit-dialog');
     const editWorthGroup = editDialog.querySelector('.worth-chips');
-    const radio = editWorthGroup.querySelector('input[name="worth"][value="2"]');
+    const radio = editWorthGroup.querySelector('input[name="worth"][value="4"]');
     expect(radio).not.toBeNull();
     expect(radio.checked).toBe(false);
 

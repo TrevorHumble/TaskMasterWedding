@@ -708,7 +708,7 @@
   width: 100%;
 }
 
-/* ---- Worth chips (1/2/3) ---- */
+/* ---- Worth + bonus chips (shared chip row) ---- */
 .worth-chips {
   display: flex;
   /* Wrap on very narrow phones (issue #918): the flash bonus row's three

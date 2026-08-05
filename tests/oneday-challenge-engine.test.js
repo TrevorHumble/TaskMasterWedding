@@ -70,7 +70,7 @@ function insertGuest() {
     .run(`oneday-guest-${seq}-${crypto.randomUUID()}`, 'Oneday Guest').lastInsertRowid;
 }
 
-function insertTask({ worth = 1, specialDate = null, specialBonus = null, mode = null } = {}) {
+function insertTask({ worth = 3, specialDate = null, specialBonus = null, mode = null } = {}) {
   seq += 1;
   const specialMode = mode || (specialDate ? 'oneday' : 'none');
   return db
@@ -206,7 +206,7 @@ describe('AC4-AC6: sealed submit refusal, banked on-day bonus, replace, takedown
 
   it('AC4: a task dated tomorrow refuses a submit — task_inactive, no row, original file cleaned up', async () => {
     const guestId = insertGuest();
-    const taskId = insertTask({ worth: 2, specialDate: TOMORROW, specialBonus: 2 });
+    const taskId = insertTask({ worth: 3, specialDate: TOMORROW, specialBonus: 2 });
     const file = writeOriginal(`ac4-${crypto.randomUUID()}.jpg`);
 
     const result = await submissions.submitPhoto({ guestId, taskId, file, caption: '' });
@@ -218,13 +218,13 @@ describe('AC4-AC6: sealed submit refusal, banked on-day bonus, replace, takedown
 
   it('AC5: on-day submit pays worth + bonus, bonus_amount is banked with reason "oneday"', async () => {
     const guestId = insertGuest();
-    const taskId = insertTask({ worth: 2, specialDate: FIXED_TODAY, specialBonus: 3 });
+    const taskId = insertTask({ worth: 3, specialDate: FIXED_TODAY, specialBonus: 3 });
     const file = writeOriginal(`ac5-onday-${crypto.randomUUID()}.jpg`);
 
     const result = await submissions.submitPhoto({ guestId, taskId, file, caption: '' });
 
     expect(result.status).toBe('created');
-    expect(scoring.getPoints(guestId)).toBe(5); // worth 2 + bonus 3
+    expect(scoring.getPoints(guestId)).toBe(6); // worth 3 + bonus 3
 
     const row = getSubmission(guestId, taskId);
     expect(row.bonus_amount).toBe(3);
@@ -233,13 +233,13 @@ describe('AC4-AC6: sealed submit refusal, banked on-day bonus, replace, takedown
 
   it('AC5: off-day submit (task dated yesterday, still live/unsealed) pays worth only, bonus_amount 0', async () => {
     const guestId = insertGuest();
-    const taskId = insertTask({ worth: 2, specialDate: YESTERDAY, specialBonus: 3 });
+    const taskId = insertTask({ worth: 3, specialDate: YESTERDAY, specialBonus: 3 });
     const file = writeOriginal(`ac5-offday-${crypto.randomUUID()}.jpg`);
 
     const result = await submissions.submitPhoto({ guestId, taskId, file, caption: '' });
 
     expect(result.status).toBe('created');
-    expect(scoring.getPoints(guestId)).toBe(2); // worth only, no bonus
+    expect(scoring.getPoints(guestId)).toBe(3); // worth only, no bonus
 
     const row = getSubmission(guestId, taskId);
     expect(row.bonus_amount).toBe(0);
@@ -248,12 +248,12 @@ describe('AC4-AC6: sealed submit refusal, banked on-day bonus, replace, takedown
 
   it('AC5: replacing the on-day photo the next day keeps the banked bonus (does not overwrite or zero it)', async () => {
     const guestId = insertGuest();
-    const taskId = insertTask({ worth: 2, specialDate: FIXED_TODAY, specialBonus: 3 });
+    const taskId = insertTask({ worth: 3, specialDate: FIXED_TODAY, specialBonus: 3 });
 
     const first = writeOriginal(`ac5-replace-first-${crypto.randomUUID()}.jpg`);
     const created = await submissions.submitPhoto({ guestId, taskId, file: first, caption: '' });
     expect(created.status).toBe('created');
-    expect(scoring.getPoints(guestId)).toBe(5);
+    expect(scoring.getPoints(guestId)).toBe(6);
 
     // "The next day": today moves past the task's special_date, but the row
     // must keep its already-banked bonus rather than losing it.
@@ -267,7 +267,7 @@ describe('AC4-AC6: sealed submit refusal, banked on-day bonus, replace, takedown
         caption: '',
       });
       expect(replaced.status).toBe('replaced');
-      expect(scoring.getPoints(guestId)).toBe(5); // unchanged — still worth + banked bonus
+      expect(scoring.getPoints(guestId)).toBe(6); // unchanged — still worth + banked bonus
 
       const row = getSubmission(guestId, taskId);
       expect(row.bonus_amount).toBe(3);
@@ -280,13 +280,13 @@ describe('AC4-AC6: sealed submit refusal, banked on-day bonus, replace, takedown
 
   it('AC6: takedown removes BOTH worth and bonus from getPoints() and the leaderboard row; restore returns both', async () => {
     const guestId = insertGuest();
-    const taskId = insertTask({ worth: 2, specialDate: FIXED_TODAY, specialBonus: 3 });
+    const taskId = insertTask({ worth: 3, specialDate: FIXED_TODAY, specialBonus: 3 });
     const file = writeOriginal(`ac6-${crypto.randomUUID()}.jpg`);
 
     await submissions.submitPhoto({ guestId, taskId, file, caption: '' });
-    expect(scoring.getPoints(guestId)).toBe(5);
+    expect(scoring.getPoints(guestId)).toBe(6);
     const leaderboardRow = () => scoring.leaderboard().find((r) => r.id === guestId);
-    expect(leaderboardRow().points).toBe(5);
+    expect(leaderboardRow().points).toBe(6);
 
     const subId = getSubmission(guestId, taskId).id;
     photos.hideSubmission(subId);
@@ -294,8 +294,8 @@ describe('AC4-AC6: sealed submit refusal, banked on-day bonus, replace, takedown
     expect(leaderboardRow().points).toBe(0);
 
     photos.restoreSubmission(subId);
-    expect(scoring.getPoints(guestId)).toBe(5);
-    expect(leaderboardRow().points).toBe(5);
+    expect(scoring.getPoints(guestId)).toBe(6);
+    expect(leaderboardRow().points).toBe(6);
   });
 });
 
@@ -327,7 +327,7 @@ describe('special_date/special_bonus pairing (schema CHECK + write-site coalesce
           `INSERT INTO tasks (title, worth, special_mode, special_date, special_bonus)
            VALUES (?, ?, 'oneday', ?, NULL)`
         )
-        .run('Half-set challenge', 2, FIXED_TODAY)
+        .run('Half-set challenge', 3, FIXED_TODAY)
     ).toThrow(/CHECK/i);
   });
 
@@ -338,7 +338,7 @@ describe('special_date/special_bonus pairing (schema CHECK + write-site coalesce
           `INSERT INTO tasks (title, worth, special_mode, special_date, special_bonus)
            VALUES (?, ?, 'none', NULL, ?)`
         )
-        .run('Bonus with no date', 2, 3)
+        .run('Bonus with no date', 3, 3)
     ).toThrow(/CHECK/i);
   });
 
@@ -358,7 +358,7 @@ describe('special_date/special_bonus pairing (schema CHECK + write-site coalesce
           `INSERT INTO tasks (title, worth, special_mode, special_date, special_bonus)
            VALUES (?, ?, 'oneday', ?, NULL)`
         )
-        .run('Legacy half-set challenge', 2, FIXED_TODAY).lastInsertRowid;
+        .run('Legacy half-set challenge', 3, FIXED_TODAY).lastInsertRowid;
     } finally {
       db.pragma('ignore_check_constraints = OFF');
     }
@@ -394,7 +394,7 @@ describe('special_date/special_bonus pairing (schema CHECK + write-site coalesce
     // #649/#650 read bonus_reason by literal, and a reason with no amount
     // behind it would tell them a rule paid out when nothing was banked.
     expect(row.bonus_reason).toBeNull();
-    expect(scoring.getPoints(guestId)).toBe(2); // worth only; coalesced bonus is 0, not a crash
+    expect(scoring.getPoints(guestId)).toBe(3); // worth only; coalesced bonus is 0, not a crash
   });
 });
 

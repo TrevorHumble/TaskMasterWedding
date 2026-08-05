@@ -41,6 +41,7 @@ migrationsTasks.ensureTaskSpecialDayColumns(db);
 migrationsTasks.ensureTaskFlashColumns(db);
 migrationsTasks.ensureTaskLuckyColumns(db);
 migrationsTasks.ensureTaskLiveSinceColumn(db);
+migrationsTasks.ensureTaskWorthRange(db);
 migrationsSubmissions.ensurePhotoBonusColumn(db);
 migrationsBadges.ensureBadgeTypeCheckWidened(db);
 migrationsBadges.ensureBadgeTaskIdColumn(db);
@@ -77,6 +78,7 @@ module.exports = {
   ensureTaskFlashColumns: () => migrationsTasks.ensureTaskFlashColumns(db),
   ensureTaskLuckyColumns: () => migrationsTasks.ensureTaskLuckyColumns(db),
   ensureTaskLiveSinceColumn: () => migrationsTasks.ensureTaskLiveSinceColumn(db),
+  ensureTaskWorthRange: () => migrationsTasks.ensureTaskWorthRange(db),
   ensurePhotoBonusColumn: () => migrationsSubmissions.ensurePhotoBonusColumn(db),
   ensureBadgeTypeCheckWidened: () => migrationsBadges.ensureBadgeTypeCheckWidened(db),
   ensureBadgeTaskIdColumn: () => migrationsBadges.ensureBadgeTaskIdColumn(db),
