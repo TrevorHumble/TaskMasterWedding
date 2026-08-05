@@ -27,10 +27,10 @@ router.get('/bugs', (req, res) => {
               r.page        AS page,
               r.status      AS status,
               r.created_at  AS created_at,
-              g.id          AS guest_id,
+              r.guest_id    AS guest_id,
               g.name        AS guest_name
          FROM bug_reports r
-         JOIN guests g ON g.id = r.guest_id
+         LEFT JOIN guests g ON g.id = r.guest_id
         ORDER BY CASE r.status WHEN 'open' THEN 0 WHEN 'tracked' THEN 1 ELSE 2 END ASC,
                  r.created_at DESC, r.id DESC`
     )
