@@ -4345,7 +4345,17 @@ badge in practice) is unchanged.
 
 ## The next-badge nudge returned as a reachability-gated locked row (#1057)
 
-**Date:** 2026-08-02. **Status:** shipped.
+**Date:** 2026-08-02. **Status:** superseded by #1108.
+
+**Superseded (issue #1108, point-system rebalance).** The single locked row this section describes,
+`nextThresholdBadge`, `badge-item-locked`, one badge pinned atop My Badges, is gone: `nextThresholdBadge`
+is removed outright (GET / was its only real consumer) rather than left exported dead, and guest home now
+renders a compact list of every unearned badge above My Badges instead of just the next one, via
+`upcomingAutoBadges`. The one piece of this section that survives unchanged in spirit is the
+reachability gate itself: a milestone badge whose threshold exceeds the guest's reachable task count
+still renders no row, it just now applies to every row in the list rather than gating a single one. Full
+record: this file's "Point-system rebalance (2026-08-04)" section, sub-heading "Upcoming-badge rows
+replace the single next-badge nudge (#1108)".
 
 Issue #88 pulled an earlier "next badge" framing off guest home because it could promise a badge
 nobody at the event could actually earn: whenever the highest threshold exceeded the active task
@@ -4675,6 +4685,74 @@ the couple's heart" row, and every other rebalance row reverts to its committed 
 own issue. The neighboring `src/views/admin-guests.ejs` couple-checkbox hint ("likes show gold")
 is untouched: rewording it would be new admin-facing copy that has not been through the phase-1
 loop.
+
+### Upcoming-badge rows replace the single next-badge nudge (#1108)
+
+**Date:** 2026-08-04. **Status:** shipped.
+
+**Decision.** Guest home's My Badges section used to carry #1057's single locked row: one
+unearned threshold badge, pinned above the earned list. This issue widens that to a compact list,
+`scoring.upcomingAutoBadges(guestId, reachableTaskCount)`
+(`src/services/scoring/badge-engine.js`), rendered above My Badges rather than inside it: every
+unearned badge the guest could still chase, not just the next one, so a guest is never left
+wondering what BLOOM leads to once it is out of reach. `nextThresholdBadge` and its facade export
+are removed outright rather than left dead: GET / (`src/routes/guest/home.js`) was its only real
+consumer (`src/services/scoring.js`'s own export was just a facade), and the coverage that drove
+it carries forward into `tests/upcoming-badge-rows.test.js` (its old file,
+`tests/next-badge-nudge.test.js`, was deleted in review consolidation: the reachability,
+singular-pluralization, and exact-boundary cases all live in the new file now).
+
+**Unearned-only.** A row exists only for a badge the guest does not yet hold; a `stmtGuestBadge`
+lookup filters both the milestone loop and the Completionist check. A badge the guest earns
+mid-session drops out of this list on the very next render and appears in My Badges instead: the
+two lists partition the catalog by held/unheld, never overlap, and the transfer needs no explicit
+"move" step, it falls out of both sides reading the same `guest_badges` table.
+
+**Reachability-gated, per row.** #1057's own reachability rule, a milestone badge whose threshold
+exceeds `reachableTaskCount` (the same denominator the progress caption prints) renders nothing so
+the list can never promise a badge the guest cannot actually reach at this event, carries forward
+unchanged, but now applies independently to every milestone row rather than gating a single one:
+at an event whose highest threshold outruns its live task count, that one row simply never
+appears while the reachable ones below it still do. The Completionist row is NOT reachability
+gated the same way (AC1/AC2's text scopes that gate to the milestone badges): it is appended
+whenever unearned, since "reachable" for Completionist is just "every live non-challenge task has
+a submission," a fact its own counter (below) already states directly.
+
+**Catalog-driven, not a fixed-length literal.** Milestone rows come from `autoBadgeThresholds()`,
+the same live, admin-editable threshold source `nextThresholdBadge` read (issue #1094): a stag boot
+(no `GARDEN` catalog row, `scripts/badge-catalog.js`) simply yields two milestone rows instead of
+three, because the catalog query itself never returns a `GARDEN` row to iterate over, not a
+separate variant branch.
+
+**The Completionist counter is the grant check, not a second formula.** `remaining` on the
+Completionist row is `badges.missingActiveTaskCount(guestId)` (`src/services/badges.js`), a new
+export factored out of `isCompletionist` in this same issue: `isCompletionist` is now expressed as
+`missingActiveTaskCount(guestId) === 0` rather than a parallel query, so the counter this row
+shows and the count the grant check counts down to zero can never disagree by construction.
+Challenge tasks stay permanently excluded from both (D2/#624, `tasks.challengeTaskWhere`), carried
+along for free since `missingActiveTaskCount` is `isCompletionist`'s own query, unchanged.
+
+**Points read from the split constants (#1105), never re-typed.** A milestone row's `points` is
+`AUTO_METRIC_BADGE_POINTS`; the Completionist row's is `CLEAN_SWEEP_BADGE_POINTS`, both imported
+from `src/db.js` into `badge-engine.js` and threaded through to the view as plain row fields, so
+`src/views/guest-home.ejs` interpolates a number it never hard-codes, and a future point-value
+change to either constant needs no matching edit here.
+
+**View: the approved v2 shape, real data replacing the phase-1 demonstration values.** The owner
+approved the row markup live on the preview 2026-08-04; the approval was re-persisted over the
+final transcribed bytes at merge time (record hash
+`43935d74ed46ea9a55f40a45bc475e1eda8bc21053ab6cc3cd8f5bf46fca24af`): a 28px badge icon, desaturated,
+one muted line, "N task/tasks to [name] · P point/points," reusing the existing
+`profile-meta-sep` dot rather than inventing a second separator glyph. `src/views/guest-home.ejs`
+carried two phase-1 fakes demonstrating that shape (a hardcoded two-row array, and a `fakeEarned`
+prepend inside My Badges simulating the transfer-on-earn state); this issue removes both and wires
+the section to `upcomingBadges`, skipping it entirely when the list is empty. `src/public/css/
+guest.css`'s `.upcoming-badge-row .badge-medallion` rule is new: the pre-existing rule only sized
+the composed-SVG `.badge-art` shape at 28px, so a bundled-icon badge (the stag variant's own
+milestone art) would have rendered at the base component's 48px, oversized and at full colour,
+reading as earned. The now-orphaned `.badge-item-locked` rule and the `.badge-locked-row` selector
+(the old locked row's own styling) are deleted along with the row they styled; a repo-wide grep
+confirmed neither had any other consumer.
 
 ## Block a guest: enforcement in `attachGuest`, not per-route, and per-row not per-person (#1092)
 
