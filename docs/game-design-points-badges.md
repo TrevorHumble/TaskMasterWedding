@@ -34,10 +34,12 @@ Nine sources pay points. Each entry names the issue that builds it.
 6. **Profile photo.** A guest's profile photo pays +1 for as long as it is set — remove it
    and the point leaves, upload one again and it returns. Derived, not a one-time banked
    award. (Shipped, #409; amended to derived by #716.)
-7. **Automatic badges pay while held.** Every automatic badge pays +1 point for as long as
-   the guest holds it. Shipped (#709, PR #746) — `AUTO_METRIC_BADGE_POINTS` in
-   `src/db.js`, consumed by `recomputeBadges`'s grant calls in
-   `src/services/scoring.js`, with a one-time backfill for any pre-#709 grant.
+7. **Automatic and metric badges pay while held.** Every milestone badge (BLOOM/BOUQUET/GARDEN) pays
+   +1 point for as long as the guest holds it. Shipped (#709, PR #746) —
+   `AUTO_METRIC_BADGE_POINTS` in `src/db.js`, consumed by `recomputeBadges`'s grant calls
+   in `src/services/scoring.js`, with a one-time backfill for any pre-#709 grant. The
+   clean-sweep badge (Completionist) moved off that flat value to its own +3 in the
+   point-system rebalance: `CLEAN_SWEEP_BADGE_POINTS` in `src/db.js` (#1105).
 8. **Task-badge award ranking.** For each task, the host picks and ranks 1 to 5 of that
    task's best photos — the host's choice, never a forced five. Rank 1 pays 5, rank 2 pays
    4, down to rank 5 paying 1; a release of fewer than 5 simply stops paying at whichever
@@ -89,7 +91,8 @@ dies.
   also counts the profile-photo starter task: a guest with a photo and one fewer real
   submission than the threshold still holds that badge, the photo supplying the last
   completion (`scoring.thresholdCompletedCount`, the single owner of that count).
-  Each pays +1 while held (point source 7 above).
+  The three milestone badges each pay +1 while held; Completionist (the clean sweep) pays
+  +3 (point-system rebalance, #1105, see point source 7 above).
 - **Task badges.** Every task has exactly one badge, required at task creation, picked
   from the bundled icon set (#682 + #410). Completing the task does not earn the badge —
   the card copy reads "Best photo wins [badge]," prize framing, not participation framing.
@@ -241,7 +244,7 @@ flowchart LR
   T -- "task add / hide / delete" --> R
   Host -- "delete or block a guest" --> R
 
-  R -- "grant/revoke the stored<br/>auto badges (Bloom 5, Bouquet 10,<br/>Garden 15, Completionist),<br/>each holding +1 point" --> GB
+  R -- "grant/revoke the stored<br/>auto badges (Bloom 5, Bouquet 10,<br/>Garden 15, each +1) and the<br/>metric badge (Completionist, +3)" --> GB
 ```
 
 Why the door exists: auto badges are the ONE thing still stored that a mutation can

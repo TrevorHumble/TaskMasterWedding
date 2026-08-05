@@ -19,10 +19,10 @@ rules doubles into twelve drift chances.
 **Rule (prescribed, not the shipped shape):** point terms are defined once, in one
 registry in `src/services/scoring.js` (the same shape `src/services/badges.js` uses for
 badge registries), and BOTH read paths compose the same term list. A new rule (worth,
-banked bonus, memory day, auto-badge +1, crowd favorite, ranked awards) is one registry
-entry, never a second hand-written copy. If the per-guest and all-guests shapes genuinely
-need different SQL, both shapes live side by side in the term's single entry — never in
-two far-apart functions.
+banked bonus, memory day, milestone-badge +1, clean-sweep +3 (#1105), crowd favorite,
+ranked awards) is one registry entry, never a second hand-written copy. If the
+per-guest and all-guests shapes genuinely need different SQL, both shapes live side by
+side in the term's single entry — never in two far-apart functions.
 
 **What actually shipped:** no such registry exists. `getPoints()` (one guest) sums eight
 JS terms read from separate prepared statements; `leaderboard()` (all guests) computes the

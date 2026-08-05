@@ -129,9 +129,9 @@ describe('AC1: the success card reports the banked amount, and the grand total s
     // scoring.js's COMPLETIONIST metric excludes challenge tasks
     // (tasks.challengeTaskWhere) from its "every active task" set — with NO
     // ordinary task in the DB at all, that set is vacuously empty and the
-    // guest would earn COMPLETIONIST's +1 on this very submission, pushing
-    // the grand total to 23 and breaking this test's own arithmetic. This
-    // decoy keeps the set non-vacuous and unmet.
+    // guest would earn COMPLETIONIST's own +3 (issue #1105: the clean sweep,
+    // not the flat auto/metric +1) on this very submission, breaking this
+    // test's own arithmetic. This decoy keeps the set non-vacuous and unmet.
     insertTask({ title: 'Onday Decoy Ordinary Task', worth: 3 });
     const taskId = insertTask({
       title: 'Onday Success Card Task',

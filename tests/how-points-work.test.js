@@ -60,7 +60,7 @@ function tagsBlockFor(text, title) {
   return match ? match[1] : null;
 }
 
-describe('AC1: the page renders with the title and all five row titles', () => {
+describe('AC1: the page renders with the title and all six row titles', () => {
   test('GET /how-points-work is 200 and contains the title and every row title', async () => {
     resetTables();
     insertGuest('ac1-token');
@@ -77,11 +77,13 @@ describe('AC1: the page renders with the title and all five row titles', () => {
     expect(res.text).toContain('Win the crowd');
     expect(res.text).toContain('Share a memory');
     expect(res.text).toContain('Collect milestone badges');
+    // Issue #1105: the clean sweep now has its own separate row.
+    expect(res.text).toContain('Sweep every task');
   });
 });
 
 describe('AC2: each row shows the correct reward tags', () => {
-  test('the five reward-tag combinations render on their own rows', async () => {
+  test('the six reward-tag combinations render on their own rows', async () => {
     resetTables();
     insertGuest('ac2-token');
 
@@ -111,6 +113,11 @@ describe('AC2: each row shows the correct reward tags', () => {
     const milestoneBadges = tagsBlockFor(res.text, 'Collect milestone badges');
     expect(milestoneBadges).toContain('1 point');
     expect(milestoneBadges).toContain('Badge');
+
+    // Issue #1105: the clean-sweep row's own tags, 3 points and Badge.
+    const sweepEveryTask = tagsBlockFor(res.text, 'Sweep every task');
+    expect(sweepEveryTask).toContain('3 points');
+    expect(sweepEveryTask).toContain('Badge');
   });
 });
 
@@ -126,7 +133,7 @@ describe('AC3: signed-out visitor is gated', () => {
 });
 
 describe('issue #1094 AC7: the milestone sentence is built from the DB thresholds', () => {
-  test('at the seeded default thresholds, the milestone row renders byte-identical to the old hard-coded copy', async () => {
+  test('at the seeded default thresholds, the milestone row renders the trimmed threshold sentence', async () => {
     resetTables();
     insertGuest('1094-default-token');
 
@@ -134,8 +141,10 @@ describe('issue #1094 AC7: the milestone sentence is built from the DB threshold
     const res = await agent.get('/how-points-work');
 
     expect(res.status).toBe(200);
+    // Issue #1105: the milestone sentence no longer names the clean sweep.
+    // That badge now has its own separate "Sweep every task" row.
     expect(res.text).toContain(
-      'Rack up tasks and badges land on their own: First Bloom at 5, Bouquet Builder at 10, Full Garden at 15, Completionist for the clean sweep.'
+      'Rack up tasks and badges land on their own: First Bloom at 5, Bouquet Builder at 10, Full Garden at 15.'
     );
   });
 
@@ -155,7 +164,7 @@ describe('issue #1094 AC7: the milestone sentence is built from the DB threshold
 
       expect(res.status).toBe(200);
       expect(res.text).toContain(
-        'Rack up tasks and badges land on their own: First Bloom at 4, Bouquet Builder at 8, Full Garden at 12, Completionist for the clean sweep.'
+        'Rack up tasks and badges land on their own: First Bloom at 4, Bouquet Builder at 8, Full Garden at 12.'
       );
     } finally {
       scoring.setAutoBadgeThresholds([
@@ -164,6 +173,21 @@ describe('issue #1094 AC7: the milestone sentence is built from the DB threshold
         { code: 'GARDEN', n: 15 },
       ]);
     }
+  });
+});
+
+describe('issue #1105: the "Sweep every task" row names Completionist and its 3 points', () => {
+  test('the row renders "Completionist" (not a hard-typed literal) and 3 points while held', async () => {
+    resetTables();
+    insertGuest('1105-sweep-token');
+
+    const agent = await signedInAgent('1105-sweep-token');
+    const res = await agent.get('/how-points-work');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(
+      'Finish the whole task list and the Completionist badge is yours, with 3 points while you hold it.'
+    );
   });
 });
 

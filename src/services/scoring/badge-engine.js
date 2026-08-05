@@ -10,7 +10,7 @@
 // one-directional (points.js never requires this file back), so no cycle.
 'use strict';
 
-const { db, AUTO_METRIC_BADGE_POINTS } = require('../../db');
+const { db, AUTO_METRIC_BADGE_POINTS, CLEAN_SWEEP_BADGE_POINTS } = require('../../db');
 const { METRIC_BADGES, TRANSFERABLE_BADGES } = require('../badges');
 const { TASK_BADGE_CODE_PREFIX } = require('../task-badges');
 // The recap's single write path (issue #644 plan step 2/3) — notifications.js
@@ -139,7 +139,9 @@ const stmtGuestBadge = db.prepare('SELECT * FROM guest_badges WHERE guest_id = ?
 //
 // `points` (issue #709) is the ONE place a grant decides whether holding
 // this badge is worth anything: the two recomputeBadges branches below pass
-// AUTO_METRIC_BADGE_POINTS for an auto/metric grant, while
+// AUTO_METRIC_BADGE_POINTS for an auto (milestone) grant and
+// CLEAN_SWEEP_BADGE_POINTS for the metric COMPLETIONIST grant (issue #1105
+// split the two apart: the clean sweep pays more), while
 // recomputeTransferableBadges and awardSpecialBadge pass 0 — a transferable
 // or admin-special badge stays a display-only award. Whatever is written
 // here is exactly what stmtAwardPointsSum/leaderboard later sum on read; no
@@ -409,6 +411,14 @@ const recomputeThresholdBadges = db.transaction((guestId, revokeKind = 'badge_re
 const recomputeBadges = db.transaction((guestId) => {
   recomputeThresholdBadges(guestId);
 
+  // METRIC_BADGES (src/services/badges.js) registers exactly one code today,
+  // COMPLETIONIST, the clean-sweep badge, so CLEAN_SWEEP_BADGE_POINTS below
+  // is written unconditionally for every grant this loop makes, not looked
+  // up per-code. If a second metric badge is ever registered, this loop must
+  // switch to a per-code points lookup (mirroring how auto badges could vary
+  // by threshold) rather than assuming every metric grant is the clean
+  // sweep: a second flat constant here would silently mis-pay whichever
+  // metric badge isn't COMPLETIONIST.
   for (const code of Object.keys(METRIC_BADGES)) {
     const badge = stmtBadgeByCode.get(code);
     if (!badge) {
@@ -420,12 +430,14 @@ const recomputeBadges = db.transaction((guestId) => {
     const has = stmtGuestBadge.get(guestId, badge.id);
 
     if (qualifies) {
-      // Same AUTO_METRIC_BADGE_POINTS grant as the auto branch above — a
-      // metric badge (e.g. COMPLETIONIST) is worth +1 for as long as the
-      // guest holds it (issue #709).
+      // CLEAN_SWEEP_BADGE_POINTS (issue #1105), not AUTO_METRIC_BADGE_POINTS:
+      // the clean sweep pays 3 for as long as the guest holds it, a bigger
+      // reward than a milestone badge (BLOOM/BOUQUET/GARDEN, still worth 1
+      // via the auto branch above), since finishing every live task is the
+      // highest-effort badge in the game.
       if (!has) {
         // Flag 0 — see the auto-badge branch above for why this is always 0 here.
-        stmtGrantBadge.run(guestId, badge.id, 'system', AUTO_METRIC_BADGE_POINTS, 0);
+        stmtGrantBadge.run(guestId, badge.id, 'system', CLEAN_SWEEP_BADGE_POINTS, 0);
         notifications.recordEvent(guestId, 'badge_granted', { badgeId: badge.id });
       }
     } else if (has && has.awarded_by === 'system') {

@@ -99,8 +99,9 @@ describe('AC1: guest happy path (sign up -> submit -> see points)', () => {
     const taskId = insertTask(title);
     // A second active task this guest never submits to — without it, this
     // guest's one submission would cover EVERY active task in this file's
-    // fresh temp DB and qualify for COMPLETIONIST (issue #709: +1 while
-    // held), inflating the "1 point" total this test asserts below. Keeping
+    // fresh temp DB and qualify for COMPLETIONIST (issue #1105: the clean
+    // sweep pays +3, not the flat auto/metric +1 issue #709 gave it),
+    // inflating the "1 point" total this test asserts below. Keeping
     // an uncompleted active task around is what makes "1 completed task ==
     // 1 point" unambiguous, matching how AC2/AC3 below already have several
     // other active tasks in play.

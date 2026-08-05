@@ -136,7 +136,8 @@ describe('AC1: arm now, on either path', () => {
     // A decoy, unrelated, incomplete task (issue #763 test hygiene, not part
     // of the acceptance criterion): without one, the guest below would
     // complete 100% of existing tasks with this single submission and pick
-    // up the COMPLETIONIST auto-badge's own +1 award point, inflating the
+    // up the COMPLETIONIST metric badge's own +3 award point (issue #1105:
+    // the clean sweep, not the flat auto/metric +1), inflating the
     // expected total by a source that has nothing to do with flash banking.
     insertTask({ title: 'AC1 Decoy Task' });
 

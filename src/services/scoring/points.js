@@ -295,10 +295,12 @@ function memoryPointsByGuest(timezone) {
 // earning photo is currently VISIBLE. Every row written by stmtGrantBadge
 // (system/admin grants: auto, metric, transferable, special) carries
 // submission_id IS NULL, so the LEFT JOIN's ON clause passes those rows
-// through unconditionally regardless of points — an auto/metric grant
-// contributes AUTO_METRIC_BADGE_POINTS (issue #709, while held) and a
-// transferable/special grant contributes 0, but either way there is no
-// submission to gate on. A task-badge award's row (written by
+// through unconditionally regardless of points — an auto grant contributes
+// AUTO_METRIC_BADGE_POINTS (issue #709, while held), the metric COMPLETIONIST
+// grant contributes CLEAN_SWEEP_BADGE_POINTS instead (issue #1105 split it
+// out of the flat auto/metric value), and a transferable/special grant
+// contributes 0, but either way there is no submission to gate on. A
+// task-badge award's row (written by
 // task-badges.awardTaskBadge, issue #483; never by stmtGrantBadge) DOES
 // carry a submission_id and is counted ONLY while that submission is
 // taken_down = 0 — the same visibility guard stmtPhotoBonusSum applies to
@@ -361,11 +363,14 @@ function getCompletedCount(guestId) {
  *     automatically, no separate bookkeeping).
  *   + badge AWARD points (SUM of guest_badges.points), counted only while
  *     the award's earning photo is visible where one exists (AC6). This
- *     term now covers three shapes: a task-badge judgment amount (issue
- *     #483), AUTO_METRIC_BADGE_POINTS for each auto/metric badge the guest
- *     currently holds (issue #709 — the point derives on read from holding
- *     the badge row, and leaves automatically when recomputeBadges revokes
- *     it), and 0 for a transferable/admin-special grant.
+ *     term now covers four shapes: a task-badge judgment amount (issue
+ *     #483), AUTO_METRIC_BADGE_POINTS for each auto (milestone) badge the
+ *     guest currently holds (issue #709), CLEAN_SWEEP_BADGE_POINTS for the
+ *     COMPLETIONIST metric badge (issue #1105 split this out of the flat
+ *     auto/metric value, since the clean sweep pays more than a milestone
+ *     badge), and 0 for a transferable/admin-special grant. The point
+ *     derives on read from holding the badge row, and leaves automatically
+ *     when recomputeBadges revokes it.
  *   + the DERIVED crowd-favorite term (issue #625, per-guest dedupe #896):
  *     crowdPointsByGuest()'s total for this guest's single BEST liked photo
  *     currently in the placing set (standard-competition rank 1-5 among all
@@ -379,7 +384,8 @@ function getCompletedCount(guestId) {
  * admin-set absolute value, worth is clamped 3-5 by the tasks table's own
  * CHECK constraint, and award points are coerced non-negative at write time
  * (task-badges.awardTaskBadge) or fixed at a known-non-negative constant
- * (AUTO_METRIC_BADGE_POINTS), so total points are always >= 0.
+ * (AUTO_METRIC_BADGE_POINTS or CLEAN_SWEEP_BADGE_POINTS), so total points
+ * are always >= 0.
  * @param {number} guestId
  * @returns {number}
  */

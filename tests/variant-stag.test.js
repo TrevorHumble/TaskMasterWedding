@@ -343,15 +343,28 @@ describe('AC5: stag milestone badges, no GARDEN tier, re-sync survives a reboot'
     expect(row).toBeUndefined();
   });
 
-  it('issue #1094 AC7/AC8: GET /how-points-work names First Round/Second Round/Last Call, no GARDEN mention, no code change needed', async () => {
+  it('issue #1094 AC7/AC8: GET /how-points-work names First Round/Second Round, no GARDEN mention, no code change needed', async () => {
     const agent = signInGuest(app, 'stag-milestone-guest');
     const res = await agent.get('/how-points-work');
 
     expect(res.status).toBe(200);
+    // Issue #1105: the milestone sentence no longer names the clean sweep.
+    // That badge now has its own separate row (checked below).
     expect(res.text).toContain(
-      'Rack up tasks and badges land on their own: First Round at 5, Second Round at 10, Last Call for the clean sweep.'
+      'Rack up tasks and badges land on their own: First Round at 5, Second Round at 10.'
     );
     expect(res.text).not.toContain('Full Garden');
+  });
+
+  it('issue #1105: the "Sweep every task" row names "Last Call" (the stag clean-sweep badge) and its 3 points', async () => {
+    const agent = signInGuest(app, 'stag-milestone-guest');
+    const res = await agent.get('/how-points-work');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Sweep every task');
+    expect(res.text).toContain(
+      'Finish the whole task list and the Last Call badge is yours, with 3 points while you hold it.'
+    );
   });
 
   it('5 completed tasks earns "First Round" as a bare gold icon in the medallion', () => {
