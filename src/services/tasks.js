@@ -83,9 +83,9 @@ const MODE_ONEDAY = 'oneday';
 //     there is no missing <label> to add.
 const MODES = [MODE_NONE, MODE_HIDDEN, MODE_ONEDAY];
 
-const MIN_WORTH = 1;
-const MAX_WORTH = 3;
-const DEFAULT_WORTH = 1;
+const MIN_WORTH = 3;
+const MAX_WORTH = 5;
+const DEFAULT_WORTH = 3;
 
 /**
  * The SQL fragment for "this task is live" — `<alias>.special_mode <>
@@ -1020,7 +1020,7 @@ function normalizeMode(value, fallback) {
  *
  * @param {unknown} raw - the posted worth field.
  * @param {number} fallback - what to return when raw doesn't parse to a
- *   valid 1-3 worth.
+ *   valid 3-5 worth.
  * @returns {number}
  */
 function normalizeWorth(raw, fallback) {

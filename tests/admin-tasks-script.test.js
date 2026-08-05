@@ -217,9 +217,9 @@ function editDialogMarkup() {
     '<input id="task-edit-title-input" />' +
     '<textarea id="task-edit-desc-input"></textarea>' +
     '<div class="worth-field">' +
-    '<label class="worth-chip"><input type="radio" name="worth" value="1" /></label>' +
-    '<label class="worth-chip"><input type="radio" name="worth" value="2" /></label>' +
     '<label class="worth-chip"><input type="radio" name="worth" value="3" /></label>' +
+    '<label class="worth-chip"><input type="radio" name="worth" value="4" /></label>' +
+    '<label class="worth-chip"><input type="radio" name="worth" value="5" /></label>' +
     '</div>' +
     '<div class="special-radio">' +
     '<label class="special-option"><input type="radio" name="special_mode" value="none" /></label>' +
@@ -249,9 +249,9 @@ function createDialogMarkup() {
     '<input id="task-create-title-input" />' +
     '<textarea id="task-create-desc-input"></textarea>' +
     '<div class="worth-field">' +
-    '<label class="worth-chip"><input type="radio" name="worth" value="1" /></label>' +
-    '<label class="worth-chip"><input type="radio" name="worth" value="2" /></label>' +
     '<label class="worth-chip"><input type="radio" name="worth" value="3" /></label>' +
+    '<label class="worth-chip"><input type="radio" name="worth" value="4" /></label>' +
+    '<label class="worth-chip"><input type="radio" name="worth" value="5" /></label>' +
     '</div>' +
     '<div class="special-radio">' +
     '<label class="special-option"><input type="radio" name="special_mode" value="none" checked /></label>' +
@@ -358,10 +358,10 @@ function pageMarkup() {
       specialBonus: 3,
       specialKind: 'daily', // special_date (DAY3) is FUTURE -- sealed
     }) +
-    taskCardMarkup(2, { title: 'Ordinary Task', worth: 1, mode: 'none', specialKind: '' }) +
+    taskCardMarkup(2, { title: 'Ordinary Task', worth: 3, mode: 'none', specialKind: '' }) +
     taskCardMarkup(3, {
       title: 'Stale Dated Task',
-      worth: 1,
+      worth: 3,
       mode: 'oneday',
       specialDate: STALE_DATE,
       specialBonus: 2,
@@ -369,7 +369,7 @@ function pageMarkup() {
     }) +
     taskCardMarkup(4, {
       title: 'Lucky Task',
-      worth: 1,
+      worth: 3,
       mode: 'none',
       luckyDate: DAY2,
       luckyBonus: 2,
@@ -377,7 +377,7 @@ function pageMarkup() {
     }) +
     taskCardMarkup(5, {
       title: 'Hidden Lucky Task',
-      worth: 1,
+      worth: 3,
       mode: 'hidden',
       luckyDate: DAY1,
       luckyBonus: 1,
@@ -385,7 +385,7 @@ function pageMarkup() {
     }) +
     taskCardMarkup(6, {
       title: 'Precedence Task',
-      worth: 1,
+      worth: 3,
       mode: 'oneday',
       specialDate: DAY3, // future -- daily IS spoken for
       specialBonus: 1,
@@ -395,7 +395,7 @@ function pageMarkup() {
     }) +
     taskCardMarkup(7, {
       title: 'Stale Lucky Task',
-      worth: 1,
+      worth: 3,
       mode: 'none',
       luckyDate: STALE_DATE,
       luckyBonus: 2,
@@ -409,7 +409,7 @@ function pageMarkup() {
     // blacklist misses.
     taskCardMarkup(8, {
       title: 'Flashed Task With A Dead Lucky Pick',
-      worth: 1,
+      worth: 3,
       mode: 'none',
       luckyDate: DAY1, // PAST -- lucky no longer owns this row
       luckyBonus: 2,
@@ -423,7 +423,7 @@ function pageMarkup() {
     }) +
     taskCardMarkup(9, {
       title: 'Task Owned By A Future Special Type',
-      worth: 1,
+      worth: 3,
       mode: 'none',
       luckyDate: DAY2,
       luckyBonus: 2,
@@ -436,7 +436,7 @@ function pageMarkup() {
     // flash panel must show, alongside card 8's active state above.
     taskCardMarkup(10, {
       title: 'Scheduled Flash Task',
-      worth: 1,
+      worth: 3,
       mode: 'none',
       specialKind: 'flash', // scheduled IS spoken for, same as active
       flashBonus: 1,
@@ -446,7 +446,7 @@ function pageMarkup() {
     }) +
     taskCardMarkup(11, {
       title: 'Expired Flash Task',
-      worth: 1,
+      worth: 3,
       mode: 'none',
       // An EXPIRED flash is free again as far as whatSpecial() is concerned
       // (issue #763 criterion 1/6) -- nothing presently owns the row, even
@@ -464,7 +464,7 @@ function pageMarkup() {
     // badge chosen" branch).
     taskCardMarkup(12, {
       title: 'Badged Task',
-      worth: 1,
+      worth: 3,
       mode: 'none',
       specialKind: '',
       badgeName: 'Heart',

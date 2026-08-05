@@ -69,11 +69,14 @@ const FETCH_LIMIT = PAGE_SIZE + 1;
 // whether the row is inert ("dead" — no link, greyed thumb), the row copy
 // (`parts`), and where it links (`href`). #644 owns the COMPLETE map so the
 // vocabulary has one author (plan step 1, matching that step's own table);
-// it emits badge_granted/badge_revoked/badge_removed itself, and issue #1060
-// adds a fourth emitted kind, badge_revoked_photo (see that entry below). The
-// four moderation kinds (photo_takedown/photo_restore/comment_hidden/
-// comment_restored) get their MAP entries here but are actually EMITTED by
-// #783's moderation routes (src/routes/admin/moderation.js). #625 adds
+// it emits badge_granted/badge_revoked/badge_removed itself, issue #1060 adds
+// a fourth emitted kind, badge_revoked_photo, and issue #1094 adds a fifth,
+// badge_revoked_threshold, both named on a revoke by badge-engine.js's
+// recomputeThresholdBadges via its revokeKind parameter (see that entry
+// below). The four moderation kinds (photo_takedown/photo_restore/
+// comment_hidden/comment_restored) get their MAP entries here but are
+// actually EMITTED by #783's moderation routes (src/routes/admin/
+// moderation.js). #625 adds
 // crowd_favorite/crowd_favorite_lost as a THIRD emitter of this same map —
 // see scoring.recordCrowdFavoriteChanges, called from the like-toggle route
 // and from photos.js's hideSubmission/restoreSubmission.
@@ -201,6 +204,26 @@ const KIND_VIEW = {
       { text: ' left with your profile photo. Add one back to earn it again.' },
     ],
     href: () => '/me/edit',
+  },
+  // The HOST-PACING threshold revoke (issue #1094: an admin edits the
+  // Configuration page's milestone thresholds, and the recompute that follows
+  // drops a guest's thresholdCompletedCount below the new boundary), kept as
+  // its own stored kind for the same reason badge_removed and
+  // badge_revoked_photo already have one (see the comments above them):
+  // badge_revoked's copy asserts a specific reason (the hosts added a task)
+  // that is false here — the guest did nothing and no task changed; the
+  // hosts simply retuned the badge pacing. `dead: false` and
+  // `href: '/how-points-work'`, where the guest can see the current
+  // thresholds and how they're doing against them, unlike badge_revoked's
+  // `/tasks` link, which names a change that never happened here.
+  badge_revoked_threshold: {
+    view: 'loss',
+    dead: false,
+    parts: (ev) => [
+      { text: ev.badge_name, emphasis: true },
+      { text: ' left your profile. The hosts changed the badge milestones.' },
+    ],
+    href: () => '/how-points-work',
   },
   photo_takedown: {
     view: 'loss',

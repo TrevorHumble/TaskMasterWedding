@@ -94,7 +94,7 @@ describe('AC2: each row shows the correct reward tags', () => {
     expect(mastersFavor).toContain('Badge');
 
     const snapTasks = tagsBlockFor(res.text, 'Snap the tasks');
-    expect(snapTasks).toContain('1&ndash;3 points');
+    expect(snapTasks).toContain('3&ndash;5 points');
     expect(snapTasks).not.toContain('Badge');
 
     const winCrowd = tagsBlockFor(res.text, 'Win the crowd');
@@ -119,6 +119,48 @@ describe('AC3: signed-out visitor is gated', () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/join');
+  });
+});
+
+describe('issue #1094 AC7: the milestone sentence is built from the DB thresholds', () => {
+  test('at the seeded default thresholds, the milestone row renders byte-identical to the old hard-coded copy', async () => {
+    resetTables();
+    insertGuest('1094-default-token');
+
+    const agent = await signedInAgent('1094-default-token');
+    const res = await agent.get('/how-points-work');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(
+      'Rack up tasks and badges land on their own: First Bloom at 5, Bouquet Builder at 10, Full Garden at 15, Completionist for the clean sweep.'
+    );
+  });
+
+  test('a custom threshold set (4/8/12) renders those exact numbers in the milestone sentence', async () => {
+    resetTables();
+    insertGuest('1094-custom-token');
+
+    const scoring = require('../src/services/scoring');
+    scoring.setAutoBadgeThresholds([
+      { code: 'BLOOM', n: 4 },
+      { code: 'BOUQUET', n: 8 },
+      { code: 'GARDEN', n: 12 },
+    ]);
+    try {
+      const agent = await signedInAgent('1094-custom-token');
+      const res = await agent.get('/how-points-work');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain(
+        'Rack up tasks and badges land on their own: First Bloom at 4, Bouquet Builder at 8, Full Garden at 12, Completionist for the clean sweep.'
+      );
+    } finally {
+      scoring.setAutoBadgeThresholds([
+        { code: 'BLOOM', n: 5 },
+        { code: 'BOUQUET', n: 10 },
+        { code: 'GARDEN', n: 15 },
+      ]);
+    }
   });
 });
 

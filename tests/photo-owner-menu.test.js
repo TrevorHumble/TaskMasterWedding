@@ -167,8 +167,10 @@ it('AC3: take-down recomputes the owning guest badges (hideSubmission ran, not a
   const scoring = require('../src/services/scoring');
   const author = await signedInGuest('own-ac3b-author', 'AC3b Author');
 
-  // BLOOM grants at 5 completed (visible, task-linked) submissions
-  // (src/services/scoring.js BADGE_THRESHOLDS). Seed exactly 5 so the guest
+  // BLOOM grants at 5 completed (visible, task-linked) submissions — the
+  // seeded default threshold (src/services/scoring/badge-engine.js's
+  // autoBadgeThresholds(), issue #1094; admin-configurable, but this file
+  // never changes it). Seed exactly 5 so the guest
   // sits right at the threshold, then take one down through the route —
   // completed drops to 4, and BLOOM should be revoked ONLY if the route ran
   // photos.hideSubmission's recompute transaction, not a raw UPDATE (a raw

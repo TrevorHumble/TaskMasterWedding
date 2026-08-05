@@ -121,9 +121,17 @@ beforeAll(() => {
   legacyGuestId = seedDb
     .prepare(`INSERT INTO guests (token, name, created_at) VALUES (?, ?, ?)`)
     .run(legacyGuestToken, 'Legacy Guest', '2026-01-01 00:00:00').lastInsertRowid;
+  // threshold = 5 (issue #1094): the engine now reads an 'auto' badge's
+  // threshold live off this column (WHERE type = 'auto' AND threshold IS
+  // NOT NULL) rather than a hard-coded scoring.js constant, so this file's
+  // later ACs — which cross/uncross the real BLOOM threshold through
+  // submitPhoto/recomputeThresholdBadges to exercise celebration/revoke — need
+  // a real threshold value here, matching the app's own seeded default.
   legacyBadgeId = seedDb
-    .prepare(`INSERT INTO badges (code, name, type, art_path, description) VALUES (?, ?, ?, ?, ?)`)
-    .run('BLOOM', 'placeholder', 'auto', '/placeholder.svg', 'placeholder').lastInsertRowid;
+    .prepare(
+      `INSERT INTO badges (code, name, type, threshold, art_path, description) VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run('BLOOM', 'placeholder', 'auto', 5, '/placeholder.svg', 'placeholder').lastInsertRowid;
   seedDb
     .prepare(
       `INSERT INTO guest_badges (guest_id, badge_id, awarded_by, created_at) VALUES (?, ?, 'system', ?)`

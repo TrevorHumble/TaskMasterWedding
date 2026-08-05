@@ -18,8 +18,8 @@ single-owner_ while doing it.
 
 Nine sources pay points. Each entry names the issue that builds it.
 
-1. **Task completion pays the task's worth.** 1, 2, or 3 points, host-chosen at task
-   creation, printed on the card. (#682, which absorbed #645.)
+1. **Task completion pays the task's worth.** 3, 4, or 5 points, host-chosen at task
+   creation, printed on the card. (#682, which absorbed #645; rescaled by #1103.)
 2. **Daily challenge bonus.** A daily challenge task pays an extra host-chosen 1/2/3 if
    submitted on its own day. (#624 — amends that issue's body, which originally specified
    a fixed +1.)
@@ -77,12 +77,17 @@ dies.
 
 ## How guests earn badges
 
-- **Automatic set.** First Bloom (5 tasks), Bouquet Builder (10), Full Garden (15), and
-  Completionist (every currently active task) are granted and revoked automatically as a
-  guest's submissions and the active task set change — Completionist's revoke-on-task-change
-  behavior is #701. Since #1060, "5/10/15 tasks" also counts the profile-photo starter task:
-  a guest with a photo and 4 real submissions holds First Bloom, the photo supplies the
-  fifth completion (`scoring.thresholdCompletedCount`, the single owner of that count).
+- **Automatic set.** First Bloom, Bouquet Builder, and Full Garden are granted and revoked
+  automatically at completed-task thresholds — 5/10/15 seeded by default, but each is an
+  admin-editable number on the Configuration page (issue #1094), read live from the
+  `badges.threshold` column rather than a fixed constant — plus Completionist (every
+  currently active task), which needs no threshold at all. All four are granted/revoked as a
+  guest's submissions, the active task set, or (for the first three) the configured
+  thresholds change — Completionist's revoke-on-task-change behavior is #701, the threshold
+  badges' revoke-on-retuned-milestone behavior is #1094. Since #1060, a milestone threshold
+  also counts the profile-photo starter task: a guest with a photo and one fewer real
+  submission than the threshold still holds that badge, the photo supplying the last
+  completion (`scoring.thresholdCompletedCount`, the single owner of that count).
   Each pays +1 while held (point source 7 above).
 - **Task badges.** Every task has exactly one badge, required at task creation, picked
   from the bundled icon set (#682 + #410). Completing the task does not earn the badge —
@@ -154,7 +159,7 @@ for the dead placeholders.
 
 ## Rule → issue map
 
-- Task worth 1/2/3: #682 · Daily bonus: #624 · Flash: #649 · Lucky: #650
+- Task worth 3/4/5 (rescaled #1103): #682 · Daily bonus: #624 · Flash: #649 · Lucky: #650
 - Memory +1/day: #656 · Auto-badge +1: shipped, #709 (PR #746) · Gold rule (single-champion
   render, two sibling marks): shipped, #788 (crowd crown) + #811 (task-badge medal); a
   gold-sorts-first display rule beyond those two marks remains unbuilt
@@ -212,7 +217,7 @@ flowchart LR
   Host((Host))
 
   subgraph Stores
-    T[("tasks<br/>title, worth 1-3, mode,<br/>challenge day, badge icon")]
+    T[("tasks<br/>title, worth 3-5, mode,<br/>challenge day, badge icon")]
     S[("submissions<br/>photo, caption, task_id,<br/>taken_down flag,<br/>banked bonus + reason")]
     L[("likes<br/>one row per guest x photo")]
     GB[("guest_badges<br/>badge, guest, points,<br/>rank, earning photo")]

@@ -10,7 +10,9 @@
 //         trailing "Done" section from that view)
 //   AC3 — a done row's completion indicator is the guest's own /thumbs/ photo;
 //         no badge-todo / badge-done pills anywhere
-//   AC4 — to-do rows carry "+1 pt" and no "See photos" anchor
+//   AC4 — ordinary to-do rows carry "+3 pts" (default task worth, #1103),
+//         the starter tile keeps its own "+1 pt", and no row carries a
+//         "See photos" anchor
 //   AC5 — /tasks?view=done lists every done task and no undone titles
 //
 // REQUIRE ORDER: config / db / app are required only AFTER loadApp() sets
@@ -135,7 +137,7 @@ describe('tasks page v2 (#250)', () => {
     expect(res.text).not.toContain('badge-done');
   });
 
-  test('AC4: to-do rows contain "+1 pt" and no "See photos" anchor', async () => {
+  test('AC4: ordinary to-do rows contain "+3 pts" (default worth, issue #1103), the starter tile keeps its own "+1 pt", and no row carries a "See photos" anchor', async () => {
     const res = await signedInTasks();
 
     // Scope to the real task list, after the chip filters. Issue #409's
@@ -153,9 +155,23 @@ describe('tasks page v2 (#250)', () => {
 
     const rows = listHtml.split('task-row task-todo').slice(1);
     expect(rows.length).toBe(TODO_COUNT + 1);
-    for (const row of rows) {
+
+    // The starter tile renders from STARTER_PHOTO_POINT (+1 pt), not any
+    // task's worth — split it out from the 13 seeded ordinary rows, which
+    // take the tasks table's own DEFAULT_WORTH (3, issue #1103's rescale)
+    // since seedField() above never names a worth.
+    const starterRows = rows.filter((row) => row.includes('Upload your profile photo'));
+    const ordinaryRows = rows.filter((row) => !row.includes('Upload your profile photo'));
+    expect(starterRows.length).toBe(1);
+    expect(ordinaryRows.length).toBe(TODO_COUNT);
+
+    const starterMarkup = starterRows[0].slice(0, starterRows[0].indexOf('</li>'));
+    expect(starterMarkup).toContain('+1 pt');
+    expect(starterMarkup).not.toContain('See photos');
+
+    for (const row of ordinaryRows) {
       const rowMarkup = row.slice(0, row.indexOf('</li>'));
-      expect(rowMarkup).toContain('+1 pt');
+      expect(rowMarkup).toContain('+3 pts');
       expect(rowMarkup).not.toContain('See photos');
     }
     // No "See photos" link anywhere on the list page — it lives on the task

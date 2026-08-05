@@ -84,15 +84,16 @@ describe('AC2 & AC3: award points reach the owner; note + submission_id stored; 
     const t2 = makeTask('AC2 filler task 2');
     const t3 = makeTask('AC2 filler task 3');
 
-    // 3 points from 3 completed (visible) tasks, one of which is T itself.
+    // 9 points from 3 completed (visible) tasks (3 pts each, default worth),
+    // one of which is T itself.
     const sub42 = makeSubmission(guestId, taskId);
     makeSubmission(guestId, t2);
     makeSubmission(guestId, t3);
-    expect(scoring.getPoints(guestId)).toBe(3);
+    expect(scoring.getPoints(guestId)).toBe(9);
 
     const badge = taskBadges.awardTaskBadge(taskId, sub42, { points: 5, note: 'The toast shot' });
     expect(badge).toBeTruthy();
-    expect(scoring.getPoints(guestId)).toBe(8);
+    expect(scoring.getPoints(guestId)).toBe(14);
 
     const awardRow = db
       .prepare('SELECT * FROM guest_badges WHERE guest_id = ? AND badge_id = ?')
@@ -103,7 +104,7 @@ describe('AC2 & AC3: award points reach the owner; note + submission_id stored; 
     expect(awardRow.awarded_by).toBe('admin');
 
     taskBadges.removeTaskAward(taskId, sub42);
-    expect(scoring.getPoints(guestId)).toBe(3);
+    expect(scoring.getPoints(guestId)).toBe(9);
     expect(
       db
         .prepare('SELECT * FROM guest_badges WHERE guest_id = ? AND badge_id = ?')
@@ -191,16 +192,16 @@ describe('AC6: award points follow the earning photo visibility', () => {
     const taskId = makeTask('Cake cutting (AC6)');
     const guestId = makeGuest('Guest AC6');
     const sub = makeSubmission(guestId, taskId);
-    expect(scoring.getPoints(guestId)).toBe(1);
+    expect(scoring.getPoints(guestId)).toBe(3);
 
     taskBadges.awardTaskBadge(taskId, sub, { points: 5 });
-    expect(scoring.getPoints(guestId)).toBe(6);
+    expect(scoring.getPoints(guestId)).toBe(8);
 
     db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(sub);
     expect(scoring.getPoints(guestId)).toBe(0); // base point AND award both drop
 
     db.prepare('UPDATE submissions SET taken_down = 0 WHERE id = ?').run(sub);
-    expect(scoring.getPoints(guestId)).toBe(6);
+    expect(scoring.getPoints(guestId)).toBe(8);
   });
 
   it('leaderboard() matches getPoints and does not fan out for a two-photo, one-award guest', () => {
@@ -212,26 +213,27 @@ describe('AC6: award points follow the earning photo visibility', () => {
 
     taskBadges.awardTaskBadge(taskId, subEarning, { points: 5, note: 'nice' });
 
-    // Two completed tasks (2 pts) + one award (5 pts) = 7. If the leaderboard
-    // query joined guest_badges into its submissions-grouped aggregate
-    // instead of using a correlated subquery, this guest's two submissions
-    // would fan the join out 2x and the award sum would double to 10 (or the
-    // photo_bonus/completed sums would double) — 7 exactly rules that out.
-    expect(scoring.getPoints(guestId)).toBe(7);
+    // Two completed tasks (6 pts, 3 each) + one award (5 pts) = 11. If the
+    // leaderboard query joined guest_badges into its submissions-grouped
+    // aggregate instead of using a correlated subquery, this guest's two
+    // submissions would fan the join out 2x and the award sum would double
+    // to 10 (or the photo_bonus/completed sums would double) — 11 exactly
+    // rules that out.
+    expect(scoring.getPoints(guestId)).toBe(11);
     const row = scoring.leaderboard().find((r) => r.id === guestId);
     expect(row).toBeTruthy();
-    expect(row.points).toBe(7);
+    expect(row.points).toBe(11);
     expect(row.completed).toBe(2);
 
     // Taking down the AWARDED photo drops both its base point and the award,
-    // leaving only the other visible photo's base point (1) on both reads.
+    // leaving only the other visible photo's base points (3) on both reads.
     db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(subEarning);
-    expect(scoring.getPoints(guestId)).toBe(1);
+    expect(scoring.getPoints(guestId)).toBe(3);
     const rowAfter = scoring.leaderboard().find((r) => r.id === guestId);
-    expect(rowAfter.points).toBe(1);
+    expect(rowAfter.points).toBe(3);
 
     db.prepare('UPDATE submissions SET taken_down = 0 WHERE id = ?').run(subEarning);
-    expect(scoring.getPoints(guestId)).toBe(7);
+    expect(scoring.getPoints(guestId)).toBe(11);
   });
 });
 

@@ -41,6 +41,7 @@ migrationsTasks.ensureTaskSpecialDayColumns(db);
 migrationsTasks.ensureTaskFlashColumns(db);
 migrationsTasks.ensureTaskLuckyColumns(db);
 migrationsTasks.ensureTaskLiveSinceColumn(db);
+migrationsTasks.ensureTaskWorthRange(db);
 migrationsSubmissions.ensurePhotoBonusColumn(db);
 migrationsBadges.ensureBadgeTypeCheckWidened(db);
 migrationsBadges.ensureBadgeTaskIdColumn(db);
@@ -62,7 +63,12 @@ migrationsSubmissions.ensureTakenDownByColumn(db);
 migrationsGuests.ensureAvatarPointAwardedRetired(db);
 migrationsGuests.ensureRecapCheckedAtColumn(db);
 migrationsGuests.ensureIsCoupleColumn(db);
+migrationsGuests.ensureBlockedColumn(db);
 migrationsOps.ensureBugReportStatusColumn(db);
+// ensureBugReportGuestIdNullable imposes no ordering constraint of its own
+// (see its own comment in migrations-ops.js) -- it runs here, next to the
+// other bug_reports migration, only to keep the two adjacent in this file.
+migrationsOps.ensureBugReportGuestIdNullable(db);
 migrationsOps.ensureSettingsTable(db);
 
 // --- Public API: identical names/shapes to bd70cff's db.js, each a thin ----
@@ -77,6 +83,7 @@ module.exports = {
   ensureTaskFlashColumns: () => migrationsTasks.ensureTaskFlashColumns(db),
   ensureTaskLuckyColumns: () => migrationsTasks.ensureTaskLuckyColumns(db),
   ensureTaskLiveSinceColumn: () => migrationsTasks.ensureTaskLiveSinceColumn(db),
+  ensureTaskWorthRange: () => migrationsTasks.ensureTaskWorthRange(db),
   ensurePhotoBonusColumn: () => migrationsSubmissions.ensurePhotoBonusColumn(db),
   ensureBadgeTypeCheckWidened: () => migrationsBadges.ensureBadgeTypeCheckWidened(db),
   ensureBadgeTaskIdColumn: () => migrationsBadges.ensureBadgeTaskIdColumn(db),
@@ -101,7 +108,9 @@ module.exports = {
   ensureGuestBadgeCelebratedAtColumn: () => migrationsBadges.ensureGuestBadgeCelebratedAtColumn(db),
   ensureRecapCheckedAtColumn: () => migrationsGuests.ensureRecapCheckedAtColumn(db),
   ensureIsCoupleColumn: () => migrationsGuests.ensureIsCoupleColumn(db),
+  ensureBlockedColumn: () => migrationsGuests.ensureBlockedColumn(db),
   ensureBugReportStatusColumn: () => migrationsOps.ensureBugReportStatusColumn(db),
+  ensureBugReportGuestIdNullable: () => migrationsOps.ensureBugReportGuestIdNullable(db),
   openBugCount: () => bugReports.openBugCount(db),
   ensureSettingsTable: () => migrationsOps.ensureSettingsTable(db),
   getEventConfig: () => eventConfig.getEventConfig(db),

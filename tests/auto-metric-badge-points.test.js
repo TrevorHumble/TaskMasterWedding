@@ -24,9 +24,10 @@ function makeGuest(token, name) {
 }
 
 function makeTask(title) {
-  // worth defaults to 1 (tasks CREATE TABLE default), special_mode defaults
-  // to 'none' (active) — exactly what these tests need: N active worth-1
-  // tasks so a guest's worth sum is simply their completed count.
+  // worth defaults to 3 (tasks CREATE TABLE's own DEFAULT_WORTH, issue
+  // #1103's rescale), special_mode defaults to 'none' (active) — exactly
+  // what these tests need: N active worth-3 tasks so a guest's worth sum is
+  // simply 3 * their completed count.
   return db.prepare('INSERT INTO tasks (title) VALUES (?)').run(title).lastInsertRowid;
 }
 
@@ -66,7 +67,7 @@ beforeAll(() => {
   // Seed the real catalog so BLOOM/COMPLETIONIST rows exist with the right
   // `type` for both the grant call sites and the db.js backfill's type join.
   require('../scripts/seed.js');
-  // scripts/seed.js's own sample tasks would make "5 worth-1 active tasks"
+  // scripts/seed.js's own sample tasks would make "5 worth-3 active tasks"
   // ambiguous (COMPLETIONIST would fire early, and worth sums would include
   // tasks these tests never created) — hide them so only this file's own
   // makeTask() calls are active, mirroring badge-engine.test.js's convention.
@@ -81,15 +82,15 @@ describe('AC1: BLOOM grant pays +1 (getPoints and leaderboard agree)', () => {
       submit(guest, task);
     }
 
-    // Before recompute: 5 worth-1 tasks = 5 points, no badge yet.
-    expect(scoring.getPoints(guest)).toBe(5);
+    // Before recompute: 5 worth-3 tasks = 15 points, no badge yet.
+    expect(scoring.getPoints(guest)).toBe(15);
 
     scoring.recomputeBadges(guest);
 
     expect(heldCodes(guest)).toContain('BLOOM');
-    // 5 (worth) + 1 (BLOOM's AUTO_METRIC_BADGE_POINTS) = 6.
-    expect(scoring.getPoints(guest)).toBe(6);
-    expect(leaderboardPointsFor(guest)).toBe(6);
+    // 15 (worth) + 1 (BLOOM's AUTO_METRIC_BADGE_POINTS) = 16.
+    expect(scoring.getPoints(guest)).toBe(16);
+    expect(leaderboardPointsFor(guest)).toBe(16);
   });
 });
 
@@ -103,7 +104,7 @@ describe('AC2: revoking BLOOM on takedown removes the +1 from both totals', () =
     }
     scoring.recomputeBadges(guest);
     expect(heldCodes(guest)).toContain('BLOOM');
-    expect(scoring.getPoints(guest)).toBe(6); // 5 worth + 1 BLOOM
+    expect(scoring.getPoints(guest)).toBe(16); // 15 worth + 1 BLOOM
 
     // Admin takes down one submission — hideSubmission's shared transaction
     // (src/services/photos/moderation.js) recomputes badges as part of the
@@ -111,9 +112,9 @@ describe('AC2: revoking BLOOM on takedown removes the +1 from both totals', () =
     photos.hideSubmission(submissionIds[0]);
 
     expect(heldCodes(guest)).not.toContain('BLOOM');
-    // 4 remaining worth-1 submissions, no BLOOM point.
-    expect(scoring.getPoints(guest)).toBe(4);
-    expect(leaderboardPointsFor(guest)).toBe(4);
+    // 4 remaining worth-3 submissions, no BLOOM point.
+    expect(scoring.getPoints(guest)).toBe(12);
+    expect(leaderboardPointsFor(guest)).toBe(12);
   });
 });
 

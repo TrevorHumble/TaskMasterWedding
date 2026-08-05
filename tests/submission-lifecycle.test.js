@@ -7,8 +7,9 @@
 // routes used to run their own raw UPDATE + a separate recomputeAutoBadges
 // call, pairing the two writes only by convention at each call site.
 //
-// Fixture: one guest with exactly 5 visible submissions (BLOOM threshold —
-// see src/services/scoring.js BADGE_THRESHOLDS) plus one admin-awarded
+// Fixture: one guest with exactly 5 visible submissions (BLOOM's seeded
+// default threshold — src/services/scoring/badge-engine.js's
+// autoBadgeThresholds(), issue #1094) plus one admin-awarded
 // special badge (EARLYBIRD), so a takedown/restore of ONE submission must
 // grant/revoke BLOOM while leaving EARLYBIRD untouched.
 'use strict';

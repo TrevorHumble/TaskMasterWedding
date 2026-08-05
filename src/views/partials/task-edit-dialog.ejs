@@ -39,10 +39,10 @@
     <fieldset class="field worth-field">
       <legend class="field-label">Worth</legend>
       <div class="worth-chips" role="radiogroup" aria-label="Points this task is worth">
-        <% [1, 2, 3].forEach(function (n) { %>
+        <% [3, 4, 5].forEach(function (n) { %>
           <label class="worth-chip">
             <input type="radio" name="worth" value="<%= n %>" />
-            <span class="worth-chip-face"><%= n %> pt<%= n === 1 ? '' : 's' %></span>
+            <span class="worth-chip-face"><%= n %> pts</span>
           </label>
         <% }); %>
       </div>

@@ -94,7 +94,7 @@ async function submitPhoto(agent, taskId, filename) {
 // shown on GET /.
 // ===========================================================================
 describe('AC1: guest happy path (sign up -> submit -> see points)', () => {
-  it('shows 1 point and the completed task title on GET / after one submission', async () => {
+  it('shows 3 points and the completed task title on GET / after one submission', async () => {
     const title = `Happy Path Task ${crypto.randomUUID()}`;
     const taskId = insertTask(title);
     // A second active task this guest never submits to — without it, this
@@ -133,13 +133,13 @@ describe('AC1: guest happy path (sign up -> submit -> see points)', () => {
     // 3. GET / shows the updated points and the completed task.
     const homeRes = await agent.get('/');
     expect(homeRes.status).toBe(200);
-    expect(homeRes.text).toContain('<strong>1</strong> point');
+    expect(homeRes.text).toContain('<strong>3</strong> points');
     expect(homeRes.text).toContain(title);
 
     // Assert authoritative state via the scoring service too, not just the
     // rendered page — this would fail if points/completion were not actually
     // recorded (e.g. if the render showed a stale or hardcoded value).
-    expect(scoring.getPoints(guest.id)).toBe(1);
+    expect(scoring.getPoints(guest.id)).toBe(3);
     expect(scoring.getCompletedCount(guest.id)).toBe(1);
   });
 });

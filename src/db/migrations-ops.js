@@ -94,7 +94,35 @@ function ensureSettingsTable(db) {
   `);
 }
 
+// --- Guarded migration: bug_reports.guest_id nullable (issue #1102) ---
+/**
+ * Drop NOT NULL from bug_reports.guest_id so a bug report filed by someone
+ * who is not signed in (before they ever join, on /join, on /login, or on an
+ * error page reached before joining) can be stored at all.
+ *
+ * Why one ALTER and not the 12-step rebuild: DESIGN.md § "bug_reports.guest_id
+ * dropped NOT NULL in place, not rebuilt (#1102)".
+ *
+ * This migration never mentions `status`, so it carries no ordering
+ * dependency on ensureBugReportStatusColumn(): it cannot throw `no such
+ * column: status` on a pre-#686 database, and running it before or after
+ * that migration in the db.js chain makes no difference. The guard below
+ * exists for clarity and an early exit on an already-migrated database, not
+ * because the ALTER is unsafe to repeat. It is exported so tests bind to
+ * this real guard rather than an inline copy.
+ */
+function ensureBugReportGuestIdNullable(db) {
+  const cols = db.prepare(`PRAGMA table_info(bug_reports)`).all();
+  const guestIdCol = cols.find((col) => col.name === 'guest_id');
+  if (!guestIdCol || guestIdCol.notnull === 0) {
+    // No bug_reports table yet, or guest_id is already nullable -- nothing to do.
+    return;
+  }
+  db.exec(`ALTER TABLE bug_reports ALTER COLUMN guest_id DROP NOT NULL`);
+}
+
 module.exports = {
   ensureBugReportStatusColumn,
   ensureSettingsTable,
+  ensureBugReportGuestIdNullable,
 };

@@ -17,7 +17,8 @@ const { isFirstPlaceRank } = require('../task-badges');
 
 // Every badge a guest currently holds, joined to the badge catalog so callers
 // get the display fields directly. Auto badges come first (ordered by their
-// threshold 5 -> 10 -> 15), then special badges by code. gb.points is the
+// threshold ascending — 5 -> 10 -> 15 at the seeded defaults, admin-
+// configurable since issue #1094), then special badges by code. gb.points is the
 // guest's AWARD points for that specific badge: AUTO_METRIC_BADGE_POINTS for
 // an auto/metric grant (issue #709 — held for as long as the guest holds the
 // badge), 0 for a transferable/admin-special grant, or a task-badge judgment
@@ -129,7 +130,9 @@ const UNRANKED_BADGE_TYPE_RANK = Number.MAX_SAFE_INTEGER;
  * Pure comparator ordering two badge-shaped objects ({ type, threshold, code })
  * by celebration priority: type rank ascending, then threshold descending (a
  * higher completed-task threshold is the more impressive badge — 15 beats 10
- * beats 5), then code ascending as a deterministic tiebreak so two badges
+ * beats 5 at the seeded defaults; the actual numbers are admin-configurable,
+ * issue #1094, but a higher threshold stays the more impressive badge either
+ * way), then code ascending as a deterministic tiebreak so two badges
  * identical on the first two keys never fall back to array order. Exported
  * (AC3) because badges.type's CHECK constraint makes the unlisted-type branch
  * unreachable through the database — a synthetic row passed straight to this

@@ -70,7 +70,7 @@ const {
 // ---------------------------------------------------------------------------
 const taskCount = db.prepare(`SELECT COUNT(*) AS n FROM tasks`).get().n;
 // No worth/special_mode named here (issue #727) — the tasks table's own
-// defaults (worth 1, special_mode 'none') apply, same as the retired
+// defaults (worth 3, special_mode 'none') apply, same as the retired
 // is_active column's DEFAULT 1 did before it.
 const insertTask = db.prepare(`
   INSERT INTO tasks (title, description, sort_order)

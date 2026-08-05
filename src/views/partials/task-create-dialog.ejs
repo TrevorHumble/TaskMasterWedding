@@ -1,6 +1,6 @@
 <%# src/views/partials/task-create-dialog.ejs
     Issue #682: the step-through create flow. Three steps in one <dialog>:
-      Step 1 — title, description, worth (1/2/3 chips).
+      Step 1 — title, description, worth (3/4/5 chips).
       Step 2 — Special (None / Hidden). Set here so a task meant to be Hidden is
                never briefly revealed to guests between create and a later edit.
       Step 3 — badge, REQUIRED (opens the shared #410 badge picker).
@@ -39,10 +39,10 @@
       <fieldset class="field worth-field">
         <legend class="field-label">Worth</legend>
         <div class="worth-chips" role="radiogroup" aria-label="Points this task is worth">
-          <% [1, 2, 3].forEach(function (n) { %>
+          <% [3, 4, 5].forEach(function (n) { %>
             <label class="worth-chip">
-              <input type="radio" name="worth" value="<%= n %>" <%= n === 1 ? 'checked' : '' %> />
-              <span class="worth-chip-face"><%= n %> pt<%= n === 1 ? '' : 's' %></span>
+              <input type="radio" name="worth" value="<%= n %>" <%= n === 3 ? 'checked' : '' %> />
+              <span class="worth-chip-face"><%= n %> pts</span>
             </label>
           <% }); %>
         </div>

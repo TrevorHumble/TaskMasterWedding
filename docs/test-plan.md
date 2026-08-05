@@ -125,6 +125,8 @@ Guests get instant rewards, see badges and standings, and stay active in the cel
 
 ### B2. Auto badges unlock at the right thresholds
 
+Note (issue #1094): BLOOM/BOUQUET/GARDEN's thresholds are admin-configurable on the Configuration page (`badges.threshold`, seeded 5/10/15 by default) — the steps below describe the seeded defaults; if the hosts have retuned them, substitute the currently configured numbers.
+
 Steps: Pick a guest with **no profile photo set** and fewer than 5 completed tasks (a guest with a photo already holds one extra completion toward the threshold, see the note below), complete tasks one at a time (or use a guest token already near a threshold from the seed data) until you cross 5 completed tasks, watching the home page badges section after each submission.
 
 Expected: The **BLOOM** badge appears exactly when the 5th task is completed, not before. If you continue to 10 and 15, **BOUQUET** unlocks at 10 and **GARDEN** unlocks at 15. Badges never appear early.
@@ -259,7 +261,7 @@ The couple and planners can steer tasks, set prizes and points, and moderate con
 
 ### C1. Create, edit, delete a task
 
-Steps: In the admin window, go to `/admin/tasks` and open "New task." Step 1 of the create wizard: fill in a title, an optional description, and pick a Worth (1/2/3 pts), then tap Next. Step 2: leave Special as "None," then tap Next. Step 3: tap "Choose badge" and pick any badge from the picker.
+Steps: In the admin window, go to `/admin/tasks` and open "New task." Step 1 of the create wizard: fill in a title, an optional description, and pick a Worth (3/4/5 pts), then tap Next. Step 2: leave Special as "None," then tap Next. Step 3: tap "Choose badge" and pick any badge from the picker.
 
 Expected: Once a badge is chosen, the "Create task" button (previously disabled) becomes tappable — a task cannot be created without picking a badge. Tap it.
 

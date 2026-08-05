@@ -5,7 +5,10 @@
 // This module holds exactly the ENGINE-COMPUTED badges — the ones whose
 // holder set is derived from live data rather than hand-awarded by the
 // admin. It does NOT include the 'auto' threshold badges (BLOOM/BOUQUET/
-// GARDEN); those keep their own threshold logic in scoring.js unchanged.
+// GARDEN); those keep their own threshold logic in scoring/badge-engine.js,
+// whose thresholds live in the badges.threshold column and are admin-
+// configurable from the Configuration page (issue #1094), not a hard-coded
+// constant.
 //
 // Two registry shapes, one per badge kind (see the issue's implementation
 // plan step 2):

@@ -179,10 +179,10 @@ describe('AC-A: POST /admin/tasks — badge required, persists worth/special_mod
     expect(db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n).toBe(before);
   });
 
-  it('title + worth 2 + Special None + badge "Golden Moment" yields exactly that task', async () => {
+  it('title + worth 4 + Special None + badge "Golden Moment" yields exactly that task', async () => {
     await adminAgent.post('/admin/tasks').type('form').send({
       title: 'Photo with the couple',
-      worth: 2,
+      worth: 4,
       special_mode: 'none',
       badge_icon: 'diamond',
       badge_name: 'Golden Moment',
@@ -190,7 +190,7 @@ describe('AC-A: POST /admin/tasks — badge required, persists worth/special_mod
 
     const task = db.prepare('SELECT * FROM tasks WHERE title = ?').get('Photo with the couple');
     expect(task).toBeDefined();
-    expect(task.worth).toBe(2);
+    expect(task.worth).toBe(4);
     expect(task.special_mode).toBe('none');
 
     const badge = db.prepare('SELECT * FROM badges WHERE task_id = ?').get(task.id);
@@ -277,7 +277,7 @@ describe('AC-A: POST /admin/tasks — badge required, persists worth/special_mod
     });
 
     const task = db.prepare('SELECT * FROM tasks WHERE title = ?').get('Fallback Worth Task');
-    expect(task.worth).toBe(1);
+    expect(task.worth).toBe(3); // DEFAULT_WORTH, issue #1103's rescale
     expect(task.special_mode).toBe('none');
   });
 });
@@ -286,12 +286,12 @@ describe('AC-B: POST /admin/tasks/:id/edit — single save persists worth/badge/
   it('saves title, description, worth, badge, and special_mode together in one submit', async () => {
     const id = db
       .prepare('INSERT INTO tasks (title, worth) VALUES (?, ?)')
-      .run('AC-B Original Title', 1).lastInsertRowid;
+      .run('AC-B Original Title', 3).lastInsertRowid;
 
     await adminAgent.post(`/admin/tasks/${id}/edit`).type('form').send({
       title: 'AC-B New Title',
       description: 'AC-B new description',
-      worth: 3,
+      worth: 5,
       special_mode: 'none',
       badge_icon: 'trophy',
       badge_name: 'Champion',
@@ -300,7 +300,7 @@ describe('AC-B: POST /admin/tasks/:id/edit — single save persists worth/badge/
     const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
     expect(task.title).toBe('AC-B New Title');
     expect(task.description).toBe('AC-B new description');
-    expect(task.worth).toBe(3);
+    expect(task.worth).toBe(5);
     expect(task.special_mode).toBe('none');
 
     const badge = db.prepare('SELECT * FROM badges WHERE task_id = ?').get(id);
@@ -345,7 +345,7 @@ describe('AC-B: POST /admin/tasks/:id/edit — single save persists worth/badge/
   it('a partial submit (title/description only, no worth/badge/mode) leaves worth, mode, and badge unchanged', async () => {
     const id = db
       .prepare('INSERT INTO tasks (title, worth, special_mode) VALUES (?, ?, ?)')
-      .run('AC-B Partial Before', 3, 'hidden').lastInsertRowid;
+      .run('AC-B Partial Before', 5, 'hidden').lastInsertRowid;
     // A task's badges row is created LAZILY (task-badges.js resolveTaskBadge,
     // issue #483) the first time it's asked for — a direct db insert above
     // never triggers that, so seed it the same way GET /admin/tasks would.
@@ -359,7 +359,7 @@ describe('AC-B: POST /admin/tasks/:id/edit — single save persists worth/badge/
 
     const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
     expect(task.title).toBe('AC-B Partial After');
-    expect(task.worth).toBe(3);
+    expect(task.worth).toBe(5);
     expect(task.special_mode).toBe('hidden');
     const badgeAfter = db.prepare('SELECT * FROM badges WHERE task_id = ?').get(id);
     expect(badgeAfter.name).toBe(badgeBefore.name);
@@ -369,7 +369,7 @@ describe('AC-B: POST /admin/tasks/:id/edit — single save persists worth/badge/
   it('an unrecognized badge_icon refuses the WHOLE edit — title/worth/mode are left unchanged too', async () => {
     const id = db
       .prepare('INSERT INTO tasks (title, worth, special_mode) VALUES (?, ?, ?)')
-      .run('AC-B Reject Before', 2, 'none').lastInsertRowid;
+      .run('AC-B Reject Before', 4, 'none').lastInsertRowid;
 
     const res = await adminAgent.post(`/admin/tasks/${id}/edit`).type('form').send({
       title: 'AC-B Reject Attempted',
@@ -381,7 +381,7 @@ describe('AC-B: POST /admin/tasks/:id/edit — single save persists worth/badge/
     expect(res.headers.location).toContain(encodeURIComponent('not recognized'));
     const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
     expect(task.title).toBe('AC-B Reject Before');
-    expect(task.worth).toBe(2);
+    expect(task.worth).toBe(4);
     expect(task.special_mode).toBe('none');
   });
 });
@@ -420,7 +420,7 @@ describe('Atomic task+badge write (review fix, issue #682)', () => {
   it('edit: if setTaskBadge throws mid-write, the title/worth/mode UPDATE is also rolled back', async () => {
     const id = db
       .prepare('INSERT INTO tasks (title, worth, special_mode) VALUES (?, ?, ?)')
-      .run('Atomic Edit Before', 1, 'none').lastInsertRowid;
+      .run('Atomic Edit Before', 3, 'none').lastInsertRowid;
     const setBadgeSpy = vi.spyOn(taskBadges, 'setTaskBadge').mockImplementationOnce(() => {
       throw new Error('boom — simulated setTaskBadge failure');
     });
@@ -428,7 +428,7 @@ describe('Atomic task+badge write (review fix, issue #682)', () => {
     try {
       const res = await adminAgent.post(`/admin/tasks/${id}/edit`).type('form').send({
         title: 'Atomic Edit Attempted',
-        worth: 3,
+        worth: 5,
         special_mode: 'hidden',
         badge_icon: 'favorite',
         badge_name: 'Atomic Badge',
@@ -439,7 +439,7 @@ describe('Atomic task+badge write (review fix, issue #682)', () => {
       // still exactly what they were before this POST.
       const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
       expect(task.title).toBe('Atomic Edit Before');
-      expect(task.worth).toBe(1);
+      expect(task.worth).toBe(3);
       expect(task.special_mode).toBe('none');
     } finally {
       setBadgeSpy.mockRestore();
@@ -544,14 +544,16 @@ describe('AC-C: POST /admin/tasks/reorder-all — persists a full drag-reordered
 });
 
 describe("AC-D: GET /admin/tasks renders each card's REAL worth, not a faked value", () => {
-  it('a worth-3 task renders "+3 pts" on the admin card', async () => {
-    db.prepare('INSERT INTO tasks (title, worth) VALUES (?, ?)').run('AC-D Worth-3 Task', 3);
+  it('a worth-5 task renders "+5 pts" on the admin card', async () => {
+    // Seed 5, not 3: 3 is also DEFAULT_WORTH, so a card that ignored the row
+    // and rendered the default would still show "+3 pts" and pass.
+    db.prepare('INSERT INTO tasks (title, worth) VALUES (?, ?)').run('AC-D Worth-5 Task', 5);
 
     const res = await adminAgent.get('/admin/tasks');
-    const titleIdx = res.text.indexOf('AC-D Worth-3 Task');
+    const titleIdx = res.text.indexOf('AC-D Worth-5 Task');
     expect(titleIdx).toBeGreaterThan(-1);
     const pointsIdx = res.text.indexOf('task-points">', titleIdx);
     expect(pointsIdx).toBeGreaterThan(-1);
-    expect(res.text.slice(pointsIdx, pointsIdx + 40)).toContain('+3 pt');
+    expect(res.text.slice(pointsIdx, pointsIdx + 40)).toContain('+5 pt');
   });
 });

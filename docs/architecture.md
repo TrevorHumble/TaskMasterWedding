@@ -67,7 +67,7 @@ erDiagram
     submissions ||--o{ likes : "liked by"
     guests ||--o{ comments : "comments"
     submissions ||--o{ comments : "commented on"
-    guests ||--o{ bug_reports : "files"
+    guests ||--o{ bug_reports : "files (guest_id nullable, a signed-out reporter, #1102)"
     submissions ||--o{ admin_favorites : "favorited as"
     guests ||--o{ notification_events : "notified"
     submissions ||--o{ notification_events : "about (nullable)"
@@ -93,7 +93,7 @@ erDiagram
         text title
         text description
         int sort_order
-        int worth "host-chosen 1-3, points a completed task pays (#727); replaced the old is_active flag as the task's stored value"
+        int worth "host-chosen 3-5, points a completed task pays (#727, rescaled #1103); replaced the old is_active flag as the task's stored value"
         text special_mode "none | hidden | oneday - sole owner of task liveness (hidden = off)"
         text special_date "one-day-only challenge date YYYY-MM-DD; paired with special_bonus (#753)"
         int special_bonus "1-3, one-day-only on-day bonus; NULL iff special_date is NULL"
@@ -201,7 +201,7 @@ UNIQUE constraints:
 1. A signed-in guest opens a task at `GET /tasks/:id`. The `attachGuest` middleware has already read the signed `gsid` cookie and loaded the guest onto `res.locals`; `requireGuest` confirms a guest is present.
 2. The guest submits the form to `POST /tasks/:id/submit` as `multipart/form-data`. `guest.js` hands the upload to `services/photos/intake.js`: multer's disk storage writes the original to `data/uploads/` as-is, under a random filename. A HEIC/HEIF photo (sniffed by file signature, not declared mimetype) is converted to JPEG separately at intake, in a worker thread — sharp itself never touches the original; it only builds the thumbnail (`makeThumb`, width `THUMB_WIDTH`, honoring EXIF rotation) written to `data/thumbs/`.
 3. A `submissions` row is inserted with the guest id, task id, photo and thumb paths, and any caption. The `UNIQUE(guest_id, task_id)` constraint prevents a second submission for the same task.
-4. `services/scoring.js` recomputes the guest's threshold count (`thresholdCompletedCount`: non-taken-down task-linked submissions plus the profile-photo starter task, issue #1060). If the count crossed a `BADGE_THRESHOLDS` boundary (5 / 10 / 15), the matching auto badge is recorded in `guest_badges` with `awarded_by = 'system'`; `UNIQUE(guest_id, badge_id)` makes this safe to repeat.
+4. `services/scoring.js` recomputes the guest's threshold count (`thresholdCompletedCount`: non-taken-down task-linked submissions plus the profile-photo starter task, issue #1060). If the count crossed an auto badge's threshold — read live from that badge's own `badges.threshold` column (5 / 10 / 15 seeded by default, admin-editable on the Configuration page, issue #1094) — the matching auto badge is recorded in `guest_badges` with `awarded_by = 'system'`; `UNIQUE(guest_id, badge_id)` makes this safe to repeat.
 5. The guest is redirected back, the photo now counts toward the task's point worth (host-set per `docs/game-design-points-badges.md`), appears in `/gallery`, on the guest's profile, and affects the leaderboard.
 
 If the admin later takes the photo down, the row's `taken_down` flips to 1: the photo drops out of the gallery, profiles, and scoring, and can be restored later. The takedown is sticky (issue #190): if the guest resubmits the same task while it is still taken down, the photo is replaced in place but `taken_down` stays 1 — a resubmit no longer un-hides it — and `resubmitted` flips to 1 so `/admin/photos` flags a decision waiting. Restoring the submission clears both `taken_down` and `resubmitted`.
@@ -224,4 +224,4 @@ This is how scoring and badges used to work, before the settled design in `docs/
 - **`submissions.photo_bonus`** — landed (#684, closed): the admin per-photo route (`POST /admin/photos/:id/points`) is retired, registered to `renderNotFound` so a stale bookmark 404s instead of falling through. The column itself is kept (dropping it would be a table rebuild for no behavioral gain) and its value still counts in `scoring.getPoints()`/`leaderboard()` as a remnant term for any value a pre-#684 admin already set — but nothing can write a new one.
 - **`badges.type` collision codes `SHUTTERBUG`, `CROWDFAV`, `CHOICE`** — landed (#661, closed): these three catalog rows collided in name only with the old give-a-badge photo-winner picker (a separate `badge_winners` table, unrelated to `guest_badges`). Issue #661's one-badge-system consolidation deleted the picker, its table, and these three collision rows outright (`ensureSpecialBadgeCollisionsRemoved`, `ensureBadgeWinnersTableDropped`). `badges.type` values `special` and `metric` did **not** die with #661 — they remain live catalog kinds: `special` is still the admin hand-award type (EARLYBIRD is the current seeded example; `POST /admin/guests/:id/badge`), and `metric` still drives COMPLETIONIST (computed by `src/services/badges.js`'s `isCompletionist`). `transferable` also remains live, now backing TOPLIKED ("Crowd Favorite").
 - **`guests.bonus_points`** — **still open, pending an owner decision (#683)**: a freeform point total an admin can add to or subtract from a guest directly, with no task, photo, or reason attached (`POST /admin/guests/:id/points`, `scoring.addBonusPoints`). Unlike the two items above, this one has not landed — the route is still live and the value still counts in `getPoints()`/`leaderboard()`. Do not resolve or build against an assumption about its outcome; #683 is deliberately left open for the owner to decide.
-- **The flat "+1 point per task" model** — retired (#727 and the game-design settlement): every task now pays its host-chosen 1–3 point `worth`, plus up to eight further point sources (daily/flash/lucky bonus, memory-of-the-day, profile-photo starter, held-badge points, ranked task-badge awards, crowd-favorite rank) — see `docs/game-design-points-badges.md` for the full list and `scoring.getPoints()`/`scoring.leaderboard()` for the implementation.
+- **The flat "+1 point per task" model** — retired (#727 and the game-design settlement): every task now pays its host-chosen 3-5 point `worth`, plus up to eight further point sources (daily/flash/lucky bonus, memory-of-the-day, profile-photo starter, held-badge points, ranked task-badge awards, crowd-favorite rank) — see `docs/game-design-points-badges.md` for the full list and `scoring.getPoints()`/`scoring.leaderboard()` for the implementation.

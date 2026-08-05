@@ -167,7 +167,9 @@ describe('AC1: the one-day-only migration widens a real post-#727 database', () 
     expect(row.title).toBe('Pre-753 Live Task');
     expect(row.description).toBe('has a real description');
     expect(row.sort_order).toBe(7);
-    expect(row.worth).toBe(2);
+    // Seeded worth 2 under the pre-#1103 CHECK, rescaled to 4 by
+    // ensureTaskWorthRange (issue #1103) later in the same boot chain.
+    expect(row.worth).toBe(4);
     expect(row.special_mode).toBe('none');
     expect(row.created_at).toBeTruthy();
     // Neither existed before this migration — both are NULL for a
@@ -181,7 +183,9 @@ describe('AC1: the one-day-only migration widens a real post-#727 database', () 
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(hiddenTaskId);
     expect(row.title).toBe('Pre-753 Hidden Task');
     expect(row.sort_order).toBe(9);
-    expect(row.worth).toBe(3);
+    // Seeded worth 3 under the pre-#1103 CHECK, rescaled to 5 by
+    // ensureTaskWorthRange (issue #1103) later in the same boot chain.
+    expect(row.worth).toBe(5);
     expect(row.special_mode).toBe('hidden');
     expect(row.special_date).toBeNull();
   });
@@ -192,7 +196,7 @@ describe('AC1: the one-day-only migration widens a real post-#727 database', () 
         `INSERT INTO tasks (title, worth, special_mode, special_date, special_bonus)
          VALUES (?, ?, 'oneday', ?, ?)`
       )
-      .run('New One-Day Task', 1, '2026-08-08', 2);
+      .run('New One-Day Task', 3, '2026-08-08', 2);
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(info.lastInsertRowid);
     expect(row.special_mode).toBe('oneday');
     expect(row.special_date).toBe('2026-08-08');

@@ -52,12 +52,13 @@ beforeAll(() => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gpp-badge-cascade-test-'));
   const dbPath = path.join(dir, 'test.db');
 
-  // Lay down guests/tasks/badges/submissions with their CURRENT (already
-  // up-to-date) shape — none of those tables are under test here, and
-  // db.js's module-load code prepares statements against every column they
-  // carry today, so a trimmed-down stand-in for any of them throws "no such
-  // column" before the guest_badges migration under test even runs. Only
-  // guest_badges below is deliberately the OLD pre-#713 shape.
+  // Lay down guests/tasks/badges/submissions with every column db.js's
+  // module-load code prepares statements against, so a trimmed-down stand-in
+  // for any of them doesn't throw "no such column" before the guest_badges
+  // migration under test even runs. The tasks stand-in deliberately keeps the
+  // pre-#1103 shape (worth DEFAULT 1, CHECK 1-3) so the boot path's
+  // ensureTaskWorthRange rebuild is exercised against it. guest_badges below
+  // is deliberately the OLD pre-#713 shape.
   const seedDb = new Database(dbPath);
   seedDb.pragma('foreign_keys = OFF');
   seedDb.exec(`

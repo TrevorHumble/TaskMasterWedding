@@ -29,7 +29,7 @@ function applySchema(db) {
     title          TEXT    NOT NULL,
     description    TEXT    NOT NULL DEFAULT '',
     sort_order     INTEGER NOT NULL DEFAULT 0,
-    worth          INTEGER NOT NULL DEFAULT 1 CHECK (worth BETWEEN 1 AND 3),
+    worth          INTEGER NOT NULL DEFAULT 3 CHECK (worth BETWEEN 3 AND 5),
     special_mode   TEXT    NOT NULL DEFAULT 'none' CHECK (special_mode IN ('none','hidden','oneday')),
     -- One-day-only challenge fields (issue #753). special_date (YYYY-MM-DD,
     -- NULL = ordinary task) is the AUTHORITATIVE "this task is a challenge"
@@ -165,7 +165,13 @@ function applySchema(db) {
 
   CREATE TABLE IF NOT EXISTS bug_reports (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    guest_id    INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+    -- guest_id is nullable (issue #1102): a bug can be filed by someone who
+    -- hits a wall before they ever join (on /join, on /login, or on an error
+    -- page reached before joining), and that report must still land in the
+    -- host's queue rather than being impossible to insert. The FK and its
+    -- cascade are unchanged -- a guestless report has nothing to cascade from,
+    -- and a guest-attributed one is still deleted when that guest is.
+    guest_id    INTEGER REFERENCES guests(id) ON DELETE CASCADE,
     body        TEXT    NOT NULL,
     page        TEXT,
     user_agent  TEXT,
@@ -230,21 +236,26 @@ function applySchema(db) {
   -- are NOT stored here — they are DERIVED live by src/services/notifications.js
   -- from the likes/comments tables themselves, the same "derive over store"
   -- rule the rest of the scoring economy follows (economy-architecture.md
-  -- Rule 4). kind is the eight-value STORED vocabulary
-  -- (badge_granted/badge_revoked/badge_removed/badge_revoked_photo/
-  -- photo_takedown/photo_restore/comment_hidden/comment_restored),
-  -- deliberately NOT the view-treatment
-  -- vocabulary (announce/gold/photo/badge/loss) notifications.js maps it to;
-  -- the two must never share a name (see that module's KIND_VIEW map).
+  -- Rule 4). kind is the STORED vocabulary — see
+  -- src/services/notifications.js's KIND_VIEW map for the current complete
+  -- list and each kind's per-row treatment; that map, not a count restated
+  -- here, is the single source of truth for both the list and its size,
+  -- since a restated count only goes stale the next time a kind is added (as
+  -- this comment's own former "eight-value" claim already had, silently
+  -- omitting crowd_favorite/crowd_favorite_lost). kind is deliberately NOT
+  -- the view-treatment vocabulary (announce/gold/photo/badge/loss)
+  -- notifications.js maps it to; the two must never share a name.
   -- badge_revoked is the engine revoking a badge the guest no longer
-  -- qualifies for; badge_removed is a host un-awarding one by hand; and
+  -- qualifies for; badge_removed is a host un-awarding one by hand;
   -- badge_revoked_photo (issue #1060) is the same engine revoking a
   -- threshold badge specifically because the guest removed their own profile
-  -- photo, so the recap can name the photo instead of the generic reason.
-  -- The three revoke/remove kinds read differently to the guest, so they
-  -- stay separate. Only the three original badge_* kinds were emitted by
-  -- issue #644; #1060 adds the fourth, badge_revoked_photo. #783 owns the
-  -- moderation emitters, which DO belong here (a moderation action, like a
+  -- photo; badge_revoked_threshold (issue #1094) is the same engine revoking
+  -- a threshold badge because the hosts changed the milestone thresholds on
+  -- the Configuration page. The four revoke/remove kinds read differently to
+  -- the guest, so they stay separate. #644 emitted the first three badge_*
+  -- kinds; #1060 added badge_revoked_photo; #1094 added
+  -- badge_revoked_threshold. #783 owns the moderation emitters, which DO
+  -- belong here (a moderation action, like a
   -- badge grant/revoke, is a fact about one specific guest with no other
   -- place to reconstruct it from). #778 (host announcements — a task going
   -- live, a challenge unsealing, a flash window opening) does NOT add a row

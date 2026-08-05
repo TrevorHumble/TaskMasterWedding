@@ -537,6 +537,18 @@
 .form-row {
   margin-bottom: var(--space-5);
 }
+/* A row whose control is the first half of a stacked action pair, so it sits
+   tight against the submit button below it instead of a full field gap
+   (issue #1091). The 16px gap has a single owner here: this row's own
+   margin-bottom, not a sum of this margin plus the generic field-caption
+   margin below. The picker label inside this row is a full-width button, not
+   a field caption, so its caption margin is zeroed right below. */
+.form-row--tight {
+  margin-bottom: var(--space-4);
+}
+.form-row--tight .upload-field label.btn {
+  margin-bottom: 0;
+}
 label,
 .form-label {
   display: block;

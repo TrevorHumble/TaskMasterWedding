@@ -301,9 +301,9 @@ describe('#682 edit-route recompute parity: POST /admin/tasks/:id/edit', () => {
       await adminAgent
         .post(`/admin/tasks/${taskA}/edit`)
         .type('form')
-        .send({ title: 'Edit Worth-Only Task', worth: 3, special_mode: 'none' });
+        .send({ title: 'Edit Worth-Only Task', worth: 5, special_mode: 'none' });
 
-      expect(db.prepare('SELECT worth FROM tasks WHERE id = ?').get(taskA).worth).toBe(3);
+      expect(db.prepare('SELECT worth FROM tasks WHERE id = ?').get(taskA).worth).toBe(5);
       expect(recomputeSpy).not.toHaveBeenCalled();
       // The (unrecomputed) badge state is naturally still correct — nothing
       // moved the active-task set, so there was nothing to recompute away.

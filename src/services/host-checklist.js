@@ -491,7 +491,7 @@ function buildRows(now = new Date()) {
       kind: 'auto',
       state: 'done',
       label: 'Tasks are live',
-      sub: `${activeTaskCount} task${activeTaskCount === 1 ? '' : 's'}, worth 1 to 3 points each`,
+      sub: `${activeTaskCount} task${activeTaskCount === 1 ? '' : 's'}, worth 3 to 5 points each`,
     });
   }
   const guestCount = db.prepare('SELECT COUNT(*) AS n FROM guests').get().n;

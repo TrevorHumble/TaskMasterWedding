@@ -122,7 +122,7 @@ function extractBadgeDialog(html) {
 // ---------------------------------------------------------------------------
 // AC1
 // ---------------------------------------------------------------------------
-it('AC1: a completion earning NO new badge shows "Task complete!" / "+1 point" / "5 points", and no badge-dialog', async () => {
+it('AC1: a completion earning NO new badge shows "Task complete!" / "+3 points" / "7 total", and no badge-dialog', async () => {
   // A "leader" guest with more visible task submissions than this test's
   // guest will ever reach (2). Historically (issue #80) this kept a
   // transferable "most submissions" badge from tying and non-deterministically
@@ -153,14 +153,16 @@ it('AC1: a completion earning NO new badge shows "Task complete!" / "+1 point" /
   expect(page.text).toContain('Task complete!');
   // Issue #611: the earned amount and the "point"/"points" word are two
   // separate elements now (the display-face number, then the smaller word
-  // beside it), not one "+1 point" run of text — assert both, singular.
-  expect(page.text).toContain('<span class="success-earned-num">+1</span>');
-  expect(page.text).toContain('<span class="success-earned-label">point</span>');
-  // Bound to the guest's fresh total (1 completion + 4 bonus = 5), not a
-  // stray "5" elsewhere on the page — an inversion-sensitive check: a
+  // beside it), not one run of text — the task under test takes the tasks
+  // table's own DEFAULT_WORTH (3, issue #1103's rescale — insertTask() never
+  // names a worth), so this reads plural, not singular.
+  expect(page.text).toContain('<span class="success-earned-num">+3</span>');
+  expect(page.text).toContain('<span class="success-earned-label">points</span>');
+  // Bound to the guest's fresh total (1 completion worth 3 + 4 bonus = 7),
+  // not a stray "7" elsewhere on the page — an inversion-sensitive check: a
   // stale/wrong total (e.g. still "4 total") would fail this. Issue #611
-  // replaced "5 points" with a quiet "5 total" line under the earned number.
-  expect(page.text).toContain('<p class="success-total"><strong>5</strong> total</p>');
+  // replaced "N points" with a quiet "N total" line under the earned number.
+  expect(page.text).toContain('<p class="success-total"><strong>7</strong> total</p>');
   // AC1's other half: no badge CELEBRATION for a no-badge completion. The
   // shared #badge-dialog shell itself now renders on every signed-in guest
   // page regardless (issue #644 review: it must exist even with nothing
@@ -195,9 +197,12 @@ it('AC2: crossing the BLOOM threshold renders a badge-dialog with the name + hea
 
   const fifthPage = await agent.get(fifthRes.headers.location);
   // The inline card still carries the point (points live ONLY there). Issue
-  // #611: the earned number and its "point" word are two separate elements.
-  expect(fifthPage.text).toContain('<span class="success-earned-num">+1</span>');
-  expect(fifthPage.text).toContain('<span class="success-earned-label">point</span>');
+  // #611: the earned number and its "point"/"points" word are two separate
+  // elements. The fifth task takes the tasks table's own DEFAULT_WORTH (3,
+  // issue #1103's rescale — insertTask() never names a worth), so this reads
+  // plural.
+  expect(fifthPage.text).toContain('<span class="success-earned-num">+3</span>');
+  expect(fifthPage.text).toContain('<span class="success-earned-label">points</span>');
 
   const dialog = extractBadgeDialog(fifthPage.text);
   expect(dialog).not.toBeNull();
@@ -265,9 +270,11 @@ it('AC3: submitPhoto returns newBadgeIds containing BLOOM on the threshold-cross
   });
   expect(fifthResult.status).toBe('created');
   expect(fifthResult.newBadgeIds).toContain('BLOOM');
-  // 5 completed tasks (worth 1 each) + BLOOM's AUTO_METRIC_BADGE_POINTS (+1,
-  // issue #709 — an auto badge pays a point for as long as it's held) = 6.
-  expect(fifthResult.pointsTotal).toBe(6);
+  // 5 completed tasks (worth 3 each, the tasks table's own DEFAULT_WORTH —
+  // issue #1103's rescale, insertTask() never names a worth) = 15, +
+  // BLOOM's AUTO_METRIC_BADGE_POINTS (+1, issue #709 — an auto badge pays a
+  // point for as long as it's held) = 16.
+  expect(fifthResult.pointsTotal).toBe(16);
 
   const sixthTaskId = insertTask('AC3 sixth task');
   const sixthFile = writeOriginal('ac3-sixth.jpg');
