@@ -20,11 +20,13 @@ const { isFirstPlaceRank } = require('../task-badges');
 // threshold ascending — 5 -> 10 -> 15 at the seeded defaults, admin-
 // configurable since issue #1094), then special badges by code. gb.points is the
 // guest's AWARD points for that specific badge: AUTO_METRIC_BADGE_POINTS for
-// an auto/metric grant (issue #709 — held for as long as the guest holds the
-// badge), 0 for a transferable/admin-special grant, or a task-badge judgment
-// amount for an admin task-badge award (issue #483, task-badges.js
-// awardTaskBadge) — stmtGrantBadge sets the first two, awardTaskBadge sets
-// the third. gb.created_at and b.id (aliased badge_id)
+// an auto (milestone) grant (issue #709 — held for as long as the guest holds
+// the badge), CLEAN_SWEEP_BADGE_POINTS for the COMPLETIONIST metric grant
+// (issue #1105 split this out of the flat auto/metric value, since the
+// clean sweep pays more), 0 for a transferable/admin-special grant, or a task-badge
+// judgment amount for an admin task-badge award (issue #483, task-badges.js
+// awardTaskBadge) — stmtGrantBadge sets the first three, awardTaskBadge sets
+// the fourth. gb.created_at and b.id (aliased badge_id)
 // are included only so a caller that needs a different display order (e.g.
 // community.js's leaderboard/profile "oldest award first" order) can re-sort
 // the array it gets back locally instead of re-deriving this join with a

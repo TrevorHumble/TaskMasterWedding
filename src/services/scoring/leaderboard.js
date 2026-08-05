@@ -47,10 +47,12 @@ const { crowdPointsByGuest } = require('./crowd-favorites');
  * + badge AWARD points (SUM of guest_badges.points), counted only while the
  * award's earning photo is visible where one exists (AC6) — see the
  * awardPoints subquery note below. This covers a task-badge judgment amount
- * (issue #483), AUTO_METRIC_BADGE_POINTS for each auto/metric badge the
+ * (issue #483), AUTO_METRIC_BADGE_POINTS for each auto (milestone) badge the
  * guest currently holds (issue #709 — derived on read, no separate scoring
- * term), and 0 for a transferable/admin-special grant. Each row carries the
- * guest's earned badge codes (auto + special).
+ * term), CLEAN_SWEEP_BADGE_POINTS for the COMPLETIONIST metric badge (issue
+ * #1105 split this out of the flat auto/metric value), and 0 for a
+ * transferable/admin-special grant. Each row carries the guest's earned
+ * badge codes (auto + special).
  * + the DERIVED crowd-favorite term (issue #625): the SAME crowdPointsByGuest()
  * rule getPoints reads, folded in AFTER the main SQL query runs — exactly
  * like the memory-day term below, and for the identical reason (standard-

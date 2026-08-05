@@ -92,6 +92,17 @@ describe('AC1: Completionist — one-time, auto-revokes', () => {
 
     scoring.recomputeBadges(guest);
     expect(heldCodes(guest)).toContain('COMPLETIONIST');
+    // Issue #1105: the clean sweep pays CLEAN_SWEEP_BADGE_POINTS (3), not
+    // AUTO_METRIC_BADGE_POINTS (1): a bigger reward than a milestone badge.
+    const { CLEAN_SWEEP_BADGE_POINTS } = require('../src/db');
+    const completionistRow = db
+      .prepare(
+        `SELECT gb.points FROM guest_badges gb JOIN badges b ON b.id = gb.badge_id
+          WHERE gb.guest_id = ? AND b.code = 'COMPLETIONIST'`
+      )
+      .get(guest);
+    expect(completionistRow.points).toBe(CLEAN_SWEEP_BADGE_POINTS);
+    expect(completionistRow.points).toBe(3);
 
     // Admin adds a new active task the guest has not covered.
     makeTask('AC1 Task C — new');

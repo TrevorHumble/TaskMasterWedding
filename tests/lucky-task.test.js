@@ -176,7 +176,8 @@ describe('AC1: lucky submit banks the host amount, and the success card reflects
     // COMPLETIONIST metric excludes challenge tasks (special_date) but NOT a
     // plain lucky task, so with only ONE task in the whole database the
     // guest's single completion would vacuously complete 100% of live tasks
-    // and earn COMPLETIONIST's own +1, breaking this test's point arithmetic.
+    // and earn COMPLETIONIST's own +3 (issue #1105: the clean sweep, not the
+    // flat auto/metric +1), breaking this test's point arithmetic.
     insertTask({ title: 'AC1 Decoy Ordinary Task', worth: 3 });
     const taskId = insertTask({
       title: 'AC1 Prize Task',

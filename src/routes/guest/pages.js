@@ -9,7 +9,10 @@ const router = express.Router();
 
 // markGuestOnboarded (issue #564) is the single writer of guests.onboarded
 // outside its own schema default — called below from GET /how-to-play.
-const { markGuestOnboarded, getEventConfig } = require('../../db');
+// CLEAN_SWEEP_BADGE_POINTS (issue #1105) is the re-exported points value the
+// clean-sweep row on GET /how-points-work interpolates: see that route's
+// own comment for why the 3 must never appear as a bare literal in the view.
+const { markGuestOnboarded, getEventConfig, CLEAN_SWEEP_BADGE_POINTS } = require('../../db');
 
 // eventDays is the ONE "what day is it for the event, and when does a given
 // day open" owner (issue #753) — always the event's configured timezone
@@ -78,33 +81,37 @@ router.get('/how-to-play', function (req, res) {
 // GET /how-points-work — the points-breakdown page reached from the
 // "How to earn points" button on the how-to-play card (issue #818). Every
 // row's titles/tags/description is fixed copy in the view EXCEPT the
-// milestone-badges row (issue #1094): its sentence is composed here from
+// milestone-badges row (issue #1094) and the clean-sweep row (issue #1105,
+// point-system rebalance): the milestone sentence is composed here from
 // scoring.autoBadgeRows() (the same DB-backed thresholds the admin
-// Configuration page writes) plus the clean-sweep badge name, owned once by
-// scoring.cleanSweepBadgeName() (src/services/scoring/badge-engine.js)
-// rather than variant-hard-coded — scripts/badge-catalog.js's upsert already
-// re-syncs `name` to the variant's own catalog entry ("Completionist"
-// wedding, "Last Call" stag) on every boot, so reading it here instead of a
-// local isStag ternary can never disagree with what the catalog actually
-// seeded. At the seeded default thresholds (5/10/15 wedding, 5/10 stag) this
-// composes to the exact bytes the old hard-coded copy rendered (AC7): "Rack
-// up tasks and badges land on their own: <name> at <n>[, <name> at <n>...],
-// <CleanSweep> for the clean sweep." — a flat comma list with no "and",
-// matching the original literal's own punctuation exactly, so the
-// render-identical claim holds without a second hand-typed template string
-// to keep in sync.
+// Configuration page writes), no longer including the clean-sweep clause,
+// which #1105 gave its own row, and the clean-sweep row's own name/points
+// are passed as separate locals rather than folded into that sentence, both
+// owned once by scoring.cleanSweepBadgeName() (src/services/scoring/
+// badge-engine.js) and the re-exported CLEAN_SWEEP_BADGE_POINTS (src/db.js)
+// rather than variant-hard-coded or view-literal. scripts/badge-catalog.js's
+// upsert already re-syncs `name` to the variant's own catalog entry
+// ("Completionist" wedding, "Last Call" stag) on every boot, so reading it
+// here instead of a local isStag ternary can never disagree with what the
+// catalog actually seeded. At the seeded default thresholds (5/10/15
+// wedding, 5/10 stag) the milestone sentence composes to "Rack up tasks and
+// badges land on their own: <name> at <n>[, <name> at <n>...].", a flat
+// comma list with no "and", matching the pre-#1105 literal's own punctuation
+// minus the clean-sweep clause it used to end with.
 router.get('/how-points-work', function (req, res) {
   const cleanSweepName = scoring.cleanSweepBadgeName();
-  const milestoneParts = scoring
-    .autoBadgeRows()
-    .map((b) => `${b.name} at ${b.threshold}`)
-    .concat(`${cleanSweepName} for the clean sweep`);
+  const milestoneParts = scoring.autoBadgeRows().map((b) => `${b.name} at ${b.threshold}`);
   const milestoneSentence =
     'Rack up tasks and badges land on their own: ' + milestoneParts.join(', ') + '.';
 
   res.render(
     'how-points-work',
-    withBadgeMoment(req, res, { title: 'How to earn points', milestoneSentence })
+    withBadgeMoment(req, res, {
+      title: 'How to earn points',
+      milestoneSentence,
+      cleanSweepName,
+      cleanSweepPoints: CLEAN_SWEEP_BADGE_POINTS,
+    })
   );
 });
 

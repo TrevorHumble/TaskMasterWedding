@@ -100,6 +100,7 @@ module.exports = {
   ensureBadgeWinnersTableDropped: () => migrationsBadges.ensureBadgeWinnersTableDropped(db),
   ensureGuestBadgeRankColumn: () => migrationsBadges.ensureGuestBadgeRankColumn(db),
   AUTO_METRIC_BADGE_POINTS: migrationsBadges.AUTO_METRIC_BADGE_POINTS,
+  CLEAN_SWEEP_BADGE_POINTS: migrationsBadges.CLEAN_SWEEP_BADGE_POINTS,
   ensureAutoMetricBadgePointsBackfilled: () =>
     migrationsBadges.ensureAutoMetricBadgePointsBackfilled(db),
   ensureResubmittedColumn: () => migrationsSubmissions.ensureResubmittedColumn(db),
