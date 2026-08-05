@@ -27,13 +27,14 @@ const { parseSqliteDatetime } = require('../relative-time');
  * (issue #756 closed the gap between this function and that aggregate rule).
  * A MEMORY (issue #247, task_id IS NULL) earns NO automatic per-photo base —
  * only its admin bonus — matching the aggregate rule, which excludes a
- * memory's base while still counting its photo_bonus. Since issue #656 the
- * aggregate rule ALSO includes a memory-DAY term (+1 for the guest's first
- * visible memory each event-local day, derived in getPoints/leaderboard, not
- * here) — this per-photo function has no notion of "day" or "first", so it
- * still returns 0 for an un-bonused memory; the day bonus is a separate,
- * once-per-day addition the aggregate makes on top of whatever this function
- * returns for each individual photo. bonusAmount is always 0 for a memory
+ * memory's base while still counting its photo_bonus. Since issue #656
+ * (capped at two per day by issue #1104) the aggregate rule ALSO includes a
+ * memory-DAY term (+1 apiece for the guest's first MEMORY_DAILY_PAYING_CAP
+ * visible memories each event-local day, derived in getPoints/leaderboard,
+ * not here) — this per-photo function has no notion of "day" or the cap, so
+ * it still returns 0 for an un-bonused memory; the day term is a separate
+ * addition the aggregate makes on top of whatever this function returns for
+ * each individual photo. bonusAmount is always 0 for a memory
  * too, since nothing ever banks a one-day-only bonus on one. `worth` and
  * `bonusAmount` both default to 0 (issues #727, #756): a one-arg call yields
  * just `photoBonus`, never NaN, and a memory caller passes worth=0 explicitly
@@ -143,8 +144,8 @@ const stmtBonusAmountSum = db.prepare(
 // Every visible MEMORY's created_at for one guest (issue #656): task_id IS
 // NULL AND taken_down = 0, the same "visible memory" set the memory-day bonus
 // is derived from. Read as raw strings — the JS conversion to an event-local
-// calendar day happens in memoryDayCount below, via parseSqliteDatetime +
-// eventDays.eventLocalDateString, never in SQL (SQLite has no IANA timezone
+// calendar day happens in memoryCountsByDayFor below, via parseSqliteDatetime
+// + eventDays.eventLocalDateString, never in SQL (SQLite has no IANA timezone
 // support, so a fixed-offset `datetime()` shift would be wrong across a DST
 // transition).
 const stmtGuestMemoryCreatedAts = db.prepare(
@@ -160,76 +161,134 @@ const stmtAllVisibleMemoryCreatedAts = db.prepare(
 );
 
 /**
- * The DISTINCT event-local days on which `guestId` has at least one visible
- * memory (issue #656), as a `Set` of `YYYY-MM-DD` strings — the memory-day
- * bonus term, worth +1 per day it counts. This is the single owner of "what
- * counts as a visible memory, and which event-local day it lands on": every
- * caller that needs the day COUNT (memoryDayCount, below) or the day
- * MEMBERSHIP test (a route deciding whether TODAY specifically has already
- * been claimed) reads this one function rather than re-deriving the
- * `task_id IS NULL AND taken_down = 0` predicate or the parseSqliteDatetime
- * -> eventLocalDateString fold a second time (see GET /tasks in
- * src/routes/guest.js, which calls `.has(todayIso)` on the returned Set
- * instead of running its own query).
+ * Every event-local day on which `guestId` has at least one visible memory
+ * (issue #656; day math amended by issue #1104), mapped to that day's
+ * visible-memory COUNT — the ONE place the `task_id IS NULL AND taken_down =
+ * 0` read (stmtGuestMemoryCreatedAts) plus the parseSqliteDatetime ->
+ * eventDays.eventLocalDateString fold runs for a single guest. memoryDaysFor
+ * (day IDENTITY, below) and memoryPoints (day POINTS, below) are both thin
+ * views over this Map's keys/values, so a UTC/fixed-offset day-math
+ * regression can only ever originate here, never separately in either of
+ * them.
  * Derived, not banked: a memory row's `created_at` never changes
  * (submissions.js never replaces a memory row), so this is safe to
  * recompute on every read, and a takedown/restore of a day's only memory
- * automatically drops/re-adds that day's point with no separate bookkeeping.
+ * automatically drops/re-adds that day from the Map with no separate
+ * bookkeeping.
  * Day boundary is the EVENT-local date in `timezone` (via
  * eventDays.eventLocalDateString), never server UTC.
+ * @param {number} guestId
+ * @param {string} timezone - an IANA zone name (db.getEventConfig().timezone).
+ * @returns {Map<string, number>} event-local YYYY-MM-DD day string -> that
+ *   day's visible-memory count
+ */
+function memoryCountsByDayFor(guestId, timezone) {
+  const rows = stmtGuestMemoryCreatedAts.all(guestId);
+  const countsByDay = new Map();
+  for (const row of rows) {
+    const instant = parseSqliteDatetime(row.created_at);
+    if (!instant) continue;
+    const dayIso = eventDays.eventLocalDateString(timezone, instant);
+    countsByDay.set(dayIso, (countsByDay.get(dayIso) || 0) + 1);
+  }
+  return countsByDay;
+}
+
+/**
+ * The DISTINCT event-local days on which `guestId` has at least one visible
+ * memory (issue #656), as a `Set` of `YYYY-MM-DD` strings — day IDENTITY, not
+ * the memory-day bonus's point value (memoryPoints, below, sums a per-day cap
+ * over this same day grouping, but a day's presence in this Set never implies
+ * any particular point count). A thin view over memoryCountsByDayFor's keys,
+ * which owns "what counts as a visible memory, and which event-local day it
+ * lands on" for the single-guest path (memoryPointsByGuest, below, holds the
+ * all-guests copy of that fold over its own one query).
+ * There is no in-app consumer of this function today. GET /tasks used to read
+ * it for a today-claimed check, but that row was retired by issue #1002 —
+ * the price tag it drove is gone, replaced by a plain "Share a memory" button
+ * with no claimed state to track. It stays exported and covered because it is
+ * the day-IDENTITY guard the day-boundary tests
+ * (tests/memory-day-bonus.test.js AC4) assert against directly, so a
+ * UTC/fixed-offset day-math regression cannot hide behind the 2-cap in
+ * memoryPoints' summed total — it fails here even if it happened to cancel
+ * out there.
  * @param {number} guestId
  * @param {string} timezone - an IANA zone name (db.getEventConfig().timezone).
  * @returns {Set<string>} event-local YYYY-MM-DD day strings
  */
 function memoryDaysFor(guestId, timezone) {
-  const rows = stmtGuestMemoryCreatedAts.all(guestId);
-  const days = new Set();
-  for (const row of rows) {
-    const instant = parseSqliteDatetime(row.created_at);
-    if (!instant) continue;
-    days.add(eventDays.eventLocalDateString(timezone, instant));
+  return new Set(memoryCountsByDayFor(guestId, timezone).keys());
+}
+
+// The memory-day bonus pays at most this many memories per event-local day
+// (issue #1104 — rescaled from the original one-memory-per-day bonus, issue
+// #656). Owned here, never re-typed as a bare literal at any call site or in
+// a test's expected value: cappedDayPoints (below) is this constant's only
+// in-app consumer — memoryPoints and memoryPointsByGuest both apply the cap
+// through that one helper rather than reading MEMORY_DAILY_PAYING_CAP
+// directly — and tests/memories.test.js, tests/memory-day-bonus.test.js, and
+// tests/crowd-favorites.test.js import the constant itself so their capped-
+// expectation values are derived from it, never re-typed as a bare 2.
+const MEMORY_DAILY_PAYING_CAP = 2;
+
+/**
+ * The capped-sum formula itself: sum, over a day -> visible-memory-count Map
+ * (memoryCountsByDayFor's return for one guest, or one guest's slice of
+ * memoryPointsByGuest's per-guest fold), of
+ * min(MEMORY_DAILY_PAYING_CAP, that day's count). Owned once so memoryPoints
+ * (single guest) and memoryPointsByGuest (all guests) can never compute the
+ * cap two different ways.
+ * @param {Map<string, number>} countsByDay
+ * @returns {number}
+ */
+function cappedDayPoints(countsByDay) {
+  let points = 0;
+  for (const count of countsByDay.values()) {
+    points += Math.min(MEMORY_DAILY_PAYING_CAP, count);
   }
-  return days;
+  return points;
 }
 
 /**
- * The count of DISTINCT event-local days on which `guestId` has at least one
- * visible memory (issue #656) — a thin wrapper over memoryDaysFor for callers
- * that only need the count (getPoints, below), not the day set itself.
+ * A guest's memory-day POINTS (issue #656; capped per day by issue #1104):
+ * cappedDayPoints applied to memoryCountsByDayFor's per-day counts for this
+ * one guest.
  * @param {number} guestId
  * @param {string} timezone - an IANA zone name (db.getEventConfig().timezone).
  * @returns {number}
  */
-function memoryDayCount(guestId, timezone) {
-  return memoryDaysFor(guestId, timezone).size;
+function memoryPoints(guestId, timezone) {
+  return cappedDayPoints(memoryCountsByDayFor(guestId, timezone));
 }
 
 /**
- * The all-guests generalization memoryDayCount needs for leaderboard(): every
- * guest's memory-day count, computed from ONE query (stmtAllVisibleMemoryCreatedAts)
- * rather than one query per guest, folded into a Map so leaderboard's per-row
- * loop is a plain lookup.
+ * The all-guests generalization memoryPoints needs for leaderboard(): every
+ * guest's memory-day points, computed from ONE query
+ * (stmtAllVisibleMemoryCreatedAts) rather than one query per guest, folded
+ * into a Map so leaderboard's per-row loop is a plain lookup. Each guest's
+ * total is cappedDayPoints applied to that guest's own countsByDay slice —
+ * the same formula memoryPoints applies to a single guest.
  * @param {string} timezone
- * @returns {Map<number, number>} guestId -> distinct event-local memory-day count
+ * @returns {Map<number, number>} guestId -> capped memory-day points
  */
-function memoryDayCountsByGuest(timezone) {
-  const daysByGuest = new Map();
+function memoryPointsByGuest(timezone) {
+  const countsByGuestDay = new Map();
   for (const row of stmtAllVisibleMemoryCreatedAts.all()) {
     const instant = parseSqliteDatetime(row.created_at);
     if (!instant) continue;
     const dayIso = eventDays.eventLocalDateString(timezone, instant);
-    let days = daysByGuest.get(row.guest_id);
-    if (!days) {
-      days = new Set();
-      daysByGuest.set(row.guest_id, days);
+    let countsByDay = countsByGuestDay.get(row.guest_id);
+    if (!countsByDay) {
+      countsByDay = new Map();
+      countsByGuestDay.set(row.guest_id, countsByDay);
     }
-    days.add(dayIso);
+    countsByDay.set(dayIso, (countsByDay.get(dayIso) || 0) + 1);
   }
-  const counts = new Map();
-  for (const [guestId, days] of daysByGuest) {
-    counts.set(guestId, days.size);
+  const points = new Map();
+  for (const [guestId, countsByDay] of countsByGuestDay) {
+    points.set(guestId, cappedDayPoints(countsByDay));
   }
-  return counts;
+  return points;
 }
 
 // Sum a guest's badge AWARD points (guest_badges.points) over awards whose
@@ -293,14 +352,13 @@ function getCompletedCount(guestId) {
  *     one-time banked award): +STARTER_PHOTO_POINT while guests.avatar_path
  *     is set, 0 while it is not — read through starterTaskContribution, the
  *     single owner of the `!!avatar_path` rule, so this never re-derives it.
- *   + the DERIVED memory-day term (issue #656): +1 for each DISTINCT
- *     event-local day on which the guest has >= 1 visible memory
- *     (memoryDayCount, above) — capped at one point per day by construction
- *     (a Set of day strings, not a count of memories), NOT banked (a
- *     memory's created_at is stable — submissions.js never replaces a memory
- *     row — so this is safe to recompute on every read; a takedown/restore
- *     of a day's only memory moves this term automatically, no separate
- *     bookkeeping).
+ *   + the DERIVED memory-day term (issue #656; capped by issue #1104): for
+ *     each event-local day on which the guest has >= 1 visible memory, +1 per
+ *     memory up to MEMORY_DAILY_PAYING_CAP that day (memoryPoints, above) —
+ *     NOT banked (a memory's created_at is stable — submissions.js never
+ *     replaces a memory row — so this is safe to recompute on every read; a
+ *     takedown/restore of any of a day's memories moves this term
+ *     automatically, no separate bookkeeping).
  *   + badge AWARD points (SUM of guest_badges.points), counted only while
  *     the award's earning photo is visible where one exists (AC6). This
  *     term now covers three shapes: a task-badge judgment amount (issue
@@ -335,7 +393,7 @@ function getPoints(guestId) {
   const starterPoints = starter.done ? starter.points : 0;
   const awardPoints = stmtAwardPointsSum.get(guestId).ap;
   const timezone = getEventConfig().timezone;
-  const memoryDays = memoryDayCount(guestId, timezone);
+  const memoryDayPoints = memoryPoints(guestId, timezone);
   const crowdPoints = crowdPointsByGuest().get(guestId) || 0;
   return (
     worthSum +
@@ -344,7 +402,7 @@ function getPoints(guestId) {
     bonus +
     starterPoints +
     awardPoints +
-    memoryDays +
+    memoryDayPoints +
     crowdPoints
   );
 }
@@ -417,9 +475,10 @@ module.exports = {
   photoPoints,
   getCompletedCount,
   getPoints,
-  memoryDayCount,
   memoryDaysFor,
-  memoryDayCountsByGuest,
+  memoryPoints,
+  memoryPointsByGuest,
+  MEMORY_DAILY_PAYING_CAP,
   addBonusPoints,
   STARTER_PHOTO_POINT,
   starterTaskContribution,

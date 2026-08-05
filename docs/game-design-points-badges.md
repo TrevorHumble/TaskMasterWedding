@@ -28,8 +28,9 @@ Nine sources pay points. Each entry names the issue that builds it.
 4. **Lucky task bonus.** The lucky task pays a secret extra host-chosen 1/2/3, revealed
    only on the success screen. (#650 — amends that issue's body, which originally
    specified a fixed +2.)
-5. **First memory of the day.** The first memory (a task-free photo) a guest posts each
-   event-local day pays +1. (#656.)
+5. **First two memories of the day.** Each of the first two memories (task-free photos) a
+   guest posts per event-local day pays +1 apiece; a third or later memory that same day
+   pays nothing. (#656, capped at two per day by #1104.)
 6. **Profile photo.** A guest's profile photo pays +1 for as long as it is set — remove it
    and the point leaves, upload one again and it returns. Derived, not a one-time banked
    award. (Shipped, #409; amended to derived by #716.)
@@ -160,7 +161,7 @@ for the dead placeholders.
 ## Rule → issue map
 
 - Task worth 3/4/5 (rescaled #1103): #682 · Daily bonus: #624 · Flash: #649 · Lucky: #650
-- Memory +1/day: #656 · Auto-badge +1: shipped, #709 (PR #746) · Gold rule (single-champion
+- Memory +1/day, capped at 2/day: #656, #1104 · Auto-badge +1: shipped, #709 (PR #746) · Gold rule (single-champion
   render, two sibling marks): shipped, #788 (crowd crown) + #811 (task-badge medal); a
   gold-sorts-first display rule beyond those two marks remains unbuilt
 - Task-badge ranking + points + one-badge-system consolidation: #661 (shipped). #662 (the

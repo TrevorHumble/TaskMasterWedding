@@ -1,8 +1,9 @@
 // tests/memory-day-bonus.test.js
-// Issue #656 — +1 for a guest's first memory each event-local day, derived
-// (not banked) from the guest's visible memories' created_at, on BOTH scoring
-// surfaces (getPoints/leaderboard), plus the approved copy rendering
-// everywhere it was approved. Covers AC1-AC5 and AC7 from the issue; AC6 (the
+// Issue #656 — +1 apiece for a guest's first MEMORY_DAILY_PAYING_CAP (2,
+// issue #1104) memories each event-local day, derived (not banked) from the
+// guest's visible memories' created_at, on BOTH scoring surfaces
+// (getPoints/leaderboard), plus the approved copy rendering everywhere it was
+// approved. Covers AC1-AC5 and AC7 from the issue; AC6 (the
 // /tasks row's price tag tracking today's claimed state) was retired by issue
 // #1002 (owner call, 2026-08-01) — the row itself is gone, replaced by a
 // quiet button under the filter chips with no price tag to track.
@@ -21,6 +22,7 @@ let db;
 let scoring;
 let dbModule;
 let validJpeg;
+let MEMORY_DAILY_PAYING_CAP;
 
 beforeAll(async () => {
   // A tiny real JPEG so photos.makeThumb (sharp) succeeds on the /submit call
@@ -40,6 +42,11 @@ beforeAll(async () => {
 
   scoring = require('../src/services/scoring');
   dbModule = require('../src/db');
+  // Not exported by the scoring facade (src/services/scoring.js) — read
+  // straight from its owning module so this file's capped-expectation
+  // values are derived from the same constant points.js enforces, never
+  // re-typed as a bare 2.
+  MEMORY_DAILY_PAYING_CAP = require('../src/services/scoring/points').MEMORY_DAILY_PAYING_CAP;
 });
 
 let seq = 0;
@@ -100,12 +107,12 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// AC1 — first memory of the day pays, once; a same-day second memory does
-// not pay again; a day whose only visible submission is task-linked earns no
-// memory-day point at all.
+// AC1 — the first two memories of the day pay, one point apiece; a same-day
+// third memory does not pay again; a day whose only visible submission is
+// task-linked earns no memory-day point at all.
 // ---------------------------------------------------------------------------
-describe('AC1: first memory of the day pays, once', () => {
-  it('first memory: P -> P+1; second memory same day: stays P+1', () => {
+describe('AC1: the first two memories of the day pay, a third does not', () => {
+  it('first memory: P -> P+1; second memory same day: P+1 -> P+2; third memory same day: stays P+2', () => {
     const { guestId } = insertGuest('AC1 Guest');
     const pointsBefore = scoring.getPoints(guestId);
 
@@ -113,7 +120,19 @@ describe('AC1: first memory of the day pays, once', () => {
     expect(scoring.getPoints(guestId)).toBe(pointsBefore + 1);
 
     insertSubmission({ guestId }); // memory 2, same event-local day
-    expect(scoring.getPoints(guestId)).toBe(pointsBefore + 1);
+    expect(scoring.getPoints(guestId)).toBe(pointsBefore + MEMORY_DAILY_PAYING_CAP);
+
+    insertSubmission({ guestId }); // memory 3, same event-local day, does not pay
+    expect(scoring.getPoints(guestId)).toBe(pointsBefore + MEMORY_DAILY_PAYING_CAP);
+
+    // leaderboard() must fold memoryPointsByGuest's cap the same way getPoints
+    // folds memoryPoints for a single guest — a guest with THREE same-day
+    // memories is the case that actually exercises the cap (AC2's two-day
+    // fixture never puts more than 1 memory on any one day, so it cannot
+    // catch a copy-drift in memoryPointsByGuest's own Math.min application).
+    const rows = scoring.leaderboard();
+    const row = rows.find((r) => r.id === guestId);
+    expect(row.points).toBe(scoring.getPoints(guestId));
   });
 
   it('a guest whose only visible submission that day is task-linked earns no memory-day point', () => {
@@ -162,11 +181,18 @@ describe('AC3: takedown reverts, restore re-adds', () => {
     const submissionId = insertSubmission({ guestId });
     expect(scoring.getPoints(guestId)).toBe(pointsBefore + 1);
 
+    // A second same-day memory also pays (both land under the 2-per-day
+    // cap), so taking down just the FIRST one below must drop exactly its
+    // own point, not the whole day's total — the day's count is re-derived
+    // on every read, not cached as a single day-level flag.
+    insertSubmission({ guestId });
+    expect(scoring.getPoints(guestId)).toBe(pointsBefore + MEMORY_DAILY_PAYING_CAP);
+
     db.prepare('UPDATE submissions SET taken_down = 1 WHERE id = ?').run(submissionId);
-    expect(scoring.getPoints(guestId)).toBe(pointsBefore);
+    expect(scoring.getPoints(guestId)).toBe(pointsBefore + 1);
 
     db.prepare('UPDATE submissions SET taken_down = 0 WHERE id = ?').run(submissionId);
-    expect(scoring.getPoints(guestId)).toBe(pointsBefore + 1);
+    expect(scoring.getPoints(guestId)).toBe(pointsBefore + MEMORY_DAILY_PAYING_CAP);
   });
 });
 
@@ -193,7 +219,9 @@ describe('AC4: the day boundary is event-local, not UTC', () => {
 
     // If the day boundary were (wrongly) computed from the UTC calendar
     // date, both rows share 2026-08-08 and this would read 1, not 2.
-    expect(scoring.memoryDayCount(guestId, 'America/Boise')).toBe(2);
+    expect(scoring.memoryDaysFor(guestId, 'America/Boise').size).toBe(2);
+    // One memory on each of 2 distinct days, well under the 2-per-day cap:
+    // 1 + 1 = 2, unaffected by #1104's cap.
     expect(scoring.getPoints(guestId)).toBe(2);
   });
 
@@ -213,8 +241,11 @@ describe('AC4: the day boundary is event-local, not UTC', () => {
 
     // If the day boundary were (wrongly) computed from the UTC calendar
     // date, these two rows (Aug 8 vs Aug 7 UTC) would read 2, not 1.
-    expect(scoring.memoryDayCount(guestId, 'America/Boise')).toBe(1);
-    expect(scoring.getPoints(guestId)).toBe(1);
+    expect(scoring.memoryDaysFor(guestId, 'America/Boise').size).toBe(1);
+    // Both memories land on the SAME event-local day: 2 memories that day,
+    // capped at MEMORY_DAILY_PAYING_CAP, so both pay —
+    // min(MEMORY_DAILY_PAYING_CAP, 2), not the pre-#1104 presence-only 1.
+    expect(scoring.getPoints(guestId)).toBe(Math.min(MEMORY_DAILY_PAYING_CAP, 2));
   });
 
   // Both cases above pin August instants, where America/Boise sits at a
@@ -250,13 +281,48 @@ describe('AC4: the day boundary is event-local, not UTC', () => {
     // distinct days. A fixed UTC-6 implementation would fold the first
     // submission onto March 8 too, reading 1 — so this assertion catches
     // that regression.
-    expect(scoring.memoryDayCount(guestId, 'America/Boise')).toBe(2);
+    expect(scoring.memoryDaysFor(guestId, 'America/Boise').size).toBe(2);
 
     // A third memory the next local day (after the transition, still MDT,
     // where real rules and fixed UTC-6 agree) must count as a distinct
     // third day either way.
     insertSubmission({ guestId, createdAt: '2026-03-09 16:00:00' });
-    expect(scoring.memoryDayCount(guestId, 'America/Boise')).toBe(3);
+    expect(scoring.memoryDaysFor(guestId, 'America/Boise').size).toBe(3);
+
+    // Point-path check, not just day identity: under the real zone rules
+    // above, each of these three memories lands on its own distinct
+    // event-local day (1 count each), so the memory-day term pays
+    // min(MEMORY_DAILY_PAYING_CAP, 1) three times over — the exact correct
+    // total, 3. A day-math bug that instead folds the DST-straddling pair
+    // onto one UTC-anchored day changes how that count SPLITS (2 + 1 rather
+    // than 1 + 1 + 1) — the memoryDaysFor().size assertions above catch that
+    // split directly; this assertion pins the SINGLE-GUEST point path
+    // (getPoints via memoryPoints). It cannot see memoryPointsByGuest, which
+    // getPoints never reads; the leaderboard assertions on the second guest
+    // below are what pin that all-guests fold.
+    expect(scoring.getPoints(guestId)).toBe(3);
+
+    // All-guests fold check: memoryPointsByGuest runs its own day fold over
+    // one all-guests query (it never calls memoryCountsByDayFor), so the
+    // assertions above cannot catch a UTC/fixed-offset regression in it.
+    // This guest's fixture is built so the CAPPED totals disagree between
+    // the real fold and a fixed UTC-6 fold, closing the cancellation gap:
+    // three memories on event-local March 7 (the third is the same
+    // discriminating straddler instant as above) plus one on March 8. Real
+    // rules: counts {Mar 7: 3, Mar 8: 1}, paying min(cap, 3) + min(cap, 1)
+    // = 3. A fixed UTC-6 fold moves the straddler onto March 8: counts
+    // {Mar 7: 2, Mar 8: 2}, paying 2 + 2 = 4. The totals differ, so the
+    // leaderboard row (which reads memoryPointsByGuest) fails on that
+    // regression instead of cancelling out under the cap.
+    const { guestId: foldGuestId } = insertGuest('AC4 DST Fold Guest');
+    insertSubmission({ guestId: foldGuestId, createdAt: '2026-03-08 04:00:00' });
+    insertSubmission({ guestId: foldGuestId, createdAt: '2026-03-08 05:30:00' });
+    insertSubmission({ guestId: foldGuestId, createdAt: '2026-03-08 06:30:00' });
+    insertSubmission({ guestId: foldGuestId, createdAt: '2026-03-08 16:00:00' });
+    const foldRow = scoring.leaderboard().find((r) => r.id === foldGuestId);
+    expect(foldRow.points).toBe(
+      Math.min(MEMORY_DAILY_PAYING_CAP, 3) + Math.min(MEMORY_DAILY_PAYING_CAP, 1)
+    );
   });
 });
 
@@ -380,10 +446,11 @@ describe('leaderboard() comparator: NULL handling and tiebreak keys', () => {
 // AC7 — the approved copy renders, everywhere it was approved.
 // ---------------------------------------------------------------------------
 describe('AC7: the approved copy renders everywhere it was approved', () => {
-  const PAYOFF_LINE = '+1 point for your first memory each day, and any photo can win a badge.';
-  const MEMORY_NEW_PROMISE =
-    "Your first memory each day is +1 point, but share as many as you'd like.";
-  const HOW_TO_PLAY_PROMISE = 'Add any photo you love. Your first is +1 point.';
+  const PAYOFF_LINE =
+    '+1 point for each of your first two memories a day, and any photo can win a badge.';
+  const MEMORY_NEW_PROMISE = '+1 point for the first 2 memories of each day';
+  const HOW_TO_PLAY_PROMISE =
+    'Add any photo you love. Your first two each day are +1 point apiece.';
 
   /** The approved copy wraps across source lines in the .ejs templates, so
    * the rendered HTML carries real newlines/indentation where the approved

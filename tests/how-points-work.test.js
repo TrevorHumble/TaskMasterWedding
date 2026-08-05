@@ -102,8 +102,11 @@ describe('AC2: each row shows the correct reward tags', () => {
     expect(winCrowd).toContain('Badge');
 
     const shareMemory = tagsBlockFor(res.text, 'Share a memory');
-    expect(shareMemory).toContain('1 point');
+    expect(shareMemory).toContain('1 point each');
     expect(shareMemory).not.toContain('Badge');
+    // Desc lock (issue #1104): the row's own description states the
+    // two-per-day rule in words, not just the "1 point each" tag above.
+    expect(res.text).toContain('Your first two memories each day earn a point apiece.');
 
     const milestoneBadges = tagsBlockFor(res.text, 'Collect milestone badges');
     expect(milestoneBadges).toContain('1 point');

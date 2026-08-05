@@ -1291,6 +1291,20 @@ two-line rule body, not in the design vocabulary. If a third centered-caption-un
 appears, that is the point to promote these declarations into one shared class rather than adding a
 third copy.
 
+**Amended 2026-08-04 (issue #1104, point-system rebalance).** The daily cap rises from one paying memory
+to `MEMORY_DAILY_PAYING_CAP = 2` (`src/services/scoring/points.js`): a guest's first two visible memories
+each event-local day now each pay +1, a third or later memory that same day pays nothing. The day-identity
+function this ADR describes, `memoryDaysFor`, is unchanged — it still returns the `Set` of days on which a
+guest has at least one visible memory, and remains the single owner of day MEMBERSHIP. What changed is the
+point-value function built on top of it: `memoryDayCount`/`memoryDayCountsByGuest` (presence-only, one
+point per day regardless of that day's memory count) are retired in favor of `memoryPoints`/
+`memoryPointsByGuest`, which both apply the capped-sum formula (`min(MEMORY_DAILY_PAYING_CAP, that day's
+visible-memory count)`, summed per day) through one shared private helper, `cappedDayPoints`, so the two
+can never compute the cap two different ways.
+Both `getPoints()` and `leaderboard()` still read this pair the same way — one per-guest call, one
+all-guests fold — so the single-query guarantee this ADR establishes for the memory-day term is untouched.
+Full rationale for the rebalance as a whole: this file's "Point-system rebalance (2026-08-04)" section.
+
 ## Flash guest marker: shared shape, separate hue, no floor, no neutral fallback (#762)
 
 **Date:** 2026-07-21. **Status:** accepted, owner-approved live on a seeded preview.
@@ -2158,8 +2172,9 @@ expressed as a per-guest SQL expression without fanning out the query (ranking i
 computation, not a per-row one). `crowdPointsByGuest()` runs `crowdFavorites()` exactly ONCE — a single
 query ranks every liked photo in the whole event — and folds the result into a `Map`; `leaderboard()`
 consumes that Map in its existing post-query JS pass (AC8: the leaderboard's crowd term costs exactly one
-extra SQL statement, never one per guest row, exactly the guarantee #656's `memoryDayCountsByGuest` already
-established for the memory-day term and this issue reuses the pattern for).
+extra SQL statement, never one per guest row, exactly the guarantee #656's `memoryPointsByGuest` (renamed
+from `memoryDayCountsByGuest` by #1104's daily cap) already established for the memory-day term and this
+issue reuses the pattern for).
 
 **Why the crowd bonus is NOT folded into `scoring.photoPoints()`.** That function's number is what a photo
 earned by being SUBMITTED — a stable, banked-feeling value a feed card prints without explanation. A crowd
@@ -4556,6 +4571,14 @@ Two mechanical consequences of not being task-derived: (1) the row needed its ow
 **Why 3-5 and not some other floor:** the owner's approved phase-1 copy (`/how-points-work`, `/how-to-play`) states the task range beside the other point sources on the same page: Masters' favor (1-5), crowd favorite (1-5), a memory (1 each). 3-5 is what makes "snap the tasks" read as clearly ahead of "share a memory" or "vote for your favorites" without recoloring the top-line badge rewards (Masters', crowd favorite), which are out of this issue's scope and ship, if at all, with their own sibling issues (#1104-#1107).
 
 **What this issue does NOT touch:** the daily-challenge/flash/lucky bonus ranges (`FLASH_MIN_BONUS`/`FLASH_MAX_BONUS`/`LUCKY_MIN_BONUS`/`LUCKY_MAX_BONUS`, all still 1-3) are a different, deliberately smaller range layered on top of a task's base worth: this issue's Touches list never reaches `special_bonus`/`flash_bonus`/`lucky_bonus`. Nor does it touch the Masters'-favor range, the memory-per-day cap, the couple's-heart point, or the Completionist badge's point value: each of those is visible in the phase-1 approved screens this issue transcribes from, but AC6 draws the line explicitly: this issue's view edits carry ONLY the task-worth lines, and every other rebalance row reverts to its committed state pending its own issue.
+
+### Memory-day bonus capped at two per day (#1104)
+
+**Decision:** the memory-day term (#656) pays up to `MEMORY_DAILY_PAYING_CAP = 2` visible memories per event-local day instead of one — a guest's first two memories each day earn +1 apiece, a third or later that same day earns nothing. `memoryDaysFor` (day identity, a `Set`) is untouched; `memoryDayCount`/`memoryDayCountsByGuest` (presence-only point value) are retired and replaced by `memoryPoints`/`memoryPointsByGuest`, which sum the per-day cap. Full mechanics and the single-query guarantee: this file's "Memory-day bonus" ADR (#656), amended above.
+
+**Why 2 and not left at 1 or raised further:** the owner's approved phase-1 copy (`/how-points-work`, `/how-to-play`) states the new rule directly — "Your first two memories each day earn a point apiece" / "Your first two each day are +1 point apiece" — matching #1103's aim of keeping every point source legible against the widened task range (3-5) without letting an unlimited memory stream out-earn deliberate task effort.
+
+**What this issue does NOT touch:** the task-worth range (#1103), the Masters'-favor range, the couple's-heart point, and the Completionist badge's point value each ship, if at all, with their own sibling issue (#1103/#1105-#1107); this issue's view edits carry ONLY the memory lines on `/how-points-work` and `/how-to-play`, plus `src/views/memory-new.ejs` and `src/views/partials/memory-payoff.ejs` in their own voice, and every other rebalance row reverts to its committed state pending its own issue.
 
 ## Block a guest: enforcement in `attachGuest`, not per-route, and per-row not per-person (#1092)
 

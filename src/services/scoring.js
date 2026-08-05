@@ -37,7 +37,7 @@ module.exports = {
   photoPoints: points.photoPoints,
   getCompletedCount: points.getCompletedCount,
   getPoints: points.getPoints,
-  memoryDayCount: points.memoryDayCount,
+  memoryPoints: points.memoryPoints,
   memoryDaysFor: points.memoryDaysFor,
   CROWD_FAVORITE_POINTS: crowdFavorites.CROWD_FAVORITE_POINTS,
   crowdFavorites: crowdFavorites.crowdFavorites,

@@ -802,9 +802,12 @@ p {
    One rule for every CTA that includes the partial, so the line reads the
    same at each — today that is the finished-all-tasks card on /tasks alone
    (src/views/tasks.ejs); issue #611 removed the task detail page's two
-   prompts, and /how-to-play and /memories/new deliberately fold the same
-   promise into their own prose instead of including the partial (see its own
-   header comment). Muted, small treatment; no separate note style. */
+   prompts, and /how-to-play deliberately folds the same promise into its own
+   prose instead of including the partial (see the partial's own header
+   comment). /memories/new no longer folds it into prose either: it now
+   carries its own standalone .memory-bonus-line (issue #1117, in
+   src/public/css/guest.css). Muted, small treatment; no separate note
+   style. */
 .memory-payoff {
   margin: var(--space-2) 0 var(--space-1);
   font-size: var(--fs-small);

@@ -663,10 +663,11 @@ async function submitPhoto({ guestId, taskId, file, caption, nowMs }) {
  *     memories; there is no (guestId, NULL) row to collide with — SQLite's
  *     UNIQUE(guest_id, task_id) treats every NULL as distinct);
  *   - never calls scoring.recomputeAfterSubmissionChange. Since issue #656
- *     memories are NOT excluded from points — the first memory of an
- *     event-local day contributes the memory-day term
- *     (scoring.memoryDayCount) to the guest's total — but that term is
- *     DERIVED on every read from `created_at`, never banked into a stored
+ *     (capped at two per day by issue #1104) memories are NOT excluded from
+ *     points — the first MEMORY_DAILY_PAYING_CAP memories of an event-local
+ *     day contribute the memory-day term (scoring.memoryPoints) to the
+ *     guest's total — but that term is DERIVED on every read from
+ *     `created_at`, never banked into a stored
  *     column, so there is still nothing here for a recompute to WRITE. Badges are
  *     unaffected either way: no metric/auto badge rule reads a memory row
  *     (scoring.getCompletedCount's task_id IS NOT NULL filter excludes

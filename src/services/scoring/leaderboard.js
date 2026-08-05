@@ -8,7 +8,7 @@
 
 const { db, getEventConfig } = require('../../db');
 const { VISIBLE_WHERE } = require('../feed');
-const { STARTER_PHOTO_POINT, memoryDayCountsByGuest } = require('./points');
+const { STARTER_PHOTO_POINT, memoryPointsByGuest } = require('./points');
 const { crowdPointsByGuest } = require('./crowd-favorites');
 
 // ---------------------------------------------------------------------------
@@ -33,17 +33,17 @@ const { crowdPointsByGuest } = require('./crowd-favorites');
  * starterTaskContribution's `!!avatar_path` rule that getPoints reads
  * in-process; the two can't drift because both consume the same
  * STARTER_PHOTO_POINT constant, one via SQL interpolation, one via JS.
- * + the DERIVED memory-day term (issue #656): the SAME memoryDayCount rule
- * getPoints reads, but folded in AFTER the main SQL query runs rather than
- * inside it — SQLite has no IANA timezone support, so the event-local day
- * conversion cannot happen in SQL at all (see memoryDayCountsByGuest, above,
- * built from ONE all-guests query, never a per-guest query inside this
- * function's loop). Because this term lands in JS after the SQL query
- * returns, the SQL query itself carries NO ORDER BY (a SQL-decided order
- * would already be stale by the time this term is added, and would only be
- * discarded) — the JS comparator below the query, applied once the term is
- * folded in, is the single, named owner of standings order; see its own
- * comment for the full key sequence and the NULL-last rule (AC5).
+ * + the DERIVED memory-day term (issue #656; capped by issue #1104): the SAME
+ * memoryPoints rule getPoints reads, but folded in AFTER the main SQL query
+ * runs rather than inside it — SQLite has no IANA timezone support, so the
+ * event-local day conversion cannot happen in SQL at all (see
+ * memoryPointsByGuest in ./points, built from ONE all-guests query, never a
+ * per-guest query inside this function's loop). Because this term lands in JS
+ * after the SQL query returns, the SQL query itself carries NO ORDER BY (a
+ * SQL-decided order would already be stale by the time this term is added,
+ * and would only be discarded) — the JS comparator below the query, applied
+ * once the term is folded in, is the single, named owner of standings order;
+ * see its own comment for the full key sequence and the NULL-last rule (AC5).
  * + badge AWARD points (SUM of guest_badges.points), counted only while the
  * award's earning photo is visible where one exists (AC6) — see the
  * awardPoints subquery note below. This covers a task-badge judgment amount
@@ -139,13 +139,14 @@ function leaderboard() {
     )
     .all();
 
-  // Fold in the memory-day term (issue #656) — computed in JS from ONE
-  // all-guests query (memoryDayCountsByGuest), not per-row here, so this
-  // stays a single extra query regardless of guest count.
+  // Fold in the memory-day term (issue #656; capped by issue #1104) —
+  // computed in JS from ONE all-guests query (memoryPointsByGuest), not
+  // per-row here, so this stays a single extra query regardless of guest
+  // count.
   const timezone = getEventConfig().timezone;
-  const memoryDaysByGuest = memoryDayCountsByGuest(timezone);
+  const memoryPointsByGuestMap = memoryPointsByGuest(timezone);
   for (const row of rows) {
-    row.points += memoryDaysByGuest.get(row.id) || 0;
+    row.points += memoryPointsByGuestMap.get(row.id) || 0;
   }
 
   // Fold in the crowd-favorite term (issue #625) — ONE crowdPointsByGuest()

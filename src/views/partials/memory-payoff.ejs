@@ -1,4 +1,4 @@
-<%# Issue #656 — the ONE place the standalone memory payoff line is worded.
+<%# Issue #656 — the wording for the payoff line on the finished-all card.
 
     Included by the finished-all-tasks card (src/views/tasks.ejs) — the one
     remaining CTA that wants a separate line rather than prose. It includes
@@ -10,20 +10,20 @@
     owner's direction of 2026-07-31.
 
     What it promises, and why each half is literally true:
-      - "+1 point for your first memory each day": this issue's memory-day
-        bonus, one per event-local day, derived from the guest's visible
-        memories.
+      - "+1 point for each of your first two memories a day": the memory-day
+        bonus (issue #656), up to MEMORY_DAILY_PAYING_CAP (2, issue #1104)
+        per event-local day, derived from the guest's visible memories.
       - "any photo can win a badge": the Wedding Masters hand-award the photo
         badges (src/services/photo-badges.js) to any photo, memory or task.
 
-    Three surfaces deliberately do NOT include this partial (owner calls,
-    2026-07-21):
-      - /memories/new and /how-to-play are already paragraphs; a second
-        standalone line under them read as bolted-on, so they fold the same
-        promise into their existing sentence in their own prose.
+    Two surfaces deliberately do NOT include this partial (owner calls,
+    2026-07-21; #1117 amended the /memories/new half):
+      - /how-to-play is already a paragraph; a second standalone line under
+        it read as bolted-on, so it folds the same promise into its existing
+        sentence in its own prose.
       - the "Share a memory" button under the filter chips on /tasks (issue
         #1002, owner call 2026-08-01) already carries its own muted hint
         line (issue #1088, owner call 2026-08-03) explaining the button is a
         task-free upload path, not a payoff line, so a second standalone
         payoff line here would still be redundant. %>
-<p class="memory-payoff">+1 point for your first memory each day, and any photo can win a badge.</p>
+<p class="memory-payoff">+1 point for each of your first two memories a day, and any photo can win a badge.</p>

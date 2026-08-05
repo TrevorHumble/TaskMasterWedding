@@ -57,6 +57,7 @@ let scoring;
 let feed;
 let photos;
 let notifications;
+let MEMORY_DAILY_PAYING_CAP;
 
 beforeAll(() => {
   const loaded = loadApp();
@@ -67,6 +68,10 @@ beforeAll(() => {
   feed = require('../src/services/feed');
   photos = require('../src/services/photos');
   notifications = require('../src/services/notifications');
+  // Not exported by the scoring facade (src/services/scoring.js) — read
+  // straight from its owning module so this test's capped-expectation value
+  // is derived from the same constant points.js enforces, never re-typed.
+  MEMORY_DAILY_PAYING_CAP = require('../src/services/scoring/points').MEMORY_DAILY_PAYING_CAP;
 });
 
 // ---------------------------------------------------------------------------
@@ -237,11 +242,14 @@ describe('AC3: SUPERSEDED by issue #896 — a guest no longer sweeps multiple sl
     expect(bySub.has(a4)).toBe(false);
 
     // getPoints reads the same crowd total. A's 3 memories all land on the
-    // same event-local day, so memoryDayCount contributes exactly +1 on top
-    // — every other term is 0 for this guest, so the total is 5 + 1 = 6. Under
-    // the old no-cap sweep rule this fixture (9/6/5/4 likes -> ranks 1/2/3/4)
-    // paid A ranks 1, 2 and 4 for 5 + 4 + 2 = 11 crowd points, 11 + 1 = 12 total.
-    expect(scoring.getPoints(a.id)).toBe(6);
+    // same event-local day, so memoryPoints contributes
+    // min(MEMORY_DAILY_PAYING_CAP, 3) = MEMORY_DAILY_PAYING_CAP on top (issue
+    // #1104's day cap; the third same-day memory pays nothing) — every other
+    // term is 0 for this guest, so the total is 5 + MEMORY_DAILY_PAYING_CAP.
+    // Under the old no-cap sweep rule this fixture (9/6/5/4 likes -> ranks
+    // 1/2/3/4) paid A ranks 1, 2 and 4 for 5 + 4 + 2 = 11 crowd points, 11 + 1
+    // = 12 total.
+    expect(scoring.getPoints(a.id)).toBe(5 + MEMORY_DAILY_PAYING_CAP);
   });
 
   test('tied like counts: A (two photos tied at 10 likes) places once at rank 1 — the lower submission_id wins the tiebreak — while B (8 likes) places at rank 2', () => {
@@ -355,9 +363,10 @@ describe('AC5: getPoints, leaderboard(), and feed.slideshowSequence() all agree'
     expect(bySub.has(sFormer)).toBe(false);
 
     // Expected per-guest getPoints: crowd total + 1 memory-day (every guest
-    // here has exactly one visible memory, all on the same event-local day)
-    // + 0 for every other term. formerGuest's only submission is taken down,
-    // so it has NO visible memory at all: memoryDayCount = 0, crowd = 0.
+    // here has exactly one visible memory, all on the same event-local day,
+    // well under the 2-per-day cap) + 0 for every other term. formerGuest's
+    // only submission is taken down, so it has NO visible memory at all:
+    // memoryPoints = 0, crowd = 0.
     const expected = {
       [leader.id]: 5 + 1,
       [tieA.id]: 4 + 1,
