@@ -165,7 +165,13 @@ function applySchema(db) {
 
   CREATE TABLE IF NOT EXISTS bug_reports (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    guest_id    INTEGER NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+    -- guest_id is nullable (issue #1102): a bug can be filed by someone who
+    -- hits a wall before they ever join (on /join, on /login, or on an error
+    -- page reached before joining), and that report must still land in the
+    -- host's queue rather than being impossible to insert. The FK and its
+    -- cascade are unchanged -- a guestless report has nothing to cascade from,
+    -- and a guest-attributed one is still deleted when that guest is.
+    guest_id    INTEGER REFERENCES guests(id) ON DELETE CASCADE,
     body        TEXT    NOT NULL,
     page        TEXT,
     user_agent  TEXT,
