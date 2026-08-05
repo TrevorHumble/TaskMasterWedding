@@ -63,6 +63,10 @@ migrationsGuests.ensureAvatarPointAwardedRetired(db);
 migrationsGuests.ensureRecapCheckedAtColumn(db);
 migrationsGuests.ensureIsCoupleColumn(db);
 migrationsOps.ensureBugReportStatusColumn(db);
+// ensureBugReportGuestIdNullable imposes no ordering constraint of its own
+// (see its own comment in migrations-ops.js) — it runs here, next to the
+// other bug_reports migration, only to keep the two adjacent in this file.
+migrationsOps.ensureBugReportGuestIdNullable(db);
 migrationsOps.ensureSettingsTable(db);
 
 // --- Public API: identical names/shapes to bd70cff's db.js, each a thin ----
@@ -104,6 +108,7 @@ module.exports = {
   ensureBugReportStatusColumn: () => migrationsOps.ensureBugReportStatusColumn(db),
   openBugCount: () => bugReports.openBugCount(db),
   ensureSettingsTable: () => migrationsOps.ensureSettingsTable(db),
+  ensureBugReportGuestIdNullable: () => migrationsOps.ensureBugReportGuestIdNullable(db),
   getEventConfig: () => eventConfig.getEventConfig(db),
   setEventConfig: (cfg) => eventConfig.setEventConfig(db, cfg),
   getPrizes: () => eventConfig.getPrizes(db),

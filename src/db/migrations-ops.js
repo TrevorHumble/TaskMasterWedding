@@ -94,7 +94,44 @@ function ensureSettingsTable(db) {
   `);
 }
 
+// --- Guarded migration: bug_reports.guest_id nullable (issue #1102) ---
+/**
+ * Drop NOT NULL from bug_reports.guest_id so a bug report filed by someone
+ * who is not signed in (before they ever join, on /join, on /login, or on an
+ * error page reached before joining) can be stored at all.
+ *
+ * Unlike ensureTaskIdNullable (migrations-submissions.js), this is not a
+ * 12-step rebuild. This tree's better-sqlite3 (12.11.1) ships SQLite 3.53.2,
+ * which supports `ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL` directly —
+ * verified against a replica of the real bug_reports shape to preserve the
+ * guests(id) ON DELETE CASCADE foreign key, the status CHECK,
+ * idx_bug_reports_status, and every existing row, and to be idempotent (a
+ * second run succeeds and changes nothing). So there is no `foreign_keys`
+ * pragma, no transaction, and no explicit column-copy list here: an explicit
+ * copy list is the one thing that can permanently diverge a migrated
+ * database from a fresh one, and this single ALTER cannot produce that
+ * failure. The guard below exists for clarity and an early exit on an
+ * already-migrated database, not because the ALTER is unsafe to repeat.
+ *
+ * This migration never mentions `status`, so — unlike the rebuilds in
+ * migrations-submissions.js — it carries no ordering dependency on
+ * ensureBugReportStatusColumn(): it cannot throw `no such column: status` on
+ * a pre-#686 database, and running it before or after that migration in the
+ * db.js chain makes no difference. It is exported so tests bind to this real
+ * guard rather than an inline copy.
+ */
+function ensureBugReportGuestIdNullable(db) {
+  const cols = db.prepare(`PRAGMA table_info(bug_reports)`).all();
+  const guestIdCol = cols.find((col) => col.name === 'guest_id');
+  if (!guestIdCol || guestIdCol.notnull === 0) {
+    // No bug_reports table yet, or guest_id is already nullable — nothing to do.
+    return;
+  }
+  db.exec(`ALTER TABLE bug_reports ALTER COLUMN guest_id DROP NOT NULL`);
+}
+
 module.exports = {
   ensureBugReportStatusColumn,
   ensureSettingsTable,
+  ensureBugReportGuestIdNullable,
 };

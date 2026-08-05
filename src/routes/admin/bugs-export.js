@@ -20,6 +20,14 @@ const router = express.Router();
 // view's "Open issue" prefill link; the view builds no repo URL of its own.
 // ---------------------------------------------------------------------------
 router.get('/bugs', (req, res) => {
+  // guest_id is projected from `r`, NOT from `g` (issue #1102). Under the
+  // LEFT JOIN below, g.id is NULL both for a genuinely guestless report and
+  // for one whose guest row no longer exists — two different facts a
+  // guests-side projection cannot tell apart. Projecting from bug_reports
+  // keeps guest_id truthful whether or not the join matched, which is what
+  // lets admin-bugs.ejs's reporterName render "Guest #<id>" and
+  // "Not signed in" as distinct states. See DESIGN.md § "`bug_reports.guest_id`
+  // dropped NOT NULL in place, not rebuilt (#1102)".
   const reports = db
     .prepare(
       `SELECT r.id          AS id,
@@ -27,10 +35,10 @@ router.get('/bugs', (req, res) => {
               r.page        AS page,
               r.status      AS status,
               r.created_at  AS created_at,
-              g.id          AS guest_id,
+              r.guest_id    AS guest_id,
               g.name        AS guest_name
          FROM bug_reports r
-         JOIN guests g ON g.id = r.guest_id
+         LEFT JOIN guests g ON g.id = r.guest_id
         ORDER BY CASE r.status WHEN 'open' THEN 0 WHEN 'tracked' THEN 1 ELSE 2 END ASC,
                  r.created_at DESC, r.id DESC`
     )
