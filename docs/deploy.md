@@ -367,7 +367,26 @@ This budget does not include container logs. The json-file rotation cap above (#
 
 `app.db` is a few MB for this event's scale (~100 guests), so `--db-only` every 15 minutes costs almost nothing even at a generous retention. `--photos-only` (or a plain, flagless run) once a day at 3:17am is enough to keep the store caught up between events; running it more often only saves the size of that day's new photos, which the incremental store makes cheap either way.
 
-**Docker Compose (Option A):** same schedule, prefixed with `docker compose exec -T app` instead of `/usr/bin/node`. The `-T` flag disables the pseudo-TTY that `docker compose exec` allocates by default, which cron's non-interactive environment doesn't have. The compose file already bind-mounts `./backups`, so both the snapshots and the shared photo store land on the host at the usual path.
+**Docker Compose (Option A):**
+
+```
+*/15 * * * * cd /srv/taskmasterwedding && /usr/bin/docker compose exec -T -e BACKUP_RETENTION_COUNT=192 app node scripts/backup.js --db-only >> /var/log/tmw-backup.log 2>&1
+17 3 * * *   cd /srv/taskmasterwedding && /usr/bin/docker compose exec -T app node scripts/backup.js --photos-only >> /var/log/tmw-backup.log 2>&1
+```
+
+These are the exact two lines installed and verified running unattended on the production host
+(issue #1135, 2026-08-06). Absolute `docker` path because cron's PATH is minimal; `node` stays
+explicit because `scripts/backup.js` has no shebang line, so a bare `docker compose exec -T app
+scripts/backup.js` (dropping the interpreter) fails at every fire. The `-T` flag disables the
+pseudo-TTY that `docker compose exec` allocates by default, which cron's non-interactive environment
+doesn't have. The compose file already bind-mounts `./backups`, so both the snapshots and the shared
+photo store land on the host at the usual path.
+
+The `--db-only` line carries `-e BACKUP_RETENTION_COUNT=192`: this supplies the value directly to the
+already-running container without restarting production, since `config.js` reads
+`BACKUP_RETENTION_COUNT` from the process environment at start, and a running container does not pick
+up a change to `.env` on its own. The `--photos-only` line does not need it, because that mode never
+prunes (see § Retention below).
 
 **Retention.** Set `BACKUP_RETENTION_COUNT` in `.env` to the number of **database snapshots** to keep; each `--db-only` (or default) run prunes older ones down to that count after it finishes writing the new snapshot. This has no effect on `BACKUP_DIR/photos/` — the shared store is never pruned by this tool (see below). Unset keeps every DB snapshot forever, which is the setting the disk-budget formula above is least forgiving of — pick a number once a schedule is running:
 
@@ -393,6 +412,15 @@ BACKUP_RETENTION_COUNT=192
   ```
 
 Add either as its own cron line after the backup jobs, offset a few minutes later so it copies finished files rather than ones mid-write.
+
+**Recorded omission (issue #1135, 2026-08-06):** this run installed the `--db-only`/`--photos-only`
+cron schedule above and confirmed it fires unattended, but it did **not** install a scheduled off-host
+sync: no `rclone` or `rsync`/`scp` cron line runs on the host today. The only off-host copy that
+exists is a single manual pull performed during that run: one snapshot folder (`20260806-061502`) plus
+the photo store, copied by hand to the event laptop at `C:\wedding-backups-offhost`. That copy does not
+refresh itself and will go stale as soon as the live data changes again. Per
+`definition-of-done.md` § "Recorded omissions," this is named here as a known gap, not a completed
+piece of the backup story.
 
 ## Restore
 
