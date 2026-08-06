@@ -1028,6 +1028,13 @@ function passesAnnounceCursor(when, key, cursor) {
  * announcement asserts is already sitting on the task row itself" claim the
  * three per-task derivations satisfy.
  *
+ * One gate sits AHEAD of all three per-task derivations, in addition to the
+ * SQL's hidden-task exclusion: a candidate `tasks.isSealed` calls sealed is
+ * skipped whole, contributing no fact of any kind for this call (issue
+ * #1152). See the comment on that skip inside the loop below for why it is
+ * per candidate here rather than in ANNOUNCE_EXISTENCE_WHERE, and why the
+ * skip lifts by construction on the challenge's own day.
+ *
  * (a) Live-transition: `live_since` is set and newer than the checkpoint —
  *     both sides are the SAME storage shape (`datetime('now')`), so this is
  *     a plain string comparison, identical in spirit to every other
@@ -1090,6 +1097,30 @@ function qualifyingAnnounceFacts(checkpoint, clock) {
 
   const facts = [];
   for (const t of stmtAnnounceCandidates.all()) {
+    // Issue #1152: a sealed one-day-only challenge (isSealed says its
+    // special_date is strictly after today, the same predicate the guest
+    // card path uses to withhold the title, src/routes/guest/tasks.js:234)
+    // must not leak its title through ANY of the three per-task facts below.
+    // Not just the unseal fact (b), whose own isOnDay ("=") gate already
+    // excludes it structurally, but also the live-transition fact (a) and
+    // the flash fact (c), neither of which has ever consulted the seal
+    // predicate. ANNOUNCE_EXISTENCE_WHERE only asks "is this task hidden or
+    // does it have SOME time-shaped column". It does not, and must not, ask
+    // "is it sealed", because a sealed task legitimately needs to reach this
+    // loop so its (b) unseal fact can fire once the day arrives. So the seal
+    // check lives here, per candidate, skipping the WHOLE candidate for this
+    // one call rather than filtering per-fact: a sealed task contributes no
+    // row of any kind while sealed (issue #1152 AC1), and on the day itself
+    // isSealed is false (special_date strictly greater, never equal), so the
+    // skip lifts by construction and (a)/(b)/(c) resume exactly as before
+    // (AC2). Skipping the candidate, not masking `title` on individual
+    // facts, is what keeps the fact count and getUnreadCount's derived total
+    // matching what the sealed card actually shows (AC1) instead of
+    // producing an untitled-but-still-counted phantom row.
+    if (tasks.isSealed(t, clock.todayIso)) {
+      continue;
+    }
+
     if (t.live_since != null && t.live_since > checkpoint) {
       facts.push({
         key: `announce-live-${t.id}`,

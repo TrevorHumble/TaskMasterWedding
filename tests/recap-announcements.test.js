@@ -388,6 +388,93 @@ describe('AC4: a challenge unseals without a scheduled job', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #1152: a sealed one-day-only challenge (special_date strictly after
+// today, tasks.isSealed's own definition) must not leak its title through
+// the recap panel while sealed, on ANY of the three per-task facts
+// qualifyingAnnounceFacts derives (live-transition, unseal, flash) -- not
+// just the unseal fact, whose own isOnDay ("=") gate already excluded a
+// sealed task by coincidence. The bug this closes: a future-dated one-day
+// task that had ALSO gone live, or had ALSO opened a flash window, still
+// announced its title through (a) or (c) even though the guest card at
+// src/routes/guest/tasks.js:234 withheld it entirely.
+// ---------------------------------------------------------------------------
+describe('issue #1152: a sealed one-day-only challenge announces nothing until its day arrives', () => {
+  it('AC1: sealed, with a live-transition AND an open flash trio, yields zero title-bearing rows and no phantom unread', () => {
+    const guest = insertGuest();
+    backdateGuest(guest.id, '2020-01-01 00:00:00');
+
+    // clock.nowMs sits inside the flash window below, so the flash fact (c)
+    // is live and would announce if the seal check did not skip the
+    // candidate entirely.
+    const flashStart = new Date('2026-08-07T10:00:00.000Z');
+    const clock = { todayIso: TODAY, nowMs: flashStart.getTime() + 5 * 60000, timezone: TIMEZONE };
+
+    // Baseline BEFORE the sealed task exists, so the assertion below is a
+    // before/after DELTA (per this issue's AC1: getUnreadCount aggregates
+    // five sources with no per-test cleanup in this file, so an absolute
+    // toBe(0) would be false on a shared db).
+    const before = notifications.getUnreadCount(guest.id, clock);
+
+    const taskId = insertTask({
+      title: 'Sealed OneDay Leak Check',
+      special_mode: 'oneday',
+      special_date: '2026-08-09', // strictly after TODAY (2026-08-07) -- sealed
+      special_bonus: 2,
+      live_since: '2020-06-01 00:00:00', // newer than the checkpoint -- fact (a) candidate
+      flash_start_at: flashStart.toISOString(), // newer than checkpoint -- fact (c) candidate
+      flash_minutes: 20,
+      flash_bonus: 2,
+    });
+
+    const rows = notifications.getRecap(guest.id, { clock }).rows;
+    expect(rows.some((r) => partsText(r.parts).includes('Sealed OneDay Leak Check'))).toBe(false);
+    expect(rows.some((r) => r.key === `announce-live-${taskId}`)).toBe(false);
+    expect(rows.some((r) => r.key === `announce-flash-${taskId}`)).toBe(false);
+    expect(rows.some((r) => r.key === `announce-unseal-${taskId}`)).toBe(false);
+
+    const after = notifications.getUnreadCount(guest.id, clock);
+    expect(after).toBe(before);
+  });
+
+  it('AC2: the same shape of challenge, now on the event-local day its special_date names, announces both the live and unseal facts', () => {
+    const guest = insertGuest();
+    backdateGuest(guest.id, '2020-01-01 00:00:00');
+
+    const dayStartMs = eventDaysSvc.dayOpensAt(TODAY, TIMEZONE).getTime();
+    const clock = { todayIso: TODAY, nowMs: dayStartMs + 60000, timezone: TIMEZONE };
+
+    const taskId = insertTask({
+      title: 'Unsealed OneDay Leak Check',
+      special_mode: 'oneday',
+      special_date: TODAY, // equal to today -- isSealed is false, isOnDay is true
+      special_bonus: 2,
+      live_since: '2020-06-01 00:00:00', // newer than the checkpoint
+    });
+
+    const rows = notifications.getRecap(guest.id, { clock }).rows;
+    expect(announceRowFor(rows, 'Unsealed OneDay Leak Check')).toHaveLength(2);
+    expect(rows.some((r) => r.key === `announce-live-${taskId}`)).toBe(true);
+    expect(rows.some((r) => r.key === `announce-unseal-${taskId}`)).toBe(true);
+  });
+
+  it('AC3: a PAST-dated one-day-only challenge is not sealed and still announces its live transition unchanged', () => {
+    const guest = insertGuest();
+    backdateGuest(guest.id, '2020-01-01 00:00:00');
+    const taskId = insertTask({
+      title: 'Past OneDay Leak Check',
+      special_mode: 'oneday',
+      special_date: '2020-01-02', // strictly BEFORE TODAY -- open, same as an ordinary task
+      special_bonus: 2,
+      live_since: '2020-06-01 00:00:00',
+    });
+
+    const clock = { todayIso: TODAY, nowMs: Date.now(), timezone: TIMEZONE };
+    const rows = notifications.getRecap(guest.id, { clock }).rows;
+    expect(rows.some((r) => r.key === `announce-live-${taskId}`)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC5 — an expired flash does not announce; an open one does.
 // ---------------------------------------------------------------------------
 describe('AC5: an expired flash does not announce; an open one does', () => {
