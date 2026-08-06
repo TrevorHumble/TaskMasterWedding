@@ -164,6 +164,39 @@ describe('admin-guests.js (issue #1093 criterion 6)', () => {
     expect(doc.getElementById('guest-edit-blocked-input').checked).toBe(false);
   });
 
+  // The stats line used to be assigned with innerHTML, purely because the
+  // view writes the separator as the &middot; entity. That made a DOM
+  // attribute an HTML sink for no gain: the parser decodes the entity when it
+  // builds the attribute, so the value arriving here is already a literal
+  // middot and renders identically as text. These assert the rendered text is
+  // unchanged AND that no markup can come through the same door.
+  it('fills the stats line as text, entity already decoded, with the middot intact', () => {
+    click(doc, doc.querySelector('[data-edit-guest="9"]'));
+
+    const stats = doc.getElementById('guest-edit-stats');
+    expect(stats.textContent).toBe('10 pts · 2 of 5 tasks');
+    expect(stats.innerHTML).toBe('10 pts · 2 of 5 tasks');
+    expect(stats.querySelector('*')).toBeNull();
+  });
+
+  it('does not point the form or the photos link anywhere off-shape', () => {
+    const row = doc.querySelector('.guest-card[data-guest-id="9"]');
+    const opener = row.querySelector('[data-edit-guest]');
+    const form = doc.getElementById('guest-edit-form');
+    const actionBefore = form.getAttribute('action');
+
+    row.setAttribute('data-guest-id', 'javascript:alert(1)');
+    opener.setAttribute('data-photos-url', 'javascript:alert(1)');
+    doc.getElementById('guest-edit-photos-link').setAttribute('href', '/admin/photos?view=user');
+
+    click(doc, opener);
+
+    expect(form.getAttribute('action')).toBe(actionBefore);
+    expect(doc.getElementById('guest-edit-photos-link').getAttribute('href')).toBe(
+      '/admin/photos?view=user'
+    );
+  });
+
   it('switching to a second row leaves no data from the first row behind (no leak)', () => {
     click(doc, doc.querySelector('[data-edit-guest="9"]'));
     click(doc, doc.querySelector('[data-edit-guest="10"]'));

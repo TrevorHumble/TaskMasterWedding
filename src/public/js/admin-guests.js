@@ -51,9 +51,21 @@
     // The photos URL rides on the tapped opener rather than being rebuilt
     // here — the view already knows how to compose and escape it, and one
     // owner of that URL means the two can never disagree.
+    // Both of the URLs below are built from DOM attributes, which makes them
+    // href/action sinks. They are same-origin paths this app's own view
+    // composed, so the check is a shape check, not sanitization: anything that
+    // is not the exact shape expected is dropped rather than cleaned up. That
+    // keeps a `javascript:` or cross-origin value from ever reaching the
+    // attribute, whatever put it in the DOM.
     var photosUrl = opener && opener.getAttribute('data-photos-url');
-    if (photosLink && photosUrl) photosLink.setAttribute('href', photosUrl);
-    form.setAttribute('action', '/admin/guests/' + openGuestId + '/edit');
+    if (photosLink && photosUrl && photosUrl.indexOf('/admin/photos?') === 0) {
+      photosLink.setAttribute('href', photosUrl);
+    }
+    // A guest id is digits. Anything else does not address a guest, so the
+    // form keeps whatever action it had rather than posting somewhere new.
+    if (/^\d+$/.test(openGuestId)) {
+      form.setAttribute('action', '/admin/guests/' + openGuestId + '/edit');
+    }
 
     var name = row.getAttribute('data-name') || '';
     if (nameInput) nameInput.value = name;
@@ -65,7 +77,12 @@
     // The popup's own heading names the guest, so a host who opened the wrong
     // row sees it before typing rather than after saving.
     if (titleEl) titleEl.textContent = name || 'Edit guest';
-    if (statsEl) statsEl.innerHTML = row.getAttribute('data-stats') || '';
+    // textContent, not innerHTML. The stats line reads "27 pts &middot; 19 of
+    // 20 tasks", and the entity is why this was ever an HTML assignment: it
+    // never needed to be. The HTML parser decodes entities when it builds the
+    // attribute, so getAttribute already hands back a literal middot, and
+    // assigning it as text renders identically with no HTML sink at all.
+    if (statsEl) statsEl.textContent = row.getAttribute('data-stats') || '';
 
     if (!dialog.open && typeof dialog.showModal === 'function') dialog.showModal();
   }
