@@ -34,8 +34,11 @@
             inside the popup rather than on this row: a link cannot live
             inside a button, so putting both here would have cost the row its
             single-tap behavior. %>
-        <button type="button" class="guest-open" data-edit-guest="<%= g.id %>"
-                data-photos-url="/admin/photos?view=user&amp;q=<%= encodeURIComponent(g.name) %>">
+        <%# No data-photos-url here: admin-guests.js composes that link from
+            data-name instead. An href handed whole to JS out of the DOM is a
+            sink that can be pointed anywhere; composed from a literal path
+            plus an encoded name, it cannot. %>
+        <button type="button" class="guest-open" data-edit-guest="<%= g.id %>">
           <span class="guest-open-avatar">
             <%- include('partials/guest-avatar', { avatarPath: g.avatar_path, name: g.name }) %>
           </span>

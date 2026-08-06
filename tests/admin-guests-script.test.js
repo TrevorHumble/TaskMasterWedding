@@ -16,7 +16,7 @@ const { JSDOM } = require('jsdom');
 
 const ADMIN_GUESTS_JS_PATH = path.join(__dirname, '..', 'src', 'public', 'js', 'admin-guests.js');
 
-function guestCardMarkup(id, { name, contact, pin, couple, blocked, stats, photosUrl }) {
+function guestCardMarkup(id, { name, contact, pin, couple, blocked, stats }) {
   return (
     '<li class="guest-card" data-guest-id="' +
     id +
@@ -35,8 +35,6 @@ function guestCardMarkup(id, { name, contact, pin, couple, blocked, stats, photo
     '">' +
     '<button type="button" class="guest-open" data-edit-guest="' +
     id +
-    '" data-photos-url="' +
-    photosUrl +
     '"></button>' +
     '<form class="guest-delete-form" data-guest-id="' +
     id +
@@ -75,7 +73,6 @@ function pageMarkup() {
       couple: false,
       blocked: false,
       stats: '10 pts &middot; 2 of 5 tasks',
-      photosUrl: '/admin/photos?view=user&q=Ada%20Lovelace',
     }) +
     guestCardMarkup(10, {
       name: 'Other Guest',
@@ -84,7 +81,6 @@ function pageMarkup() {
       couple: true,
       blocked: true,
       stats: '0 pts &middot; 0 of 5 tasks',
-      photosUrl: '/admin/photos?view=user&q=Other%20Guest',
     }) +
     '</ul>' +
     dialogMarkup()
@@ -179,21 +175,21 @@ describe('admin-guests.js (issue #1093 criterion 6)', () => {
     expect(stats.querySelector('*')).toBeNull();
   });
 
-  it('does not point the form or the photos link anywhere off-shape', () => {
+  it('leaves the form action alone when the guest id is not a number', () => {
     const row = doc.querySelector('.guest-card[data-guest-id="9"]');
     const opener = row.querySelector('[data-edit-guest]');
     const form = doc.getElementById('guest-edit-form');
     const actionBefore = form.getAttribute('action');
 
     row.setAttribute('data-guest-id', 'javascript:alert(1)');
-    opener.setAttribute('data-photos-url', 'javascript:alert(1)');
-    doc.getElementById('guest-edit-photos-link').setAttribute('href', '/admin/photos?view=user');
 
     click(doc, opener);
 
     expect(form.getAttribute('action')).toBe(actionBefore);
+    // The photos link is composed from the row's name, so it always points
+    // at a real path even when the id is junk.
     expect(doc.getElementById('guest-edit-photos-link').getAttribute('href')).toBe(
-      '/admin/photos?view=user'
+      '/admin/photos?view=user&q=Ada%20Lovelace'
     );
   });
 
