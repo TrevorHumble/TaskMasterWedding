@@ -12,8 +12,11 @@
 //      the no-JS baseline (`!window.fetch` below).
 //   2. Comments dialog: the comment button and the "See all <N> comments"
 //      line both carry data-open-comments="<submissionId>" — a click on
-//      either opens the matching <dialog id="comments-dialog-<id>"> via
-//      showModal(). Native <dialog> is the load-bearing choice (#248
+//      either fills the page's ONE <dialog id="comments-dialog"> from that
+//      card's .feed-card-data payload and opens it via showModal() (issue
+//      #1139; before that, each card carried its own dialog and the click
+//      only had to find it by id). Native <dialog> is the load-bearing
+//      choice (#248
 //      amendment): .feed-item's content-visibility containment turns each
 //      card into the containing block for position: fixed descendants, so a
 //      fixed scrim/panel pins to the card, not the viewport — the top layer
@@ -46,18 +49,22 @@
 //      rejected fetch or a non-ok response (issue #934) shows the dialog's
 //      `.comment-error` line instead. Any other open menu is closed on an
 //      outside tap.
-//   6. Likers dialog (issue #890): the "N likes" link opens a matching
-//      <dialog id="likes-dialog-<submissionId>"> the same way (data-open-
-//      likes/data-close-likes, one-dialog-at-a-time via openModalDialog).
+//   6. Likers dialog (issue #890): the "N likes" link fills and opens the
+//      page's ONE <dialog id="likes-dialog"> the same way (data-open-likes/
+//      data-close-likes, one-dialog-at-a-time via openModalDialog).
 //      On a like-toggle response the "N likes" text/aria-label update in
 //      place, and the signed-in guest's own row is inserted into (or
 //      removed from) that dialog without a reload — see updateLikesDialog.
 //   7. In-flight guards (issue #934): toggleLike, postComment, and
 //      deleteComment each arm a PER-FORM guard (beginInFlight below) before
 //      their fetch — a second tap on the SAME form while one is pending is
-//      ignored outright (no second fetch), while every OTHER card's controls
-//      stay live (the guard's state lives on that one form element, never a
-//      module-global flag). The guard force-releases after
+//      ignored outright (no second fetch). The guard's state lives on that
+//      one form element, never a module-global flag, so every OTHER like
+//      form on the page stays live. Note what #1139 changed here: the like
+//      forms are still per card, but the composer and the delete forms now
+//      live in the ONE shared comments dialog, so their guard is per that
+//      shared form — which is also per card in practice, since one dialog
+//      shows one photo at a time. The guard force-releases after
 //      IN_FLIGHT_RELEASE_MS even if the fetch never settles, so a dropped
 //      request can never permanently mute a control.
 'use strict';
@@ -125,11 +132,19 @@
    * `release` RETURNS whether it actually acted: `true` on the one call that
    * releases this request's own token, `false` on any no-op (already released,
    * or the watchdog fired first, or a newer request re-armed the form). A
-   * caller MUST gate its response processing on that return — `if (!release())
-   * return;` — so a late-settling abandoned request cannot mutate the DOM
-   * (hide a fresh error line, append a stale payload) after the guest has
-   * already given up on it and retried. Only guarding the guest STATE (the
-   * token) is not enough; the response handler must short-circuit too.
+   * caller MUST consult that return before mutating the DOM, so a
+   * late-settling abandoned request cannot hide a fresh error line or append
+   * a stale payload after the guest has given up on it and retried. Only
+   * guarding the guest STATE (the token) is not enough; the response handler
+   * has to branch on it too.
+   *
+   * `toggleLike` takes the simple form of that rule (`if (!release()) return;`).
+   * The two shared-comments-dialog callers (#1139) cannot: their photo's
+   * PAYLOAD must be updated even on a `false`, because the comment really was
+   * posted or deleted and the card has to show it. They capture the answer and
+   * branch on it instead — payload unconditionally, then an append or a full
+   * redraw of the shared thread depending on whether this settle is still the
+   * current one. See postComment and deleteComment.
    *
    * @param {HTMLFormElement} form
    * @param {function(): void} [onRelease] - extra cleanup (e.g. restoring a
@@ -137,12 +152,20 @@
    *   releases first: the caller's own settle, or the watchdog.
    * @returns {(function(): boolean)|null}
    */
-  function beginInFlight(form, onRelease) {
-    if (form.dataset.pendingToken) {
+  function beginInFlight(form, onRelease, scope) {
+    // `scope` exists for the ONE shared composer (#1139). Without it, a post
+    // pending on photo A would block Post on photo B, because both are the
+    // same form element. A tap for a DIFFERENT scope is allowed to arm, and
+    // supersedes the older one under the same rule a re-armed form always
+    // followed. Callers with a genuinely per-element form (the like forms)
+    // pass no scope and behave exactly as before.
+    var scopeKey = scope === undefined || scope === null ? '' : String(scope);
+    if (form.dataset.pendingToken && form.dataset.pendingScope === scopeKey) {
       return null;
     }
     var token = String(Date.now()) + '-' + Math.random();
     form.dataset.pendingToken = token;
+    form.dataset.pendingScope = scopeKey;
 
     var released = false;
     function release() {
@@ -151,6 +174,7 @@
       }
       released = true;
       delete form.dataset.pendingToken;
+      delete form.dataset.pendingScope;
       clearTimeout(watchdog);
       if (onRelease) {
         onRelease();
@@ -332,6 +356,159 @@
   }
 
   // ------------------------------------------------------------------
+  // Shared dialogs (issue #1139). The page carries ONE likers dialog and ONE
+  // comments dialog, not a pair per card. Each card publishes the rows its
+  // dialogs need as a compact JSON block (.feed-card-data, src/views/feed.ejs)
+  // and the shared dialogs are filled from it on open.
+  //
+  // That block is also the SOURCE OF TRUTH for a card's dialog contents while
+  // the page is alive, not a page-load snapshot the DOM then diverges from: a
+  // like toggle, a posted comment and a deleted comment each write back to it
+  // and then re-render. Without the write-back, a guest who likes a photo,
+  // closes the dialog and re-opens it would watch their own like disappear —
+  // the failure the per-card dialogs could not have, because their DOM was
+  // the only copy.
+  // ------------------------------------------------------------------
+
+  /** The <article> for a submission id, or null. Validated via photoId. */
+  function cardFor(submissionId) {
+    var id = photoId(submissionId);
+    return id ? document.getElementById('photo-' + id) : null;
+  }
+
+  // The placeholder name src/views/feed.ejs renders the Couple's Heart
+  // template with, so this file can substitute a liker's name into the
+  // partial's own aria-label sentence without re-writing that sentence.
+  var COUPLE_HEART_NAME_SLOT = '{name}';
+
+  /**
+   * A submission id as a plain digit string, or null if it is anything else.
+   *
+   * Every id this file acts on arrives as DOM text (a card's
+   * data-open-comments / data-open-likes attribute) or as a capture from a
+   * route path, and it is then concatenated into a URL, an element id and a
+   * CSS selector. Server-rendered ids are always integers, so nothing legal is
+   * turned away — but "the server only writes integers there" is an assumption
+   * about a different file, and the sinks below are a form action a comment
+   * would POST to and a querySelector that throws on a malformed selector.
+   * Validating at the boundary makes those sinks safe by construction rather
+   * than by trust.
+   */
+  function photoId(value) {
+    if (!/^[0-9]+$/.test(String(value))) {
+      return null;
+    }
+    // Rebuilt from the NUMBER rather than returned as the original text. The
+    // regex above already rejects anything but digits, so this changes no
+    // accepted value — but the string that leaves here is derived from a
+    // numeric conversion, which is what makes it, and every sink downstream,
+    // provably independent of the page content it came from. Returning the
+    // input string after testing it looks equivalent and is not: the value
+    // flowing out would still be the untrusted one.
+    var n = Number(String(value));
+    return Number.isSafeInteger(n) && n > 0 ? String(n) : null;
+  }
+
+  /** A card's payload <script> block, or null. */
+  function cardDataEl(submissionId) {
+    var id = photoId(submissionId);
+    var card = id ? cardFor(id) : null;
+    // Matched on data-for as well as the class, so the id the block claims and
+    // the card it sits in have to agree in the code the guest runs — not only
+    // in the tests.
+    return card ? card.querySelector('.feed-card-data[data-for="' + id + '"]') : null;
+  }
+
+  /**
+   * Read a card's dialog payload. Returns the parsed object with `likers` and
+   * `comments` guaranteed to be arrays, or null when the card or its block is
+   * absent or unparseable — every caller treats null as "nothing to draw"
+   * rather than throwing, so a malformed block costs one dialog, never the
+   * page's other handlers.
+   *
+   * Any OTHER key the block carries is passed through untouched, so a field
+   * added to feed.ejs's payload later is not silently dropped by the first
+   * write-back on that card.
+   */
+  function readCardData(submissionId) {
+    var el = cardDataEl(submissionId);
+    if (!el) {
+      return null;
+    }
+    try {
+      var cardData = JSON.parse(el.textContent);
+      if (!cardData || typeof cardData !== 'object') {
+        return null;
+      }
+      if (!Array.isArray(cardData.likers)) {
+        cardData.likers = [];
+      }
+      if (!Array.isArray(cardData.comments)) {
+        cardData.comments = [];
+      }
+      return cardData;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  /** Write a card's dialog payload back after a live change. */
+  function writeCardData(submissionId, cardData) {
+    var el = cardDataEl(submissionId);
+    if (el) {
+      el.textContent = JSON.stringify(cardData);
+    }
+  }
+
+  /**
+   * The submission id a shared dialog is currently showing, or null.
+   *
+   * This is the guard every handler that touches shared dialog DOM has to
+   * consult. One dialog serves every card, so a request that settles after
+   * the guest has switched photos — a slow post on venue wifi, up to
+   * IN_FLIGHT_RELEASE_MS — would otherwise write photo A's comment into
+   * photo B's open thread. The per-card dialogs could not reach that state.
+   */
+  function shownSubmissionId(dialog) {
+    return dialog ? dialog.getAttribute('data-submission-id') : null;
+  }
+
+  /** Whether a shared dialog is currently showing `submissionId`. */
+  function dialogShows(dialog, submissionId) {
+    return !!dialog && String(shownSubmissionId(dialog)) === String(submissionId);
+  }
+
+  /**
+   * Copy the card's own thumbnail into a shared dialog's header. The dialogs
+   * used to carry a server-rendered <img src="/thumbs/…"> each; reading it off
+   * the card keeps the thumbnail path out of the payload entirely, and it is
+   * already loaded, so the header draws with no second request.
+   */
+  function fillDialogThumb(dialog, submissionId) {
+    var card = cardFor(submissionId);
+    var cardImg = card ? card.querySelector('.feed-photo') : null;
+    var thumb = dialog.querySelector('.comments-dialog-thumb');
+    if (thumb && cardImg) {
+      thumb.src = cardImg.getAttribute('src');
+    }
+  }
+
+  /** Remove every child of `el`. */
+  function clearChildren(el) {
+    while (el.firstChild) {
+      el.removeChild(el.firstChild);
+    }
+  }
+
+  /** A <p class="muted comments-dialog-empty"> carrying `text`. */
+  function emptyStateNode(text) {
+    var p = document.createElement('p');
+    p.className = 'muted comments-dialog-empty';
+    p.textContent = text;
+    return p;
+  }
+
+  // ------------------------------------------------------------------
   // Likers dialog (issue #890): keep the row set truthful after a like
   // toggle, with no reload and no round trip for the guest's own identity.
   // ------------------------------------------------------------------
@@ -357,88 +534,160 @@
       name: root.getAttribute('data-guest-name') || 'Guest',
       avatar: root.getAttribute('data-guest-avatar') || '',
       initialsText: root.getAttribute('data-guest-initials') || '?',
+      couple: root.getAttribute('data-guest-couple') === '1',
     };
   }
 
   /**
-   * Build the signed-in guest's own likers-dialog row — mirrors the
-   * `.likes-row` markup src/views/feed.ejs renders server-side for every
-   * other liker, from the identity selfGuest() above supplies. data-likes-row
-   * is the SAME row-identity hook feed.ejs stamps on every server-rendered
-   * row (not a client-only marker) — see updateLikesDialog below for why
-   * that single shared hook matters.
+   * The Couple's Heart for a liker row (issue #647), cloned from the single
+   * <template id="couple-heart-template"> src/views/feed.ejs renders once via
+   * partials/couple-heart-mark.ejs. The partial is the mark's ONE renderer
+   * across every surface, so the art is cloned rather than rebuilt here; only
+   * the aria-label is per-row, naming the couple member whose row it is.
+   * Returns null when the template is absent, so the row simply renders
+   * without the mark rather than throwing.
    */
-  function selfLikesRowNode(guest) {
+  function coupleHeartNode(name) {
+    var tpl = document.getElementById('couple-heart-template');
+    var source = tpl && tpl.content ? tpl.content.firstElementChild : null;
+    if (!source) {
+      return null;
+    }
+    var node = source.cloneNode(true);
+    // The label SENTENCE is the partial's, not this file's: feed.ejs renders
+    // the template with the placeholder name below, so "Loved by …" is still
+    // authored in exactly one place and only the name is substituted here.
+    // Re-composing the prefix in JavaScript would be a second owner for copy
+    // the partial exists to own.
+    var label = node.getAttribute('aria-label') || '';
+    if (label.indexOf(COUPLE_HEART_NAME_SLOT) !== -1) {
+      node.setAttribute('aria-label', label.split(COUPLE_HEART_NAME_SLOT).join(name));
+    }
+    return node;
+  }
+
+  /**
+   * Build one `.likes-row` from a payload liker ({ id, name, av, init,
+   * couple }) — the single builder for every row in the likers dialog,
+   * whether it came from the card's payload at open time or from the
+   * signed-in guest liking the photo just now (issue #1139: before this,
+   * server-rendered rows and the client-built self row were two renderers of
+   * the same row and could drift).
+   *
+   * data-likes-row is the row-identity hook every row carries, not a marker
+   * distinguishing self rows: an unlike must find and remove the guest's row
+   * whether it was drawn from the payload or inserted on a live like, and a
+   * later re-like must not duplicate it.
+   */
+  function likesRowNode(row) {
     var a = document.createElement('a');
     a.className = 'likes-row';
-    a.setAttribute('href', '/u/' + guest.id);
-    a.setAttribute('data-likes-row', guest.id);
+    a.setAttribute('href', '/u/' + row.id);
+    a.setAttribute('data-likes-row', row.id);
 
     var avatar = document.createElement('span');
     avatar.className = 'likes-row-avatar';
-    if (guest.avatar) {
+    if (row.av) {
       var img = document.createElement('img');
-      img.src = '/uploads/' + guest.avatar;
+      img.src = '/uploads/' + row.av;
       img.alt = '';
+      // The dialog is drawn on open, so these fetch only when the guest
+      // actually asks to see the list.
+      img.loading = 'lazy';
+      img.decoding = 'async';
       avatar.appendChild(img);
     } else {
       avatar.setAttribute('aria-hidden', 'true');
-      avatar.textContent = guest.initialsText;
+      avatar.textContent = row.init || '?';
     }
     a.appendChild(avatar);
 
     var name = document.createElement('span');
     name.className = 'likes-row-name';
-    name.textContent = guest.name;
+    name.textContent = row.name;
     a.appendChild(name);
 
+    if (row.couple) {
+      var heart = coupleHeartNode(row.name);
+      if (heart) {
+        a.appendChild(heart);
+      }
+    }
     return a;
   }
 
+  /** The signed-in guest as a payload liker row, for a live like. */
+  function selfLikerRow(guest) {
+    var row = { id: guest.id, name: guest.name, av: guest.avatar, init: guest.initialsText };
+    if (guest.couple) {
+      row.couple = 1;
+    }
+    return row;
+  }
+
   /**
-   * Insert or remove the signed-in guest's own row in a photo's likes
-   * dialog, and keep the "No likes yet." empty state in sync — removed when
-   * the first row goes in, restored when the last one comes out (issue #890
-   * AC5). A no-op when the dialog isn't on the page or guest is null (no
-   * .feed root found).
+   * Draw the shared likers dialog for `submissionId` from that card's
+   * payload, and stamp which card it is showing. "No likes yet." stands in
+   * for an empty list, the same copy the per-card dialog carried.
    *
-   * The lookup below matches data-likes-row — the ONE row-identity hook
-   * feed.ejs stamps on EVERY row, not a client-only marker distinguishing
-   * "self" rows from server-rendered ones. That single shared hook is load-
-   * bearing: a guest who already liked a photo before this page loaded has
-   * their row rendered server-side with no client-side memory of it — an
-   * unlike must still find and remove THAT row (not skip it for lacking a
-   * client-only marker), and a later re-like must not duplicate it.
+   * Returns whether it drew anything; false means the card or its payload is
+   * gone and the caller must not open the dialog onto the previous photo's
+   * rows. Same rule, same reason, as renderComments below.
+   */
+  function renderLikes(rawSubmissionId) {
+    var submissionId = photoId(rawSubmissionId);
+    var dialog = likesDialog();
+    var data = submissionId ? readCardData(submissionId) : null;
+    var thread = dialog ? dialog.querySelector('.likes-thread') : null;
+    if (!dialog || !data || !thread) {
+      return false;
+    }
+    clearChildren(thread);
+    if (data.likers.length === 0) {
+      thread.appendChild(emptyStateNode('No likes yet.'));
+    } else {
+      data.likers.forEach(function (row) {
+        thread.appendChild(likesRowNode(row));
+      });
+    }
+    fillDialogThumb(dialog, submissionId);
+    dialog.setAttribute('data-submission-id', String(submissionId));
+    return true;
+  }
+
+  /**
+   * Record the signed-in guest's like or unlike against a photo (issue #890
+   * AC5), and redraw the likers dialog if it happens to be showing that photo
+   * right now. The card's payload is updated either way — a like toggled
+   * while the dialog is CLOSED must still be there when the guest opens it.
+   *
+   * A no-op when guest is null (no .feed root) or the card has no payload.
    */
   function updateLikesDialog(submissionId, liked, guest) {
     if (!guest) {
       return;
     }
-    var dialog = document.getElementById('likes-dialog-' + submissionId);
-    if (!dialog) {
+    var data = readCardData(submissionId);
+    if (!data) {
       return;
     }
-    var thread = dialog.querySelector('.likes-thread');
-    if (!thread) {
+    var already = data.likers.some(function (row) {
+      return String(row.id) === String(guest.id);
+    });
+    if (liked && !already) {
+      data.likers.unshift(selfLikerRow(guest));
+    } else if (!liked && already) {
+      data.likers = data.likers.filter(function (row) {
+        return String(row.id) !== String(guest.id);
+      });
+    } else {
       return;
     }
-    var existingRow = thread.querySelector('[data-likes-row="' + guest.id + '"]');
-    if (liked) {
-      if (!existingRow) {
-        var empty = thread.querySelector('.comments-dialog-empty');
-        if (empty && empty.parentNode) {
-          empty.parentNode.removeChild(empty);
-        }
-        thread.insertBefore(selfLikesRowNode(guest), thread.firstChild);
-      }
-    } else if (existingRow && existingRow.parentNode) {
-      existingRow.parentNode.removeChild(existingRow);
-      if (thread.querySelectorAll('.likes-row').length === 0) {
-        var emptyP = document.createElement('p');
-        emptyP.className = 'muted comments-dialog-empty';
-        emptyP.textContent = 'No likes yet.';
-        thread.appendChild(emptyP);
-      }
+    writeCardData(submissionId, data);
+
+    var dialog = likesDialog();
+    if (dialog && String(shownSubmissionId(dialog)) === String(submissionId)) {
+      renderLikes(submissionId);
     }
   }
 
@@ -446,9 +695,14 @@
   // Comments dialog: open / close.
   // ------------------------------------------------------------------
 
-  /** The comments <dialog> for a submission id, or null. */
-  function dialogFor(submissionId) {
-    return document.getElementById('comments-dialog-' + submissionId);
+  /** The page's one comments <dialog>, or null. */
+  function commentsDialog() {
+    return document.getElementById('comments-dialog');
+  }
+
+  /** The page's one likers <dialog>, or null. */
+  function likesDialog() {
+    return document.getElementById('likes-dialog');
   }
 
   /**
@@ -489,10 +743,136 @@
     }
   }
 
-  /** Open a card's comments dialog as a modal and focus the composer. */
+  // The composer's resting Post label, captured from the server-rendered
+  // button the first time the dialog is drawn — before any post can have
+  // changed it. Read rather than repeated here, so the copy keeps its one
+  // author in src/views/feed.ejs.
+  var postRestingLabel = null;
+
+  /**
+   * Hand the ONE shared composer over to a different photo: drop the draft
+   * typed for the last one, and give the guest a usable Post control again.
+   *
+   * The button part is not cosmetic. A post still pending on photo A leaves
+   * Post disabled and reading "Posting…", and that button is now the same
+   * element on photo B, so without this the guest would find B's composer
+   * dead for up to IN_FLIGHT_RELEASE_MS.
+   *
+   * What this deliberately does NOT do is clear the pending token. That would
+   * make A's own settle indistinguishable from a genuinely stale one (the
+   * watchdog fired and the guest retried), which is exactly the case #934's
+   * guard exists to reject — and a guest who wanders to another photo and
+   * back would then watch their comment fail to appear. beginInFlight's
+   * `scope` handles the real need instead: a tap for a different photo is
+   * allowed to arm even while A's request is outstanding.
+   */
+  function resetSharedComposer(dialog) {
+    var textarea = dialog.querySelector('textarea[name="body"]');
+    if (textarea) {
+      textarea.value = '';
+    }
+    var postButton = dialog.querySelector('.comment-post');
+    if (postButton) {
+      postButton.disabled = false;
+      if (postRestingLabel !== null) {
+        postButton.textContent = postRestingLabel;
+      }
+    }
+  }
+
+  /**
+   * Draw the shared comments dialog for `submissionId` from that card's
+   * payload: the thread, the header thumbnail and title, and the composer's
+   * POST target. One composer serves every card, so its action is set here to
+   * the photo whose dialog is being opened — the id every later handler reads
+   * back off that action, exactly as it read the per-card form's before.
+   *
+   * Returns whether it drew anything. FALSE means the card or its payload is
+   * gone (removed by feed-scroll's in-place window swap, or unparseable), and
+   * the caller must NOT open the dialog: it would still be showing the last
+   * photo's thread, title, thumbnail and — worst — its form action, so a
+   * comment typed there would post to the wrong photo. A per-card dialog could
+   * not reach that state; one shared dialog can, so refusing to open is the
+   * failure this shape has to define away.
+   */
+  function renderComments(rawSubmissionId) {
+    var submissionId = photoId(rawSubmissionId);
+    var dialog = commentsDialog();
+    var cardData = submissionId ? readCardData(submissionId) : null;
+    var thread = dialog ? dialog.querySelector('.comments-dialog-thread') : null;
+    if (!dialog || !cardData || !thread) {
+      return false;
+    }
+    var guest = selfGuest();
+
+    if (postRestingLabel === null) {
+      var restingButton = dialog.querySelector('.comment-post');
+      if (restingButton) {
+        postRestingLabel = restingButton.textContent;
+      }
+    }
+
+    // Switching photos resets what the ONE composer carries from the last one:
+    // the draft, and the in-flight state. The per-card composers each had
+    // their own of both. Re-opening the SAME photo keeps the draft, which is
+    // what the per-card composer did too.
+    if (!dialogShows(dialog, submissionId)) {
+      resetSharedComposer(dialog);
+    }
+    clearChildren(thread);
+    if (cardData.comments.length === 0) {
+      thread.appendChild(emptyStateNode('No comments yet.'));
+    } else {
+      cardData.comments.forEach(function (comment) {
+        thread.appendChild(commentItemNode(comment, submissionId, isOwnComment(comment, guest)));
+      });
+    }
+
+    fillDialogThumb(dialog, submissionId);
+    var title = dialog.querySelector('.comments-dialog-title');
+    var card = cardFor(submissionId);
+    var byName = card ? card.querySelector('.feed-by-name') : null;
+    if (title) {
+      // The owner's name is already on the card; the dialog title borrows it
+      // rather than the payload carrying a second copy per photo.
+      title.textContent = (byName ? byName.textContent : 'Guest') + '’s photo';
+    }
+
+    var form = dialog.querySelector('.comments-dialog-form');
+    if (form) {
+      // submissionId is photoId()-validated above, so this POST target is a
+      // literal path plus digits and cannot be steered by page content.
+      form.setAttribute('action', '/p/' + submissionId + '/comments');
+    }
+    // A failure line raised for the LAST photo's post must not greet the
+    // guest on this one.
+    var errorEl = dialog.querySelector('.comment-error');
+    if (errorEl) {
+      errorEl.hidden = true;
+    }
+    dialog.setAttribute('data-submission-id', String(submissionId));
+    return true;
+  }
+
+  /**
+   * Whether `comment` belongs to the signed-in guest. Ownership is decided
+   * here, from the .feed root's own identity, rather than stored per row in
+   * the payload — one owner for the rule, matching how the likers-row insert
+   * already reads that same identity (#890 AC5).
+   */
+  function isOwnComment(comment, guest) {
+    return !!guest && String(comment.guest_id) === String(guest.id);
+  }
+
+  /**
+   * Open a card's comments dialog as a modal and focus the composer. Opens
+   * only if the dialog could actually be drawn for THIS photo — see
+   * renderComments: a shared dialog that failed to fill is still showing the
+   * last photo's thread and posting to the last photo's URL.
+   */
   function openComments(submissionId) {
-    var dialog = dialogFor(submissionId);
-    if (!dialog) {
+    var dialog = commentsDialog();
+    if (!dialog || !renderComments(submissionId)) {
       return;
     }
     openModalDialog(dialog);
@@ -501,6 +881,15 @@
       syncComposer(dialog);
       textarea.focus();
     }
+  }
+
+  /** Open the likers dialog for a card as a modal, on the same terms. */
+  function openLikes(submissionId) {
+    var dialog = likesDialog();
+    if (!dialog || !renderLikes(submissionId)) {
+      return;
+    }
+    openModalDialog(dialog);
   }
 
   document.addEventListener('click', function (event) {
@@ -514,12 +903,7 @@
     // openComments above uses.
     var likesOpener = event.target.closest && event.target.closest('[data-open-likes]');
     if (likesOpener) {
-      var likesDialog = document.getElementById(
-        'likes-dialog-' + likesOpener.getAttribute('data-open-likes')
-      );
-      if (likesDialog) {
-        openModalDialog(likesDialog);
-      }
+      openLikes(likesOpener.getAttribute('data-open-likes'));
       return;
     }
     // Close: the comments dialog's close button (data-close-comments) and
@@ -592,17 +976,22 @@
    * Build one dialog-thread row for a just-posted comment: the shared
    * commentNode() <p>, plus its own ⋯ actions menu (native <details>) with
    * the Delete control inside — mirroring the .feed-comment-item /
-   * .comment-menu markup src/views/feed.ejs renders server-side (issue #338,
-   * revised to the kebab pattern 2026-07-10). A comment this client just
-   * posted is always the signed-in guest's own, so the menu is unconditional
-   * here (the ownership check that decides whether to render it at all lives
-   * once, server-side, in feed.ejs's `c.guest_id === guest.id`) — this only
-   * builds markup for a comment already known to be self-authored.
+   * .comment-menu markup the per-card dialog used to render server-side
+   * (issue #338, revised to the kebab pattern 2026-07-10).
+   *
+   * Issue #1139: this is now the builder for EVERY row in the shared comments
+   * dialog, not only for a comment the guest just posted, so `own` decides
+   * whether the ⋯ menu is built. Its one caller for a fresh post passes true —
+   * a comment this client just posted is always the guest's own — and
+   * renderComments passes isOwnComment() for a payload row.
    */
-  function commentItemNode(comment, submissionId) {
+  function commentItemNode(comment, submissionId, own) {
     var wrap = document.createElement('div');
     wrap.className = 'feed-comment-item';
     wrap.appendChild(commentNode(comment));
+    if (!own) {
+      return wrap;
+    }
 
     var menu = document.createElement('details');
     menu.className = 'comment-menu';
@@ -643,16 +1032,30 @@
 
   /**
    * Rebuild the card's comment preview (the 4 most-recent one-line rows plus
-   * the "See all <N> comments" line) from the dialog's thread — the one full
-   * list already on the page — so the card and the dialog can never disagree.
+   * the "See all <N> comments" line) from THAT CARD'S OWN payload, which is
+   * the source of truth the dialog is also drawn from, so the card and the
+   * dialog cannot disagree.
+   *
+   * Reading the card's payload rather than the shared dialog's thread is the
+   * load-bearing part (issue #1139). One dialog serves every card, so a
+   * request that settles after the guest switched photos would otherwise
+   * rebuild card A's preview out of photo B's visible thread — pasting B's
+   * comments onto A's card. Sourcing from the card makes that unrepresentable
+   * rather than guarded against.
    */
-  function refreshCardPreview(article, dialog, submissionId, commentCount) {
-    if (!article || !dialog) {
+  function refreshCardPreview(submissionId) {
+    var article = cardFor(submissionId);
+    var cardData = readCardData(submissionId);
+    if (!article || !cardData) {
       return;
     }
+    // The badge counts the payload, not the number the response happened to
+    // carry: the payload is what the dialog will show on the next open, so
+    // deriving the badge from anything else lets the card and the dialog
+    // disagree after a late settle.
     var badge = article.querySelector('.comment-count');
     if (badge) {
-      badge.textContent = String(commentCount);
+      badge.textContent = String(cardData.comments.length);
     }
 
     var container = article.querySelector('.feed-comments');
@@ -668,13 +1071,14 @@
       actionbar.parentNode.insertBefore(container, actionbar.nextSibling);
     }
 
-    var thread = dialog.querySelectorAll('.comments-dialog-thread .feed-comment');
-    var recent = Array.prototype.slice.call(thread).slice(-4);
+    // "4 lines, not 4 comments" (#248 owner amendment): the card shows the 4
+    // most recent, same slice src/views/feed.ejs takes server-side.
+    var recent = cardData.comments.slice(-4);
     while (container.firstChild) {
       container.removeChild(container.firstChild);
     }
-    recent.forEach(function (node) {
-      var row = node.cloneNode(true);
+    recent.forEach(function (comment) {
+      var row = commentNode(comment);
       row.classList.add('feed-comment-row');
       container.appendChild(row);
     });
@@ -687,7 +1091,8 @@
     // reverse-parsed from the article's `photo-<id>` DOM id, whose format is
     // the template's representation decision, not this consumer's to know.
     seeAll.setAttribute('data-open-comments', String(submissionId));
-    seeAll.textContent = 'See all ' + commentCount + ' comment' + (commentCount === 1 ? '' : 's');
+    var total = cardData.comments.length;
+    seeAll.textContent = 'See all ' + total + ' comment' + (total === 1 ? '' : 's');
     container.appendChild(seeAll);
   }
 
@@ -699,27 +1104,13 @@
       return;
     }
     // Issue #934 AC1: a double-tap on Post while the first POST is still in
-    // flight sends nothing — the guard is per FORM/card, so another card's
-    // composer stays fully usable. postButton's disabled/label state is
+    // flight sends nothing. The guard is per form, and since #1139 there is
+    // ONE composer form for the page — switching the dialog to another photo
+    // hands it over via resetSharedComposer, which is what keeps a pending
+    // post on one photo from muting Post on the next. postButton's
+    // disabled/label state is
     // restored by the SAME release path whether it comes from the fetch
     // settling or the watchdog firing (AC4 — a hung request can't mute Post).
-    var postButton = form.querySelector('.comment-post');
-    var postButtonRestingLabel = postButton ? postButton.textContent : 'Post';
-    var release = beginInFlight(form, function () {
-      if (postButton) {
-        postButton.disabled = false;
-        postButton.textContent = postButtonRestingLabel;
-      }
-    });
-    if (!release) {
-      return;
-    }
-    if (postButton) {
-      postButton.disabled = true;
-      // U+2026 ellipsis, per the phase-1 owner-approved copy (issue #934).
-      postButton.textContent = 'Posting…';
-    }
-
     var dialog = form.closest('dialog');
     var errorEl = dialog ? dialog.querySelector('.comment-error') : null;
 
@@ -728,6 +1119,30 @@
     // a route contract — not from any DOM id's presentation format.
     var idMatch = /\/p\/(\d+)\/comments/.exec(action);
     var submissionId = idMatch ? idMatch[1] : null;
+
+    var postButton = form.querySelector('.comment-post');
+    var postButtonRestingLabel = postButton ? postButton.textContent : 'Post';
+    // Scoped to the photo (#1139): the double-tap this rejects is a second tap
+    // on the SAME photo's Post, not a first tap on another photo's, which is a
+    // different request the one shared composer must still be able to send.
+    var release = beginInFlight(
+      form,
+      function () {
+        if (postButton) {
+          postButton.disabled = false;
+          postButton.textContent = postButtonRestingLabel;
+        }
+      },
+      submissionId
+    );
+    if (!release) {
+      return;
+    }
+    if (postButton) {
+      postButton.disabled = true;
+      // U+2026 ellipsis, per the phase-1 owner-approved copy (issue #934).
+      postButton.textContent = 'Posting…';
+    }
     fetch(action, {
       method: 'POST',
       credentials: 'same-origin',
@@ -752,14 +1167,49 @@
         // Issue #934: a stale settle (watchdog fired, or a newer Post
         // re-armed this form) must not append a duplicate comment or hide a
         // newer request's error line.
-        if (!release()) {
+        // release() is called for its effects (clear the watchdog, restore
+        // Post) but its answer does NOT gate the payload write below. The
+        // comment was accepted by the server, so the card must show it even
+        // when this settle is "stale" in #934's sense — which now includes
+        // the ordinary case of the guest switching the shared dialog to
+        // another photo mid-flight, since that hands the one composer over
+        // and clears its token (issue #1139).
+        var acted = release();
+
+        // The card's payload is the source of truth the dialog and the card
+        // preview are both drawn from. Keyed by comment id so a retry after
+        // a watchdog release cannot double-insert the same comment.
+        var cardData = readCardData(submissionId);
+        if (cardData) {
+          var known = cardData.comments.some(function (c) {
+            return String(c.id) === String(data.comment.id);
+          });
+          if (!known) {
+            cardData.comments.push(data.comment);
+            writeCardData(submissionId, cardData);
+          }
+        }
+        refreshCardPreview(submissionId);
+
+        // Everything below touches the ONE shared dialog, so it runs only for
+        // a settle that is still current (#934: a hung request that the
+        // watchdog released and the guest retried must not append a stale
+        // comment or hide the retry's error line) AND only while that dialog
+        // is still showing THIS photo (#1139: a slow post the guest gave up
+        // on, closing it and opening another photo well inside
+        // IN_FLIGHT_RELEASE_MS on venue wifi, must not append their comment
+        // into the other photo's open thread, clear the draft they have
+        // started there, or steal focus).
+        //
+        // Wandering to another photo and back is NOT either of those, and
+        // still lands here with acted true: the hand-over leaves the token
+        // alone precisely so this case stays distinguishable from a stale
+        // settle. See resetSharedComposer.
+        if (!acted || !dialogShows(dialog, submissionId)) {
           return;
         }
         if (errorEl) {
           errorEl.hidden = true;
-        }
-        if (!dialog) {
-          return;
         }
         var threadEl = dialog.querySelector('.comments-dialog-thread');
         if (threadEl) {
@@ -767,10 +1217,9 @@
           if (empty && empty.parentNode) {
             empty.parentNode.removeChild(empty);
           }
-          threadEl.appendChild(commentItemNode(data.comment, submissionId));
+          threadEl.appendChild(commentItemNode(data.comment, submissionId, true));
           threadEl.scrollTop = threadEl.scrollHeight;
         }
-        refreshCardPreview(form.closest('.feed-item'), dialog, submissionId, data.commentCount);
         if (textarea) {
           textarea.value = '';
         }
@@ -784,11 +1233,13 @@
         // degrades to the dialog's own quiet inline line — never a
         // full-page re-POST, which would duplicate-risk on any auto-retry
         // and always throws the guest off the feed. A stale late rejection
-        // does not raise this line over a newer request's state.
+        // does not raise this line over a newer request's state — and
+        // (#1139) a failure on the photo the guest has since navigated away
+        // from does not raise it over the photo they are looking at now.
         if (!release()) {
           return;
         }
-        if (errorEl) {
+        if (errorEl && dialogShows(dialog, submissionId)) {
           errorEl.hidden = false;
         }
       });
@@ -805,10 +1256,14 @@
     // not from any DOM id's presentation format (same rule postComment
     // follows for its own id extraction above).
     var idMatch = /\/p\/(\d+)\/comments\/\d+\/delete/.exec(action);
+    var commentIdMatch = /\/comments\/(\d+)\/delete/.exec(action);
     var submissionId = idMatch ? idMatch[1] : null;
-    var item = form.closest('.feed-comment-item');
     var dialog = form.closest('dialog');
-    var article = form.closest('.feed-item');
+    // Issue #1139: nothing else is found by walking up from the form. The card
+    // is reached by the submission id the delete route names (inside
+    // refreshCardPreview), and the row is not captured at all — the settle
+    // redraws the thread from the payload instead, because a captured node can
+    // be detached by an intervening redraw.
     var errorEl = dialog ? dialog.querySelector('.comment-error') : null;
 
     // Issue #934: a per-form guard on this exact delete form — a repeated
@@ -844,40 +1299,56 @@
         }
         return res.json();
       })
-      .then(function (data) {
+      .then(function () {
         // Issue #934: a stale settle (watchdog fired, or a newer delete
         // re-armed this form) must not remove the row or hide a newer
         // request's error line.
-        if (!release()) {
+        // Same shape as postComment above: release() for its effects, then
+        // the payload unconditionally, because the comment IS deleted and
+        // must be gone on the next open whether or not the guest is still
+        // looking at this photo (issue #1139). The filter is idempotent, so
+        // a repeat settle cannot corrupt anything.
+        var acted = release();
+        var cardData = readCardData(submissionId);
+        if (cardData && commentIdMatch) {
+          cardData.comments = cardData.comments.filter(function (c) {
+            return String(c.id) !== commentIdMatch[1];
+          });
+          writeCardData(submissionId, cardData);
+        }
+        refreshCardPreview(submissionId);
+
+        // Same two conditions as postComment above: a current settle, and the
+        // dialog still on this photo.
+        if (!acted || !dialogShows(dialog, submissionId)) {
           return;
         }
         if (errorEl) {
           errorEl.hidden = true;
         }
-        if (item && item.parentNode) {
-          item.parentNode.removeChild(item);
-        }
-        if (dialog) {
-          var threadEl = dialog.querySelector('.comments-dialog-thread');
-          if (threadEl && threadEl.querySelectorAll('.feed-comment').length === 0) {
-            var empty = document.createElement('p');
-            empty.className = 'muted comments-dialog-empty';
-            empty.textContent = 'No comments yet.';
-            threadEl.appendChild(empty);
-          }
-        }
-        refreshCardPreview(article, dialog, submissionId, data.commentCount);
+        // Redraw the thread from the freshly-filtered payload rather than
+        // unhooking the row this handler captured at submit time (issue
+        // #1139). One dialog serves every card, so between the submit and
+        // this settle the guest may have opened another photo and come back,
+        // which rebuilds the thread — the captured node is then detached and
+        // removing it changes nothing on screen, leaving the deleted comment
+        // visible with a live Delete control that would re-POST a delete for
+        // a row the server no longer has. Redrawing is idempotent and cannot
+        // go stale, and it owns the "No comments yet." empty state in one
+        // place instead of two.
+        renderComments(submissionId);
       })
       .catch(function () {
         // Issue #934 AC3: a rate-limited (429) or rejected/5xx'd delete
         // degrades to the dialog's own quiet inline line — never a
         // full-page re-POST, the same fallback toggleLike/postComment use
         // above. A stale late rejection does not raise this line over a
-        // newer request's state.
+        // newer request's state, and (#1139) a failure on a photo the guest
+        // has navigated away from does not raise it on the one they see.
         if (!release()) {
           return;
         }
-        if (errorEl) {
+        if (errorEl && dialogShows(dialog, submissionId)) {
           errorEl.hidden = false;
         }
       });

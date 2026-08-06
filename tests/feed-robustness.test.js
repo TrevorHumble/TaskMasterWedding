@@ -200,6 +200,21 @@ async function flushMicrotasks() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Open the page's ONE shared comments dialog onto `submissionId` (issue
+ * #1139): click that card's comment opener so feed.js fills the dialog from
+ * its .feed-card-data payload and sets the composer's form action, then
+ * return the now-open dialog. Every test below that reaches into the
+ * comments dialog's form needs this first -- before #1139 each card's dialog
+ * (and its form action) was already in the served HTML; now it is drawn only
+ * on open.
+ */
+function openComments(doc, submissionId) {
+  const opener = doc.querySelector('[data-open-comments="' + submissionId + '"]');
+  opener.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  return doc.getElementById('comments-dialog');
+}
+
 // ---------------------------------------------------------------------------
 // AC1: comment Post double-tap.
 // ---------------------------------------------------------------------------
@@ -213,7 +228,7 @@ it('AC1: a Post double-tap while the first POST is pending sends exactly one req
 
   const { doc, fetchStub, restore } = await loadFeedFixture(viewer.agent);
   try {
-    const dialog = doc.getElementById('comments-dialog-' + submissionId);
+    const dialog = openComments(doc, submissionId);
     const form = dialog.querySelector('form.comments-dialog-form');
     const textarea = form.querySelector('textarea[name="body"]');
     const postButton = form.querySelector('.comment-post');
@@ -306,7 +321,7 @@ describe('AC3: failure degrades to the inline message, never a page navigation',
 
     const { doc, fetchStub, submitCalls, restore } = await loadFeedFixture(viewer.agent);
     try {
-      const dialog = doc.getElementById('comments-dialog-' + submissionId);
+      const dialog = openComments(doc, submissionId);
       const form = dialog.querySelector('form.comments-dialog-form');
       const textarea = form.querySelector('textarea[name="body"]');
       const postButton = form.querySelector('.comment-post');
@@ -351,7 +366,7 @@ describe('AC3: failure degrades to the inline message, never a page navigation',
 
     const { doc, fetchStub, submitCalls, restore } = await loadFeedFixture(viewer.agent);
     try {
-      const dialog = doc.getElementById('comments-dialog-' + submissionId);
+      const dialog = openComments(doc, submissionId);
       const deleteForm = dialog.querySelector(
         'form.comment-delete-form[action$="/comments/' + commentId + '/delete"]'
       );
@@ -396,7 +411,7 @@ describe('AC4: the watchdog releases a control whose fetch never settles', () =>
 
     const { doc, fetchStub, restore } = await loadFeedFixture(viewer.agent);
     try {
-      const dialog = doc.getElementById('comments-dialog-' + submissionId);
+      const dialog = openComments(doc, submissionId);
       const form = dialog.querySelector('form.comments-dialog-form');
       const textarea = form.querySelector('textarea[name="body"]');
       const postButton = form.querySelector('.comment-post');
@@ -483,7 +498,7 @@ it('a hung comment POST that succeeds AFTER the watchdog released and the guest 
 
   const { doc, fetchStub, restore } = await loadFeedFixture(viewer.agent);
   try {
-    const dialog = doc.getElementById('comments-dialog-' + submissionId);
+    const dialog = openComments(doc, submissionId);
     const form = dialog.querySelector('form.comments-dialog-form');
     const textarea = form.querySelector('textarea[name="body"]');
     const errorEl = dialog.querySelector('.comment-error');

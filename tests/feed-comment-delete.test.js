@@ -127,6 +127,59 @@ function selectorGroupContaining(source, marker) {
   return source.slice(selectorsStart, blockStart);
 }
 
+/**
+ * Render GET /feed as `agent`, load it into a fresh jsdom document, stub the
+ * <dialog> API, require the real feed.js fresh against it, then click the
+ * card's comment opener so the page's ONE shared comments dialog fills and
+ * opens from that card's .feed-card-data payload (issue #1139: the dialog's
+ * per-comment content — including the ⋯ menu's own/not-own split, which
+ * moved client-side to feed.js's isOwnComment() — no longer exists in the
+ * served HTML until the dialog is opened). Returns the open dialog and a
+ * `restore()` the caller must call from a finally block, same convention as
+ * tests/feed-likers-script.test.js and tests/feed-robustness.test.js.
+ */
+async function openCommentsDialog(agent, submissionId) {
+  const feedRes = await agent.get('/feed');
+  const dom = new JSDOM(feedRes.text, { url: 'http://localhost/feed' });
+  dom.window.HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  dom.window.HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
+
+  const keys = ['window', 'document', 'navigator'];
+  const saved = {};
+  keys.forEach((key) => {
+    saved[key] = Object.getOwnPropertyDescriptor(global, key);
+    Object.defineProperty(global, key, {
+      value: dom.window[key],
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  delete require.cache[require.resolve('../src/public/js/feed.js')];
+  require('../src/public/js/feed.js');
+
+  const doc = dom.window.document;
+  const opener = doc.querySelector('[data-open-comments="' + submissionId + '"]');
+  opener.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const dialog = doc.getElementById('comments-dialog');
+
+  function restore() {
+    keys.forEach((key) => {
+      if (saved[key]) {
+        Object.defineProperty(global, key, saved[key]);
+      } else {
+        delete global[key];
+      }
+    });
+  }
+
+  return { dom, doc, dialog, restore };
+}
+
 // ---------------------------------------------------------------------------
 // AC1 — owner deletes: JSON {deleted:true, commentCount:1}; row gone after.
 // ---------------------------------------------------------------------------
@@ -261,27 +314,29 @@ it("AC5: the ⋯ menu and Delete control appear only on the viewing guest's own 
   const viewerCommentId = await postComment(viewer.agent, submissionId, 'viewer comment');
   const otherCommentId = await postComment(other.agent, submissionId, 'other comment');
 
-  const res = await viewer.agent.get('/feed');
-  const dom = new JSDOM(res.text);
-  const article = dom.window.document.getElementById('photo-' + submissionId);
-  const thread = article.querySelector('.comments-dialog-thread');
-  expect(thread).not.toBeNull();
+  const { dialog, restore } = await openCommentsDialog(viewer.agent, submissionId);
+  try {
+    const thread = dialog.querySelector('.comments-dialog-thread');
+    expect(thread).not.toBeNull();
 
-  const ownRow = thread
-    .querySelector('[data-delete-comment="' + viewerCommentId + '"]')
-    .closest('.feed-comment-item');
-  const ownTrigger = ownRow.querySelector('.comment-menu-trigger');
-  expect(ownTrigger).not.toBeNull();
-  expect(ownTrigger.getAttribute('aria-label')).toMatch(/^(Comment actions|More)$/);
-  const ownControl = ownRow.querySelector('[data-delete-comment="' + viewerCommentId + '"]');
-  expect(ownControl).not.toBeNull();
-  expect(ownControl.textContent.trim()).toMatch(/^Delete( comment)?$/);
+    const ownRow = thread
+      .querySelector('[data-delete-comment="' + viewerCommentId + '"]')
+      .closest('.feed-comment-item');
+    const ownTrigger = ownRow.querySelector('.comment-menu-trigger');
+    expect(ownTrigger).not.toBeNull();
+    expect(ownTrigger.getAttribute('aria-label')).toMatch(/^(Comment actions|More)$/);
+    const ownControl = ownRow.querySelector('[data-delete-comment="' + viewerCommentId + '"]');
+    expect(ownControl).not.toBeNull();
+    expect(ownControl.textContent.trim()).toMatch(/^Delete( comment)?$/);
 
-  const otherRow = thread
-    .querySelector('a[href="/u/' + other.guestId + '"]')
-    .closest('.feed-comment-item');
-  expect(otherRow.querySelector('.comment-menu-trigger')).toBeNull();
-  expect(otherRow.querySelector('[data-delete-comment="' + otherCommentId + '"]')).toBeNull();
+    const otherRow = thread
+      .querySelector('a[href="/u/' + other.guestId + '"]')
+      .closest('.feed-comment-item');
+    expect(otherRow.querySelector('.comment-menu-trigger')).toBeNull();
+    expect(otherRow.querySelector('[data-delete-comment="' + otherCommentId + '"]')).toBeNull();
+  } finally {
+    restore();
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -320,22 +375,24 @@ it('AC7: the own-comment actions menu is a native <details>/<summary> disclosure
   });
   await postComment(viewer.agent, submissionId, 'own comment for AC7');
 
-  const res = await viewer.agent.get('/feed');
-  const dom = new JSDOM(res.text);
-  const article = dom.window.document.getElementById('photo-' + submissionId);
-  const menu = article.querySelector('.comment-menu');
-  expect(menu).not.toBeNull();
-  expect(menu.tagName).toBe('DETAILS');
+  const { dialog, restore } = await openCommentsDialog(viewer.agent, submissionId);
+  try {
+    const menu = dialog.querySelector('.comment-menu');
+    expect(menu).not.toBeNull();
+    expect(menu.tagName).toBe('DETAILS');
 
-  const summary = menu.querySelector(':scope > summary');
-  expect(summary).not.toBeNull();
-  expect(summary.className).toContain('comment-menu-trigger');
+    const summary = menu.querySelector(':scope > summary');
+    expect(summary).not.toBeNull();
+    expect(summary.className).toContain('comment-menu-trigger');
 
-  const deleteControl = menu.querySelector('[data-delete-comment]');
-  expect(deleteControl).not.toBeNull();
-  // Sanity: a plain <p> would fail this same assertion, so the test would
-  // catch a regression back to the old always-visible inline link.
-  expect(menu.querySelector('form.comment-delete-form')).not.toBeNull();
+    const deleteControl = menu.querySelector('[data-delete-comment]');
+    expect(deleteControl).not.toBeNull();
+    // Sanity: a plain <p> would fail this same assertion, so the test would
+    // catch a regression back to the old always-visible inline link.
+    expect(menu.querySelector('form.comment-delete-form')).not.toBeNull();
+  } finally {
+    restore();
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -394,10 +451,12 @@ it('AC9: the Delete form carries data-confirm, matching the destructive-confirm 
   });
   await postComment(viewer.agent, submissionId, 'own comment for AC9');
 
-  const res = await viewer.agent.get('/feed');
-  const dom = new JSDOM(res.text);
-  const article = dom.window.document.getElementById('photo-' + submissionId);
-  const form = article.querySelector('form.comment-delete-form');
-  expect(form).not.toBeNull();
-  expect(form.getAttribute('data-confirm')).toBeTruthy();
+  const { dialog, restore } = await openCommentsDialog(viewer.agent, submissionId);
+  try {
+    const form = dialog.querySelector('form.comment-delete-form');
+    expect(form).not.toBeNull();
+    expect(form.getAttribute('data-confirm')).toBeTruthy();
+  } finally {
+    restore();
+  }
 });

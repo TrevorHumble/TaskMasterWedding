@@ -4002,9 +4002,9 @@ covers.
 
 **Why one shared module, not four copies of the fixed check.** All four backdrop-dismissing dialogs in the app (`task-edit-dialog`, `task-create-dialog`, `badge-picker`, `slideshow-dialog`) shared the identical bug because they shared the identical (wrong) one-line check, copy-pasted rather than owned in one place. `window.DialogDismiss.backdrop(dialogEl)` is now the single owner of "does this click really mean close the dialog," in the same single-`window.`-owner shape `src/public/js/badge-icon-mask.js` (#869) already established for a different cross-file concern. A future correction to the press/click-agreement rule now has exactly one call site to fix, not four.
 
-**Why `src/public/js/lightbox.js` and `recap.js`'s badge-celebration backdrop close were left alone.** Both use the same superficial shape (`event.target === el`) but neither holds user input a mis-drag could discard — `lightbox.js` is a photo viewer, and the celebration dialog's own close path deliberately interacts with `badge-moment.js`'s queue fast-forward. Folding either into the shared module would be a behavior change with no defect behind it, not a fix. The inline moderation-thread dialog handler in `src/views/admin-photos.ejs` was excluded for the identical reason (hidden fields and submit buttons only, nothing to lose). The guest-facing surface has the same defect class — `src/public/js/feed.js`'s comments dialog and `src/public/js/photo-owner-menu.js`'s caption dialog — but each serves many dialog instances per page through one delegated listener rather than one dialog element a caller can hand to `backdrop()` directly; that's issue #1041, which depends on this module rather than extending it here.
+**Why `src/public/js/lightbox.js` and `recap.js`'s badge-celebration backdrop close were left alone.** Both use the same superficial shape (`event.target === el`) but neither holds user input a mis-drag could discard — `lightbox.js` is a photo viewer, and the celebration dialog's own close path deliberately interacts with `badge-moment.js`'s queue fast-forward. Folding either into the shared module would be a behavior change with no defect behind it, not a fix. The inline moderation-thread dialog handler in `src/views/admin-photos.ejs` was excluded for the identical reason (hidden fields and submit buttons only, nothing to lose). The guest-facing surface has the same defect class — `src/public/js/feed.js`'s comments dialog and `src/public/js/photo-owner-menu.js`'s caption dialog — but each served many dialog instances per page through one delegated listener rather than one dialog element a caller can hand to `backdrop()` directly; that's issue #1041, which depends on this module rather than extending it here. (Past tense as of #1139 for `feed.js` alone: the feed now carries one shared dialog of each kind, so it serves exactly one instance per shell. `photo-owner-menu.js`'s caption dialog is still one per card. See the #1041 paragraph below.)
 
-**#1041: a second, delegated API on the same module, for the guest surface.** `backdrop(dialogEl)` above assumes a caller can hand it a specific, already-in-the-DOM `<dialog>` element once, at page load — true for all four admin dialogs, but not for `src/public/js/feed.js`'s comments dialog: `src/views/feed.ejs` renders one `comments-dialog-<id>` per submission already on the page, and `src/public/js/feed-scroll.js` appends and prepends whole new `.feed-item` cards (each with its own comments/likes dialog) during infinite scroll, well after any load-time registration would have run. A per-element registration done once at load would silently stop protecting every dialog a guest scrolls to. So `dialog-dismiss.js` gained a second export, `pressAllowsDelegatedClose(clickEvent)`, backed by ONE document-level `pointerdown` listener the module registers at its own load (not per dialog) — it records the most recent primary-pointer press's raw target, and the predicate answers whether that recorded target is the same element as the click event's own target. That is the identical press/click-agreement rule `backdrop()` enforces, just without a boolean scoped to one dialog element: because a click's immediately preceding press is what the predicate is asked about, there is no per-dialog `close`-event reset to wire up the way `backdrop()` needs one — the recorded target answers a question about the CURRENT click, not a multi-event-cycle flag that could go stale across the same dialog's opens and closes.
+**#1041: a second, delegated API on the same module, for the guest surface.** `backdrop(dialogEl)` above assumes a caller can hand it a specific, already-in-the-DOM `<dialog>` element once, at page load — true for all four admin dialogs, but not for the guest surface as it stood in 2026-07: `src/views/feed.ejs` then rendered one `comments-dialog-<id>` per submission, and `src/public/js/feed-scroll.js` appends and prepends whole new `.feed-item` cards during infinite scroll, well after any load-time registration would have run. A per-element registration done once at load would silently stop protecting every dialog a guest scrolled to. (**Superseded in part by #1139**, which collapsed the feed's per-card dialogs into one page-level pair outside `.feed` — the feed alone would now satisfy `backdrop()`'s assumption. The delegated API stays: `src/public/js/photo-owner-menu.js`'s caption dialog is still per card and still scrolled into existence, and the fail-safe shape below is independently load-bearing. Read this paragraph as the reason the API was ADDED, not as a description of today's feed.) So `dialog-dismiss.js` gained a second export, `pressAllowsDelegatedClose(clickEvent)`, backed by ONE document-level `pointerdown` listener the module registers at its own load (not per dialog) — it records the most recent primary-pointer press's raw target, and the predicate answers whether that recorded target is the same element as the click event's own target. That is the identical press/click-agreement rule `backdrop()` enforces, just without a boolean scoped to one dialog element: because a click's immediately preceding press is what the predicate is asked about, there is no per-dialog `close`-event reset to wire up the way `backdrop()` needs one — the recorded target answers a question about the CURRENT click, not a multi-event-cycle flag that could go stale across the same dialog's opens and closes.
 
 **Why the module never closes anything itself, in the delegated variant either.** `feed.js`'s comments-dialog backdrop-close branch and `photo-owner-menu.js`'s caption-dialog backdrop-close branch keep their own close calls, now additionally gated on `!window.DialogDismiss || window.DialogDismiss.pressAllowsDelegatedClose(event)`: module present, the press-target rule applies; module absent (a missing or reordered `<script>` tag), the branch falls back to today's click-target-only check rather than losing dismissal outright. Two things force this shape, not a delegated `dialog-dismiss.js`-owned `document.addEventListener('click', ...)` that closes on its own: first, the same fail-safe reasoning `backdrop()` already establishes for AC7-shaped script-load failures. Second, and specific to this issue: `src/views/admin-photos.ejs:558-565` hand-writes the identical click-target-only backdrop check for its own admin comments dialog, which carries `class="comments-dialog admin-comments-dialog"`, the same shell class the guest dialogs use, and that page loads no `dialog-dismiss.js` tag. A module that closed on its own, keyed on the shared `comments-dialog` class, would double-fire against that admin dialog the moment the class match alone was enough; keeping the close call in each CONSUMER's own branch, gated by a predicate the consumer opts into, means a page that never loads the script (admin-photos.ejs today) is structurally unreachable by this rule, not merely unaffected by convention.
 
@@ -4915,3 +4915,94 @@ crowned photo. Anchoring directly on the crowned photo would also have kept the 
 have returned a one-card window, and a single-crown count over one card proves nothing about a field of
 tied photos. The test now asserts the window's card count alongside the crown count so that stays true
 at any window size. The crown assertion itself, a positive `toBe(1)`, is untouched.
+
+## Feed dialogs: one shared pair per page, fed by a per-card JSON payload (#1139)
+
+**Date:** 2026-08-06. **Status:** shipped.
+
+**What changed.** Every feed card used to render its own likers `<dialog>` and its own comments
+`<dialog>`, each complete with header, thumbnail, close button, every liker row, every comment row, the
+composer with its CSRF field and viewer avatar, and the error line. A 15-photo window therefore shipped
+30 dialogs, nearly all of which no guest ever opened. The page now carries ONE likers dialog and ONE
+comments dialog, and each card publishes only the rows those dialogs need as a compact JSON block
+(`<script type="application/json" class="feed-card-data" data-for="<id>">`). Measured on the seeded
+`extreme` story at a 15-photo window, same database, main booted beside this tree: `/feed` HTML 139,886
+to 88,001 bytes, a 37.1% drop; `<dialog>` elements 32 to 4 (the 4 being the 2 shared plus the recap
+panel and the badge dialog, neither touched). Per card the dialog markup fell from about 3,836 bytes to
+a 377-byte payload. The owner approved the result live on the preview 2026-08-06.
+
+**Why the dialogs sit outside `.feed`.** `feed-scroll.js` (#677) lifts `.feed-item` nodes out of a
+fetched window and splices them into the live list. A dialog living inside `.feed` would be adopted or
+torn out at a window boundary, and a duplicate `id="comments-dialog"` would arrive with every fetched
+window. Placing the pair after the card list, outside the container feed-scroll touches, is what makes
+the singleton actually singular.
+
+**The payload is the source of truth, not a page-load snapshot.** This is the invariant the whole shape
+rests on. A like, a posted comment and a deleted comment each write back into the card's own JSON block
+before anything else happens, and both the dialog and the card's comment preview are drawn FROM that
+block. The alternative considered and rejected was treating the payload as read-once seed data and
+letting the rendered DOM diverge: it fails the first time a guest likes a photo, closes the dialog and
+re-opens it, because their own like would be gone. Sourcing the card preview from the payload rather
+than from the shared dialog's thread also removes an entire class of cross-photo corruption by
+construction (see below) instead of guarding against it.
+
+**Two failure modes a shared dialog can reach and a per-card dialog could not.** Both are designed out
+rather than documented as caveats:
+
+- **Opening onto the wrong photo.** If a card or its payload is gone (feed-scroll swapped the window),
+  filling fails. `renderComments` / `renderLikes` therefore REPORT whether they drew, and the openers
+  refuse to open on false. Opening anyway would show the previous photo's thread, title and thumbnail,
+  and, worst, leave the composer's `action` pointing at the previous photo, so a comment typed there
+  would post to the wrong picture.
+- **A late response landing on the photo the guest has since switched to.** The #934 in-flight guard
+  keys on the form element, and asks only whether THAT form was re-armed; with one composer for the
+  page it cannot tell "this response is stale" from "the guest moved on." A slow post on venue wifi,
+  well inside the 10s watchdog, would append the comment into whatever thread is now open and rebuild
+  the wrong card's preview. Every settle path now updates the payload and the card unconditionally (the
+  comment really was posted) but touches the shared dialog only when BOTH the settle is still the
+  current one for that form and `data-submission-id` still names that photo. The shared composer's
+  draft and in-flight state are handed over on every photo switch, which is what keeps a pending post
+  on one photo from muting Post on the next.
+
+  **"Late" is two different things, and collapsing them is the trap.** A settle can be late because
+  the guest gave up (the watchdog released, they retried, and #934 says the abandoned response must
+  not append a stale comment or hide the retry's error line), or because the guest wandered to another
+  photo and came back (same photo on screen, response perfectly good, and it must land). The first
+  attempt at this guard cleared the composer's in-flight token on every photo hand-over, which made
+  those two indistinguishable and broke the #934 case; the existing watchdog test caught it. What
+  distinguishes them now is `beginInFlight`'s `scope`: the composer arms per submission id, so a tap
+  for a different photo may arm while another photo's request is outstanding, and the hand-over
+  restores the Post button without touching the token. A wander-and-return therefore still settles as
+  the current request and lands; a watchdog-released retry still does not.
+
+  **Deleting redraws rather than unhooks.** `deleteComment` used to remove the row node it captured at
+  submit time. With one shared thread, an intervening open of another photo rebuilds that thread, so
+  the captured node is detached and removing it changes nothing on screen: the deleted comment stayed
+  visible carrying a live Delete control that would re-POST a delete for a row the server no longer
+  had. The settle now redraws the thread from the freshly filtered payload, which is idempotent and
+  owns the empty state in one place.
+
+**Why a JSON block rather than `data-` attributes.** `lightbox.js` already fills a page-level dialog
+from per-card `data-lightbox-*` attributes, and that convention was the first choice. It does not
+extend: attributes hold flat scalars, and these dialogs need arrays of rows. Escaping a JSON array into
+an HTML attribute also costs six bytes for every quote, which would give most of the win back on the
+one surface the change exists to shrink. The block escapes every `<` to its `\u003c` JSON escape, so a comment body
+containing `</script>` cannot terminate it.
+
+**Submission ids are validated where they enter, not trusted.** Every id this client acts on arrives
+as DOM text (a card's `data-open-comments` / `data-open-likes` attribute) or as a capture from a route
+path, and it is then concatenated into a form action, an element id and a CSS selector. `photoId()`
+turns anything that is not a plain digit string into null and the caller declines to draw. Server
+ids are always integers, so nothing legal is refused, but "the server only writes integers there" is
+an assumption about a different file: CodeQL flagged the form action as a DOM-text-to-URL sink on this
+change, and validating at the boundary makes that sink and the selector safe by construction instead
+of by trust.
+
+**What the payload deliberately does not carry.** The thumbnail and the photo owner's name are already
+on the card and are read from there, so neither is duplicated per photo. Comment ownership is not
+stored per row either: the client compares each row's `guest_id` against the `.feed` root's
+`data-guest-id`, the same identity it already reads for the likers-row insert (#890 AC5), so the "is
+this mine" rule keeps one owner. The Couple's Heart is cloned from a single `<template>` rendered by
+`partials/couple-heart-mark.ejs`. The template is rendered with the placeholder name `{name}` and the
+client substitutes the real one into the label that partial itself composed, so the partial remains the
+mark's one renderer for the art and for the "Loved by ___" sentence alike.

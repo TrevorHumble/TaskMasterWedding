@@ -338,7 +338,15 @@ describe('AC4: .like-button carries a 44x44 minimum tap target', () => {
 // focuses the textarea, and shows the full thread + a Post control.
 // ---------------------------------------------------------------------------
 describe('AC5: the comment field lives only inside the closed <dialog>', () => {
-  it('no <input>/<textarea> exists in the card except inside the <dialog>, which carries no open attribute', async () => {
+  it('the card carries no comments-dialog of its own; its only field is the owner caption editor, inside its own closed <dialog>; the shared comments dialog is a single page-level shell, also closed', async () => {
+    // Issue #1139: the comments composer moved out of the card into the
+    // page's ONE shared <dialog id="comments-dialog">, filled and opened by
+    // src/public/js/feed.js from the card's .feed-card-data payload. The
+    // card's own remaining field is the owner's caption editor
+    // (partials/photo-owner-menu.ejs, issue #387), untouched by #1139 and
+    // still inside its own per-card <dialog class="caption-dialog">. AC5's
+    // original promise — no text field sits inline in the card's flow — still
+    // holds; it just no longer needs a per-card comments dialog to prove it.
     const author = await signedInGuest('card-ac5-author', 'AC5 Author');
     const commenter = await signedInGuest('card-ac5-commenter', 'AC5 Commenter');
     const submissionId = seedSubmission(author.guestId, {
@@ -351,19 +359,21 @@ describe('AC5: the comment field lives only inside the closed <dialog>', () => {
     const dom = new JSDOM(res.text);
     const article = dom.window.document.getElementById('photo-' + submissionId);
     const fields = article.querySelectorAll('input[type="text"], textarea');
-    // The field does exist (inside a dialog) — this is not a "removed
-    // entirely" assertion, only a "not inline" assertion. Any text field on
-    // the card must live inside a closed <dialog>, not in the card flow: the
-    // comment composer in dialog.comments-dialog, and (issue #387) the owner
-    // caption editor in dialog.caption-dialog — both closed by default.
+    // The author is also the photo's owner here, so the caption editor's
+    // textarea is the one field expected inside the card.
     expect(fields.length).toBeGreaterThan(0);
     fields.forEach((field) => {
-      expect(field.closest('dialog')).not.toBeNull();
+      const dialog = field.closest('dialog');
+      expect(dialog).not.toBeNull();
+      expect(dialog.className).toContain('caption-dialog');
+      expect(dialog.hasAttribute('open')).toBe(false);
     });
 
-    const dialog = article.querySelector('dialog.comments-dialog');
-    expect(dialog).not.toBeNull();
-    expect(dialog.hasAttribute('open')).toBe(false);
+    expect(article.querySelector('dialog.comments-dialog')).toBeNull();
+
+    const sharedDialog = dom.window.document.querySelector('dialog#comments-dialog');
+    expect(sharedDialog).not.toBeNull();
+    expect(sharedDialog.hasAttribute('open')).toBe(false);
   });
 
   it('the placeholder is the literal "Add a comment"; "Blurry feet" and "Send" are absent from feed markup', async () => {
@@ -434,8 +444,9 @@ describe('AC5: the comment field lives only inside the closed <dialog>', () => {
       require('../src/public/js/feed.js');
 
       const doc = dom.window.document;
-      const dialog = doc.getElementById('comments-dialog-' + submissionId);
-      const otherDialog = doc.getElementById('comments-dialog-' + otherSubmissionId);
+      // Issue #1139: the page carries ONE shared comments dialog, not one per
+      // card — filled from the opened card's .feed-card-data payload.
+      const dialog = doc.getElementById('comments-dialog');
       expect(dialog.open).toBe(false);
 
       const button = doc.querySelector(
@@ -445,7 +456,7 @@ describe('AC5: the comment field lives only inside the closed <dialog>', () => {
       button.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 
       // Opened via showModal(), and the open attribute reflects it.
-      expect(showModalCalls).toContain('comments-dialog-' + submissionId);
+      expect(showModalCalls).toContain('comments-dialog');
       expect(dialog.open).toBe(true);
       expect(dialog.hasAttribute('open')).toBe(true);
 
@@ -460,19 +471,24 @@ describe('AC5: the comment field lives only inside the closed <dialog>', () => {
       // The full (unclamped) thread includes the long comment in full.
       expect(dialog.querySelector('.comments-dialog-thread').textContent).toContain(longBody);
 
-      // One dialog at a time: opening the second card's dialog closes the
-      // first (real browsers additionally make the background inert).
+      // Issue #1139: one dialog at a time still holds, but with a single
+      // shared dialog element it means opening the SECOND card's comments
+      // re-fills the same still-open dialog in place — showModal() is not
+      // called a second time (openModalDialog only calls it when the target
+      // isn't already open), and the thread switches to the other photo's.
+      showModalCalls.length = 0;
       const otherButton = doc.querySelector(
         '.comment-button[data-open-comments="' + otherSubmissionId + '"]'
       );
       otherButton.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-      expect(dialog.open).toBe(false);
-      expect(otherDialog.open).toBe(true);
+      expect(dialog.open).toBe(true);
+      expect(showModalCalls).toEqual([]);
+      expect(dialog.querySelector('.comments-dialog-thread').textContent).not.toContain(longBody);
 
-      // The close button closes its own dialog.
-      const closeButton = otherDialog.querySelector('[data-close-comments]');
+      // The close button closes it.
+      const closeButton = dialog.querySelector('[data-close-comments]');
       closeButton.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-      expect(otherDialog.open).toBe(false);
+      expect(dialog.open).toBe(false);
     } finally {
       keys.forEach((key) => {
         if (saved[key]) {
