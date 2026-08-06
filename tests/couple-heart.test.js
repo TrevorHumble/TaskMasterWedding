@@ -95,6 +95,21 @@ function feedItemChunk(body, submissionId) {
 }
 
 /**
+ * Parse one card's `.feed-card-data` JSON payload (issue #1139) — the likers
+ * dialog is a single shared shell filled from this block on open, so a
+ * server-render assertion about a photo's likers reads the payload, not
+ * per-card dialog markup that no longer exists.
+ */
+function feedCardData(body, submissionId) {
+  const marker = 'class="feed-card-data" data-for="' + submissionId + '"';
+  const markerIdx = body.indexOf(marker);
+  expect(markerIdx).toBeGreaterThan(-1);
+  const start = body.indexOf('>', markerIdx) + 1;
+  const end = body.indexOf('</script>', start);
+  return JSON.parse(body.slice(start, end));
+}
+
+/**
  * The <figure class="gallery-item"> chunk for one submission id in a
  * /gallery response body — scoped so a mark asserted (or asserted absent)
  * for one photo can never accidentally read another photo's tile, which
@@ -235,6 +250,14 @@ describe('AC3: the tally names the couple', () => {
 // ---------------------------------------------------------------------------
 describe('AC4: likers dialog', () => {
   it("the couple's row wears the mark; an ordinary guest's row does not", async () => {
+    // The likers dialog is filled client-side from the card's payload (issue
+    // #1139) — the server-render assertion is that the payload's couple flag
+    // is set on the couple-flagged liker's row and absent from the ordinary
+    // liker's row. feed.js's coupleHeartNode()/likesRowNode() turning that
+    // flag into the actual gold-heart DOM node (role="img", the substituted
+    // "Loved by <name>" aria-label, no literal "{name}" surviving, and no
+    // mark on a plain row) is covered client-side by
+    // tests/shared-dialogs.test.js's "Couple's Heart (client)" test.
     const author = await makeGuest({ name: 'AC4 Author' });
     const couple = await makeGuest({ isCouple: true, name: 'AC4 Couple' });
     const ordinary = await makeGuest({ name: 'AC4 Ordinary' });
@@ -244,25 +267,17 @@ describe('AC4: likers dialog', () => {
     await ordinary.agent.post('/p/' + submissionId + '/like');
 
     const feedRes = await author.agent.get('/feed');
-    const marker = 'id="likes-dialog-' + submissionId + '"';
-    const dialogStart = feedRes.text.lastIndexOf('<dialog', feedRes.text.indexOf(marker));
-    const dialogEnd = feedRes.text.indexOf('</dialog>', feedRes.text.indexOf(marker));
-    const dialogChunk = feedRes.text.slice(dialogStart, dialogEnd);
+    const data = feedCardData(feedRes.text, submissionId);
 
-    const coupleRowStart = dialogChunk.indexOf('AC4 Couple');
-    const coupleRowChunkStart = dialogChunk.lastIndexOf('<a class="likes-row"', coupleRowStart);
-    const coupleRowChunkEnd = dialogChunk.indexOf('</a>', coupleRowStart);
-    expect(dialogChunk.slice(coupleRowChunkStart, coupleRowChunkEnd)).toContain('couple-heart');
-
-    const ordinaryRowStart = dialogChunk.indexOf('AC4 Ordinary');
-    const ordinaryRowChunkStart = dialogChunk.lastIndexOf('<a class="likes-row"', ordinaryRowStart);
-    const ordinaryRowChunkEnd = dialogChunk.indexOf('</a>', ordinaryRowStart);
-    expect(dialogChunk.slice(ordinaryRowChunkStart, ordinaryRowChunkEnd)).not.toContain(
-      'couple-heart'
-    );
+    const coupleRow = data.likers.find((row) => row.name === 'AC4 Couple');
+    const ordinaryRow = data.likers.find((row) => row.name === 'AC4 Ordinary');
+    expect(coupleRow).toBeTruthy();
+    expect(coupleRow.couple).toBe(1);
+    expect(ordinaryRow).toBeTruthy();
+    expect(ordinaryRow.couple).toBeUndefined();
   });
 
-  it('a couple-flagged guest with an empty name reads "Guest" in both the dialog row and the tally', async () => {
+  it('a couple-flagged guest with an empty name reads "Guest" in both the payload row and the tally', async () => {
     const author = await makeGuest({ name: 'AC4b Author' });
     const nameless = await makeGuest({ isCouple: true, name: '' });
     const submissionId = seedSubmission(author.guestId);
@@ -273,11 +288,9 @@ describe('AC4: likers dialog', () => {
     const chunk = feedItemChunk(feedRes.text, submissionId);
     expect(chunk).toContain('<span class="couple-likers">Guest</span>');
 
-    const marker = 'id="likes-dialog-' + submissionId + '"';
-    const dialogStart = feedRes.text.lastIndexOf('<dialog', feedRes.text.indexOf(marker));
-    const dialogEnd = feedRes.text.indexOf('</dialog>', feedRes.text.indexOf(marker));
-    const dialogChunk = feedRes.text.slice(dialogStart, dialogEnd);
-    expect(dialogChunk).toContain('likes-row-name">Guest<');
+    const data = feedCardData(feedRes.text, submissionId);
+    expect(data.likers[0].name).toBe('Guest');
+    expect(data.likers[0].couple).toBe(1);
   });
 });
 

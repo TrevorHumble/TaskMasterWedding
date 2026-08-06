@@ -81,7 +81,20 @@
     data-guest-name="<%= guest.name || 'Guest' %>"
     data-guest-avatar="<%= guest.avatar_path || '' %>"
     data-guest-initials="<%= initials(guest.name) || '?' %>"
+    <%# Issue #1139: whether the viewer is one of the couple, so the row
+        feed.js builds for their OWN live like wears the Couple's Heart the
+        server-rendered rows wear. Before the payload write-back this omission
+        was a transient DOM insert that a re-open corrected; now the row is
+        persisted into the card's payload, so a missing flag would keep Lilly's
+        or Axel's own like heartless for the life of the page. %>
+    data-guest-couple="<%= guest.is_couple ? '1' : '' %>"
   >
+    <%# Issue #1139: every less-than sign inside a per-card JSON block below
+        is rewritten as its < JSON escape, so a comment body carrying a
+        closing script tag cannot end the block early. The escape is invisible
+        to JSON.parse, and it is what makes the block safe to emit through the
+        unescaped output tag. This replace() is load-bearing, not tidying. %>
+    <% function dialogPayload(obj) { return JSON.stringify(obj).replace(/</g, '\\u003c'); } %>
     <% photos.forEach(function (p) {
          // Card v2 (#248): the card shows only the 4 MOST RECENT comments as
          // one-line rows ("4 lines, not 4 comments" — owner amendment). The
@@ -240,186 +253,151 @@
           <p class="feed-task-line">a shared memory</p>
         <% } %>
 
-        <%# Likers dialog (issue #890): who liked this photo, Instagram-style —
-            same native-<dialog> shell and shape as the comments dialog below
-            (header + thumb + close, top-layer so it escapes .feed-item's
-            paint containment, one-dialog-at-a-time via feed.js). p.likers is
-            attached server-side by attachLikers() (community.js), newest
-            like first, bounded to the submissions this page actually
-            renders — never a per-photo query.
+        <%# Issue #1139: the card's dialog payload. Everything the page's two
+            shared dialogs need to draw THIS photo's likers list and comment
+            thread, and nothing they can read off the card itself (the
+            thumbnail and the owner's name are already above, so they are not
+            repeated here).
 
-            CONTRACT: the `comments-dialog` class on this <dialog> is not
-            just shared styling — src/public/js/feed.js keys its mutual-
-            exclusion invariant (openModalDialog's `dialog.comments-dialog
-            [open]` lookup) AND its backdrop-click-to-close handler
-            (`target.classList.contains('comments-dialog')`) on that exact
-            class name. Renaming or dropping it here silently breaks both,
-            with no test failure pointing back at this line. %>
-        <dialog
-          class="comments-dialog likes-dialog"
-          id="likes-dialog-<%= p.submission_id %>"
-          aria-labelledby="likes-dialog-title-<%= p.submission_id %>"
-        >
-          <div class="comments-dialog-header">
-            <img class="comments-dialog-thumb" src="/thumbs/<%= p.thumb_path %>" alt="" />
-            <h2 class="comments-dialog-title" id="likes-dialog-title-<%= p.submission_id %>">Likes</h2>
-            <button
-              type="button"
-              class="comments-dialog-close"
-              data-close-likes
-              aria-label="Close likes"
-            >&times;</button>
-          </div>
-          <%# NOTE: this thread div is .likes-thread ONLY, not also
-              .comments-dialog-thread — the comments dialog below shares this
-              article and its own .comments-dialog-thread must stay the
-              unique match for `article.querySelector('.comments-dialog-
-              thread')` (feed.js's per-photo lookups, and
-              tests/feed-comment-delete.test.js's own AC5 assertion). The
-              shared visual styling (flex/scroll/padding) is still shared —
-              see .likes-thread in feed.css's selector list next to
-              .comments-dialog-thread, not a duplicated ruleset. %>
-          <div class="likes-thread">
-            <% if (p.likers.length === 0) { %>
-              <p class="muted comments-dialog-empty">No likes yet.</p>
-            <% } %>
-            <% p.likers.forEach(function (liker) { %>
-              <%# data-likes-row is the ONE row-identity hook, present on
-                  EVERY row (server-rendered here, or client-inserted by
-                  feed.js's selfLikesRowNode) — not just the viewer's own.
-                  This is what lets src/public/js/feed.js's updateLikesDialog
-                  find and remove a SERVER-rendered row when the viewer
-                  unlikes a photo they had already liked before page load
-                  (and refuse to duplicate it on a later re-like), issue
-                  #890 AC5. %>
-              <a class="likes-row" href="/u/<%= liker.id %>" data-likes-row="<%= liker.id %>">
-                <% if (liker.avatar_path) { %>
-                  <%# lazy: dialogs start closed, and a well-liked page holds
-                      hundreds of these — don't fetch them at page load. %>
-                  <span class="likes-row-avatar"><img src="/uploads/<%= liker.avatar_path %>" alt="" loading="lazy" decoding="async" /></span>
-                <% } else { %>
-                  <span class="likes-row-avatar" aria-hidden="true"><%= initials(liker.name) || '?' %></span>
-                <% } %>
-                <span class="likes-row-name"><%= liker.name || 'Guest' %></span>
-                <% if (liker.is_couple) { %>
-                  <%# Issue #647: the couple's own row wears the mark, so the
-                      gold heart on the photo has a name behind it. %>
-                  <%- include('partials/couple-heart-mark', { names: [liker.name || 'Guest'] }) %>
-                <% } %>
-              </a>
-            <% }); %>
-          </div>
-        </dialog>
+            p.likers is attached server-side by attachLikers() (community.js),
+            newest like first, bounded to the submissions this page actually
+            renders — never a per-photo query; p.comments likewise, oldest
+            first, by attachComments(). This block is the SAME data those two
+            dialogs used to be rendered from, carried as data instead of as
+            two full dialog shells per card.
 
-        <%# Comments dialog (#248 amendment 2026-07-08): a native <dialog>
-            opened via showModal() from src/public/js/feed.js. Top-layer
-            rendering escapes .feed-item's paint containment (the round-1
-            "fixed" scrim pinned itself to the card, not the viewport),
-            centers the panel, makes the background inert (one dialog at a
-            time), and closes on Escape natively. The header thumbnail — not
-            custom title text — carries the photo context; the title stays
-            the generic "<Name>'s photo" (owner note 2026-07-05). %>
-        <dialog
-          class="comments-dialog"
-          id="comments-dialog-<%= p.submission_id %>"
-          aria-labelledby="comments-dialog-title-<%= p.submission_id %>"
-        >
-          <div class="comments-dialog-header">
-            <img class="comments-dialog-thumb" src="/thumbs/<%= p.thumb_path %>" alt="" />
-            <h2 class="comments-dialog-title" id="comments-dialog-title-<%= p.submission_id %>">
-              <%= p.guest_name || 'Guest' %>&rsquo;s photo
-            </h2>
-            <button
-              type="button"
-              class="comments-dialog-close"
-              data-close-comments
-              aria-label="Close comments"
-            >&times;</button>
-          </div>
-          <div class="comments-dialog-thread">
-            <% if (commentTotal === 0) { %>
-              <p class="muted comments-dialog-empty">No comments yet.</p>
-            <% } %>
-            <% p.comments.forEach(function (c) { %>
-              <div class="feed-comment-item">
-                <p class="feed-comment">
-                  <a href="/u/<%= c.guest_id %>"><%= c.guest_name || 'Guest' %></a>
-                  <%= c.body %>
-                </p>
-                <%# Own-comment actions menu is a native <details>/<summary>
-                    disclosure (issue #338, revised to the kebab pattern
-                    2026-07-10) — no JS is required to open it or to reach
-                    Delete inside it; JS only enhances it (close-on-outside-
-                    tap/after-delete in src/public/js/feed.js). Rendered only
-                    for the signed-in guest's OWN comment, and never in the
-                    card's clamped preview (that block is above, built from
-                    commentPreview, and never touches this dialog markup).
-                    data-confirm reuses the app's established
-                    destructive-confirm convention (see admin.js and
-                    tests/destructive-confirm.test.js); feed.js has no shared
-                    admin.js on this page, so it runs the same confirm check
-                    itself before the fetch. data-delete-comment is the no-JS
-                    form's progressive-enhancement hook. %>
-                <% if (c.guest_id === guest.id) { %>
-                  <details class="comment-menu">
-                    <summary class="comment-menu-trigger" aria-label="Comment actions">&#8943;</summary>
-                    <form
-                      method="post"
-                      action="/p/<%= p.submission_id %>/comments/<%= c.id %>/delete"
-                      class="comment-delete-form"
-                      data-confirm="Delete this comment? This can't be undone."
-                    >
-                      <%- include('partials/csrf-field') %>
-                      <button
-                        type="submit"
-                        class="comment-delete"
-                        data-delete-comment="<%= c.id %>"
-                      >Delete</button>
-                    </form>
-                  </details>
-                <% } %>
-              </div>
-            <% }); %>
-          </div>
-          <%# Comment-dialog failure line (issue #934), shared by the
-              comment-post and comment-delete paths: present but `hidden`,
-              un-hidden by src/public/js/feed.js when a comment or delete fetch
-              fails, replacing today's full-page re-POST. Same copy, settled at
-              the phase-1 preview. %>
-          <p class="comment-error form-error" role="alert" hidden>That didn&rsquo;t go through. Give it a sec and try again.</p>
+            Shape (kept short because this ships once per card, and the whole
+            point of #1139 is per-card weight):
+              likers[]:   id, name, av (avatar_path, '' when none),
+                          init (pre-computed initials fallback),
+                          couple (1 when guests.is_couple, absent otherwise)
+              comments[]: id, guest_id, guest_name, body — deliberately the
+                          SAME shape POST /p/:id/comments answers with, so a
+                          just-posted comment and a page-load comment are one
+                          shape the whole way through feed.js.
+            Ownership of a comment is NOT stored per row: the client compares
+            guest_id against the .feed root's data-guest-id, the same identity
+            it already reads there for the likers-row insert (#890 AC5), so
+            the "is this mine" rule keeps one owner instead of two. %>
+        <script type="application/json" class="feed-card-data" data-for="<%= p.submission_id %>"><%- dialogPayload({
+          likers: p.likers.map(function (liker) {
+            var row = {
+              id: liker.id,
+              name: liker.name || 'Guest',
+              av: liker.avatar_path || '',
+              init: initials(liker.name) || '?',
+            };
+            if (liker.is_couple) { row.couple = 1; }
+            return row;
+          }),
+          comments: p.comments.map(function (c) {
+            return { id: c.id, guest_id: c.guest_id, guest_name: c.guest_name || 'Guest', body: c.body };
+          }),
+        }) %></script>
 
-          <%# Composer, Instagram pattern: viewer avatar, borderless
-              auto-growing textarea (src/public/js/feed.js), Post as a
-              plain text control muted while the field is empty. %>
-          <form
-            method="post"
-            action="/p/<%= p.submission_id %>/comments"
-            class="comment-form comments-dialog-form"
-          >
-            <%- include('partials/csrf-field') %>
-            <% if (guest.avatar_path) { %>
-              <img class="comments-dialog-avatar" src="/uploads/<%= guest.avatar_path %>" alt="" />
-            <% } else { %>
-              <span class="comments-dialog-avatar comments-dialog-avatar-initials" aria-hidden="true"><%= initials(guest.name) || '?' %></span>
-            <% } %>
-            <textarea
-              name="body"
-              rows="1"
-              maxlength="<%= commentMaxLength %>"
-              placeholder="Add a comment"
-              aria-label="Add a comment"
-              required
-            ></textarea>
-            <%# src/public/js/feed.js sets the in-flight state on this button
-                while a comment POST is pending (disabled + "Posting…"), then
-                restores "Post" on settle or via its re-enable watchdog so a
-                hung fetch can never mute it (issue #934). %>
-            <button type="submit" class="comment-post">Post</button>
-          </form>
-        </dialog>
       </article>
     <% }); %>
   </div>
+
+  <%# ------------------------------------------------------------------
+      The page's two shared dialogs (issue #1139). One likers dialog and one
+      comments dialog for the whole feed, filled on open by
+      src/public/js/feed.js from the opened card's own .feed-card-data block
+      and from the card itself (thumbnail, owner name). Every class here is
+      the class the per-card dialogs already carried, so the stylesheet and
+      the guest-visible result are unchanged; what changed is that there is
+      now one of each instead of two per photo.
+
+      CONTRACT, unchanged and still load-bearing: the `comments-dialog` class
+      on BOTH <dialog>s is not just shared styling — feed.js keys its
+      one-dialog-at-a-time invariant (openModalDialog's
+      `dialog.comments-dialog[open]` lookup) and its backdrop-click-to-close
+      handler (`target.classList.contains('comments-dialog')`) on that exact
+      name. Renaming or dropping it silently breaks both.
+
+      These sit OUTSIDE .feed on purpose. feed-scroll.js (#677) swaps the
+      contents of .feed in place as the guest scrolls; a dialog living inside
+      it would be torn out from under an open dialog at a window boundary.
+      ------------------------------------------------------------------ %>
+  <dialog class="comments-dialog likes-dialog" id="likes-dialog" aria-labelledby="likes-dialog-title">
+    <div class="comments-dialog-header">
+      <img class="comments-dialog-thumb" src="" alt="" />
+      <h2 class="comments-dialog-title" id="likes-dialog-title">Likes</h2>
+      <button
+        type="button"
+        class="comments-dialog-close"
+        data-close-likes
+        aria-label="Close likes"
+      >&times;</button>
+    </div>
+    <%# .likes-thread only, never also .comments-dialog-thread: feed.js looks
+        up "the" .comments-dialog-thread and it must stay the unique match.
+        The shared visual styling is still shared — see .likes-thread next to
+        .comments-dialog-thread in feed.css's selector list, not a duplicated
+        ruleset. Rows are built on open by feed.js. %>
+    <div class="likes-thread"></div>
+  </dialog>
+
+  <%# The Couple's Heart a couple-flagged liker's row wears (issue #647),
+      rendered ONCE here by its own partial and cloned per row by feed.js.
+      partials/couple-heart-mark.ejs exists so the mark has exactly one
+      renderer across every surface; building that SVG a second time in
+      JavaScript is precisely the drift it guards against, so the art is
+      cloned from here instead. Only the aria-label is per-row (it names the
+      couple member whose row it sits on), and feed.js substitutes the name
+      into the label the partial itself composed rather than re-writing that
+      sentence in JavaScript — so "Loved by ___" keeps ONE author. The
+      placeholder below is the seam; feed.js's COUPLE_HEART_NAME_SLOT is the
+      same string. %>
+  <template id="couple-heart-template"><%- include('partials/couple-heart-mark', { names: ['{name}'] }) %></template>
+
+  <dialog class="comments-dialog" id="comments-dialog" aria-labelledby="comments-dialog-title">
+    <div class="comments-dialog-header">
+      <img class="comments-dialog-thumb" src="" alt="" />
+      <%# The header thumbnail, not custom title text, carries the photo
+          context; the title stays the generic "<Name>'s photo" (owner note
+          2026-07-05), with the name filled in on open from the card. %>
+      <h2 class="comments-dialog-title" id="comments-dialog-title"></h2>
+      <button
+        type="button"
+        class="comments-dialog-close"
+        data-close-comments
+        aria-label="Close comments"
+      >&times;</button>
+    </div>
+    <div class="comments-dialog-thread"></div>
+    <%# Comment-dialog failure line (issue #934), shared by the comment-post
+        and comment-delete paths: present but `hidden`, un-hidden by feed.js
+        when a comment or delete fetch fails. Copy settled at the phase-1
+        preview. %>
+    <p class="comment-error form-error" role="alert" hidden>That didn&rsquo;t go through. Give it a sec and try again.</p>
+
+    <%# Composer, Instagram pattern: viewer avatar, borderless auto-growing
+        textarea (feed.js), Post as a plain text control muted while the field
+        is empty. The action is empty here and set on open to
+        /p/<id>/comments — one composer serves every card, so the photo it
+        posts to is whichever card opened it. %>
+    <form method="post" action="" class="comment-form comments-dialog-form">
+      <%- include('partials/csrf-field') %>
+      <% if (guest.avatar_path) { %>
+        <img class="comments-dialog-avatar" src="/uploads/<%= guest.avatar_path %>" alt="" />
+      <% } else { %>
+        <span class="comments-dialog-avatar comments-dialog-avatar-initials" aria-hidden="true"><%= initials(guest.name) || '?' %></span>
+      <% } %>
+      <textarea
+        name="body"
+        rows="1"
+        maxlength="<%= commentMaxLength %>"
+        placeholder="Add a comment"
+        aria-label="Add a comment"
+        required
+      ></textarea>
+      <%# feed.js sets the in-flight state on this button while a comment POST
+          is pending (disabled + "Posting…"), then restores "Post" on settle or
+          via its re-enable watchdog so a hung fetch can never mute it (#934). %>
+      <button type="submit" class="comment-post">Post</button>
+    </form>
+  </dialog>
 
   <%# Issue #677: bottom edge for in-place loading of OLDER photos — same
       sentinel/indicator pair as the top edge above. %>

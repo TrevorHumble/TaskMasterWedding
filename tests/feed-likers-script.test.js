@@ -78,9 +78,11 @@ it(
       thumbPath: 'script-ac5t.jpg',
     });
 
-    // The viewer already liked this photo BEFORE this page load — the
-    // likers dialog's own row for them is rendered SERVER-SIDE, not built by
-    // any client-side state.
+    // The viewer already liked this photo BEFORE this page load — their own
+    // row is in the card's .feed-card-data payload (issue #1139: the likers
+    // dialog is drawn from that payload on open, not rendered server-side
+    // into per-card dialog markup any more), with no client-side memory of
+    // it beyond that payload.
     await viewer.agent.post('/p/' + submissionId + '/like');
 
     const feedRes = await viewer.agent.get('/feed');
@@ -133,11 +135,18 @@ it(
       require('../src/public/js/feed.js');
 
       const doc = dom.window.document;
-      const dialog = doc.getElementById('likes-dialog-' + submissionId);
+      // Issue #1139: the page carries ONE shared likers dialog, filled from
+      // the card's payload when the guest opens it — not pre-filled at page
+      // load, so it must be opened first.
+      const dialog = doc.getElementById('likes-dialog');
       expect(dialog).not.toBeNull();
+      const likesOpener = doc.querySelector('[data-open-likes="' + submissionId + '"]');
+      expect(likesOpener).not.toBeNull();
+      likesOpener.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+
       const ownRowSelector = '[data-likes-row="' + viewer.guestId + '"]';
 
-      // Sanity: exactly one (server-rendered) row before any toggle.
+      // Sanity: exactly one (payload-rendered) row before any toggle.
       expect(dialog.querySelectorAll('.likes-row').length).toBe(1);
       expect(dialog.querySelector(ownRowSelector)).not.toBeNull();
       expect(dialog.querySelector('.comments-dialog-empty')).toBeNull();
@@ -263,7 +272,8 @@ describe('issue #1041: feed.js comments dialog drag-dismiss (AC1, AC2)', () => {
     const doc = dom.window.document;
     const opener = doc.querySelector('[data-open-comments="' + submissionId + '"]');
     opener.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
-    const dialogEl = doc.getElementById('comments-dialog-' + submissionId);
+    // Issue #1139: one shared comments dialog for the whole page.
+    const dialogEl = doc.getElementById('comments-dialog');
     const textarea = dialogEl.querySelector('textarea[name="body"]');
 
     return { dom, dialogEl, textarea, restore };

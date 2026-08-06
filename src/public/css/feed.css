@@ -242,9 +242,9 @@ body.dialog-scroll-lock {
 }
 /* .likes-thread (issue #890) shares this shell — same scroll/padding — but
    is deliberately a SEPARATE class, not a second class on the same element:
-   a photo's article renders both a comments dialog and a likes dialog, and
-   feed.js/tests both look up "the" .comments-dialog-thread within an article
-   expecting exactly one match. */
+   the page carries a comments dialog and a likes dialog (one of each since
+   #1139, one pair per card before it), and feed.js and the tests look up
+   "the" .comments-dialog-thread expecting exactly one match. */
 .comments-dialog-thread,
 .likes-thread {
   flex: 1 1 auto;

@@ -62,19 +62,20 @@ function seedSubmission(authorGuestId, opts = {}) {
 }
 
 /**
- * Slice out the likers <dialog> markup for one submission id, so assertions
- * about one photo's likers can never bleed into another photo's dialog or
- * into the comments dialog (same idea as photo-comments.test.js's own
- * feedItemChunk, scoped to the likes dialog specifically).
+ * Parse one card's `.feed-card-data` JSON payload (issue #1139). The page now
+ * carries one shared likers dialog filled on open from this block, so a
+ * server-render assertion about one photo's likers reads its payload's
+ * `likers` array — which is grouped per submission by attachLikers() the same
+ * way the old per-card dialog markup was — rather than dialog markup that no
+ * longer exists per card.
  */
-function likesDialogChunk(body, submissionId) {
-  const marker = 'id="likes-dialog-' + submissionId + '"';
+function feedCardData(body, submissionId) {
+  const marker = 'class="feed-card-data" data-for="' + submissionId + '"';
   const markerIdx = body.indexOf(marker);
   expect(markerIdx).toBeGreaterThan(-1);
-  const dialogStart = body.lastIndexOf('<dialog', markerIdx);
-  const dialogEnd = body.indexOf('</dialog>', markerIdx);
-  expect(dialogEnd).toBeGreaterThan(-1);
-  return body.slice(dialogStart, dialogEnd + '</dialog>'.length);
+  const start = body.indexOf('>', markerIdx) + 1;
+  const end = body.indexOf('</script>', start);
+  return JSON.parse(body.slice(start, end));
 }
 
 /** The "N likes" button text for one submission id in a feed response. */
@@ -113,17 +114,11 @@ it('AC8a: the likers dialog lists likers newest-first', async () => {
   await third.agent.post('/p/' + submissionId + '/like');
 
   const feedRes = await author.agent.get('/feed');
-  const chunk = likesDialogChunk(feedRes.text, submissionId);
+  const data = feedCardData(feedRes.text, submissionId);
+  const names = data.likers.map((row) => row.name);
 
-  const thirdIdx = chunk.indexOf('Order Liker Third');
-  const secondIdx = chunk.indexOf('Order Liker Second');
-  const firstIdx = chunk.indexOf('Order Liker First');
-  expect(thirdIdx).toBeGreaterThan(-1);
-  expect(secondIdx).toBeGreaterThan(-1);
-  expect(firstIdx).toBeGreaterThan(-1);
   // Most-recently-liked appears first: Third, then Second, then First.
-  expect(thirdIdx).toBeLessThan(secondIdx);
-  expect(secondIdx).toBeLessThan(firstIdx);
+  expect(names).toEqual(['Order Liker Third', 'Order Liker Second', 'Order Liker First']);
 });
 
 // ---------------------------------------------------------------------------
@@ -146,32 +141,25 @@ it('AC1/AC2: a liker row renders their avatar photo, name, and links to /u/:gues
   await withoutAvatar.agent.post('/p/' + submissionId + '/like');
 
   const feedRes = await author.agent.get('/feed');
-  const chunk = likesDialogChunk(feedRes.text, submissionId);
+  const data = feedCardData(feedRes.text, submissionId);
 
-  // The photo-having liker gets an <img> avatar, not initials. Issue #890
-  // review round: data-likes-row is the row-identity hook stamped on EVERY
-  // row (server-rendered or client-inserted), so it's asserted here too.
-  expect(chunk).toContain(
-    '<a class="likes-row" href="/u/' +
-      withAvatar.guestId +
-      '" data-likes-row="' +
-      withAvatar.guestId +
-      '">'
-  );
-  expect(chunk).toContain('/uploads/avatars/avatar-liker.jpg');
-  expect(chunk).toContain('Avatar Liker');
+  // The photo-having liker's payload row carries the avatar path and their
+  // real name; feed.js's likesRowNode() builds the actual <a class="likes-row"
+  // href="/u/:id" data-likes-row="...">, tested client-side in
+  // tests/shared-dialogs.test.js — this is the server-render side: the data
+  // that row is built from.
+  const avatarRow = data.likers.find((row) => row.id === withAvatar.guestId);
+  expect(avatarRow).toBeTruthy();
+  expect(avatarRow.av).toBe('avatars/avatar-liker.jpg');
+  expect(avatarRow.name).toBe('Avatar Liker');
 
-  // The avatar-less liker falls back to initials, and still links to their
-  // own profile — the count-chip-must-link-somewhere rule (AC2).
-  expect(chunk).toContain(
-    '<a class="likes-row" href="/u/' +
-      withoutAvatar.guestId +
-      '" data-likes-row="' +
-      withoutAvatar.guestId +
-      '">'
-  );
-  expect(chunk).toContain('Initials Liker');
-  expect(chunk).toMatch(/likes-row-avatar" aria-hidden="true">IL</);
+  // The avatar-less liker falls back to a pre-computed initials string, and
+  // still carries their own id for the profile link (AC2).
+  const initialsRow = data.likers.find((row) => row.id === withoutAvatar.guestId);
+  expect(initialsRow).toBeTruthy();
+  expect(initialsRow.av).toBe('');
+  expect(initialsRow.name).toBe('Initials Liker');
+  expect(initialsRow.init).toBe('IL');
 });
 
 // ---------------------------------------------------------------------------
@@ -187,9 +175,11 @@ it('AC3: a photo with no likes reads "0 likes" and the dialog shows "No likes ye
   const feedRes = await author.agent.get('/feed');
   expect(likesLinkText(feedRes.text, submissionId)).toBe('0 likes');
 
-  const chunk = likesDialogChunk(feedRes.text, submissionId);
-  expect(chunk).toContain('No likes yet.');
-  expect(chunk).not.toContain('likes-row-name');
+  // The "No likes yet." empty state is drawn by feed.js when the shared
+  // dialog opens onto an empty payload (tests/shared-dialogs.test.js AC2);
+  // the server-render side of that promise is an empty `likers` array.
+  const data = feedCardData(feedRes.text, submissionId);
+  expect(data.likers).toEqual([]);
 });
 
 // Singular case, alongside the plural case above — "1 like", not "1 likes".
@@ -229,11 +219,9 @@ it("AC8b: each photo's likers dialog contains only ITS OWN likers, never another
   await likerB.agent.post('/p/' + submissionB + '/like');
 
   const feedRes = await author.agent.get('/feed');
-  const chunkA = likesDialogChunk(feedRes.text, submissionA);
-  const chunkB = likesDialogChunk(feedRes.text, submissionB);
+  const dataA = feedCardData(feedRes.text, submissionA);
+  const dataB = feedCardData(feedRes.text, submissionB);
 
-  expect(chunkA).toContain('Bounded Liker A');
-  expect(chunkA).not.toContain('Bounded Liker B');
-  expect(chunkB).toContain('Bounded Liker B');
-  expect(chunkB).not.toContain('Bounded Liker A');
+  expect(dataA.likers.map((row) => row.name)).toEqual(['Bounded Liker A']);
+  expect(dataB.likers.map((row) => row.name)).toEqual(['Bounded Liker B']);
 });
