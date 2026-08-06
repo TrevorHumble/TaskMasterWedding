@@ -39,10 +39,11 @@ const { logClientError } = require('../../middleware/request-log');
 // Server-side truncation is authoritative (issue #1021 design): applied
 // here regardless of what the client already truncated, so an oversized
 // direct POST (bypassing client-error.js entirely) still lands within these
-// bounds. Named constants, same pattern as bug-report.js's BUG_REPORT_BODY_MAX,
-// a plain per-route limit, not a config key, since these bounds are a
-// property of this log line's shape, not something an operator would ever
-// need to tune per deployment.
+// bounds. Named constants, same pattern as src/db.js's BUG_REPORT_BODY_MAX
+// export (moved there from bug-report.js by issue #1020), a plain per-route
+// limit, not a config key, since these bounds are a property of this log
+// line's shape, not something an operator would ever need to tune per
+// deployment.
 const CLIENT_ERROR_MESSAGE_MAX = 500;
 const CLIENT_ERROR_STACK_MAX = 2000;
 // url had no server-side bound before this line existed: an unsliced

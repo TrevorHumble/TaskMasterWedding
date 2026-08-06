@@ -10,9 +10,11 @@ const router = express.Router();
 const config = require('../../../config');
 
 // db.js exports an OBJECT { db, getGuestByToken, getGuestById, ... }.
-// Destructure the better-sqlite3 connection itself, or db.prepare(...) is
-// undefined.
-const { db } = require('../../db');
+// insertBugReportOnce (issue #1020) is the shared owner of the double-submit
+// guard, the BUG_REPORT_BODY_MAX clamp, and the INSERT itself, all moved to
+// src/db/bug-reports.js so POST /bug-report and POST /error-report share one
+// copy of each instead of hand-rolling it.
+const { insertBugReportOnce } = require('../../db');
 
 // setFlash is the shared one-shot flash writer, the single owner of the
 // signed `flash` cookie's shape.
@@ -22,8 +24,9 @@ const { withBadgeMoment } = require('../../services/render-locals');
 
 // socialRateLimiter (shared with POST /recap/seen and POST
 // /badge-moment/celebrated, see src/routes/guest/shared.js) — one combined
-// per-guest budget, config.RATE_LIMIT_SOCIAL_MAX.
-const { socialRateLimiter } = require('./shared');
+// per-guest budget, config.RATE_LIMIT_SOCIAL_MAX. refererPath (issue #1020)
+// also moved here from this file, shared with POST /error-report.
+const { socialRateLimiter, refererPath } = require('./shared');
 
 // Copy shown to the guest after a bug report is stored (AC1) and when the
 // body field is left empty (AC5). Named constants so the route and the tests
@@ -36,31 +39,11 @@ const BUG_REPORT_THANKS =
     ? 'Thanks — the Stag Masters have been told.'
     : 'Thanks — the Wedding Masters have been told.';
 const BUG_REPORT_EMPTY_ERROR = 'Tell us what went wrong first.';
-// A stored bug body is capped at this many characters (issue #245 AC6) — long
-// enough for a real description. This bounds only the per-request body
-// length, not the number of reports a guest can file; an unbounded report
-// count is a known, accepted minor under the guest-comments threat model.
-const BUG_REPORT_BODY_MAX = 1000;
-// Same-guest, same-stored-body reposts inside this window are double-taps or
-// refresh-resubmits, not new reports (issue #889); a deliberate repeat filed
-// later than this always lands.
-const BUG_REPORT_DUPLICATE_WINDOW_SECONDS = 30;
-
-// Pull just the path (no scheme/host) out of a Referer header, so
-// bug_reports.page never stores a full origin a guest's phone happened to be
-// on. Real browsers send an absolute URL; some test/tooling clients send a
-// bare path directly, so a same-origin-only relative string is accepted too.
-// Returns null when the header is absent or unusable.
-function refererPath(rawReferer) {
-  if (typeof rawReferer !== 'string' || rawReferer.length === 0) {
-    return null;
-  }
-  try {
-    return new URL(rawReferer).pathname;
-  } catch {
-    return rawReferer.startsWith('/') ? rawReferer : null;
-  }
-}
+// The BUG_REPORT_BODY_MAX clamp (an unbounded report count is a known,
+// accepted minor under the guest-comments threat model) and the #889
+// double-submit window now live in src/db/bug-reports.js (issue #1020).
+// See insertBugReportOnce's own doc comment there. refererPath moved to
+// ./shared for the same reason (POST /error-report needs it too).
 
 // ---------------------------------------------------------------------------
 // GET /bug-report  — the "Report a bug" form (issue #245). Guest-gated by the
@@ -92,40 +75,17 @@ router.post('/bug-report', socialRateLimiter, function (req, res) {
     );
   }
 
-  // AC6: truncate to BUG_REPORT_BODY_MAX chars — 1001 'a' characters store as
-  // exactly 1000.
-  const body = trimmed.slice(0, BUG_REPORT_BODY_MAX);
+  // AC6: insertBugReportOnce (src/db/bug-reports.js) truncates to
+  // BUG_REPORT_BODY_MAX chars: 1001 'a' characters store as exactly 1000.
+  const body = trimmed;
 
   const page = refererPath(req.get('referer'));
   const userAgent = req.get('user-agent') || null;
 
-  // Issue #889 AC3/AC4: dedupe on the STORED form of the body (the same
-  // trimmed+truncated `body` the INSERT below writes), scoped to this guest
-  // and a 30-second window — a double-tap or a refresh-resubmit of the exact
-  // same report inserts no second row, while a distinct body (or the same
-  // body filed again minutes later) is a real second report and lands
-  // normally. The window subtraction compares directly against `created_at`'s
-  // own `datetime('now')` storage shape (src/db.js), so no clock parsing is
-  // needed on this side. Existence is all that matters — SELECT 1, no ordering.
-  const recentDuplicate = db
-    .prepare(
-      `SELECT 1 FROM bug_reports
-        WHERE guest_id = ? AND body = ?
-          AND created_at >= datetime('now', '-' || ? || ' seconds')
-        LIMIT 1`
-    )
-    .get(guest.id, body, BUG_REPORT_DUPLICATE_WINDOW_SECONDS);
-
-  // status defaults to 'open' (bug_reports.status, issue #686) — every new
-  // report starts open, so this INSERT relies on the column's own DEFAULT
-  // instead of naming it. The retired `resolved` column is no longer named
-  // here either; it keeps its own 0 default, unread everywhere now.
-  if (!recentDuplicate) {
-    db.prepare(
-      `INSERT INTO bug_reports (guest_id, body, page, user_agent)
-       VALUES (?, ?, ?, ?)`
-    ).run(guest.id, body, page, userAgent);
-  }
+  // Issue #889 AC3/AC4's duplicate-window guard, now inside insertBugReportOnce
+  // (src/db/bug-reports.js, issue #1020). See its own doc comment for the
+  // dedupe rule and the `guest_id IS ?` predicate.
+  insertBugReportOnce({ guestId: guest.id, body, page, userAgent });
 
   setFlash(res, 'success', BUG_REPORT_THANKS);
   return res.redirect('/');

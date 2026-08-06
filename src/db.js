@@ -113,6 +113,12 @@ module.exports = {
   ensureBugReportStatusColumn: () => migrationsOps.ensureBugReportStatusColumn(db),
   ensureBugReportGuestIdNullable: () => migrationsOps.ensureBugReportGuestIdNullable(db),
   openBugCount: () => bugReports.openBugCount(db),
+  insertBugReportOnce: (report) => bugReports.insertBugReportOnce(db, report),
+  // Test-only accessors: not used by any route, exist so tests can assert
+  // against the body/page caps POST /bug-report and POST /error-report share
+  // (issue #1020) without restating them.
+  BUG_REPORT_BODY_MAX: bugReports.BUG_REPORT_BODY_MAX,
+  BUG_REPORT_PAGE_MAX: bugReports.BUG_REPORT_PAGE_MAX,
   ensureSettingsTable: () => migrationsOps.ensureSettingsTable(db),
   getEventConfig: () => eventConfig.getEventConfig(db),
   setEventConfig: (cfg) => eventConfig.setEventConfig(db, cfg),

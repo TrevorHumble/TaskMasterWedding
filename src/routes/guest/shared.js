@@ -1,10 +1,12 @@
 // src/routes/guest/shared.js
 // The single home of every guest-route limiter instance (issue #991 split,
-// widened by #1021), plus two shared helpers: suppressedChallengeIds +
+// widened by #1021 and #1020), plus three shared helpers: suppressedChallengeIds +
 // reachableLiveTaskCount (the one-box-ceiling derivation, shared by
-// home.js/tasks.js/pages.js). Not every limiter housed here is itself shared
-// across area modules -- see each construction site's own comment below for
-// which are and which have exactly one consumer.
+// home.js/tasks.js/pages.js) and refererPath (issue #1020, moved from
+// bug-report.js -- shared by bug-report.js and error-report.js). Not every
+// limiter housed here is itself shared across area modules -- see each
+// construction site's own comment below for which are and which have exactly
+// one consumer.
 'use strict';
 
 const config = require('../../../config');
@@ -21,6 +23,32 @@ const { createRateLimiter, guestOrIpKey } = require('../../middleware/rate-limit
 // consults tasks.liveTaskWhere()/isTaskLive() instead of a hand-written
 // is_active/special_mode predicate.
 const tasks = require('../../services/tasks');
+
+// ---------------------------------------------------------------------------
+// Pull just the path (no scheme/host) out of a Referer header, so
+// bug_reports.page never stores a full origin a guest's phone happened to be
+// on. Real browsers send an absolute URL; some test/tooling clients send a
+// bare path directly, so a same-origin-only relative string is accepted too.
+// Returns null when the header is absent or unusable. Moved here from
+// src/routes/guest/bug-report.js (issue #1020): this parses an HTTP header,
+// not SQL, so it belongs beside the other shared route helpers rather than in
+// the db module the INSERT itself moved to (src/db/bug-reports.js). POST
+// /bug-report and the new POST /error-report both need it.
+// ---------------------------------------------------------------------------
+/**
+ * @param {string} rawReferer
+ * @returns {string|null}
+ */
+function refererPath(rawReferer) {
+  if (typeof rawReferer !== 'string' || rawReferer.length === 0) {
+    return null;
+  }
+  try {
+    return new URL(rawReferer).pathname;
+  } catch {
+    return rawReferer.startsWith('/') ? rawReferer : null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // The one-box ceiling (issue #754, owner rule 2026-07-20): of every LIVE
@@ -168,10 +196,25 @@ const clientErrorRateLimiter = createRateLimiter({
   keyFn: guestOrIpKey,
 });
 
+// errorReportRateLimiter (issue #1020) is its OWN instance, budget
+// config.ERROR_REPORT_RATE_MAX -- never shared with socialRateLimiter above,
+// for the same budget-isolation reason clientErrorRateLimiter is its own
+// instance (see that limiter's own comment): a looping error-page report must
+// never burn the budget POST /bug-report (the human channel) depends on. Its
+// one consumer, src/routes/guest/error-report.js, is mounted outside
+// requireGuest, same as client-error.js -- see src/app.js's mount comment.
+const errorReportRateLimiter = createRateLimiter({
+  windowMs: () => config.RATE_LIMIT_WINDOW_MS,
+  max: () => config.ERROR_REPORT_RATE_MAX,
+  keyFn: guestOrIpKey,
+});
+
 module.exports = {
   suppressedChallengeIds,
   reachableLiveTaskCount,
+  refererPath,
   uploadRateLimiter,
   socialRateLimiter,
   clientErrorRateLimiter,
+  errorReportRateLimiter,
 };

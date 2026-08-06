@@ -174,9 +174,28 @@
 .message-card-body a {
   color: var(--color-primary);
 }
+.message-card-notice {
+  margin: var(--space-5) 0 0;
+  text-align: center;
+}
+.message-card-action {
+  margin: var(--space-5) 0 var(--space-4);
+}
+.message-card-action .btn {
+  width: 100%;
+}
 .message-card-hint {
   font-size: var(--fs-small);
-  color: var(--color-hairline);
+  color: var(--color-text);
+  margin: var(--space-4) 0 0;
+}
+.message-card-hint code {
+  background: var(--color-bg);
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-input);
+  word-break: break-all;
+  font-family: inherit;
+  letter-spacing: 0.04em;
 }
 
 /* /join signup page (issue #240) */
