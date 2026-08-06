@@ -1757,3 +1757,162 @@
 .chart-cols-few .chart-col {
   flex: 0 1 72px;
 }
+
+/* ===========================================================
+   Admin Guests list — a scannable row per guest that opens one
+   edit popup, matching the admin Tasks list's card/dialog shape
+   (.admin-task-card / .task-dialog) rather than inlining every
+   control on every row.
+   =========================================================== */
+/* The list is a <ul> of rows, and each row is the popup's opener rather than
+   a padded panel of controls — so the card sheds the padding and inner gap
+   feed.css's shared .guest-card/.task-admin-card block gives it. */
+.guest-list {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  gap: var(--space-3);
+}
+.guest-card {
+  padding: 0;
+  gap: 0;
+  margin: 0;
+}
+/* A blocked guest reads as switched off at a glance, the same way
+   .admin-task-card.is-hidden dims a hidden task. */
+.guest-card.is-blocked {
+  opacity: 0.6;
+}
+/* The whole row is the opener, so it fills the card's width and carries a
+   chevron — the same shape .admin-task-open gives a task row. */
+.guest-open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.guest-open::after {
+  content: '\203A'; /* right chevron */
+  flex: 0 0 auto;
+  font-size: var(--fs-h3);
+  color: var(--color-text-muted);
+}
+.guest-open-avatar {
+  flex: 0 0 auto;
+  display: flex;
+}
+.guest-open-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.guest-open-name {
+  font-weight: 600;
+  color: var(--color-heading);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.guest-open:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  border-radius: var(--radius-card);
+}
+.guest-open-meta {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+/* The chip strip renders only for a guest that actually carries a flag, so it
+   sits tight under the row it annotates and indents to the name's left edge,
+   past the avatar column. Written as a descendant selector, not a bare
+   .guest-chip-strip: admin-tasks.css loads AFTER this sheet and its
+   .admin-chip-strip rule sets the same padding at equal specificity, so a
+   one-class selector here would lose the cascade and inherit the task grid's
+   padding instead. */
+.guest-card .guest-chip-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3) calc(var(--space-3) + 34px + var(--space-3));
+}
+/* Blocked wears the error ink rather than a third decorative colour: it is the
+   one chip on this screen that reports something wrong. */
+.admin-chip-blocked {
+  background: var(--err-ink);
+  color: var(--white);
+}
+
+/* ---- Inside the edit popup ---- */
+/* Points and task count, stated once under the popup's heading so the host
+   knows which guest they opened without the number becoming an editable
+   field it is not. */
+.guest-dialog-stats {
+  margin: calc(var(--space-3) * -1) 0 0;
+  font-size: var(--fs-small);
+}
+.guest-flag-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.guest-flag {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  cursor: pointer;
+}
+.guest-flag input[type='checkbox'] {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+.guest-flag-face {
+  display: flex;
+  flex-direction: column;
+}
+.guest-flag-title {
+  font-size: var(--fs-small);
+  color: var(--color-text);
+}
+/* Both hints run in sentence case, not the tracked uppercase guest.css's
+   global `label` rule would otherwise impose on any text inside a label —
+   these are sentences that explain a control, and set in caps they shout
+   louder than the control they belong to. Same choice the old
+   .guest-couple-hint made for the same reason. */
+.guest-flag-hint,
+.guest-flag .guest-flag-hint,
+.guest-field-hint {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--color-text-muted);
+}
+.guest-field-hint {
+  display: block;
+  margin-top: var(--space-1);
+}
+/* Top-align the box against a label whose hint wraps to a second line, so the
+   tick sits with the title it belongs to rather than floating mid-sentence. */
+.guest-flag {
+  align-items: flex-start;
+}
+.guest-flag input[type='checkbox'] {
+  margin-top: 2px;
+}
+/* The way to this guest's photos, sitting with the stats line under the
+   popup's heading — context about the guest, above the fields that change
+   them. */
+.guest-dialog-photos {
+  margin: 0;
+  font-size: var(--fs-small);
+}

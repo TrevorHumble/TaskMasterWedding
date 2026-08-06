@@ -1,18 +1,21 @@
 // tests/admin-guests-ui.test.js
-// Covers issue #257 acceptance criteria — the guests admin page as a
-// phone-first card list with live name search.
+// Originally covered issue #257's phone-first card list with live name
+// search. Issue #1093 rebuilt the page onto the admin Tasks card/dialog
+// shape (one row per guest opening a single shared popup) and cut the
+// per-row name form, bonus-points form, badge-award form, the "Create a
+// custom badge" setup section and the Dashboard/Poster page-actions row
+// entirely (all now either gone or moved into the popup). The describe
+// blocks that asserted those removed controls' markup (#257's AC1, AC4,
+// AC5, AC6) went with the controls they covered. See
+// tests/admin-guest-management.test.js and tests/admin-guests-script.test.js
+// for #1093's own coverage.
 //
-//   AC1 — each guest renders as a card (name form, "N pts · D/T tasks" meta,
-//         bonus-points form, delete form); no <table> anywhere
-//   AC2 — any-word-prefix filter: pure-function tests + DOM count via jsdom
-//   AC4 — name input width rule in theme.css resolves to ≥ 60% of the card
-//   AC5 — Dashboard + Print entry poster share a flex container with a gap rule
-//   AC6 — guest list starts within the first 40% of the response body
-//
-// AC3 (Copy button copying a guest's private /j/:token link) is gone: issue
-// #244 retired per-guest links entirely — guests join at the one shared
-// /join link now, so there is no per-guest link left to copy. The copy-link
-// button, its handler, and its CSS were removed with it.
+// What survives here: AC2's name-search filter (still the same control,
+// unaffected by the rebuild: pure-function tests plus a DOM count via
+// jsdom) and the badge action=toggle test, which posts directly to
+// POST /admin/guests/:id/badge rather than through any page control. That
+// endpoint stays live per #1093 criterion 7 even though its own award/remove
+// form is gone from this page.
 //
 // The jsdom parts build DOMs explicitly via the jsdom package (node test
 // environment throughout) so supertest keeps its node HTTP transport.
@@ -83,29 +86,6 @@ beforeAll(async () => {
     'noratoken0000000000000000000000c',
     'Nora Avery'
   );
-});
-
-// ---------------------------------------------------------------------------
-// AC1 — card per guest, required contents, no table
-// ---------------------------------------------------------------------------
-describe('AC1: guest cards replace the table', () => {
-  it('renders a .guest-card per guest with meta line, bonus form, delete form', async () => {
-    const res = await adminAgent.get('/admin/guests');
-    expect(res.status).toBe(200);
-
-    const cardCount = (res.text.match(/class="guest-card"/g) || []).length;
-    expect(cardCount).toBe(3);
-
-    // "N pts · D/T tasks" meta line, one per guest.
-    const metaCount = (res.text.match(/\d+ pts · \d+\/\d+ tasks/g) || []).length;
-    expect(metaCount).toBe(3);
-
-    expect(res.text).toMatch(/action="\/admin\/guests\/\d+\/points"/);
-    expect(res.text).toMatch(/action="\/admin\/guests\/\d+\/delete"/);
-
-    // Minimum structural check from the AC: no <table> in the layout at all.
-    expect(res.text).not.toMatch(/<table/i);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -208,8 +188,9 @@ describe('DOM wiring via jsdom: search filtering (AC2)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Badge select posts action=toggle; the server resolves it from held state
-// (no-JS correctness for the card's badge-award form).
+// Badge action=toggle resolves against held state server-side. Posted
+// directly here (issue #1093 removed this page's own award/remove form, but
+// the endpoint stays live, criterion 7).
 // ---------------------------------------------------------------------------
 describe('badge action=toggle resolves server-side', () => {
   it('toggle awards when not held, then removes when held', async () => {
@@ -237,63 +218,5 @@ describe('badge action=toggle resolves server-side', () => {
       .type('form')
       .send({ code: 'TOGGLETEST', action: 'toggle' });
     expect(heldCount()).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC4 — name input width rule resolves to ≥ 60% of the card
-// ---------------------------------------------------------------------------
-describe('AC4: name input width rule', () => {
-  it('theme.css gives .guest-name-form input a width of at least 60%', () => {
-    const body = cssRuleBody('.guest-name-form input');
-    expect(body).not.toBeNull();
-    const width = body.match(/width:\s*(\d+)%/);
-    expect(width).not.toBeNull();
-    expect(parseInt(width[1], 10)).toBeGreaterThanOrEqual(60);
-    // flex-grow lets it take the rest of the row beyond that basis.
-    expect(body).toMatch(/flex:\s*1 1 auto/);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC5 — header actions share a flex container with a gap
-// ---------------------------------------------------------------------------
-describe('AC5: page-actions flex row', () => {
-  it('Dashboard and Print entry poster live in one .page-actions element', async () => {
-    const res = await adminAgent.get('/admin/guests');
-    const rowMatch = res.text.match(/<p class="page-actions">[\s\S]*?<\/p>/);
-    expect(rowMatch).not.toBeNull();
-    expect(rowMatch[0]).toContain('Dashboard');
-    expect(rowMatch[0]).toContain('Print entry poster');
-  });
-
-  it('theme.css .page-actions is display:flex with a gap rule', () => {
-    const body = cssRuleBody('.page-actions');
-    expect(body).not.toBeNull();
-    expect(body).toMatch(/display:\s*flex/);
-    expect(body).toMatch(/gap:/);
-    expect(body).toMatch(/flex-wrap:\s*wrap/);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC6 — setup forms are <details>; guest list starts early in the document
-// ---------------------------------------------------------------------------
-describe('AC6: setup sections collapse, guest list starts within one screen', () => {
-  // Issue #244 removed the "Add one guest" and "Bulk create" sections along
-  // with the admin guest-creation routes they posted to — guests join
-  // themselves at /join now. "Create a custom badge" is the only one left.
-  it('the remaining setup section is a <details> block', async () => {
-    const res = await adminAgent.get('/admin/guests');
-    const detailsCount = (res.text.match(/<details class="setup-details">/g) || []).length;
-    expect(detailsCount).toBe(1);
-    expect(res.text).toMatch(/<summary>Create a custom badge<\/summary>/);
-  });
-
-  it('the first guest card appears within the first 40% of the body', async () => {
-    const res = await adminAgent.get('/admin/guests');
-    const firstCard = res.text.indexOf('class="guest-card"');
-    expect(firstCard).toBeGreaterThan(-1);
-    expect(firstCard).toBeLessThan(res.text.length * 0.4);
   });
 });

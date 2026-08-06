@@ -8,134 +8,80 @@
     <p class="flash"><%= msg %></p>
   <% } %>
 
-  <p class="page-actions">
-    <a href="/admin">&larr; Dashboard</a>
-    <a class="btn btn-secondary btn-sm" href="/admin/poster">Print entry poster</a>
-  </p>
-
+  <%# No "back to Dashboard" link and no "Print entry poster" button (owner,
+      2026-08-03). The top nav already carries Dashboard and Poster, and a
+      back link assumes the host arrived from the dashboard, which they
+      usually did not. %>
   <input type="search" id="guest-search" class="form-input guest-search"
          placeholder="Search guests by name&hellip;" autocomplete="off"
          aria-label="Search guests by name" />
 
   <h2 class="guest-list-heading">Guests <span class="muted">(<%= guests.length %>)</span></h2>
 
-  <div class="guest-list">
+  <ul class="guest-list" id="guest-list">
     <% guests.forEach(function (g) { %>
-      <article class="guest-card" id="guest-<%= g.id %>" data-guest-name="<%= g.name %>">
-        <form action="/admin/guests/<%= g.id %>/edit" method="post" class="guest-name-form">
-          <%- include('partials/csrf-field') %>
-          <input type="text" name="name" value="<%= g.name %>" placeholder="(no name)"
-                 aria-label="Guest name" />
-          <label class="guest-pin-label">
-            <input type="checkbox" name="pinned" value="1" <%= g.pinned ? 'checked' : '' %> />
-            Pin first in the gallery
-          </label>
-          <%# The couple flag (issue #647) — a checkbox on the guest ROW, not a
-              picker in its own section (owner, 2026-08-02). The deciding case
-              is duplicate accounts: if Axel signs up twice, two identical
-              "Axel" entries in a dropdown are indistinguishable, while the row
-              carries the points, task count, contact and PIN that tell the
-              host WHICH Axel is the real one. Same control shape as the pin
-              above — same form, same POST, same label class — so the row keeps
-              one save button, not two. %>
-          <label class="guest-pin-label">
-            <input type="checkbox" name="is_couple" value="1" <%= g.is_couple ? 'checked' : '' %> />
-            <span class="guest-couple-label">
-              The couple
-              <span class="guest-couple-hint">likes show gold</span>
-            </span>
-          </label>
-          <button type="submit" class="btn btn-sm btn-secondary">Save</button>
-        </form>
-
-        <p class="guest-meta"><%= g.points %> pts · <%= g.completed %>/<%= totalTasks %> tasks</p>
-
-        <p class="guest-identity-meta">
-          Contact: <%= g.contact ? g.contact : 'none on file' %> ·
-          Re-entry code: <%= g.pin ? g.pin : 'none set' %>
-        </p>
-
-        <form action="/admin/guests/<%= g.id %>/identity" method="post" class="guest-identity-form">
-          <%- include('partials/csrf-field') %>
-          <label class="guest-identity-label">
-            Contact
-            <input type="text" name="contact" value="<%= g.contact %>"
-                   placeholder="email or phone" aria-label="Guest contact (email or phone)" />
-          </label>
-          <label class="guest-identity-label">
-            Re-entry code
-            <input type="text" name="pin" value="<%= g.pin %>"
-                   pattern="\d{4}" maxlength="4" inputmode="numeric"
-                   placeholder="4 digits" aria-label="Guest re-entry PIN" />
-          </label>
-          <button type="submit" class="btn btn-sm btn-secondary">Update</button>
-        </form>
-
-        <div class="guest-card-actions">
-          <form action="/admin/guests/<%= g.id %>/points" method="post" class="guest-points-form">
-            <%- include('partials/csrf-field') %>
-            <label class="guest-points-label">Bonus
-              <input type="number" name="delta" value="1" aria-label="Bonus points to apply" />
-            </label>
-            <button type="submit" class="btn btn-sm btn-secondary">Apply</button>
-            <span class="muted">cur: <%= g.bonus_points %></span>
-          </form>
-
-          <% if (specialBadges.length) { %>
-            <form action="/admin/guests/<%= g.id %>/badge" method="post" class="badge-award-form">
-              <%- include('partials/csrf-field') %>
-              <select name="code" class="badge-select" aria-label="Badge to award or remove">
-                <% specialBadges.forEach(function (b) { %>
-                  <% var held = g.heldCodes.indexOf(b.code) !== -1; %>
-                  <option value="<%= b.code %>">
-                    <%= held ? '★ ' + b.name + ' — remove' : b.name %>
-                  </option>
-                <% }); %>
-              </select>
-              <input type="hidden" name="action" value="toggle" />
-              <button type="submit" class="btn btn-sm btn-secondary">Go</button>
-            </form>
-          <% } %>
-
-          <form action="/admin/guests/<%= g.id %>/delete" method="post" class="guest-delete-form"
-                data-confirm="Delete <%= g.name || ('guest #' + g.id) %> and PERMANENTLY remove all their photos (files deleted from disk) and badges? This cannot be undone.">
-            <%- include('partials/csrf-field') %>
-            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-          </form>
-        </div>
-      </article>
+      <li class="guest-card <%= g.blocked ? 'is-blocked' : '' %>" id="guest-<%= g.id %>"
+          data-guest-name="<%= g.name %>"
+          data-guest-id="<%= g.id %>"
+          data-name="<%= g.name %>"
+          data-contact="<%= g.contact %>"
+          data-pin="<%= g.pin %>"
+          data-couple="<%= g.is_couple ? '1' : '0' %>"
+          data-blocked="<%= g.blocked ? '1' : '0' %>"
+          data-stats="<%= g.points %> pts &middot; <%= g.completed %> of <%= totalTasks %> tasks">
+        <%# The whole row opens the popup — one tap, no separate Edit button
+            (owner, 2026-08-03). The way to that guest's photos is a link
+            inside the popup rather than on this row: a link cannot live
+            inside a button, so putting both here would have cost the row its
+            single-tap behavior. %>
+        <%# No data-photos-url here: admin-guests.js composes that link from
+            data-name instead. An href handed whole to JS out of the DOM is a
+            sink that can be pointed anywhere; composed from a literal path
+            plus an encoded name, it cannot. %>
+        <button type="button" class="guest-open" data-edit-guest="<%= g.id %>">
+          <span class="guest-open-avatar">
+            <%- include('partials/guest-avatar', { avatarPath: g.avatar_path, name: g.name }) %>
+          </span>
+          <span class="guest-open-body">
+            <span class="guest-open-name"><%= g.name || '(no name)' %></span>
+            <span class="guest-open-meta"><%= g.points %> pts &middot; <%= g.completed %> of <%= totalTasks %> tasks</span>
+          </span>
+        </button>
+        <%# A row grows a second line only when something is actually switched
+            on — so a scan down the list reads as "everyone is normal except
+            these two". %>
+        <% if (g.blocked || g.is_couple) { %>
+          <div class="admin-chip-strip guest-chip-strip">
+            <% if (g.blocked) { %>
+              <span class="admin-chip admin-chip-blocked">Blocked</span>
+            <% } %>
+            <% if (g.is_couple) { %>
+              <span class="admin-chip admin-chip-oneday">The couple</span>
+            <% } %>
+          </div>
+        <% } %>
+        <%# The real delete form, hidden. The visible Delete lives in the edit
+            popup and fires this one by requestSubmit() — the same pattern
+            admin-tasks.ejs uses, so admin.js's delegated data-confirm listener
+            still gates it. %>
+        <form action="/admin/guests/<%= g.id %>/delete" method="post"
+              class="guest-delete-form" data-guest-id="<%= g.id %>"
+              data-confirm="Delete <%= g.name || ('guest #' + g.id) %> and PERMANENTLY remove all their photos (files deleted from disk) and badges? This cannot be undone."
+              hidden><%- include('partials/csrf-field') %></form>
+      </li>
     <% }); %>
     <% if (guests.length === 0) { %>
-      <p class="muted">No guests yet. Add one below.</p>
+      <li class="muted">No guests yet. They appear here as they join.</li>
     <% } %>
-  </div>
+  </ul>
 
-  <p class="muted">
-    Guests join themselves at the shared entry link — print the poster from
-    the button above, or share the join page's URL directly. New signups
-    appear here automatically.
-  </p>
+  <%- include('partials/guest-edit-dialog') %>
 
-  <details class="setup-details">
-    <summary>Create a custom badge</summary>
-    <form action="/admin/badges" method="post" class="inline-form">
-      <%- include('partials/csrf-field') %>
-      <label>
-        Name
-        <input type="text" name="name" required placeholder="e.g. Best Dressed" />
-      </label>
-      <label>
-        Art (an emoji works great)
-        <input type="text" name="art_path" required placeholder="e.g. 🎩 or /badges/best-dressed.svg" />
-      </label>
-      <label>
-        Description (optional)
-        <input type="text" name="description" placeholder="Why this badge exists" />
-      </label>
-      <button type="submit" class="btn btn-primary">Create badge</button>
-    </form>
-  </details>
 
 <script src="/js/filter.js" defer></script>
 <script src="/js/admin.js" defer></script>
+<%# Issue #879's single owner of backdrop-dismiss wiring — must load before
+    admin-guests.js, its consumer here. %>
+<script src="/js/dialog-dismiss.js" defer></script>
+<script src="/js/admin-guests.js" defer></script>
 <%- include('partials/footer') %>

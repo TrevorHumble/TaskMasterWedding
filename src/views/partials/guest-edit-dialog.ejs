@@ -1,0 +1,86 @@
+<%# src/views/partials/guest-edit-dialog.ejs — the single edit popup for a
+    guest, opened from a guest row (admin-guests.js reads the row's data-*
+    attributes and fills these fields). Same shape as
+    partials/task-edit-dialog.ejs: one shared <dialog> reused for every row,
+    so nothing per-guest can be baked in here, and the Delete button is a
+    proxy that fires the tapped row's own hidden delete form rather than
+    carrying a form of its own.
+
+    Scope is what a host actually does to a guest at the party (owner,
+    2026-08-03): fix their name or contact, reset the code they log back in
+    with, block someone, remove someone. Bonus points, gallery pinning and
+    badge awarding were all on this screen and are not part of that job —
+    badges have their own system, and the other two are gone.
+%>
+<dialog id="guest-edit-dialog" class="task-dialog" aria-labelledby="guest-edit-title">
+  <form class="task-dialog-form" id="guest-edit-form" method="post">
+    <%- include('csrf-field') %>
+    <header class="task-dialog-head">
+      <h2 class="task-dialog-title" id="guest-edit-title">Edit guest</h2>
+      <button type="button" class="task-dialog-close" data-dialog-close aria-label="Close">&times;</button>
+    </header>
+
+    <p class="guest-dialog-stats muted" id="guest-edit-stats"></p>
+
+    <%# The way to this guest's photos. Points at the ADMIN photo wall, not
+        the guest-facing /u/:id: that page requires a GUEST session, so an
+        admin who is not also signed in as a guest is redirected to /join by
+        it. The admin wall also carries the moderation controls, which is the
+        reason a host is following this link at all. href is filled by
+        admin-guests.js from the tapped row — this dialog is shared.
+
+        PHASE-2: the by-person view filters on name TEXT (?q=), so two guests
+        sharing a name land on each other's photos. The fix is a real
+        per-guest scope, ?view=user&guest=<id>, the same shape GET
+        /admin/photos already implements for ?task=<id> (issue #748). %>
+    <p class="guest-dialog-photos">
+      <a id="guest-edit-photos-link" href="/admin/photos?view=user">View their photos</a>
+    </p>
+
+    <label class="field">
+      <span class="field-label">Name</span>
+      <input type="text" name="name" id="guest-edit-name-input" placeholder="(no name)" />
+    </label>
+
+    <label class="field">
+      <span class="field-label">Contact</span>
+      <input type="text" name="contact" id="guest-edit-contact-input"
+             placeholder="email or phone" />
+    </label>
+
+    <%# The code a guest types with their contact to get back in on a new
+        phone. The host resets it on the spot at the reception rather than
+        running a recovery flow — the reason it is editable here at all. %>
+    <label class="field">
+      <span class="field-label">Re-entry code</span>
+      <input type="text" name="pin" id="guest-edit-pin-input"
+             pattern="\d{4}" maxlength="4" inputmode="numeric" placeholder="4 digits" />
+      <span class="guest-field-hint">They type this with their contact to log back in.</span>
+    </label>
+
+    <div class="field guest-flag-list">
+      <label class="guest-flag">
+        <input type="checkbox" name="is_couple" value="1" id="guest-edit-couple-input" />
+        <span class="guest-flag-face">
+          <span class="guest-flag-title">The couple</span>
+          <span class="guest-flag-hint">Their likes show gold</span>
+        </span>
+      </label>
+      <label class="guest-flag">
+        <input type="checkbox" name="blocked" value="1" id="guest-edit-blocked-input" />
+        <span class="guest-flag-face">
+          <span class="guest-flag-title">Blocked</span>
+          <span class="guest-flag-hint">Cannot log in or post. Their photos stay up.</span>
+        </span>
+      </label>
+    </div>
+
+    <footer class="task-dialog-foot task-dialog-foot-stacked">
+      <button type="submit" class="btn btn-primary btn-block">Save</button>
+      <div class="task-dialog-foot-split">
+        <button type="button" class="btn btn-danger task-dialog-delete" data-delete-guest>Delete</button>
+        <button type="button" class="btn btn-ghost" data-dialog-close>Cancel</button>
+      </div>
+    </footer>
+  </form>
+</dialog>
