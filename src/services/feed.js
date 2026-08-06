@@ -31,8 +31,11 @@ const GALLERY_PAGE_SIZE = 60;
 
 // How many photos one /feed page holds (#194): feedWindow() below slices
 // visible submissions into keyset windows of this size so the page's byte
-// weight stays bounded as the weekend's photo count grows.
-const FEED_PAGE_SIZE = 40;
+// weight stays bounded as the weekend's photo count grows. Lowered 40 to 15
+// (#1138) on hosted load-test evidence at 100 concurrent guests; the measured
+// numbers, and why this does not on its own clear the Goal-A bar, are in
+// DESIGN.md.
+const FEED_PAGE_SIZE = 15;
 
 // How many preview tiles a grouped gallery section shows (issue #251): up to
 // two rows of three. When a group holds more, the view renders a "+N" overlay

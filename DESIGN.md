@@ -4873,3 +4873,45 @@ confirmed neither had any other consumer.
 **Nothing behind a removed button is retired.** `POST /guests/:id/points` and `POST /guests/:id/badge` lost their only UI on this screen but stay live exactly as before: `/points` is the only way to undo a bonus already counting in the leaderboard total, and `/badge` is the only way to remove a badge already granted. Both operate on state the app can still create through other paths, so deleting either would have deleted the last way to correct live wrong data over a button being gone, a different failure mode than retiring `/identity` behind a genuinely subsumed capability. One rule applied consistently: a button being removed is not by itself a reason to delete the capability behind it.
 
 **Known limit, shipped deliberately: the photos link keys on name text.** The popup's "View their photos" link resolves to `/admin/photos?view=user&q=<name>`, a text filter, not a guest id. Two guests sharing a name land on each other's photos (the seeded event already has a Priya Patel and a Priya Thompson). The guest-facing `/u/:id` route isn't a substitute: it requires a _guest_ session, so an admin who isn't also signed in as a guest is redirected to `/join`. The real fix is a per-guest scope, `?view=user&guest=<id>`, the same shape `GET /admin/photos` already implements for `?task=<id>`; that is `#1096`, filed at backlog tier and graduating after this issue, not built here because `src/routes/admin/moderation.js` sits outside this issue's `Touches`.
+
+## Feed window: 40 to 15, one measured step toward the Goal-A bar, not the whole way (#1138)
+
+**Date:** 2026-08-05. **Status:** shipped.
+
+**What changed.** `src/services/feed.js`'s `FEED_PAGE_SIZE` (the constant `feedWindow()` slices visible
+submissions into, #194) drops from 40 to 15. Nothing else moves: no view file changed, and
+`feed-scroll.js`'s existing in-place window loading absorbs the smaller window with no code change
+there either: a guest scrolling the feed just sees the loading ring a bit more often.
+
+**Where the number comes from.** 2026-08-05/06, owner-witnessed: 100 concurrent virtual guests for 30s
+against an isolated container of the live image measured p95 7154ms against the 2000ms Goal-A bar (zero
+5xx, zero drops, CPU saturated at ~128% of 200%) at the old 40-photo window, 240KB of HTML per page.
+Re-running the identical hosted test with only `FEED_PAGE_SIZE` changed 40 to 15 measured p95 5042ms and
+throughput 91 to 111 rps. The owner reviewed the 15-photo window live on the seeded preview (story
+`extreme`) and approved it before this issue was filed.
+
+**This does not, on its own, clear the Goal-A bar.** 5042ms is still over the 2000ms target. It is one
+measured step of several the load-test evidence says are needed; the rest is tracked separately in the
+2026-08-05/06 load-test issue set. The number recorded here is the measured tradeoff, not a claim that
+the droplet now passes.
+
+**The load-test harness under-counts the other side of a smaller window.** `docs/loadtest.md`'s harness
+loads `/feed` once per virtual-guest loop, so the p95/throughput figures above are pure per-request cost
+and peak page weight, which is what actually saturated the droplet's CPU. A guest who keeps scrolling past the
+first window now fetches roughly 2.7x as many windows, each about 2.7x cheaper to render; total requests
+per scrolling guest goes up even though each one is cheaper. Recorded here so a later reader does not
+read the p95 win as the whole story.
+
+**Test fix carried with it: the #896 tied-crown case had to move its own anchor, not its assertion.**
+`tests/crowd-favorite-crown.test.js`'s 20-photo tied-crown case seeds all 20 submissions from one guest
+and asserts exactly one gold crown renders on `/feed`. The crown lands on the oldest of the 20
+(`submission_id ASC` tiebreak); the feed renders newest-first, so at a 15-photo window the crowned photo
+fell off the unanchored first page and the count the test observed would have silently become 0,
+reading as "the feed shows no crowns" rather than exercising what #896 fixed. The fix requests an
+anchored window that ENDS on the crowned photo: `feedWindow()`'s existing anchor resolution
+(`src/services/feed.js`) starts the window AT the anchor id and runs older from there, so anchoring
+`FEED_PAGE_SIZE - 1` photos newer than the crowned one returns a full window whose oldest card is the
+crowned photo. Anchoring directly on the crowned photo would also have kept the test green, but it would
+have returned a one-card window, and a single-crown count over one card proves nothing about a field of
+tied photos. The test now asserts the window's card count alongside the crown count so that stays true
+at any window size. The crown assertion itself, a positive `toBe(1)`, is untouched.

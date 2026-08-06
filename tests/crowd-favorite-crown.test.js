@@ -52,6 +52,7 @@ let app;
 let db;
 let scoring;
 let photos;
+let feed;
 
 beforeAll(() => {
   const loaded = loadApp();
@@ -60,6 +61,7 @@ beforeAll(() => {
 
   scoring = require('../src/services/scoring');
   photos = require('../src/services/photos');
+  feed = require('../src/services/feed');
 });
 
 // ---------------------------------------------------------------------------
@@ -403,17 +405,34 @@ describe("issue #896 AC1/AC6: the reported bug — 20 of one guest's own tied ph
 
     const agent = signInGuest(app, owner.token);
     const gallery = await agent.get('/gallery');
-    const feed = await agent.get('/feed');
+    // The crown lands on the oldest of the 20 tied photos (submission_id ASC
+    // tiebreak), but /feed renders newest-first and a window (#1138) holds
+    // only FEED_PAGE_SIZE photos, fewer than 20, so the crowned photo falls
+    // off the newest page. Anchor a full window that ENDS on it: feedWindow()
+    // (src/services/feed.js) starts at the anchor and runs older from there,
+    // so anchoring FEED_PAGE_SIZE-1 photos newer than the crowned one returns
+    // a full window whose oldest card is the crowned photo. That keeps the
+    // "exactly one crown across a field of tied photos" check meaningful on
+    // the feed, and stays correct at any window size.
+    const feedAnchor = submissionIds[Math.min(feed.FEED_PAGE_SIZE, submissionIds.length) - 1];
+    const feedRes = await agent.get('/feed?from=' + feedAnchor);
     const profile = await agent.get('/u/' + owner.id);
     expect(gallery.status).toBe(200);
-    expect(feed.status).toBe(200);
+    expect(feedRes.status).toBe(200);
     expect(profile.status).toBe(200);
+
+    // The anchored feed window really does hold a full field of tied photos,
+    // not just the crowned one, so the single-crown count below is a check
+    // across the field rather than a check of one card.
+    expect((feedRes.text.match(/<article /g) || []).length).toBe(
+      Math.min(feed.FEED_PAGE_SIZE, submissionIds.length)
+    );
 
     // Exactly one of the twenty tied photos wears the gold crown, on every
     // surface; the other 19 wear no crown at all (deduped out of the
     // placing set entirely — the exact bug this issue reports and fixes).
     expect((gallery.text.match(/cf-crown-gold/g) || []).length).toBe(1);
-    expect((feed.text.match(/cf-crown-gold/g) || []).length).toBe(1);
+    expect((feedRes.text.match(/cf-crown-gold/g) || []).length).toBe(1);
     expect((profile.text.match(/cf-crown-gold/g) || []).length).toBe(1);
 
     expect(galleryTileCrown(gallery.text, submissionIds[0])).toBe('gold');
