@@ -103,11 +103,13 @@ describe('scoring single authority — issue #104', () => {
     const res = await adminAgent.get('/admin/guests');
     expect(res.status).toBe(200);
 
-    // Card shape from admin-guests.ejs (#257): the guest's card carries a
-    // meta line "<points> pts · <completed>/<total> tasks". Anchor on this
-    // guest's card id so we can't match a different guest's meta line.
+    // Card shape from admin-guests.ejs (rebuilt by issue #1093): the guest's
+    // row carries a meta line "<points> pts &middot; <completed> of <total>
+    // tasks" (the literal HTML entity, and "of" rather than #257's "/").
+    // Anchor on this guest's row id so we can't match a different guest's
+    // meta line.
     const cardPattern = new RegExp(
-      `id="guest-${guestId}"[\\s\\S]*?${EXPECTED_POINTS} pts · ${EXPECTED_COMPLETED}/\\d+ tasks`
+      `id="guest-${guestId}"[\\s\\S]*?${EXPECTED_POINTS} pts &middot; ${EXPECTED_COMPLETED} of \\d+ tasks`
     );
     expect(res.text).toMatch(cardPattern);
   });

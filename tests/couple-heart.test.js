@@ -429,8 +429,11 @@ it('AC8: the admin guest-edit form sets and clears guests.is_couple', async () =
     .send({ name: 'AC8 Guest', is_couple: '1' });
   expect(db.prepare('SELECT is_couple FROM guests WHERE id = ?').get(guestId).is_couple).toBe(1);
 
-  // Absent form key means unchecked (same absent-key-is-false rule `pinned`
-  // already follows on this form).
+  // An absent checkbox key means unchecked. This is deliberately the one kind
+  // of field where an absent key still writes: a checkbox that is off sends
+  // nothing at all, so absence is its only "off" signal. Contact and PIN take
+  // the opposite rule on this same route (absent means leave alone), which is
+  // why this post omits them and they stay untouched.
   await adminAgent
     .post('/admin/guests/' + guestId + '/edit')
     .type('form')

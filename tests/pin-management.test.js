@@ -186,6 +186,31 @@ describe('AC4: POST /admin/guests/:id/identity sets a working PIN', () => {
 // AC5 — admin edits a contact with the same validation as signup
 // ---------------------------------------------------------------------------
 describe('AC5: POST /admin/guests/:id/identity — contact validation', () => {
+  // Issue #1093 moved this route's shared validation into one owner that
+  // /edit also calls. That owner rejects a non-string (repeated) key, which
+  // /edit needs, but this route predates it and treated such a key as "not
+  // submitted". Its answer must not have changed: #1093's criterion 7 keeps
+  // /identity answering exactly as before for any direct caller.
+  it('a repeated contact key still falls through as "not submitted", unchanged by #1093', async () => {
+    const guestId = insertGuestRow({
+      token: 'ac5-repeated-token',
+      name: 'Repeated Key Guest',
+      contact: 'repeated-identity@example.com',
+      contactType: 'email',
+      pin: '6666',
+    });
+
+    const res = await adminAgent
+      .post(`/admin/guests/${guestId}/identity`)
+      .type('form')
+      .send('contact=a@b.com&contact=c@d.com');
+
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain(encodeURIComponent('Nothing to update.'));
+    const row = db.prepare('SELECT contact, pin FROM guests WHERE id = ?').get(guestId);
+    expect(row).toEqual({ contact: 'repeated-identity@example.com', pin: '6666' });
+  });
+
   it('a valid phone in a human-typed format normalizes and stores contact_type "phone"', async () => {
     const guestId = insertGuestRow({
       token: 'ac5-phone-token',

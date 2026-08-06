@@ -1,7 +1,7 @@
 // tests/gallery-views.test.js
 // Original view-switcher/filter coverage, plus issue #251's gallery rework:
 //   #251 AC3 — grouped sections cap at 6 tiles with a "+N" overlay
-//   #251 AC4 — By-person order: pinned guests first, then recency
+//   #251 AC4, By-person order: pinned guests first, then recency
 //   #251 AC6 — "Show more" pagination replaces "Older →"
 // Issue #811 retired #251 AC2's like-count badge entirely, replacing it with
 // the task-badge victory medal — see the #811 AC1/AC2 block below.
@@ -443,17 +443,23 @@ describe('#251 AC3: six-tile previews with +N overlay', () => {
 });
 
 // ---------------------------------------------------------------------------
-// #251 AC4 — By-person order: pinned first (via the admin checkbox), then
-// most-recent-photo-first
+// #251 AC4, By-person order: pinned first, then most-recent-photo-first.
+//
+// Issue #1093 dropped `pinned` from POST /admin/guests/:id/edit entirely:
+// the approved popup has no pinned control, and no endpoint sets it anymore
+// (see that issue's "Stated omissions" § 4). Setup below sets `pinned`
+// directly rather than through the admin form the way it used to, and the
+// "an edit POST without the checkbox unpins" test is replaced with the
+// opposite contract #1093 now guarantees: a Save leaves `pinned` untouched.
 // ---------------------------------------------------------------------------
 describe('#251 AC4: pinned guest leads By person despite an older photo', () => {
   let pinnedId;
   let recentId;
 
-  beforeAll(async () => {
+  beforeAll(() => {
     // Pinned guest with an OLD photo…
     pinnedId = db
-      .prepare(`INSERT INTO guests (token, name) VALUES (?, ?)`)
+      .prepare(`INSERT INTO guests (token, name, pinned) VALUES (?, ?, 1)`)
       .run('pinned-guest', 'Pinned Poppy').lastInsertRowid;
     const t1 = db
       .prepare(`INSERT INTO tasks (title) VALUES (?)`)
@@ -474,20 +480,6 @@ describe('#251 AC4: pinned guest leads By person despite an older photo', () => 
       `INSERT INTO submissions (guest_id, task_id, photo_path, thumb_path, taken_down, created_at)
        VALUES (?, ?, 'pin-new.jpg', 'pin-new-t.jpg', 0, datetime('now', '+1 hour'))`
     ).run(recentId, t2);
-
-    // Pin Poppy through the real admin form POST (name travels with it —
-    // the same form carries both fields).
-    const adminAgent = await makeAdminAgent(app, 'pin-admin-pw');
-    const res = await adminAgent
-      .post('/admin/guests/' + pinnedId + '/edit')
-      .type('form')
-      .send({ name: 'Pinned Poppy', pinned: '1' });
-    expect(res.status).toBe(303);
-  });
-
-  it('the admin checkbox POST persists guests.pinned = 1', () => {
-    const row = db.prepare(`SELECT pinned FROM guests WHERE id = ?`).get(pinnedId);
-    expect(row.pinned).toBe(1);
   });
 
   it('the pinned section renders first; the newest-photo guest leads the rest', async () => {
@@ -508,17 +500,14 @@ describe('#251 AC4: pinned guest leads By person despite an older photo', () => 
     expect(rufusAt).toBeLessThan(avaAt);
   });
 
-  it('an edit POST without the checkbox unpins the guest', async () => {
+  it('an edit POST (no pinned field exists to post) leaves pinned untouched', async () => {
     const adminAgent = await makeAdminAgent(app, 'pin-admin-pw');
     await adminAgent
       .post('/admin/guests/' + pinnedId + '/edit')
       .type('form')
       .send({ name: 'Pinned Poppy' });
     const row = db.prepare(`SELECT pinned FROM guests WHERE id = ?`).get(pinnedId);
-    expect(row.pinned).toBe(0);
-
-    // Re-pin so any later ordering assertions in this file stay valid.
-    db.prepare(`UPDATE guests SET pinned = 1 WHERE id = ?`).run(pinnedId);
+    expect(row.pinned).toBe(1);
   });
 });
 
